@@ -61,7 +61,7 @@ public class Produto {
      * @param tipo      obrigatorio
      * @param codigo    opcional (D11); espacos nas pontas somem e texto em branco vira ausencia
      * @param categoria opcional (D16a)
-     * @param unidade   opcional (D16a) — ex.: "un", "kg", "hora"
+     * @param unidade   opcional (D16a) — ex.: {@code un}, {@code kg}, {@code hora}
      * @param atributos opcional; nulo vira mapa vazio, porque ausencia de atributo especifico nao
      *                  e um caso a tratar em quem le (RF02)
      */
@@ -110,7 +110,49 @@ public class Produto {
                 estoqueAtual, atributos, ativo);
     }
 
-    /** RF05 — soft delete: o registro fica, para o historico de vendas nao perder a referencia. */
+    /**
+     * Aplica uma edicao do cadastro (RF04). As regras sao as mesmas do construtor, e de proposito:
+     * o que nao entra num produto novo tambem nao entra num produto editado.
+     *
+     * <p>Os atributos sao <strong>substituidos por inteiro</strong>, nunca mesclados — a edicao
+     * descreve o produto como ele fica, e nao um delta sobre o que estava la.
+     *
+     * <p><strong>Nao recebe {@code tipo}, e a ausencia e que e a decisao</strong>
+     * (D17a): o tipo decide se o item participa de estoque, entao troca-lo depois deixaria
+     * {@code MovimentoEstoque} orfao num item que virou SERVICO — ou um SERVICO com saldo. Errou o
+     * tipo no cadastro? {@link #inativar()} e recadastre; o historico de vendas do item antigo
+     * continua de pe.
+     *
+     * <p>Nao recebe {@code estoqueAtual} pelo mesmo tipo de motivo: saldo so se move por
+     * {@code MovimentoEstoque} (R15), nunca por edicao de cadastro.
+     *
+     * @throws IllegalStateException se o produto ja foi inativado (D17c) — sem reativacao, editar
+     *                               um registro que ninguem mais enxerga nao teria efeito nenhum
+     */
+    public void alterar(String nome, Money preco, String codigo, String categoria, String unidade,
+            Map<String, Object> atributos) {
+        if (!ativo) {
+            throw new IllegalStateException("produto inativo nao pode ser editado: " + id);
+        }
+        this.nome = exigirTexto(nome, "nome");
+        this.preco = exigirPreco(preco);
+        this.codigo = textoOpcional(codigo);
+        this.categoria = textoOpcional(categoria);
+        this.unidade = textoOpcional(unidade);
+        this.atributos = copiar(atributos);
+    }
+
+    /**
+     * RF05 — soft delete: o registro fica, para o historico de vendas nao perder a referencia.
+     *
+     * <p><strong>Idempotente</strong> (D17c): inativar um produto ja inativo nao e erro de
+     * ninguem, e sim o mesmo estado pedido de novo — dois cliques no balcao, ou a requisicao que o
+     * PWA offline (R23) reenvia ao voltar a rede.
+     *
+     * <p>Nao existe {@code reativar()}: ficou fora do R03 (D17b). Reativar esbarraria no indice
+     * unico parcial da D11, que so vale entre ativos — o codigo do produto inativado pode ja ter
+     * sido reaproveitado por outro item.
+     */
     public void inativar() {
         this.ativo = false;
     }

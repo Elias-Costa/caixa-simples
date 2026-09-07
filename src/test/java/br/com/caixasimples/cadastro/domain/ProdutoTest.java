@@ -3,6 +3,7 @@ package br.com.caixasimples.cadastro.domain;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
+import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
 import br.com.caixasimples.cadastro.TipoProduto;
@@ -134,5 +135,82 @@ class ProdutoTest {
         assertThat(produto.isAtivo()).isFalse();
         assertThat(produto.getId()).isNotNull();
         assertThat(produto.getNome()).isEqualTo("Cafe coado");
+    }
+
+    @Test
+    @DisplayName("inativar e idempotente — dois cliques no balcao nao sao erro (D17c)")
+    void inativarDuasVezesNaoEstoura() {
+        Produto produto = valido(Money.de("6.50"));
+
+        produto.inativar();
+        produto.inativar();
+
+        assertThat(produto.isAtivo()).isFalse();
+    }
+
+    @Test
+    @DisplayName("alterar cobra as mesmas regras do cadastro: nome obrigatorio, preco nao negativo")
+    void alterarValidaComoOConstrutor() {
+        Produto produto = valido(Money.de("6.50"));
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> produto.alterar("  ", Money.de("7.00"), null, null, null, null))
+                .withMessageContaining("nome");
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> produto.alterar("Cafe", Money.de("-0.01"), null, null, null,
+                        null))
+                .withMessageContaining("preco");
+
+        assertThatNullPointerException()
+                .isThrownBy(() -> produto.alterar("Cafe", null, null, null, null, null));
+    }
+
+    @Test
+    @DisplayName("alterar substitui os campos editaveis, aparando texto e tratando branco como ausencia")
+    void alterarSubstituiOsCamposEditaveis() {
+        Produto produto = new Produto("Cafe coado", Money.de("6.50"), TipoProduto.PRODUTO, "ABC-1",
+                "Bebidas", "un", Map.of("tamanho", "M"));
+
+        produto.alterar("  Cafe coado grande  ", Money.de("8.00"), " ABC-2 ", "  ", "",
+                Map.of("cor", "preta"));
+
+        assertThat(produto.getNome()).isEqualTo("Cafe coado grande");
+        assertThat(produto.getPreco()).isEqualTo(Money.de("8.00"));
+        assertThat(produto.getCodigo()).isEqualTo("ABC-2");
+        assertThat(produto.getCategoria()).isNull();
+        assertThat(produto.getUnidade()).isNull();
+        assertThat(produto.getAtributos())
+                .as("atributo e substituido por inteiro, nunca mesclado com o que estava la")
+                .containsExactlyEntriesOf(Map.of("cor", "preta"));
+    }
+
+    @Test
+    @DisplayName("alterar nao mexe em tipo nem em estoque (D17a, R15)")
+    void alterarNaoTocaNoQueNaoEDoCadastro() {
+        Produto servico = new Produto("Corte", Money.de("40.00"), TipoProduto.SERVICO, null, null,
+                null, null);
+
+        // Nao ha assinatura por onde passar tipo ou estoque — a ausencia e que e a regra.
+        servico.alterar("Corte masculino", Money.de("45.00"), null, null, "hora", null);
+
+        assertThat(servico.getTipo()).isEqualTo(TipoProduto.SERVICO);
+        assertThat(servico.getEstoqueAtual()).isEqualByComparingTo("0");
+    }
+
+    @Test
+    @DisplayName("produto inativo nao pode ser editado (D17c)")
+    void alterarProdutoInativoERecusado() {
+        Produto produto = valido(Money.de("6.50"));
+        produto.inativar();
+
+        assertThatIllegalStateException()
+                .isThrownBy(() -> produto.alterar("Outro nome", Money.de("9.00"), null, null, null,
+                        null))
+                .withMessageContaining("inativo");
+
+        assertThat(produto.getNome())
+                .as("a recusa nao pode ter aplicado nada pela metade")
+                .isEqualTo("Cafe coado");
     }
 }

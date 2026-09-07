@@ -80,22 +80,41 @@ public class ProdutoEntity {
         // exigido pelo JPA
     }
 
+    /** So o que nasce com a linha e nunca mais muda; o resto vem de {@link #atualizarCom}. */
     private ProdutoEntity(Produto produto) {
         this.id = produto.getId();
+        this.tipo = produto.getTipo();
+        this.estoqueAtual = produto.getEstoqueAtual();
+        this.criadoEm = produto.getCriadoEm();
+        atualizarCom(produto);
+    }
+
+    public static ProdutoEntity de(Produto produto) {
+        return new ProdutoEntity(produto);
+    }
+
+    /**
+     * Copia para esta linha o estado mutavel do dominio. Na edicao (RF04) e na inativacao (RF05) a
+     * instancia e a <strong>gerenciada</strong>, carregada pelo repositorio.
+     *
+     * <p>Por que a edicao nao e {@code save(ProdutoEntity.de(produto))}: {@link #de} monta uma
+     * instancia destacada <em>sem</em> {@code contaId}, e depender do que o {@code merge} do
+     * Hibernate faz com uma coluna {@link TenantId} {@code updatable = false} e o tipo de
+     * comportamento implicito que este projeto evita. Carregar a linha e muta-la e explicito.
+     *
+     * <p>Ficam de fora, cada um por um motivo: {@code id} e {@code criadoEm} sao identidade;
+     * {@code contaId} nunca vem de fora (RNF05) — quem o preenche e o Hibernate; {@code tipo} e
+     * imutavel apos o cadastro (D17a); {@code estoqueAtual} so se move por
+     * {@code MovimentoEstoque} (R15).
+     */
+    public void atualizarCom(Produto produto) {
         this.nome = produto.getNome();
         this.codigo = produto.getCodigo();
         this.preco = produto.getPreco().valor();
         this.categoria = produto.getCategoria();
         this.unidade = produto.getUnidade();
-        this.tipo = produto.getTipo();
-        this.estoqueAtual = produto.getEstoqueAtual();
         this.atributos = new LinkedHashMap<>(produto.getAtributos());
         this.ativo = produto.isAtivo();
-        this.criadoEm = produto.getCriadoEm();
-    }
-
-    public static ProdutoEntity de(Produto produto) {
-        return new ProdutoEntity(produto);
     }
 
     public Produto paraDominio() {
