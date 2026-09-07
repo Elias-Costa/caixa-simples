@@ -1,0 +1,29 @@
+# Postgres de desenvolvimento local (etapa 0.2 do plano de implementacao).
+# Testes de integracao NAO usam este servico — eles sobem o proprio container
+# via Testcontainers (arquitetura §9). Este e para rodar a aplicacao a mao.
+#
+#   docker compose up -d
+#
+# Credenciais vem do ambiente; os defaults abaixo sao de desenvolvimento e nao
+# servem para nenhum outro ambiente.
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: caixa-simples-db
+    environment:
+      POSTGRES_DB: ${CAIXA_SIMPLES_DB_NAME:-caixa_simples}
+      POSTGRES_USER: ${CAIXA_SIMPLES_DB_USER:-caixa_simples}
+      POSTGRES_PASSWORD: ${CAIXA_SIMPLES_DB_PASSWORD:-caixa_simples}
+    ports:
+      - "${CAIXA_SIMPLES_DB_PORT:-5432}:5432"
+    volumes:
+      - caixa-simples-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${CAIXA_SIMPLES_DB_USER:-caixa_simples}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  caixa-simples-pgdata:
