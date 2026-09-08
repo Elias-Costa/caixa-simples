@@ -52,6 +52,18 @@ public class CriadorDeContaDeTeste {
         return new ContaCriada(contaId, usuarioId, email, senha);
     }
 
+    /**
+     * Mais um usuario dentro de uma conta que ja existe — o segundo atendente do mesmo negocio.
+     *
+     * <p>Nasce <strong>sem credencial</strong>, de proposito: quem precisa dele e teste de regra
+     * por operador, como a D22a do caixa, e nao teste de login. Acrescentar uma credencial que
+     * ninguem usa so tornaria a fixture mais lenta e menos legivel.
+     */
+    public UUID criarOperadorEm(ContaId contaId, String nome) {
+        return TenantContext.executarComo(contaId, () ->
+                usuarios.save(new Usuario(nome, Perfil.OPERADOR)).getId());
+    }
+
     public record ContaCriada(ContaId contaId, UUID usuarioId, String email, String senha) {
     }
 }

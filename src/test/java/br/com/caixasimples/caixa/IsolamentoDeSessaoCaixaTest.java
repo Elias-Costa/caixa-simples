@@ -100,11 +100,9 @@ class IsolamentoDeSessaoCaixaTest extends TesteDeIntegracao {
 
         SessaoCaixa original = new SessaoCaixa(conta.usuarioId(), Money.de("100.00"));
         UUID vendaId = UUID.randomUUID();
-        original.registrar(TipoMovimentoCaixa.VENDA, Money.de("25.00"), null, vendaId);
-        original.registrar(TipoMovimentoCaixa.SUPRIMENTO, Money.de("50.00"), "Reforco de troco",
-                null);
-        original.registrar(TipoMovimentoCaixa.SANGRIA, Money.de("30.00"), "Pagamento do entregador",
-                null);
+        original.registrarVenda(Money.de("25.00"), vendaId);
+        original.suprir(Money.de("50.00"), "Reforco de troco");
+        original.sangrar(Money.de("30.00"), "Pagamento do entregador");
 
         // Uma chamada de save grava a raiz e os tres movimentos: o agregado e a unidade
         // transacional, e e o cascade de SessaoCaixaEntity que faz isso valer.

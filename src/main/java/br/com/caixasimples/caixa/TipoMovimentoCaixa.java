@@ -12,8 +12,8 @@ package br.com.caixasimples.caixa;
  * o dinheiro que entra por uma venda, e e o unico dos tres que aponta para uma {@code venda}.
  *
  * <p>O enum <strong>nao carrega o sinal</strong> do movimento. Quem decide se soma ou subtrai e o
- * {@code switch} de {@code SessaoCaixa.registrar}, para que acrescentar um valor aqui vire erro de
- * compilacao la, e nao uma soma silenciosamente errada.
+ * {@code switch} exaustivo dentro de {@code SessaoCaixa}, para que acrescentar um valor aqui vire
+ * erro de compilacao la, e nao uma soma silenciosamente errada.
  */
 public enum TipoMovimentoCaixa {
     VENDA,

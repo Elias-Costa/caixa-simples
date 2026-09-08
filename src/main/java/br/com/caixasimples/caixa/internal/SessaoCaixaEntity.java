@@ -20,6 +20,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.hibernate.annotations.TenantId;
@@ -36,9 +37,9 @@ import org.hibernate.annotations.TenantId;
  * Nao ha construtor nem setter que o receba — {@code contaId} nunca vem de fora da aplicacao
  * (RNF05).
  *
- * <p><strong>Sem {@code atualizarCom}</strong>, ao contrario de {@code ProdutoEntity}: no R06 nada
- * altera uma sessao ja gravada. Sangria, suprimento e fechamento sao R07 e R08, e e la que o metodo
- * de atualizacao nasce, junto com o caso de uso que precisa dele.
+ * <p><strong>O {@code atualizarCom} nasceu no R07</strong>, junto com o caso de uso que precisou
+ * dele — sangria e suprimento sao as duas primeiras operacoes que alteram uma sessao ja gravada.
+ * Ele so escreve o que o R07 muda; as colunas de fechamento continuam de fora, e entram no R08.
  */
 @Entity
 @Table(name = "sessao_caixa")
@@ -135,6 +136,32 @@ public class SessaoCaixaEntity {
 
     public static SessaoCaixaEntity de(SessaoCaixa sessao) {
         return new SessaoCaixaEntity(sessao);
+    }
+
+    /**
+     * Copia para a linha o que uma sangria ou um suprimento mudou no agregado: o esperado (D21a) e
+     * os movimentos novos.
+     *
+     * <p><strong>Acrescenta em vez de substituir a colecao</strong>, e a diferenca importa: com
+     * {@code orphanRemoval}, trocar a lista inteira apagaria e reinseriria o historico do
+     * expediente a cada lancamento. Entao a comparacao e por id — o que ja esta gravado fica onde
+     * esta, e so o que o dominio criou agora vira linha nova.
+     *
+     * <p>Nao escreve {@code status}, {@code valorFechamentoContado}, {@code diferenca} nem
+     * {@code fechadaEm}: no R07 nada muda essas quatro. Quem as escreve e o fechamento, no R08, e e
+     * la que este metodo cresce.
+     */
+    public void atualizarCom(SessaoCaixa sessao) {
+        this.valorFechamentoEsperado = sessao.getValorFechamentoEsperado().valor();
+
+        Set<UUID> jaGravados = movimentos.stream()
+                .map(MovimentoCaixaEntity::getId)
+                .collect(Collectors.toSet());
+
+        sessao.getMovimentos().stream()
+                .filter(movimento -> !jaGravados.contains(movimento.id()))
+                .map(MovimentoCaixaEntity::de)
+                .forEach(movimentos::add);
     }
 
     public SessaoCaixa paraDominio() {

@@ -86,6 +86,14 @@ class MovimentoCaixaEntity {
         return new MovimentoCaixa(id, tipo, Money.de(valor), motivo, vendaId, criadoEm);
     }
 
+    /**
+     * Existe so para {@code SessaoCaixaEntity.atualizarCom} saber o que ja esta gravado e nao
+     * reinserir o historico inteiro a cada sangria.
+     */
+    UUID getId() {
+        return id;
+    }
+
     /** Existe para o teste de isolamento poder afirmar que o membro herdou a conta da raiz. */
     ContaId getContaId() {
         return ContaId.de(contaId);

@@ -3,7 +3,6 @@ package br.com.caixasimples.caixa.internal;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import br.com.caixasimples.TesteDeIntegracao;
-import br.com.caixasimples.caixa.TipoMovimentoCaixa;
 import br.com.caixasimples.caixa.domain.SessaoCaixa;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
@@ -48,7 +47,7 @@ class MovimentoCaixaDoAgregadoTest extends TesteDeIntegracao {
         ContaCriada conta = criador.criar("Mercearia Teste", SENHA_DE_TESTE);
 
         SessaoCaixa sessao = new SessaoCaixa(conta.usuarioId(), Money.de("80.00"));
-        sessao.registrar(TipoMovimentoCaixa.SANGRIA, Money.de("20.00"), "Deposito bancario", null);
+        sessao.sangrar(Money.de("20.00"), "Deposito bancario");
 
         TenantContext.executarComo(conta.contaId(), () -> sessoes.save(SessaoCaixaEntity.de(sessao)));
 
@@ -71,8 +70,7 @@ class MovimentoCaixaDoAgregadoTest extends TesteDeIntegracao {
         ContaCriada contaB = criador.criar("Barbearia Teste", SENHA_DE_TESTE);
 
         SessaoCaixa sessaoDaContaA = new SessaoCaixa(contaA.usuarioId(), Money.de("40.00"));
-        sessaoDaContaA.registrar(TipoMovimentoCaixa.VENDA, Money.de("15.00"), null,
-                UUID.randomUUID());
+        sessaoDaContaA.registrarVenda(Money.de("15.00"), UUID.randomUUID());
 
         TenantContext.executarComo(contaA.contaId(), () ->
                 sessoes.save(SessaoCaixaEntity.de(sessaoDaContaA)));

@@ -10,9 +10,10 @@ import java.util.UUID;
  * Uma entrada ou saida de dinheiro do caixa: venda, sangria ou suprimento.
  *
  * <p><strong>Membro do agregado Caixa</strong>, nunca raiz (modelo de dados §4). Nao tem
- * repositorio e nao se altera sozinho: nasce dentro de {@link SessaoCaixa#registrar} e some com
- * ela. E um {@code record} justamente porque nao ha nada para alterar depois — movimento de caixa
- * lancado nao se edita, o que se faz e lancar o oposto.
+ * repositorio e nao se altera sozinho: nasce dentro de {@link SessaoCaixa}, por
+ * {@link SessaoCaixa#sangrar}, {@link SessaoCaixa#suprir} ou {@link SessaoCaixa#registrarVenda}, e
+ * some com ela. E um {@code record} justamente porque nao ha nada para alterar depois — movimento
+ * de caixa lancado nao se edita, o que se faz e lancar o oposto.
  *
  * <p><strong>Nao importa framework</strong> (arquitetura §2), pelo mesmo motivo de
  * {@code cadastro.domain.Produto}: o mapeamento vive em {@code caixa.internal}.
@@ -24,7 +25,8 @@ import java.util.UUID;
  * @param tipo     quem carrega o sinal do movimento
  * @param valor    sempre positivo (D21b)
  * @param motivo   obrigatorio em SANGRIA e SUPRIMENTO (RF14) e nulo quando ausente; quem
- *                 <em>exige</em> o motivo e o R07, aqui o campo so aceita o que vier
+ *                 <em>exige</em> o motivo e a raiz, em {@link SessaoCaixa#sangrar} e
+ *                 {@link SessaoCaixa#suprir} — aqui o campo so aceita o que vier
  * @param vendaId  preenchido so quando o tipo e VENDA. E referencia entre agregados, entao e um
  *                 {@link UUID} e nunca um objeto navegavel (modelo de dados §4)
  * @param criadoEm momento do lancamento, em UTC
