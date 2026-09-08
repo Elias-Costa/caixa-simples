@@ -17,8 +17,11 @@ import java.util.Objects;
  * {@link #arredondando(BigDecimal)}, cujo nome diz o que vai acontecer com o valor. Um construtor
  * que reescrevesse o numero em silencio esconderia exatamente a decisao que P1 tomou.
  *
- * <p>Nao tem aritmetica ainda. O unico uso real hoje e {@code Produto.preco} (passo R02); soma e
- * multiplicacao nascem quando houver uso de verdade — troco (R09) e total da venda (R12).
+ * <p><strong>A aritmetica entra por uso, nunca por previsao.</strong> {@link #somar} e
+ * {@link #subtrair} nasceram no R06, quando {@code SessaoCaixa.valorFechamentoEsperado} passou a
+ * acompanhar os movimentos do caixa em tempo real (D21a) — antes disso o tipo so sabia nascer e se
+ * comparar com zero. Multiplicacao continua fora: o primeiro uso real dela e quantidade vezes preco
+ * unitario, no total da venda (R12).
  */
 public record Money(BigDecimal valor) {
 
@@ -65,6 +68,29 @@ public record Money(BigDecimal valor) {
     public static Money arredondando(BigDecimal valor) {
         Objects.requireNonNull(valor, "valor nao pode ser nulo");
         return new Money(valor.setScale(ESCALA, ARREDONDAMENTO));
+    }
+
+    /**
+     * Soma dois valores. Nao arredonda e nao precisa: dois numeros em duas casas somam em duas
+     * casas, entao o resultado passa direto pela mesma checagem de escala do construtor.
+     */
+    public Money somar(Money outro) {
+        Objects.requireNonNull(outro, "outro nao pode ser nulo");
+        return new Money(valor.add(outro.valor));
+    }
+
+    /**
+     * Subtrai um valor de outro. Pelo mesmo motivo de {@link #somar}, nao arredonda.
+     *
+     * <p><strong>Pode devolver negativo, e isso e permitido de proposito.</strong> Quem sabe se um
+     * saldo negativo faz sentido e o dominio que esta fazendo a conta — uma sangria maior que o
+     * dinheiro na gaveta e um problema do caixa, e um troco negativo e um problema da venda. Um
+     * tipo monetario que recusasse negativo obrigaria cada chamador a conferir antes de subtrair, e
+     * ainda esconderia o caso de borda em vez de deixa-lo aparecer onde ele importa.
+     */
+    public Money subtrair(Money outro) {
+        Objects.requireNonNull(outro, "outro nao pode ser nulo");
+        return new Money(valor.subtract(outro.valor));
     }
 
     public boolean isNegativo() {
