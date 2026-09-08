@@ -139,20 +139,26 @@ public class SessaoCaixaEntity {
     }
 
     /**
-     * Copia para a linha o que uma sangria ou um suprimento mudou no agregado: o esperado (D21a) e
-     * os movimentos novos.
+     * Copia para a linha tudo o que o agregado pode ter mudado: o esperado (D21a), os movimentos
+     * novos e — desde o R08 — as quatro colunas do fechamento.
      *
      * <p><strong>Acrescenta em vez de substituir a colecao</strong>, e a diferenca importa: com
      * {@code orphanRemoval}, trocar a lista inteira apagaria e reinseriria o historico do
      * expediente a cada lancamento. Entao a comparacao e por id — o que ja esta gravado fica onde
      * esta, e so o que o dominio criou agora vira linha nova.
      *
-     * <p>Nao escreve {@code status}, {@code valorFechamentoContado}, {@code diferenca} nem
-     * {@code fechadaEm}: no R07 nada muda essas quatro. Quem as escreve e o fechamento, no R08, e e
-     * la que este metodo cresce.
+     * <p><strong>Continua sendo um metodo so, e nao um por caso de uso.</strong> A linha copia o
+     * estado do dominio, que e a fonte da verdade; para uma sessao ABERTA, copiar as quatro colunas
+     * do fechamento e escrever nulo por cima de nulo e ABERTA por cima de ABERTA. Um segundo metodo
+     * exigiria que quem chama soubesse escolher entre os dois, e escolher errado gravaria pela
+     * metade — que e um defeito bem mais caro de achar do que quatro atribuicoes sem efeito.
      */
     public void atualizarCom(SessaoCaixa sessao) {
         this.valorFechamentoEsperado = sessao.getValorFechamentoEsperado().valor();
+        this.valorFechamentoContado = valorOuNulo(sessao.getValorFechamentoContado());
+        this.diferenca = valorOuNulo(sessao.getDiferenca());
+        this.fechadaEm = sessao.getFechadaEm();
+        this.status = sessao.getStatus();
 
         Set<UUID> jaGravados = movimentos.stream()
                 .map(MovimentoCaixaEntity::getId)

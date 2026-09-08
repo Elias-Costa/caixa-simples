@@ -9,22 +9,22 @@ import br.com.caixasimples.caixa.StatusSessaoCaixa;
 import br.com.caixasimples.caixa.TipoMovimentoCaixa;
 import br.com.caixasimples.shared.Money;
 import java.time.Instant;
-import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
  * A invariante do agregado Caixa (modelo de dados §4):
- * {@code valorFechamentoEsperado = valorAbertura + soma assinada dos movimentos}, mais as quatro
- * regras que o R07 trouxe (D22).
+ * {@code valorFechamentoEsperado = valorAbertura + soma assinada dos movimentos}, mais as regras de
+ * lancamento do R07 (D22) e as de fechamento do R08 (D23d, D23e).
  *
  * <p>Teste de unidade puro, sem contexto Spring e sem banco — {@link SessaoCaixa} nao conhece
  * framework nenhum, e a conta que ele faz nao depende de persistencia para estar certa.
  *
- * <p>O que este arquivo <strong>nao</strong> cobre, porque ainda nao existe: fechamento com
- * diferenca (RF15, R08) e a regra de uma sessao aberta por operador (D22a), que nao mora na raiz —
- * uma sessao nao enxerga as outras, entao ela e provada em {@code SessaoCaixaServiceTest}.
+ * <p>O que este arquivo <strong>nao</strong> cobre, de proposito: a regra de uma sessao aberta por
+ * operador (D22a) e o dia do historico (D23a). Nenhuma das duas mora na raiz — uma sessao nao
+ * enxerga as outras nem delimita dia —, entao as duas sao provadas em
+ * {@code SessaoCaixaServiceTest}, contra o banco.
  */
 class SessaoCaixaTest {
 
@@ -130,11 +130,10 @@ class SessaoCaixaTest {
     @Test
     @DisplayName("sessao FECHADA nao aceita movimento nenhum")
     void sessaoFechadaNaoAceitaMovimento() {
-        // D22d. Como fechar() so nasce no R08, a unica forma de ter uma sessao FECHADA em maos
-        // agora e remonta-la — que e o que o banco faz ao ler uma sessao de ontem.
-        SessaoCaixa fechada = SessaoCaixa.reconstituir(UUID.randomUUID(), OPERADOR,
-                Money.de("100.00"), Money.de("100.00"), Money.de("100.00"), Money.ZERO,
-                Instant.now(), Instant.now(), StatusSessaoCaixa.FECHADA, List.of());
+        // D22d. Agora que fechar() existe (R08), a sessao chega ao estado FECHADA pelo caminho de
+        // verdade — antes o teste precisava remonta-la, que era contorno anotado como tal.
+        SessaoCaixa fechada = new SessaoCaixa(OPERADOR, Money.de("100.00"));
+        fechada.fechar(Money.de("100.00"));
 
         assertThatIllegalStateException()
                 .isThrownBy(() -> fechada.sangrar(Money.de("10.00"), "Almoco"));
@@ -189,5 +188,75 @@ class SessaoCaixaTest {
         sessao.sangrar(Money.de("10.00"), "Almoco");
 
         assertThat(sessao.getMovimentos()).isUnmodifiable();
+    }
+
+    @Test
+    @DisplayName("fechar apura a diferenca sobre o esperado de um expediente inteiro (RF15)")
+    void fechamentoApuraADiferenca() {
+        SessaoCaixa sessao = new SessaoCaixa(OPERADOR, Money.de("100.00"));
+        sessao.suprir(Money.de("50.00"), "Reforco de troco");
+        sessao.sangrar(Money.de("30.00"), "Pagamento do entregador");
+
+        // 100 + 50 - 30 = 120 na gaveta; o operador contou 118.
+        Money diferenca = sessao.fechar(Money.de("118.00"));
+
+        assertThat(diferenca)
+                .as("esperado menos contado: positivo e o que faltou na gaveta")
+                .isEqualTo(Money.de("2.00"));
+        assertThat(sessao.getDiferenca()).isEqualTo(Money.de("2.00"));
+        assertThat(sessao.getValorFechamentoContado()).isEqualTo(Money.de("118.00"));
+        assertThat(sessao.getStatus()).isEqualTo(StatusSessaoCaixa.FECHADA);
+        assertThat(sessao.getFechadaEm()).isNotNull();
+
+        assertThat(sessao.getValorFechamentoEsperado())
+                .as("o esperado e a base da conferencia e nao pode ser tocado pelo fechamento")
+                .isEqualTo(Money.de("120.00"));
+    }
+
+    @Test
+    @DisplayName("sobra na gaveta da diferenca negativa, e caixa que bate da zero")
+    void diferencaCarregaOSinalDaSobra() {
+        SessaoCaixa sobrando = new SessaoCaixa(OPERADOR, Money.de("100.00"));
+        SessaoCaixa batendo = new SessaoCaixa(OPERADOR, Money.de("100.00"));
+
+        // O sinal e o do dicionario de dados: esperado - contado. Contar mais do que devia da
+        // negativo, e a intuicao le isso ao contrario com facilidade — por isso o teste existe.
+        assertThat(sobrando.fechar(Money.de("103.50"))).isEqualTo(Money.de("-3.50"));
+        assertThat(batendo.fechar(Money.de("100.00"))).isEqualTo(Money.ZERO);
+    }
+
+    @Test
+    @DisplayName("contar zero na gaveta vale; contar valor negativo, nao")
+    void fechamentoAceitaZeroERecusaNegativo() {
+        SessaoCaixa gavetaVazia = new SessaoCaixa(OPERADOR, Money.de("100.00"));
+        SessaoCaixa outra = new SessaoCaixa(OPERADOR, Money.de("100.00"));
+
+        // D23d, mesmo desenho da D22b na abertura: gaveta vazia se conta como zero — o dia pode ter
+        // sido so de Pix, ou tudo pode ter saido em sangria.
+        assertThatNoException().isThrownBy(() -> gavetaVazia.fechar(Money.ZERO));
+        assertThat(gavetaVazia.getDiferenca()).isEqualTo(Money.de("100.00"));
+
+        assertThatIllegalArgumentException().isThrownBy(() -> outra.fechar(Money.de("-1.00")));
+        assertThat(outra.getStatus())
+                .as("um fechamento recusado nao pode deixar a sessao pela metade")
+                .isEqualTo(StatusSessaoCaixa.ABERTA);
+        assertThat(outra.getDiferenca()).isNull();
+        assertThat(outra.getFechadaEm()).isNull();
+    }
+
+    @Test
+    @DisplayName("sessao FECHADA nao fecha de novo: a conferencia nao e rascunho")
+    void naoSeFechaDuasVezes() {
+        SessaoCaixa sessao = new SessaoCaixa(OPERADOR, Money.de("100.00"));
+        sessao.fechar(Money.de("90.00"));
+        Instant primeiroFechamento = sessao.getFechadaEm();
+
+        // D23e — complemento da D22d: aquela protege a diferenca de um movimento posterior, esta a
+        // protege de um segundo fechamento que a reescreveria por cima.
+        assertThatIllegalStateException().isThrownBy(() -> sessao.fechar(Money.de("100.00")));
+
+        assertThat(sessao.getDiferenca()).isEqualTo(Money.de("10.00"));
+        assertThat(sessao.getValorFechamentoContado()).isEqualTo(Money.de("90.00"));
+        assertThat(sessao.getFechadaEm()).isEqualTo(primeiroFechamento);
     }
 }

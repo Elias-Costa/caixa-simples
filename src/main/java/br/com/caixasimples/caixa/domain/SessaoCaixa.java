@@ -45,17 +45,32 @@ import java.util.UUID;
  *   <li><strong>D22c</strong> — sangria que deixaria o esperado negativo e recusada: nao se tira
  *       da gaveta o que nao esta la.</li>
  *   <li><strong>D22d</strong> — sessao FECHADA nao aceita movimento. E a linguagem ubiqua escrita
- *       em codigo — caixa e a sessao <em>entre</em> abertura e fechamento — e protege o R08, onde
- *       um lancamento posterior tornaria a {@code diferenca} ja gravada mentirosa.</li>
+ *       em codigo — caixa e a sessao <em>entre</em> abertura e fechamento — e protege o
+ *       {@link #fechar}: um lancamento posterior tornaria a {@code diferenca} ja gravada
+ *       mentirosa.</li>
  * </ul>
  *
  * <p><strong>Movimento de valor zero continua aceito</strong>, e a ausencia da regra e deliberada:
  * foi ao mantenedor junto com as quatro acima e nao foi escolhida (D22). O piso continua sendo o
  * CHECK de valor nao negativo da D21b.
  *
- * <p><strong>O que esta classe ainda nao faz, e de proposito:</strong> nao tem {@code fechar()} nem
- * calcula {@code diferenca} (RF15 e R08). A regra de <em>uma sessao aberta por operador</em> (D22a)
- * tambem nao mora aqui, e nem poderia: uma sessao nao enxerga as outras. Quem a aplica e
+ * <h2>O fechamento, que o R08 trouxe (D23)</h2>
+ *
+ * <p>{@link #fechar} e o outro extremo da sessao: compara o que deveria haver na gaveta com o que o
+ * operador contou e grava a {@code diferenca} (RF15). Duas guardas novas, do mesmo tipo das quatro
+ * acima:
+ *
+ * <ul>
+ *   <li><strong>D23d</strong> — valor contado negativo e recusado, pela mesma razao da D22b: contar
+ *       zero e legitimo, contar menos que zero e erro de digitacao que grava uma diferenca sem
+ *       sentido.</li>
+ *   <li><strong>D23e</strong> — sessao FECHADA nao fecha de novo. E o complemento da D22d: aquela
+ *       protege a {@code diferenca} de um movimento posterior, esta a protege de um segundo
+ *       fechamento, que a reescreveria por cima da conferencia ja feita.</li>
+ * </ul>
+ *
+ * <p><strong>A regra de <em>uma sessao aberta por operador</em> (D22a) nao mora aqui</strong>, e nem
+ * poderia: uma sessao nao enxerga as outras. Quem a aplica e
  * {@code caixa.application.SessaoCaixaService}, com o indice unico parcial da V6 embaixo.
  */
 public class SessaoCaixa {
@@ -68,7 +83,7 @@ public class SessaoCaixa {
     /** Invariante viva (D21a) — ver o javadoc da classe. Nunca escrito de fora. */
     private Money valorFechamentoEsperado;
 
-    /** Nulos ate o fechamento (R08), os tres juntos. */
+    /** Nulos ate o fechamento, os tres juntos — quem os preenche e {@link #fechar}. */
     private Money valorFechamentoContado;
     private Money diferenca;
     private Instant fechadaEm;
@@ -193,6 +208,50 @@ public class SessaoCaixa {
     }
 
     /**
+     * Fechamento com conferencia (RF15): o operador conta o dinheiro da gaveta, o agregado compara
+     * com o que deveria estar la e grava a diferenca.
+     *
+     * <p><strong>O sinal da diferenca e {@code esperado - contado}</strong>, como manda o dicionario
+     * de dados §3 — entao <em>positivo e falta</em> na gaveta e <em>negativo e sobra</em>. Vale
+     * dizer em voz alta porque a intuicao costuma ler ao contrario: uma diferenca de 2,00 nao e
+     * dinheiro a mais, e dinheiro que faltou.
+     *
+     * <p>As quatro colunas do fechamento nascem juntas, nesta chamada e so nesta, que e exatamente o
+     * que o dicionario diz delas.
+     *
+     * @param valorContado o que foi contado na gaveta; zero vale, negativo nao (D23d)
+     * @return a diferenca apurada, que e a pergunta que o operador esta fazendo ao fechar o caixa
+     * @throws IllegalArgumentException se {@code valorContado} e negativo (D23d)
+     * @throws IllegalStateException    se a sessao ja esta FECHADA (D23e)
+     */
+    public Money fechar(Money valorContado) {
+        Objects.requireNonNull(valorContado, "valorContado nao pode ser nulo");
+
+        // D23e — a checagem de estado vem antes da do valor de proposito: sessao ja fechada e
+        // recusada independentemente do que se tenha contado, e a mensagem que interessa e essa.
+        if (status != StatusSessaoCaixa.ABERTA) {
+            throw new IllegalStateException(
+                    "sessao de caixa " + id + " ja esta " + status + " e nao fecha de novo."
+                            + " Um segundo fechamento reescreveria a diferenca ja conferida.");
+        }
+
+        if (valorContado.isNegativo()) {
+            // D23d — mesmo motivo da D22b na abertura: gaveta vazia se conta como zero, e um valor
+            // negativo so poderia ser erro de digitacao.
+            throw new IllegalArgumentException(
+                    "valor contado nao pode ser negativo: " + valorContado
+                            + ". Gaveta vazia se conta como zero.");
+        }
+
+        this.valorFechamentoContado = valorContado;
+        this.diferenca = valorFechamentoEsperado.subtrair(valorContado);
+        this.fechadaEm = Instant.now();
+        this.status = StatusSessaoCaixa.FECHADA;
+
+        return diferenca;
+    }
+
+    /**
      * Anexa o movimento e mantem o esperado em dia, na mesma chamada — que e o que faz a invariante
      * da classe ser verdade o tempo todo, e nao so quando alguem lembra de recalcular.
      *
@@ -248,12 +307,12 @@ public class SessaoCaixa {
         return valorFechamentoEsperado;
     }
 
-    /** Nulo enquanto a sessao esta ABERTA — so o fechamento (R08) o preenche. */
+    /** Nulo enquanto a sessao esta ABERTA — so {@link #fechar} o preenche. */
     public Money getValorFechamentoContado() {
         return valorFechamentoContado;
     }
 
-    /** Nulo enquanto a sessao esta ABERTA — so o fechamento (R08) o preenche. */
+    /** Nulo enquanto a sessao esta ABERTA. Positivo e falta na gaveta, negativo e sobra. */
     public Money getDiferenca() {
         return diferenca;
     }
@@ -262,7 +321,7 @@ public class SessaoCaixa {
         return abertaEm;
     }
 
-    /** Nulo enquanto a sessao esta ABERTA — so o fechamento (R08) o preenche. */
+    /** Nulo enquanto a sessao esta ABERTA — so {@link #fechar} o preenche. */
     public Instant getFechadaEm() {
         return fechadaEm;
     }
