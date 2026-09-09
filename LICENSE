@@ -1,0 +1,68 @@
+Copyright (c) 2026 Elias Costa. Todos os direitos reservados.
+
+AVISO DE DIREITOS AUTORAIS E CONDIÇÕES DE USO
+
+Este repositório e seu conteúdo, incluindo código-fonte, documentação,
+estrutura, nomes e organização dos arquivos, constituem obra protegida por
+direitos autorais nos termos da Lei nº 9.610/1998, da Lei nº 9.609/1998 da
+República Federativa do Brasil e dos tratados internacionais aplicáveis.
+
+O conteúdo é disponibilizado publicamente com uma única finalidade: permitir a
+leitura e a avaliação técnica do trabalho do autor, por exemplo em processo de
+recrutamento ou análise de portfólio.
+
+Este projeto NÃO é software livre e NÃO é código aberto. Nenhuma licença de
+uso é concedida, expressa ou implicitamente.
+
+Sem autorização prévia e por escrito do autor, é vedado:
+
+  a) usar o software, no todo ou em parte, para qualquer finalidade, seja ela
+     pessoal, acadêmica ou comercial;
+  b) copiar, reproduzir, hospedar, publicar ou redistribuir o conteúdo;
+  c) modificar o conteúdo ou criar obra derivada a partir dele;
+  d) executar, compilar ou implantar o software;
+  e) sublicenciar, vender, alugar ou de qualquer forma explorar o conteúdo
+     comercialmente;
+  f) remover ou alterar este aviso.
+
+Permanecem permitidas, nos limites do art. 46 da Lei nº 9.610/1998, a leitura do
+código, a citação de trechos curtos para fins de comentário ou avaliação e a
+referência ao repositório.
+
+O software é disponibilizado no estado em que se encontra, sem garantia de
+qualquer espécie, expressa ou implícita, incluindo, mas não se limitando, às
+garantias de comerciabilidade, adequação a uma finalidade específica e não
+violação de direitos de terceiros. O autor não responderá por qualquer
+reivindicação, dano ou outra responsabilidade decorrente do conteúdo deste
+repositório ou de seu uso.
+
+Este é um produto em desenvolvimento para fins comerciais. Pedidos de
+autorização devem ser dirigidos ao autor.
+
+-------------------------------------------------------------------------------
+
+ENGLISH SUMMARY (in case of conflict, the Portuguese text above prevails)
+
+Copyright (c) 2026 Elias Costa. All rights reserved.
+
+This repository is published for the sole purpose of allowing the source code to
+be read and technically evaluated, for example, during recruitment or portfolio
+review. It is not open source, and no license is granted.
+
+Without the author's prior written permission, you may not use, copy, reproduce,
+host, publish, redistribute, modify, create derivative works of, run, compile,
+deploy, sublicense, sell, or otherwise commercially exploit this software, in
+whole or in part, nor may you remove or alter this notice.
+
+Reading the code, quoting short excerpts for commentary or evaluation, and
+referring to this repository remain permitted, within the limits of applicable
+copyright law.
+
+This is a product under commercial development. Requests for permission should
+be addressed to the author.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHOR BE
+LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY ARISING FROM THE CONTENT OF
+THIS REPOSITORY OR ITS USE.
