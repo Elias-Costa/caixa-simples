@@ -12,6 +12,7 @@ import br.com.caixasimples.contas.CriadorDeContaDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.TenantContext;
+import br.com.caixasimples.vendas.CriadorDeVendaDeTeste;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -39,6 +40,9 @@ class IsolamentoDeSessaoCaixaTest extends TesteDeIntegracao {
 
     @Autowired
     private CriadorDeContaDeTeste criador;
+
+    @Autowired
+    private CriadorDeVendaDeTeste criadorDeVenda;
 
     @AfterEach
     void limparContexto() {
@@ -98,15 +102,26 @@ class IsolamentoDeSessaoCaixaTest extends TesteDeIntegracao {
         ContaCriada conta = criador.criar("Padaria Teste", SENHA_DE_TESTE);
 
         SessaoCaixa original = new SessaoCaixa(conta.usuarioId(), Money.de("100.00"));
-        UUID vendaId = UUID.randomUUID();
-        original.registrarVenda(Money.de("25.00"), vendaId);
         original.suprir(Money.de("50.00"), "Reforco de troco");
         original.sangrar(Money.de("30.00"), "Pagamento do entregador");
 
-        // Uma chamada de save grava a raiz e os três movimentos: o agregado é a unidade
-        // transacional, e é o cascade de SessaoCaixaEntity que faz isso valer.
+        // Uma chamada de save grava a raiz e os movimentos: o agregado é a unidade transacional,
+        // e é o cascade de SessaoCaixaEntity que faz isso valer.
         TenantContext.executarComo(conta.contaId(), () ->
                 sessoes.save(SessaoCaixaEntity.de(original)));
+
+        // O movimento de VENDA aponta para uma venda de verdade, porque desde a migration V7 o
+        // banco recusa venda_id que não exista. E a venda, por sua vez, aponta para a sessão; por
+        // isso a sessão foi gravada antes, e o terceiro movimento entra numa segunda escrita, pelo
+        // mesmo caminho que uma sangria entra no meio do expediente.
+        UUID vendaId = criadorDeVenda.criarAbertaEm(conta.contaId(), original.getId(),
+                conta.usuarioId());
+        original.registrarVenda(Money.de("25.00"), vendaId);
+        TenantContext.executarComo(conta.contaId(), () -> {
+            SessaoCaixaEntity gravada = sessoes.findById(original.getId()).orElseThrow();
+            gravada.atualizarCom(original);
+            sessoes.save(gravada);
+        });
 
         TenantContext.executarComo(conta.contaId(), () -> {
             SessaoCaixa lida = sessoes.findById(original.getId()).orElseThrow().paraDominio();

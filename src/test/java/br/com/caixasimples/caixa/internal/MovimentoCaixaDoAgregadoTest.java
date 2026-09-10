@@ -8,7 +8,6 @@ import br.com.caixasimples.contas.CriadorDeContaDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.TenantContext;
-import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -71,7 +70,7 @@ class MovimentoCaixaDoAgregadoTest extends TesteDeIntegracao {
         ContaCriada contaB = criador.criar("Barbearia Teste", SENHA_DE_TESTE);
 
         SessaoCaixa sessaoDaContaA = new SessaoCaixa(contaA.usuarioId(), Money.de("40.00"));
-        sessaoDaContaA.registrarVenda(Money.de("15.00"), UUID.randomUUID());
+        sessaoDaContaA.suprir(Money.de("15.00"), "Troco inicial");
 
         TenantContext.executarComo(contaA.contaId(), () ->
                 sessoes.save(SessaoCaixaEntity.de(sessaoDaContaA)));

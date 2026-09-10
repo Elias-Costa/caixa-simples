@@ -40,8 +40,8 @@ class MovimentoCaixaEntity {
     private UUID contaId;
 
     /**
-     * Referência entre agregados, sempre por id, e sem {@code FOREIGN KEY} no banco porque a tabela
-     * {@code venda} ainda não existe.
+     * Referência entre agregados, sempre por id. A {@code FOREIGN KEY} para {@code venda} existe
+     * desde a migration V7, e protege o dado no banco sem virar objeto navegável aqui.
      */
     @Column(name = "venda_id")
     private UUID vendaId;

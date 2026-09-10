@@ -5,6 +5,8 @@ import br.com.caixasimples.contas.internal.ContaRepository;
 import br.com.caixasimples.contas.internal.CredencialRepository;
 import br.com.caixasimples.contas.internal.UsuarioRepository;
 import br.com.caixasimples.contas.internal.VerificadorDeSenhaVazada;
+import br.com.caixasimples.vendas.CriadorDeVendaDeTeste;
+import br.com.caixasimples.vendas.internal.VendaRepository;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
@@ -33,5 +35,11 @@ public class ConfiguracaoDeTeste {
     CriadorDeContaDeTeste criadorDeContaDeTeste(ContaRepository contas, UsuarioRepository usuarios,
             CredencialRepository credenciais, PasswordEncoder encoder) {
         return new CriadorDeContaDeTeste(contas, usuarios, credenciais, encoder);
+    }
+
+    /** Mesma ideia, para teste de outro módulo que precise apontar para uma venda real. */
+    @Bean
+    CriadorDeVendaDeTeste criadorDeVendaDeTeste(VendaRepository vendas) {
+        return new CriadorDeVendaDeTeste(vendas);
     }
 }
