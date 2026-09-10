@@ -3,21 +3,21 @@ package br.com.caixasimples.caixa.application;
 import java.util.UUID;
 
 /**
- * D22a — o operador ja tem uma sessao de caixa ABERTA, e um operador so tem um caixa por vez.
+ * O operador já tem uma sessão de caixa ABERTA, e um operador só tem um caixa por vez.
  *
- * <p>A regra e por operador, nao por conta: dois atendentes podem ter caixas simultaneos no mesmo
- * negocio (escopo §5 fala do <em>proprio</em> caixa de cada um). O que nao existe e o mesmo
- * operador com dois.
+ * <p>A regra é por operador, não por conta: dois atendentes podem ter caixas simultâneos no mesmo
+ * negócio, já que cada um responde pelo <em>próprio</em> caixa. O que não existe é o mesmo operador
+ * com dois.
  *
- * <p>E situacao de rotina, nao defeito — normalmente e o caixa de ontem que ficou sem fechar. Por
- * isso ela tem nome proprio, em vez de sair como violacao de integridade do indice unico da V6: a
- * tela do R23 precisa oferecer <em>fechar o caixa anterior</em>, e nao uma mensagem de erro
- * generica.
+ * <p>É situação de rotina, não defeito. Normalmente é o caixa de ontem que ficou sem fechar. Por
+ * isso ela tem nome próprio, em vez de sair como violação de integridade do índice único da
+ * migration V6: a tela precisa poder oferecer <em>fechar o caixa anterior</em>, e não uma mensagem
+ * de erro genérica.
  */
 public class OperadorJaTemCaixaAbertoException extends RuntimeException {
 
     public OperadorJaTemCaixaAbertoException(UUID usuarioId) {
         super("o operador " + usuarioId + " ja tem uma sessao de caixa aberta;"
-                + " feche a anterior antes de abrir outra (D22a)");
+                + " feche a anterior antes de abrir outra");
     }
 }

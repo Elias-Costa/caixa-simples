@@ -3,17 +3,18 @@ package br.com.caixasimples.caixa;
 /**
  * O que fez o dinheiro entrar ou sair do caixa.
  *
- * <p>Uma tabela so para os tres, e nao tres tabelas (modelo de dados §5): assim o fechamento e uma
- * soma sobre um lugar unico.
+ * <p>Uma tabela só para os três, e não três tabelas: assim o fechamento do caixa é uma soma sobre
+ * um lugar único, em vez de uma junção.
  *
- * <p>Vocabulario do CLAUDE.md, e vale a pena repetir porque os tres se confundem no dia a dia:
- * <strong>SANGRIA</strong> e retirada de dinheiro do caixa — nao e estorno nem despesa;
- * <strong>SUPRIMENTO</strong> e reforco de troco — nao e venda nem receita; <strong>VENDA</strong> e
- * o dinheiro que entra por uma venda, e e o unico dos tres que aponta para uma {@code venda}.
+ * <p>Vocabulário do domínio, e vale repetir porque os três se confundem no dia a dia.
+ * <strong>SANGRIA</strong> é retirada de dinheiro do caixa, não é estorno nem despesa.
+ * <strong>SUPRIMENTO</strong> é reforço de troco, não é venda nem receita.
+ * <strong>VENDA</strong> é o dinheiro que entra por uma venda, e é o único dos três que aponta
+ * para uma {@code venda}.
  *
- * <p>O enum <strong>nao carrega o sinal</strong> do movimento. Quem decide se soma ou subtrai e o
+ * <p>O enum <strong>não carrega o sinal</strong> do movimento. Quem decide se soma ou subtrai é o
  * {@code switch} exaustivo dentro de {@code SessaoCaixa}, para que acrescentar um valor aqui vire
- * erro de compilacao la, e nao uma soma silenciosamente errada.
+ * erro de compilação lá, e não uma soma silenciosamente errada.
  */
 public enum TipoMovimentoCaixa {
     VENDA,

@@ -17,30 +17,29 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Casos de uso da sessao de caixa: abrir (RF13), registrar sangria e suprimento (RF14), fechar com
- * conferencia (RF15) e consultar o historico por operador e por dia (RF16). Passos R07 e R08 do
- * roteiro, etapa 1.4 do plano.
+ * Casos de uso da sessão de caixa: abrir (RF13), registrar sangria e suprimento (RF14), fechar com
+ * conferência (RF15) e consultar o histórico por operador e por dia (RF16).
  *
- * <p>Cada caso de uso de escrita e sempre a mesma sequencia — carrega a linha, deixa a raiz do
- * agregado decidir, grava o que ela decidiu. Nenhuma regra de dinheiro mora aqui:
- * {@link SessaoCaixa} e que sabe que sangria exige motivo (RF14), que nao se retira mais do que ha
- * na gaveta (D22c), que sessao fechada nao aceita movimento (D22d) e que ela tampouco fecha de novo
- * (D23e).
+ * <p>Cada caso de uso de escrita é sempre a mesma sequência: carrega a linha, deixa a raiz do
+ * agregado decidir, grava o que ela decidiu. Nenhuma regra de dinheiro mora aqui. É
+ * {@link SessaoCaixa} que sabe que sangria exige motivo (RF14), que não se retira mais do que há na
+ * gaveta, que sessão fechada não aceita movimento e que ela tampouco fecha de novo.
  *
- * <p><strong>Duas regras moram neste arquivo, e as duas por nao caberem na raiz:</strong> a D22a,
- * porque uma sessao nao enxerga as outras sessoes da conta — quem pergunta se o operador ja tem
- * caixa aberto tem de ser quem fala com o repositorio; e a D23a, porque delimitar <em>o dia</em>
- * e traduzir uma data de calendario para um intervalo de instantes, e isso e trabalho de quem monta
- * a consulta, nao de um agregado que so conhece o proprio expediente.
+ * <p><strong>Duas regras moram neste arquivo, e as duas por não caberem na raiz.</strong> A
+ * primeira é a de uma sessão aberta por operador, porque uma sessão não enxerga as outras sessões
+ * da conta, e quem pergunta se o operador já tem caixa aberto tem de ser quem fala com o
+ * repositório. A segunda é a delimitação do dia, porque traduzir uma data de calendário para um
+ * intervalo de instantes é trabalho de quem monta a consulta, não de um agregado que só conhece o
+ * próprio expediente.
  *
- * <p><strong>{@link #fechar} nao pergunta quem esta fechando</strong> (D23b): o {@code @TenantId} ja
- * garante que a sessao e da propria conta (RNF05), e a autorizacao por perfil e o R22, que e onde
- * perfil existe. Ate la, nada impede um operador de fechar o caixa do colega — e o custo aceito,
- * registrado para nao passar por esquecimento.
+ * <p><strong>{@link #fechar} não pergunta quem está fechando.</strong> O {@code @TenantId} já
+ * garante que a sessão é da própria conta (RNF05), e a autorização por perfil ainda não existe no
+ * sistema. Até que exista, nada impede um operador de fechar o caixa do colega. É custo aceito, e
+ * está escrito aqui para não passar por esquecimento.
  *
- * <p>O {@code usuarioId} chega como parametro porque ainda nao ha camada {@code web/} neste modulo.
- * Quando ela nascer (R23), o valor vem do claim do JWT autenticado e nunca do payload (RNF05) — o
- * mesmo que ja vale para o {@code contaId}, que nao aparece em assinatura nenhuma deste arquivo.
+ * <p>O {@code usuarioId} chega como parâmetro porque ainda não há camada {@code web/} neste módulo.
+ * Quando ela nascer, o valor virá do claim do token autenticado e nunca do payload (RNF05), que é o
+ * mesmo que já vale para o {@code contaId}, o qual não aparece em assinatura nenhuma deste arquivo.
  */
 @Service
 public class SessaoCaixaService {
@@ -52,20 +51,20 @@ public class SessaoCaixaService {
     }
 
     /**
-     * Abertura de caixa (RF13): o operador informa o que ha na gaveta e a sessao nasce ABERTA, com
-     * o esperado ja igual a esse valor.
+     * Abertura de caixa (RF13): o operador informa o que há na gaveta e a sessão nasce ABERTA, com
+     * o esperado já igual a esse valor.
      *
-     * <p><strong>Consulta antes de gravar, ao contrario do que o R03 decidiu para o codigo do
-     * produto</strong> — e a diferenca se defende em uma frase: la a violacao e erro de digitacao,
-     * traduzido la na frente pela camada {@code web/}; aqui a segunda abertura e rotina (o caixa de
-     * ontem ficou sem fechar) e quem chama precisa distinguir esse caso de qualquer outra falha.
-     * O indice unico parcial da V6 continua existindo como rede, para duas requisicoes simultaneas
-     * que passem juntas por esta checagem.
+     * <p><strong>Consulta antes de gravar</strong>, ao contrário do cadastro de produto, que deixa
+     * o índice único do banco recusar a duplicata. A diferença se defende em uma frase: lá a
+     * violação é erro de digitação, traduzido adiante pela camada {@code web/}; aqui a segunda
+     * abertura é rotina, porque o caixa de ontem ficou sem fechar, e quem chama precisa distinguir
+     * esse caso de qualquer outra falha. O índice único parcial da migration V6 continua existindo
+     * como rede, para duas requisições simultâneas que passem juntas por esta checagem.
      *
-     * @param valorAbertura zero vale, negativo nao (D22b) — quem recusa e a raiz
-     * @return o id da sessao criada — gerado na aplicacao, nunca pelo banco (RNF01/RNF03)
-     * @throws OperadorJaTemCaixaAbertoException se o operador ja tem uma sessao ABERTA (D22a)
-     * @throws IllegalArgumentException          se {@code valorAbertura} e negativo (D22b)
+     * @param valorAbertura zero vale, negativo não; quem recusa é a raiz do agregado
+     * @return o id da sessão criada, gerado na aplicação e nunca pelo banco (RNF01, RNF03)
+     * @throws OperadorJaTemCaixaAbertoException se o operador já tem uma sessão ABERTA
+     * @throws IllegalArgumentException          se {@code valorAbertura} é negativo
      */
     @Transactional
     public UUID abrir(UUID usuarioId, Money valorAbertura) {
@@ -80,12 +79,12 @@ public class SessaoCaixaService {
     }
 
     /**
-     * Sangria (RF14): retirada de dinheiro do caixa, com motivo obrigatorio.
+     * Sangria (RF14): retirada de dinheiro do caixa, com motivo obrigatório.
      *
-     * @throws SessaoCaixaNaoEncontradaException se o id nao existe nesta conta
+     * @throws SessaoCaixaNaoEncontradaException se o id não existe nesta conta
      * @throws IllegalArgumentException          se falta motivo, ou se a retirada deixaria o
-     *                                           esperado negativo (D22c)
-     * @throws IllegalStateException             se a sessao ja esta FECHADA (D22d)
+     *                                           esperado negativo
+     * @throws IllegalStateException             se a sessão já está FECHADA
      */
     @Transactional
     public void registrarSangria(UUID sessaoId, Money valor, String motivo) {
@@ -99,11 +98,11 @@ public class SessaoCaixaService {
     }
 
     /**
-     * Suprimento (RF14): reforco de troco, com motivo obrigatorio.
+     * Suprimento (RF14): reforço de troco, com motivo obrigatório.
      *
-     * @throws SessaoCaixaNaoEncontradaException se o id nao existe nesta conta
+     * @throws SessaoCaixaNaoEncontradaException se o id não existe nesta conta
      * @throws IllegalArgumentException          se falta motivo
-     * @throws IllegalStateException             se a sessao ja esta FECHADA (D22d)
+     * @throws IllegalStateException             se a sessão já está FECHADA
      */
     @Transactional
     public void registrarSuprimento(UUID sessaoId, Money valor, String motivo) {
@@ -117,18 +116,18 @@ public class SessaoCaixaService {
     }
 
     /**
-     * Fechamento com conferencia (RF15): o operador conta o dinheiro da gaveta e o agregado apura a
-     * diferenca contra o que deveria estar la.
+     * Fechamento com conferência (RF15): o operador conta o dinheiro da gaveta e o agregado apura a
+     * diferença contra o que deveria estar lá.
      *
-     * <p><strong>Devolve a diferenca</strong> em vez de {@code void}, ao contrario da sangria e do
-     * suprimento: e literalmente a pergunta que se faz ao fechar o caixa — <em>bateu?</em> — e quem
-     * chama teria de consultar a sessao de novo so para mostra-la.
+     * <p><strong>Devolve a diferença</strong> em vez de {@code void}, ao contrário da sangria e do
+     * suprimento. Ela é literalmente a pergunta que se faz ao fechar o caixa, e quem chama teria de
+     * consultar a sessão de novo apenas para mostrá-la.
      *
-     * <p>Positivo e falta na gaveta, negativo e sobra (dicionario de dados §3).
+     * <p>Positivo é falta na gaveta, negativo é sobra.
      *
-     * @throws SessaoCaixaNaoEncontradaException se o id nao existe nesta conta
-     * @throws IllegalArgumentException          se {@code valorContado} e negativo (D23d)
-     * @throws IllegalStateException             se a sessao ja esta FECHADA (D23e)
+     * @throws SessaoCaixaNaoEncontradaException se o id não existe nesta conta
+     * @throws IllegalArgumentException          se {@code valorContado} é negativo
+     * @throws IllegalStateException             se a sessão já está FECHADA
      */
     @Transactional
     public Money fechar(UUID sessaoId, Money valorContado) {
@@ -144,19 +143,19 @@ public class SessaoCaixaService {
     }
 
     /**
-     * Historico de sessoes de um dia (RF16), de todos os operadores ou de um so.
+     * Histórico de sessões de um dia (RF16), de todos os operadores ou de um só.
      *
-     * <p><strong>O dia de uma sessao e o da abertura</strong> (D23a): o expediente aberto as 22h de
-     * segunda e fechado a 1h de terca e inteiro de segunda. E tambem a unica data que existe
-     * enquanto a sessao esta ABERTA, entao o caixa de hoje aparece aqui antes de qualquer
-     * fechamento — o que nao aconteceria se o corte fosse por {@code fechada_em}.
+     * <p><strong>O dia de uma sessão é o da abertura.</strong> O expediente aberto às 22h de segunda
+     * e fechado à 1h de terça é inteiro de segunda. É também a única data que existe enquanto a
+     * sessão está ABERTA, então o caixa de hoje aparece aqui antes de qualquer fechamento, o que não
+     * aconteceria se o corte fosse por {@code fechada_em}.
      *
-     * <p><strong>E aqui que a P6 sai do papel.</strong> A coluna esta gravada em UTC; o dia que o
-     * operador quer dizer e o do balcao, em {@code America/Bahia}. Sem essa conversao, toda sessao
-     * aberta depois das 21h cairia no dia seguinte — meio expediente no dia errado, sem nada
-     * denunciando o erro.
+     * <p><strong>É aqui que o fuso de referência sai do papel.</strong> A coluna está gravada em
+     * UTC, e o dia que o operador quer dizer é o do balcão. Sem essa conversão, toda sessão aberta
+     * depois das 21h cairia no dia seguinte: meio expediente no dia errado, sem nada denunciando o
+     * erro.
      *
-     * @param dia             o dia local do balcao, obrigatorio
+     * @param dia             o dia local do balcão, obrigatório
      * @param operadorOuNulo  o operador, ou {@code null} para o dia inteiro da conta
      */
     @Transactional(readOnly = true)
@@ -174,18 +173,18 @@ public class SessaoCaixaService {
     }
 
     /**
-     * Uma sessao no historico, <strong>sem os movimentos</strong> (D23c).
+     * Uma sessão no histórico, <strong>sem os movimentos</strong>.
      *
-     * <p>Aninhado no servico, como {@code ProdutoService.DadosDoProduto}: e o formato de resposta
-     * deste caso de uso e de mais nenhum.
+     * <p>Aninhado no serviço, como {@code ProdutoService.DadosDoProduto}, porque é o formato de
+     * resposta deste caso de uso e de mais nenhum.
      *
-     * <p>Nao e {@code SessaoCaixa} de proposito. O agregado carrega o extrato do expediente inteiro,
+     * <p>Não é {@code SessaoCaixa} de propósito. O agregado carrega o extrato do expediente inteiro,
      * e devolver uma lista deles para montar uma tabela de totais traria todo movimento de todo
-     * caixa do dia — que e exatamente o custo que o {@code EAGER} de {@code SessaoCaixaEntity}
-     * anunciou. Quem precisa do extrato de uma sessao carrega aquela sessao.
+     * caixa do dia, que é exatamente o custo anunciado pelo carregamento {@code EAGER} de
+     * {@code SessaoCaixaEntity}. Quem precisa do extrato de uma sessão carrega aquela sessão.
      *
-     * @param diferenca positivo e falta na gaveta, negativo e sobra; nulo enquanto ABERTA, junto com
-     *                  {@code valorFechamentoContado} e {@code fechadaEm}
+     * @param diferenca positivo é falta na gaveta, negativo é sobra; nulo enquanto ABERTA, junto
+     *                  com {@code valorFechamentoContado} e {@code fechadaEm}
      */
     public record ResumoDeSessao(UUID id, UUID usuarioId, Money valorAbertura,
             Money valorFechamentoEsperado, Money valorFechamentoContado, Money diferenca,
@@ -204,11 +203,11 @@ public class SessaoCaixaService {
     }
 
     /**
-     * A sessao de trabalho de um lancamento, sempre por id explicito.
+     * A sessão de trabalho de um lançamento, sempre por id explícito.
      *
-     * <p>Nao existe um <em>deduzir a sessao aberta do operador</em>: a deducao so funcionaria
-     * enquanto a D22a valesse, e ficaria muda no dia em que ela mudar. Pedir o id e uma linha a
-     * mais em quem chama e uma suposicao a menos aqui dentro.
+     * <p>Não existe um <em>deduzir a sessão aberta do operador</em>: a dedução só funcionaria
+     * enquanto valesse a regra de um caixa aberto por operador, e ficaria muda no dia em que ela
+     * mudar. Pedir o id é uma linha a mais em quem chama e uma suposição a menos aqui dentro.
      */
     private SessaoCaixaEntity buscar(UUID sessaoId) {
         Objects.requireNonNull(sessaoId, "id da sessao de caixa nao pode ser nulo");

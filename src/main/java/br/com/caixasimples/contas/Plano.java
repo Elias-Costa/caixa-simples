@@ -1,18 +1,18 @@
 package br.com.caixasimples.contas;
 
 /**
- * Plano contratado pela conta (escopo §10).
+ * Plano contratado pela conta.
  *
- * <p>Ordem crescente de abrangencia: cada plano inclui o anterior.
+ * <p>Ordem crescente de abrangência: cada plano inclui o anterior.
  */
 public enum Plano {
 
-    /** 1 usuario, sem emissao fiscal: cadastro + vendas + caixa basico. */
+    /** Um usuário, sem emissão fiscal: cadastro, vendas e caixa básico. */
     GRATIS,
 
-    /** Tudo do gratis + relatorios completos + suporte prioritario. */
+    /** Tudo do grátis, mais relatórios completos e suporte prioritário. */
     CAIXA_SIMPLES,
 
-    /** Tudo do Caixa Simples + NFC-e + estoque + multiusuario. */
+    /** Tudo do plano anterior, mais emissão fiscal, estoque e multiusuário. */
     COMPLETO
 }

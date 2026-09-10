@@ -12,7 +12,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * A regra do troco (RF10) e as guardas da solicitação de pagamento.
+ * A regra do troco (RF10), a do pagamento lançado à mão (RF26) e as guardas da solicitação de
+ * pagamento.
  *
  * <p>Teste de unidade puro, sem contexto Spring e sem banco: o troco é conta de domínio e não
  * depende de persistência para estar certo.
@@ -87,5 +88,40 @@ class ResultadoPagamentoTest {
         // estratégia de dinheiro, não a solicitação.
         assertThatNoException()
                 .isThrownBy(() -> SolicitacaoPagamento.de(FormaPagamento.PIX, Money.de("10.00")));
+    }
+
+    @Test
+    @DisplayName("pagamento lançado à mão nasce CONFIRMADO e sem troco")
+    void registradoAMaoNasceConfirmadoESemTroco() {
+        // Quem lança já viu o dinheiro entrar, seja a notificação de recebimento do Pix ou o
+        // comprovante da maquininha. Não há confirmação posterior a esperar.
+        ResultadoPagamento pix = ResultadoPagamento.registradoAMao(
+                SolicitacaoPagamento.de(FormaPagamento.PIX, Money.de("30.00")));
+        ResultadoPagamento cartao = ResultadoPagamento.registradoAMao(
+                SolicitacaoPagamento.de(FormaPagamento.CARTAO, Money.de("30.00")));
+
+        assertThat(pix.status()).isEqualTo(StatusPagamento.CONFIRMADO);
+        assertThat(pix.troco()).isEqualTo(Money.ZERO);
+        assertThat(cartao.status()).isEqualTo(StatusPagamento.CONFIRMADO);
+        assertThat(cartao.troco()).isEqualTo(Money.ZERO);
+    }
+
+    @Test
+    @DisplayName("forma que não devolve troco recusa o valor recebido em espécie")
+    void registradoAMaoRecusaValorRecebido() {
+        // Aceitar calado um campo que não produz efeito nenhum esconderia o engano de quem chamou.
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> ResultadoPagamento.registradoAMao(new SolicitacaoPagamento(
+                        FormaPagamento.CARTAO, Money.de("30.00"), Money.de("50.00"))));
+    }
+
+    @Test
+    @DisplayName("dinheiro não passa pelo caminho do lançamento à mão")
+    void registradoAMaoRecusaDinheiro() {
+        // Passar por aqui devolveria o pagamento confirmado sem conferir o que o cliente entregou,
+        // e sem calcular o troco que ele tem a receber.
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> ResultadoPagamento.registradoAMao(
+                        SolicitacaoPagamento.emDinheiro(Money.de("30.00"), Money.de("50.00"))));
     }
 }

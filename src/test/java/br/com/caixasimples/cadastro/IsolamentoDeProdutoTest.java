@@ -18,11 +18,11 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 /**
- * RNF05 para {@code produto} — o passo 6 da skill {@code nova-entidade-multitenant}, no molde de
- * {@code IsolamentoEntreContasTest}: grava na conta A, consulta como conta B, espera vazio.
+ * Isolamento entre contas para {@code produto} (RNF05), no mesmo molde de
+ * {@code IsolamentoEntreContasTest}: grava na conta A, consulta como conta B e espera vazio.
  *
- * <p>Em nenhuma linha abaixo existe {@code WHERE conta_id}. E o {@code @TenantId} do Hibernate que
- * filtra; se ele sair de {@code ProdutoEntity}, este teste quebra — que e exatamente o ponto dele.
+ * <p>Em nenhuma linha abaixo existe {@code WHERE conta_id}. É o {@code @TenantId} do Hibernate que
+ * filtra, e se ele sair de {@code ProdutoEntity} este teste quebra, que é exatamente o ponto dele.
  */
 class IsolamentoDeProdutoTest extends TesteDeIntegracao {
 
@@ -40,9 +40,9 @@ class IsolamentoDeProdutoTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("conta B nao enxerga produto da conta A por nenhum caminho de consulta")
+    @DisplayName("conta B não enxerga produto da conta A por nenhum caminho de consulta")
     void contaNaoEnxergaProdutoDeOutraConta() {
-        ContaCriada contaA = criador.criar("Cafeteria Piloto", SENHA_DE_TESTE);
+        ContaCriada contaA = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
         ContaCriada contaB = criador.criar("Salao Vizinho", SENHA_DE_TESTE);
 
         UUID produtoDaContaA = TenantContext.executarComo(contaA.contaId(), () ->
@@ -63,7 +63,7 @@ class IsolamentoDeProdutoTest extends TesteDeIntegracao {
                     .doesNotContain(produtoDaContaA);
         });
 
-        // E a conta A continua vendo o proprio dado — filtro nao pode ser "esconde de todos".
+        // E a conta A continua vendo o próprio dado: o filtro não pode ser esconder de todos.
         TenantContext.executarComo(contaA.contaId(), () -> {
             assertThat(produtos.findById(produtoDaContaA)).isPresent();
             assertThat(produtos.findAll())
@@ -73,12 +73,12 @@ class IsolamentoDeProdutoTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("contaId de um produto vem do contexto, nunca de parametro")
+    @DisplayName("contaId de um produto vem do contexto, nunca de parâmetro")
     void contaIdEPreenchidoPeloContextoDeTenant() {
         ContaCriada conta = criador.criar("Loja Teste", SENHA_DE_TESTE);
 
-        // Repare que nem o construtor de Produto nem o save recebem a conta: nao existe assinatura
-        // por onde um chamador pudesse informa-la (RNF05).
+        // Repare que nem o construtor de Produto nem o save recebem a conta: não existe assinatura
+        // por onde um chamador pudesse informá-la (RNF05).
         UUID produtoId = TenantContext.executarComo(conta.contaId(), () ->
                 produtos.save(ProdutoEntity.de(new Produto("Camiseta", Money.de("59.90"),
                         TipoProduto.PRODUTO, null, null, null, Map.of()))).getId());
@@ -113,7 +113,7 @@ class IsolamentoDeProdutoTest extends TesteDeIntegracao {
             assertThat(lido.getUnidade()).isEqualTo("hora");
             assertThat(lido.getAtributos()).containsEntry("duracao_minutos", 45);
             assertThat(lido.isAtivo()).isTrue();
-            // D16b — servico tambem tem saldo, e nasce zerado.
+            // Serviço também tem saldo de estoque, e ele nasce zerado.
             assertThat(lido.getEstoqueAtual()).isEqualByComparingTo("0");
         });
     }

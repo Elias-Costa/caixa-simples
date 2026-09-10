@@ -18,12 +18,12 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * Autenticacao ponta a ponta (RNF06) — etapa R01.
+ * Autenticação ponta a ponta (RNF06).
  *
- * <p>Cobre tambem o achado que motivou a tabela {@code credencial}: o login precisa encontrar
- * alguem <strong>antes</strong> de existir tenant no contexto. Se a busca fosse pelo
+ * <p>Cobre também o achado que motivou a tabela {@code credencial}: o login precisa encontrar
+ * alguém <strong>antes</strong> de existir tenant no contexto. Se a busca fosse pelo
  * {@code Usuario}, que tem {@code @TenantId}, ela rodaria sob o tenant sentinela e devolveria
- * vazio — nada aqui passaria.
+ * vazio, e nada aqui passaria.
  */
 class AutenticacaoTest extends TesteDeIntegracao {
 
@@ -41,7 +41,7 @@ class AutenticacaoTest extends TesteDeIntegracao {
     @Test
     @DisplayName("login com senha correta devolve token")
     void loginComSenhaCorreta() throws Exception {
-        ContaCriada conta = criador.criar("Cafeteria Piloto", SENHA_VALIDA);
+        ContaCriada conta = criador.criar("Cafeteria Aurora", SENHA_VALIDA);
 
         http.perform(login(conta.email(), SENHA_VALIDA))
                 .andExpect(status().isOk())
@@ -49,7 +49,7 @@ class AutenticacaoTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("senha errada, e-mail inexistente e usuario inativo respondem igual: 401")
+    @DisplayName("senha errada, e-mail inexistente e usuário inativo respondem igual: 401")
     void falhasDeLoginNaoSeDistinguem() throws Exception {
         ContaCriada conta = criador.criar("Loja Teste", SENHA_VALIDA);
         ContaCriada inativa = criador.criar("Loja Fechada", SENHA_VALIDA, Perfil.OPERADOR, false);
@@ -60,13 +60,13 @@ class AutenticacaoTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("requisicao sem token e recusada")
+    @DisplayName("requisição sem token é recusada")
     void semTokenNaoEntra() throws Exception {
         http.perform(get("/api/auth/eu")).andExpect(status().isUnauthorized());
     }
 
     @Test
-    @DisplayName("com token, o tenant do contexto vem do claim, nao do pedido")
+    @DisplayName("com token, o tenant do contexto vem do claim, não do pedido")
     void tenantVemDoToken() throws Exception {
         ContaCriada conta = criador.criar("Salao Teste", SENHA_VALIDA);
         String token = extrairToken(conta);

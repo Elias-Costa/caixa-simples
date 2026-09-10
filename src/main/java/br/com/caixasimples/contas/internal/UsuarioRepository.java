@@ -5,14 +5,14 @@ import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 /**
- * Repositorio da raiz de agregado {@code Usuario}.
+ * Repositório da raiz de agregado {@code Usuario}.
  *
- * <p>Toda consulta aqui e filtrada automaticamente por {@code conta_id} pelo {@code @TenantId} —
- * inclusive {@link #findAll()} e {@link #findById(Object)}. Nao escreva {@code WHERE conta_id}
- * a mao, e nao use query nativa: o filtro do Hibernate nao alcanca SQL nativo.
+ * <p>Toda consulta aqui é filtrada automaticamente por {@code conta_id} pelo {@code @TenantId},
+ * inclusive {@link #findAll()} e {@link #findById(Object)}. Não escreva {@code WHERE conta_id} à
+ * mão, e não use query nativa: o filtro do Hibernate não alcança SQL nativo.
  *
- * <p>Busca por e-mail nao mora aqui: e-mail e dado de {@link CredencialRepository}, consultado
- * antes de existir tenant (D14d).
+ * <p>Busca por e-mail não mora aqui, porque e-mail é dado de {@link CredencialRepository},
+ * consultado antes de existir tenant.
  */
 public interface UsuarioRepository extends JpaRepository<Usuario, UUID> {
 

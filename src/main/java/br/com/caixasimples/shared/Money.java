@@ -5,30 +5,31 @@ import java.math.RoundingMode;
 import java.util.Objects;
 
 /**
- * Valor monetario em reais, sempre com duas casas decimais.
+ * Valor monetário em reais, sempre com duas casas decimais.
  *
- * <p>Implementa a decisao <strong>P1</strong>: escala 2 com {@link RoundingMode#HALF_UP}, aplicado
- * <em>em cada item</em> — o total de uma venda e a soma de valores ja arredondados, para que cada
- * linha do comprovante feche com o total impresso.
+ * <p>A escala é 2 e o arredondamento é {@link RoundingMode#HALF_UP}, aplicado <em>em cada item</em>.
+ * O total de uma venda é a soma de valores já arredondados, para que cada linha do comprovante
+ * feche com o total impresso.
  *
- * <p><strong>O arredondamento e visivel no ponto de uso, de proposito.</strong> O construtor nao
- * arredonda: ele <em>recusa</em> um valor que nao esteja em duas casas. Quem tem uma fracao de
- * centavo de verdade nas maos — {@code 0,750 kg} a {@code R$ 39,90} da {@code R$ 29,925} — chama
- * {@link #arredondando(BigDecimal)}, cujo nome diz o que vai acontecer com o valor. Um construtor
- * que reescrevesse o numero em silencio esconderia exatamente a decisao que P1 tomou.
+ * <p><strong>O arredondamento é visível no ponto de uso, de propósito.</strong> O construtor não
+ * arredonda: ele <em>recusa</em> um valor que não esteja em duas casas. Quem tem uma fração de
+ * centavo de verdade nas mãos, como {@code 0,750 kg} a {@code R$ 39,90} dando {@code R$ 29,925},
+ * chama {@link #arredondando(BigDecimal)}, cujo nome diz o que vai acontecer com o valor. Um
+ * construtor que reescrevesse o número em silêncio esconderia justamente a decisão que este tipo
+ * existe para deixar visível.
  *
- * <p><strong>A aritmetica entra por uso, nunca por previsao.</strong> {@link #somar} e
- * {@link #subtrair} nasceram no R06, quando {@code SessaoCaixa.valorFechamentoEsperado} passou a
- * acompanhar os movimentos do caixa em tempo real (D21a) — antes disso o tipo so sabia nascer e se
- * comparar com zero. Multiplicacao continua fora: o primeiro uso real dela e quantidade vezes preco
- * unitario, no total da venda (R12).
+ * <p><strong>A aritmética entra por uso, nunca por previsão.</strong> {@link #somar} e
+ * {@link #subtrair} existem porque o saldo esperado da sessão de caixa acompanha os movimentos em
+ * tempo real, não porque um tipo monetário costuma ter as quatro operações. Multiplicação continua
+ * fora: ela entra quando houver o primeiro uso real, que é quantidade vezes preço unitário no
+ * total da venda.
  */
 public record Money(BigDecimal valor) {
 
-    /** P1 — duas casas, porque e o que existe em especie. */
+    /** Duas casas, porque é o que existe em espécie. */
     public static final int ESCALA = 2;
 
-    /** P1 — meio para cima; truncar geraria perda sistematica a favor do cliente. */
+    /** Meio para cima; truncar geraria perda sistemática a favor do cliente. */
     public static final RoundingMode ARREDONDAMENTO = RoundingMode.HALF_UP;
 
     public static final Money ZERO = Money.de("0.00");
@@ -44,26 +45,26 @@ public record Money(BigDecimal valor) {
     }
 
     /**
-     * Valor que ja e exato em centavos. Normaliza a escala ({@code 39.9} vira {@code 39.90}, o que
-     * importa porque {@code BigDecimal.equals} compara escala) e <strong>estoura</strong> se houver
-     * fracao de centavo — nesse caso o arredondamento seria uma decisao, e decisao nao se toma
-     * escondida num construtor.
+     * Valor que já é exato em centavos. Normaliza a escala, de modo que {@code 39.9} vira
+     * {@code 39.90}, o que importa porque {@code BigDecimal.equals} compara escala, e
+     * <strong>estoura</strong> se houver fração de centavo. Nesse caso o arredondamento seria uma
+     * decisão, e decisão não se toma escondida num construtor.
      *
-     * @throws ArithmeticException se {@code valor} tiver fracao de centavo
+     * @throws ArithmeticException se {@code valor} tiver fração de centavo
      */
     public static Money de(BigDecimal valor) {
         Objects.requireNonNull(valor, "valor nao pode ser nulo");
         return new Money(valor.setScale(ESCALA, RoundingMode.UNNECESSARY));
     }
 
-    /** Atalho para literal em codigo e em teste; mesmas regras de {@link #de(BigDecimal)}. */
+    /** Atalho para literal em código e em teste; mesmas regras de {@link #de(BigDecimal)}. */
     public static Money de(String valor) {
         return de(new BigDecimal(valor));
     }
 
     /**
-     * Arredonda para duas casas com HALF_UP (P1). E o unico ponto do sistema que arredonda dinheiro,
-     * e o nome existe para que a chamada denuncie isso na linha em que aparece.
+     * Arredonda para duas casas com {@link RoundingMode#HALF_UP}. É o único ponto do sistema que
+     * arredonda dinheiro, e o nome existe para que a chamada denuncie isso na linha em que aparece.
      */
     public static Money arredondando(BigDecimal valor) {
         Objects.requireNonNull(valor, "valor nao pode ser nulo");
@@ -71,8 +72,8 @@ public record Money(BigDecimal valor) {
     }
 
     /**
-     * Soma dois valores. Nao arredonda e nao precisa: dois numeros em duas casas somam em duas
-     * casas, entao o resultado passa direto pela mesma checagem de escala do construtor.
+     * Soma dois valores. Não arredonda e não precisa: dois números em duas casas somam em duas
+     * casas, então o resultado passa direto pela mesma checagem de escala do construtor.
      */
     public Money somar(Money outro) {
         Objects.requireNonNull(outro, "outro nao pode ser nulo");
@@ -80,13 +81,13 @@ public record Money(BigDecimal valor) {
     }
 
     /**
-     * Subtrai um valor de outro. Pelo mesmo motivo de {@link #somar}, nao arredonda.
+     * Subtrai um valor de outro. Pelo mesmo motivo de {@link #somar}, não arredonda.
      *
-     * <p><strong>Pode devolver negativo, e isso e permitido de proposito.</strong> Quem sabe se um
-     * saldo negativo faz sentido e o dominio que esta fazendo a conta — uma sangria maior que o
-     * dinheiro na gaveta e um problema do caixa, e um troco negativo e um problema da venda. Um
-     * tipo monetario que recusasse negativo obrigaria cada chamador a conferir antes de subtrair, e
-     * ainda esconderia o caso de borda em vez de deixa-lo aparecer onde ele importa.
+     * <p><strong>Pode devolver negativo, e isso é permitido de propósito.</strong> Quem sabe se um
+     * saldo negativo faz sentido é o domínio que está fazendo a conta: uma sangria maior que o
+     * dinheiro na gaveta é um problema do caixa, e um troco negativo é um problema da venda. Um
+     * tipo monetário que recusasse negativo obrigaria cada chamador a conferir antes de subtrair, e
+     * ainda esconderia o caso de borda em vez de deixá-lo aparecer onde ele importa.
      */
     public Money subtrair(Money outro) {
         Objects.requireNonNull(outro, "outro nao pode ser nulo");

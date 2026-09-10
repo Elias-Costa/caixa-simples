@@ -13,21 +13,21 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Casos de uso do cadastro de produto e servico: cadastrar (RF01, RF02), editar (RF04) e inativar
- * (RF05). Passo R03 do roteiro, etapa 1.1 do plano.
+ * Casos de uso do cadastro de produto e serviço: cadastrar (RF01, RF02), editar (RF04) e inativar
+ * (RF05).
  *
- * <p>Cada caso de uso e sempre a mesma sequencia — carrega a linha, deixa a raiz do agregado
- * decidir, grava o que ela decidiu. Nenhuma regra mora aqui: {@link Produto} e que sabe o que e
- * nome valido, preco valido e o que pode mudar depois do cadastro.
+ * <p>Cada caso de uso é sempre a mesma sequência: carrega a linha, deixa a raiz do agregado
+ * decidir, grava o que ela decidiu. Nenhuma regra mora aqui. É {@link Produto} que sabe o que é
+ * nome válido, preço válido e o que pode mudar depois do cadastro.
  *
- * <p><strong>Nao existe caso de uso de reativacao</strong> (D17b), nem de exclusao: RF05 e soft
- * delete, e {@code DELETE} nao aparece em lugar nenhum deste modulo.
+ * <p><strong>Não existe caso de uso de reativação</strong>, nem de exclusão: o RF05 é soft delete,
+ * e {@code DELETE} não aparece em lugar nenhum deste módulo.
  *
- * <p>O codigo duplicado nao e checado antes de gravar. Quem garante a unicidade da D11 e o indice
- * unico parcial da {@code V2}, provado em {@code CodigoDeProdutoTest}: uma consulta previa aqui
- * duplicaria a regra em dois lugares e ainda assim nao dispensaria o indice, porque duas
- * requisicoes simultaneas passariam pela checagem juntas. Traduzir a violacao numa mensagem
- * amigavel e trabalho da camada {@code web/}, que nasce depois.
+ * <p>O código duplicado não é checado antes de gravar. Quem garante a unicidade é o índice único
+ * parcial da migration V2, provado em {@code CodigoDeProdutoTest}. Uma consulta prévia aqui
+ * duplicaria a regra em dois lugares e ainda assim não dispensaria o índice, porque duas
+ * requisições simultâneas passariam pela checagem juntas. Traduzir a violação numa mensagem
+ * amigável é trabalho da camada {@code web/}.
  */
 @Service
 public class ProdutoService {
@@ -41,11 +41,12 @@ public class ProdutoService {
     /**
      * Cadastro de item novo (RF01, RF02).
      *
-     * <p><strong>{@code tipo} e parametro solto, e nao campo de {@link DadosDoProduto}</strong>:
-     * assim {@link #editar} nao recebe um tipo que teria de ser ignorado em silencio. A D17a fica
-     * visivel na assinatura, sem precisar de comentario no ponto de chamada.
+     * <p><strong>{@code tipo} é parâmetro solto, e não campo de {@link DadosDoProduto}</strong>,
+     * para que {@link #editar} não receba um tipo que teria de ser ignorado em silêncio. A regra de
+     * que o tipo é imutável depois do cadastro fica visível na assinatura, sem precisar de
+     * comentário no ponto de chamada.
      *
-     * @return o id do produto criado — gerado na aplicacao, nunca pelo banco (RNF01/RNF03)
+     * @return o id do produto criado, gerado na aplicação e nunca pelo banco (RNF01, RNF03)
      */
     @Transactional
     public UUID cadastrar(TipoProduto tipo, DadosDoProduto dados) {
@@ -58,11 +59,11 @@ public class ProdutoService {
     }
 
     /**
-     * Edicao do cadastro (RF04). Substitui todos os campos editaveis pelo que veio em
-     * {@code dados} — inclusive os atributos, que nao sao mesclados.
+     * Edição do cadastro (RF04). Substitui todos os campos editáveis pelo que veio em
+     * {@code dados}, inclusive os atributos, que não são mesclados.
      *
-     * @throws ProdutoNaoEncontradoException se o id nao existe nesta conta
-     * @throws IllegalStateException         se o produto ja foi inativado (D17c)
+     * @throws ProdutoNaoEncontradoException se o id não existe nesta conta
+     * @throws IllegalStateException         se o produto já foi inativado
      */
     @Transactional
     public void editar(UUID id, DadosDoProduto dados) {
@@ -79,12 +80,12 @@ public class ProdutoService {
     }
 
     /**
-     * Inativacao (RF05) — soft delete, nunca {@code DELETE}: o item some da listagem ativa e o
-     * registro fica, para o historico de vendas nao perder a referencia.
+     * Inativação (RF05): soft delete, nunca {@code DELETE}. O item some da listagem ativa e o
+     * registro fica, para o histórico de vendas não perder a referência.
      *
-     * <p>Idempotente (D17c): inativar de novo o que ja esta inativo nao estoura.
+     * <p>É idempotente: inativar de novo o que já está inativo não estoura.
      *
-     * @throws ProdutoNaoEncontradoException se o id nao existe nesta conta
+     * @throws ProdutoNaoEncontradoException se o id não existe nesta conta
      */
     @Transactional
     public void inativar(UUID id) {
@@ -97,7 +98,7 @@ public class ProdutoService {
         produtos.save(linha);
     }
 
-    /** Catalogo da conta. Produto inativado nao aparece aqui — e o efeito visivel do RF05. */
+    /** Catálogo da conta. Produto inativado não aparece aqui, que é o efeito visível do RF05. */
     @Transactional(readOnly = true)
     public List<Produto> listarAtivos() {
         return produtos.findByAtivoTrue().stream().map(ProdutoEntity::paraDominio).toList();
@@ -109,20 +110,20 @@ public class ProdutoService {
     }
 
     /**
-     * Os campos editaveis de um produto, na ordem em que uma tela de cadastro os apresenta.
+     * Os campos editáveis de um produto, na ordem em que uma tela de cadastro os apresenta.
      *
-     * <p>Nao tem {@code tipo} (D17a), nem {@code estoqueAtual} (so se move por
-     * {@code MovimentoEstoque}, R15), nem {@code ativo} (a inativacao e caso de uso proprio) — as
-     * tres ausencias sao deliberadas.
+     * <p>Não tem {@code tipo}, que é imutável depois do cadastro, nem {@code estoqueAtual}, que só
+     * se move por movimento de estoque, nem {@code ativo}, porque a inativação é caso de uso
+     * próprio. As três ausências são deliberadas.
      *
-     * <p>Aninhado no servico, como {@code CriadorDeContaDeTeste.ContaCriada}: um record de seis
-     * campos usado por um caso de uso so nao precisa de arquivo proprio.
+     * <p>Aninhado no serviço: um record de seis campos usado por um caso de uso só não precisa de
+     * arquivo próprio.
      *
-     * @param nome      obrigatorio
-     * @param preco     obrigatorio; zero e valido, negativo nao (D16c)
-     * @param codigo    opcional (D11)
-     * @param categoria opcional (D16a)
-     * @param unidade   opcional (D16a)
+     * @param nome      obrigatório
+     * @param preco     obrigatório; zero é válido, negativo não
+     * @param codigo    opcional
+     * @param categoria opcional
+     * @param unidade   opcional
      * @param atributos opcional; nulo vira mapa vazio (RF02)
      */
     public record DadosDoProduto(String nome, Money preco, String codigo, String categoria,

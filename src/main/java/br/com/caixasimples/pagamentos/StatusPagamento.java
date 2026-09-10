@@ -3,10 +3,10 @@ package br.com.caixasimples.pagamentos;
 /**
  * Em que ponto está a parcela de pagamento de uma venda.
  *
- * <p>O estado existe por causa do Pix, que é a única forma cuja confirmação chega depois, por
- * notificação do provedor. Dinheiro e cartão registrado à mão nascem <strong>CONFIRMADO</strong>:
- * quem registra já tem o dinheiro na gaveta ou o comprovante da maquininha na mão, e não há
- * segundo momento a esperar.
+ * <p><strong>PENDENTE</strong> existe por causa da cobrança de Pix gerada por um provedor, cuja
+ * confirmação chega depois, por notificação dele. Tudo o que o operador lança à mão nasce
+ * <strong>CONFIRMADO</strong>: dinheiro na gaveta, comprovante da maquininha ou notificação de Pix
+ * recebido já conferida na tela, e nenhum segundo momento a esperar.
  *
  * <p><strong>RECUSADO</strong> é desfecho vindo de fora, como um cartão negado pela operadora ou
  * uma cobrança Pix expirada. Erro de digitação não vira RECUSADO: valor recebido menor que a

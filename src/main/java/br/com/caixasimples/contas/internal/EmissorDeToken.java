@@ -13,16 +13,16 @@ import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.stereotype.Component;
 
 /**
- * Emite o token de acesso (decisao A4).
+ * Emite o token de acesso.
  *
- * <p>Vale 24 horas e nao ha refresh token. As 24 horas contam <strong>do ultimo contato com o
- * servidor</strong>, nao do login: toda resposta autenticada traz um token novo
- * ({@link RenovacaoDeTokenFilter}). Na pratica, a validade e a janela de resistencia offline
- * exigida pelo RNF01 — qualquer reconexao zera o contador, e o app so trava depois de 24h
- * ininterruptas sem rede.
+ * <p>A validade é configurável e não há refresh token. Ela conta <strong>do último contato com o
+ * servidor</strong>, e não do login, porque toda resposta autenticada traz um token novo, emitido
+ * por {@link RenovacaoDeTokenFilter}. Na prática, a validade é a janela de resistência offline
+ * exigida pelo RNF01: qualquer reconexão zera o contador, e o aplicativo só trava depois de uma
+ * janela inteira sem rede.
  *
- * <p>Custo aceito e registrado em A4: sem revogacao, um dispositivo furtado que continue online
- * renova o token indefinidamente.
+ * <p>Custo aceito e registrado: sem revogação, um dispositivo furtado que continue online renova o
+ * token indefinidamente.
  */
 @Component
 public class EmissorDeToken {

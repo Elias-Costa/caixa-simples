@@ -15,15 +15,15 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
- * Devolve um token novo de 24h em toda resposta autenticada (decisao A4).
+ * Devolve um token novo em toda resposta autenticada.
  *
- * <p>E o que faz a validade contar do <strong>ultimo contato com o servidor</strong> em vez do
- * login: qualquer requisicao bem-sucedida renova a janela. Sem isso, um negocio que ficasse mais de
- * 24h sem rede nao conseguiria nem abrir o app, o que contraria o RNF01 — que e Essencial e e um
- * dos dois diferenciais comerciais do produto (escopo §2).
+ * <p>É o que faz a validade contar do <strong>último contato com o servidor</strong> em vez do
+ * login: qualquer requisição bem-sucedida renova a janela. Sem isso, um negócio que ficasse mais
+ * tempo sem rede do que a validade do token não conseguiria nem abrir o aplicativo, o que
+ * contraria a exigência de operação offline (RNF01).
  *
- * <p>Nao e refresh token: e o mesmo token de acesso, reemitido. Renova em toda resposta, sem
- * limiar de idade — e a versao sem numero para explicar e sem configuracao para errar.
+ * <p>Não é refresh token: é o mesmo token de acesso, reemitido. Renova em toda resposta, sem
+ * limiar de idade, que é a versão sem número para explicar e sem configuração para errar.
  */
 @Component
 class RenovacaoDeTokenFilter extends OncePerRequestFilter {

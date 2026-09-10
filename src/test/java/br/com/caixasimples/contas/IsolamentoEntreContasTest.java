@@ -15,14 +15,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 /**
- * Etapa 0.9 do plano — RNF05, o requisito que nao admite grau.
+ * Isolamento entre contas (RNF05), o requisito que não admite grau.
  *
- * <p>Este teste e o molde para todo dado novo do sistema: grava na conta A, consulta como conta B,
- * espera vazio. E o passo 6 da skill {@code nova-entidade-multitenant}, e nenhuma entidade nova
- * fecha sem o equivalente dele.
+ * <p>Este teste é o molde para todo dado novo do sistema: grava na conta A, consulta como conta B e
+ * espera vazio. Nenhuma entidade nova fecha sem o equivalente dele.
  *
- * <p>Prova por construcao que o filtro e do Hibernate, nao do codigo: em nenhum ponto abaixo
- * existe {@code WHERE conta_id = ?}, e ainda assim a conta B nao ve nada da conta A.
+ * <p>Prova por construção que o filtro é do Hibernate e não do código: em nenhum ponto abaixo
+ * existe {@code WHERE conta_id = ?}, e ainda assim a conta B não vê nada da conta A.
  */
 class IsolamentoEntreContasTest extends TesteDeIntegracao {
 
@@ -43,9 +42,9 @@ class IsolamentoEntreContasTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("conta B nao enxerga usuario da conta A por nenhum caminho de consulta")
+    @DisplayName("conta B não enxerga usuário da conta A por nenhum caminho de consulta")
     void contaNaoEnxergaUsuarioDeOutraConta() {
-        ContaCriada contaA = criador.criar("Cafeteria Piloto", SENHA_DE_TESTE);
+        ContaCriada contaA = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
         ContaCriada contaB = criador.criar("Salao Vizinho", SENHA_DE_TESTE);
 
         TenantContext.executarComo(contaB.contaId(), () -> {
@@ -62,7 +61,7 @@ class IsolamentoEntreContasTest extends TesteDeIntegracao {
                     .doesNotContain(contaA.usuarioId());
         });
 
-        // E a conta A continua vendo o proprio dado — filtro nao pode ser "esconde de todos".
+        // E a conta A continua vendo o próprio dado: o filtro não pode ser esconder de todos.
         TenantContext.executarComo(contaA.contaId(), () -> {
             assertThat(usuarios.findById(contaA.usuarioId())).isPresent();
             assertThat(usuarios.findAll())
@@ -72,7 +71,7 @@ class IsolamentoEntreContasTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("contaId de um usuario vem do contexto, nunca de parametro")
+    @DisplayName("contaId de um usuário vem do contexto, nunca de parâmetro")
     void contaIdEPreenchidoPeloContextoDeTenant() {
         ContaCriada conta = criador.criar("Loja Teste", SENHA_DE_TESTE);
 
@@ -84,13 +83,13 @@ class IsolamentoEntreContasTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("credencial e consultavel sem tenant e resolve para a conta certa")
+    @DisplayName("credencial é consultável sem tenant e resolve para a conta certa")
     void credencialResolveAContaSemTenantNoContexto() {
         ContaCriada contaA = criador.criar("Negocio A", SENHA_DE_TESTE);
         ContaCriada contaB = criador.criar("Negocio B", SENHA_DE_TESTE);
 
-        // Sem nenhum tenant no contexto — e exatamente a situacao do login, e o motivo de a
-        // credencial nao ter @TenantId (D9).
+        // Sem nenhum tenant no contexto, que é exatamente a situação do login, e o motivo de a
+        // credencial não ter a anotação de tenant.
         assertThat(TenantContext.atual()).isEmpty();
 
         assertThat(credenciais.findByEmailIgnoreCase(contaA.email()))

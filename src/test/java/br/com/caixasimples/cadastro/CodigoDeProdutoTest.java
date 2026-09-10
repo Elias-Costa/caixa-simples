@@ -20,9 +20,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 
 /**
- * D11 — codigo do produto (RF06). O indice unico e <strong>parcial</strong> e sobre
- * {@code lower(codigo)}, entao tem tres comportamentos que so o banco garante e que este teste
- * fixa: caixa nao distingue, a unicidade e por conta, e produto inativo nao ocupa codigo.
+ * O código do produto, usado na busca durante a venda (RF06). O índice único é
+ * <strong>parcial</strong> e sobre {@code lower(codigo)}, então tem três comportamentos que só o
+ * banco garante e que este teste fixa: caixa não distingue, a unicidade é por conta, e produto
+ * inativo não ocupa código.
  */
 class CodigoDeProdutoTest extends TesteDeIntegracao {
 
@@ -45,21 +46,21 @@ class CodigoDeProdutoTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("ABC-12 e abc-12 sao o mesmo codigo dentro da conta")
+    @DisplayName("ABC-12 e abc-12 são o mesmo código dentro da conta")
     void codigoNaoDistingueCaixa() {
         ContaCriada conta = criador.criar("Loja com Codigo", SENHA_DE_TESTE);
 
         TenantContext.executarComo(conta.contaId(), () ->
                 produtos.save(ProdutoEntity.de(comCodigo("Primeiro", "ABC-12"))));
 
-        // O operador digita rapido no balcao; a venda nao pode depender de maiuscula.
+        // O operador digita rápido no balcão; a venda não pode depender de maiúscula.
         assertThatExceptionOfType(DataIntegrityViolationException.class).isThrownBy(() ->
                 TenantContext.executarComo(conta.contaId(), () ->
                         produtos.save(ProdutoEntity.de(comCodigo("Segundo", "abc-12")))));
     }
 
     @Test
-    @DisplayName("a unicidade e por conta, nunca global")
+    @DisplayName("a unicidade é por conta, nunca global")
     void contasDiferentesPodemUsarOMesmoCodigo() {
         ContaCriada contaA = criador.criar("Negocio A", SENHA_DE_TESTE);
         ContaCriada contaB = criador.criar("Negocio B", SENHA_DE_TESTE);
@@ -73,12 +74,13 @@ class CodigoDeProdutoTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("produto inativo nao ocupa codigo — o numero pode ser reaproveitado")
+    @DisplayName("produto inativo não ocupa código, e o número pode ser reaproveitado")
     void inativoLiberaOCodigo() {
         ContaCriada conta = criador.criar("Loja que Renova Catalogo", SENHA_DE_TESTE);
 
-        // O soft delete mantem o registro para sempre; unicidade global "queimaria" um codigo a
-        // cada item que sai de linha, o que e inviavel em catalogo pequeno.
+        // O soft delete mantém o registro para sempre; uma unicidade que valesse também entre os
+        // inativos queimaria um código a cada item que sai de linha, o que é inviável em catálogo
+        // pequeno.
         TenantContext.executarComo(conta.contaId(), () -> {
             Produto saiuDeLinha = comCodigo("Modelo antigo", "REF-9");
             saiuDeLinha.inativar();
@@ -93,22 +95,22 @@ class CodigoDeProdutoTest extends TesteDeIntegracao {
 
         TenantContext.executarComo(conta.contaId(), () ->
                 assertThat(produtos.findByAtivoTrue())
-                        .as("so o modelo novo esta ativo com o codigo REF-9")
+                        .as("só o modelo novo está ativo com o código REF-9")
                         .hasSize(1));
     }
 
     @Test
-    @DisplayName("codigo e opcional: varios produtos sem codigo convivem")
+    @DisplayName("código é opcional: vários produtos sem código convivem")
     void codigoEhOpcional() {
         ContaCriada conta = criador.criar("Salao sem Codigo", SENHA_DE_TESTE);
 
-        // No Postgres um indice unico aceita varios NULL, entao isso funciona sem caso especial —
-        // e cobre tambem o produto vindo do catalogo inicial do RF32, que nasce sem codigo.
+        // No Postgres um índice único aceita vários nulos, então isso funciona sem caso especial, e
+        // cobre também o produto vindo do catálogo inicial, que nasce sem código.
         assertThatNoException().isThrownBy(() ->
                 TenantContext.executarComo(conta.contaId(), () -> {
                     produtos.save(ProdutoEntity.de(comCodigo("Corte", null)));
                     produtos.save(ProdutoEntity.de(comCodigo("Escova", null)));
-                    // Texto em branco vira ausencia, e nao um codigo vazio disputando o indice.
+                    // Texto em branco vira ausência, e não um código vazio disputando o índice.
                     return produtos.save(ProdutoEntity.de(comCodigo("Hidratacao", "   ")));
                 }));
 

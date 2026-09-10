@@ -11,16 +11,16 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
- * Substituicoes que valem para toda a suite de integracao.
+ * Substituições que valem para toda a suíte de integração.
  */
 @TestConfiguration(proxyBeanMethods = false)
 public class ConfiguracaoDeTeste {
 
     /**
-     * Tira o cliente do Have I Been Pwned do caminho: a suite nao toca a rede.
+     * Tira o cliente do Have I Been Pwned do caminho, porque a suíte não toca a rede.
      *
-     * <p>O adapter real continua no contexto, mas nunca e injetado — {@code @Primary} resolve para
-     * o falso. O comportamento real dele fica coberto por teste de unidade proprio.
+     * <p>O adapter real continua no contexto, mas nunca é injetado, já que {@code @Primary} resolve
+     * para o falso. O comportamento real dele fica coberto por teste de unidade próprio.
      */
     @Bean
     @Primary
@@ -28,7 +28,7 @@ public class ConfiguracaoDeTeste {
         return new VerificadorDeSenhaVazadaFalso();
     }
 
-    /** Fixture compartilhada; declarada aqui em vez de descoberta por varredura. */
+    /** Fixture compartilhada, declarada aqui em vez de descoberta por varredura. */
     @Bean
     CriadorDeContaDeTeste criadorDeContaDeTeste(ContaRepository contas, UsuarioRepository usuarios,
             CredencialRepository credenciais, PasswordEncoder encoder) {

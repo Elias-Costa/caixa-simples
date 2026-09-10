@@ -14,14 +14,15 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
- * Le a conta do claim do token autenticado e a coloca no {@link TenantContext}.
+ * Lê a conta do claim do token autenticado e a coloca no {@link TenantContext}.
  *
- * <p>Este e o unico ponto do sistema onde o tenant entra em cena numa requisicao. O
- * {@code contaId} vem <strong>do token</strong> — nunca de corpo, path, query ou header, o que
- * seria IDOR direto (RNF05, regra em {@code .claude/rules/multi-tenancy.md}).
+ * <p>Este é o único ponto do sistema onde o tenant entra em cena numa requisição. O
+ * {@code contaId} vem <strong>do token</strong>, nunca de corpo, path, query ou header, porque
+ * qualquer um desses seria um valor que o cliente pode forjar para alcançar dado de outra conta
+ * (RNF05).
  *
- * <p>Roda depois da autenticacao do Spring Security e sempre limpa o contexto no {@code finally}:
- * thread reaproveitada nao pode herdar o tenant da requisicao anterior.
+ * <p>Roda depois da autenticação do Spring Security e sempre limpa o contexto no {@code finally},
+ * porque thread reaproveitada não pode herdar o tenant da requisição anterior.
  */
 @Component
 class TenantDoTokenFilter extends OncePerRequestFilter {

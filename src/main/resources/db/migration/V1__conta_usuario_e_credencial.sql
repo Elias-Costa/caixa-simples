@@ -1,21 +1,20 @@
--- Etapas 0.7 e 0.8 do plano de implementacao: fundacao de tenancy e autenticacao.
+-- Fundação de multi-tenancy e autenticação: conta, usuário e credencial.
 --
--- Dicionario de dados: modelo-dados-caixa-simples.md §3.
--- Convencoes obrigatorias (rules/persistencia-e-migrations.md e decisions.md D12):
---   * chave primaria uuid gerada na aplicacao, nunca sequencia — permite criar registro offline
---     com identidade definitiva antes de qualquer sincronizacao (RNF01/RNF03);
+-- Convenções que valem para toda tabela deste schema:
+--   * chave primária uuid gerada na aplicação, nunca sequência, o que permite criar registro
+--     offline com identidade definitiva antes de qualquer sincronização (RNF01/RNF03);
 --   * soft delete via `ativo`, nunca DELETE;
---   * nome de tabela e coluna em snake_case, em portugues, iguais aos do dicionario;
---   * indice em conta_id em toda tabela de negocio — todo acesso passa pelo filtro de tenant;
---   * texto curto varchar(60), texto medio varchar(120), dinheiro numeric(12,2), quantidade
---     numeric(12,3). Excecoes: email varchar(180) e senha_hash varchar(100).
+--   * nome de tabela e de coluna em snake_case, em português;
+--   * índice em conta_id em toda tabela de negócio, já que todo acesso passa pelo filtro de tenant;
+--   * texto curto varchar(60), texto médio varchar(120), dinheiro numeric(12,2), quantidade
+--     numeric(12,3). Exceções: email varchar(180) e senha_hash varchar(100).
 --
--- Enums ficam como VARCHAR + CHECK, nao como tipo ENUM do Postgres (P5): adicionar valor a um tipo
--- ENUM exige ALTER TYPE fora de transacao, o que atrapalha migration e rollback. O
+-- Enums ficam como VARCHAR + CHECK, não como tipo ENUM do Postgres: acrescentar valor a um tipo
+-- ENUM exige ALTER TYPE fora de transação, o que atrapalha migration e rollback. O
 -- @Enumerated(STRING) do Hibernate mapeia direto para texto.
 
--- A conta e o tenant: o `id` dela e o proprio conta_id das outras tabelas, por isso esta e a unica
--- raiz de agregado sem coluna conta_id (e sem @TenantId).
+-- A conta é o tenant: o `id` dela é o próprio conta_id das outras tabelas, e por isso esta é a
+-- única raiz de agregado sem coluna conta_id, e sem @TenantId.
 CREATE TABLE conta (
     id                  uuid        PRIMARY KEY,
     nome_negocio        varchar(120) NOT NULL,
@@ -25,21 +24,21 @@ CREATE TABLE conta (
     criado_em           timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT conta_plano_valido
         CHECK (plano IN ('GRATIS', 'CAIXA_SIMPLES', 'COMPLETO')),
-    -- O uuid zerado e o tenant sentinela de TenantContext.SEM_TENANT, usado quando nao ha conta no
-    -- contexto. Nenhuma conta real pode ocupa-lo: e o que garante que uma escrita sem tenant seja
-    -- rejeitada pela foreign key de usuario.conta_id em vez de gravar dado orfao.
+    -- O uuid zerado é o tenant sentinela de TenantContext.SEM_TENANT, usado quando não há conta no
+    -- contexto. Nenhuma conta real pode ocupá-lo: é o que garante que uma escrita sem tenant seja
+    -- rejeitada pela foreign key de usuario.conta_id em vez de gravar dado órfão.
     CONSTRAINT conta_id_nao_reservado
         CHECK (id <> '00000000-0000-0000-0000-000000000000'::uuid)
 );
 
-COMMENT ON TABLE  conta IS 'Negocio contratante (tenant). Nao confundir com conta a pagar/receber.';
+COMMENT ON TABLE  conta IS 'Negócio contratante (tenant). Não confundir com conta a pagar ou receber.';
 COMMENT ON COLUMN conta.tipo_negocio IS
-    'Casa com modelo_produto.tipo_negocio para sugerir o catalogo inicial (RF32). Nulo = comeca em branco.';
+    'Casa com modelo_produto.tipo_negocio para sugerir o catálogo inicial (RF32). Nulo começa em branco.';
 COMMENT ON COLUMN conta.estoque_habilitado IS
-    'RF17 — negocio de servico (salao, oficina) opera com o modulo de estoque desligado. Nasce falso (P4).';
+    'RF17: negócio de serviço (salão, oficina) opera com o módulo de estoque desligado. Nasce falso.';
 
--- Quem acessa o sistema dentro de uma conta. Nao guarda dado de autenticacao: e-mail e senha vivem
--- em `credencial` (D14d), entao esta entidade — que tem @TenantId — nao carrega segredo.
+-- Quem acessa o sistema dentro de uma conta. Não guarda dado de autenticação: e-mail e senha vivem
+-- em `credencial`, então esta entidade, que tem @TenantId, não carrega segredo.
 CREATE TABLE usuario (
     id          uuid         PRIMARY KEY,
     conta_id    uuid         NOT NULL REFERENCES conta (id),
@@ -51,21 +50,21 @@ CREATE TABLE usuario (
         CHECK (perfil IN ('ADMIN', 'OPERADOR'))
 );
 
--- Todo acesso a usuario passa pelo filtro de @TenantId; o indice sustenta esse filtro.
+-- Todo acesso a usuário passa pelo filtro de @TenantId; o índice sustenta esse filtro.
 CREATE INDEX idx_usuario_conta ON usuario (conta_id);
 
 COMMENT ON COLUMN usuario.perfil IS
-    'RF29/RF30 — OPERADOR nao ve relatorio consolidado nem configuracao da conta.';
+    'RF29/RF30: OPERADOR não vê relatório consolidado nem configuração da conta.';
 
--- Ponto de entrada do login (D9).
+-- Ponto de entrada do login.
 --
--- Esta tabela NAO tem @TenantId, e isso e o ponto dela: no login ainda nao existe tenant no
--- contexto, entao uma busca filtrada por conta devolveria vazio e a autenticacao nunca funcionaria.
+-- Esta tabela NÃO tem @TenantId, e isso é o ponto dela: no login ainda não existe tenant no
+-- contexto, então uma busca filtrada por conta devolveria vazio e a autenticação nunca funcionaria.
 --
--- Atencao a leitura da coluna `conta_id` aqui: ela e DADO, nao discriminador de tenant. E
--- justamente o que o login precisa descobrir para so entao resolver o resto sob filtro normal.
--- Esta e a terceira e ultima tabela do sistema fora do filtro, junto de `conta` e `modelo_produto`
--- (ver .claude/rules/multi-tenancy.md).
+-- Atenção à leitura da coluna `conta_id` aqui: ela é DADO, não discriminador de tenant. É
+-- justamente o valor que o login precisa descobrir para só então resolver o resto sob filtro
+-- normal. Esta é a terceira e última tabela do sistema fora do filtro, junto de `conta` e
+-- `modelo_produto`, e nenhuma outra entra nessa lista.
 CREATE TABLE credencial (
     id          uuid         PRIMARY KEY,
     email       varchar(180) NOT NULL,
@@ -75,15 +74,15 @@ CREATE TABLE credencial (
     criado_em   timestamptz  NOT NULL DEFAULT now()
 );
 
--- Um e-mail pertence a exatamente uma conta (P3), entao o unico e global, nao por conta. E o que
--- permite o login resolver e-mail -> conta sem tela intermediaria de escolha.
+-- Um e-mail pertence a exatamente uma conta, então o índice único é global e não por conta. É o
+-- que permite o login resolver e-mail para conta sem tela intermediária de escolha.
 CREATE UNIQUE INDEX idx_credencial_email ON credencial (lower(email));
 
--- Um login por usuario.
+-- Um login por usuário.
 CREATE UNIQUE INDEX idx_credencial_usuario ON credencial (usuario_id);
 
 COMMENT ON TABLE  credencial IS
-    'Login: mapeia e-mail para usuario e conta. Sem @TenantId — e consultada antes de existir tenant.';
+    'Login: mapeia e-mail para usuário e conta. Sem @TenantId, por ser consultada antes de existir tenant.';
 COMMENT ON COLUMN credencial.senha_hash IS 'BCrypt. Nunca a senha em texto puro.';
 COMMENT ON COLUMN credencial.conta_id   IS
-    'Dado, nao discriminador de tenant: e o valor que o login descobre para popular o TenantContext.';
+    'Dado, não discriminador de tenant: é o valor que o login descobre para popular o TenantContext.';

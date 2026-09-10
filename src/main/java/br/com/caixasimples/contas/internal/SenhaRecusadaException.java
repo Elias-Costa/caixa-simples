@@ -1,10 +1,10 @@
 package br.com.caixasimples.contas.internal;
 
 /**
- * Senha rejeitada ao ser definida: curta demais, vazada, ou impossivel de verificar.
+ * Senha rejeitada ao ser definida: curta demais, vazada, ou impossível de verificar.
  *
- * <p>Nunca e lancada no login — la a resposta e sempre a mesma, independente do motivo, para nao
- * revelar se o e-mail existe.
+ * <p>Nunca é lançada no login. Lá a resposta é sempre a mesma, independentemente do motivo, para
+ * não revelar se o e-mail existe.
  */
 public class SenhaRecusadaException extends RuntimeException {
 

@@ -7,10 +7,10 @@ package br.com.caixasimples.pagamentos;
  * a venda: metade em dinheiro e metade no cartão são dois pagamentos da mesma venda, cada um com o
  * seu valor.
  *
- * <p>Os três valores existem desde já, mesmo antes de haver uma implementação para cada um. Pedir
- * uma forma que ainda não tem estratégia estoura em {@code PaymentService}, e essa falha alta é
- * preferível a um enum que cresce junto com o código: o vocabulário do domínio não depende de
- * quanto dele já foi implementado.
+ * <p>Este é o vocabulário do domínio e não depende de quanto dele já foi implementado: um valor
+ * existe aqui porque o negócio o reconhece, não porque haja uma estratégia atendendo-o. Pedir uma
+ * forma sem estratégia registrada estoura em {@code PaymentService}, e essa falha alta é preferível
+ * a confundir forma não implementada com pagamento recusado pela operadora.
  *
  * <p>Fica na raiz do módulo, como {@code cadastro.TipoProduto} e {@code caixa.StatusSessaoCaixa},
  * porque é vocabulário que o módulo de vendas precisa nomear ao registrar um pagamento.

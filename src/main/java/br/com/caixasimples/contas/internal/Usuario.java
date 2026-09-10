@@ -14,15 +14,16 @@ import java.util.UUID;
 import org.hibernate.annotations.TenantId;
 
 /**
- * Pessoa que acessa o sistema, sempre dentro de uma conta. Agregado de uma entidade so.
+ * Pessoa que acessa o sistema, sempre dentro de uma conta. Agregado de uma entidade só.
  *
- * <p>{@code contaId} e preenchido pelo Hibernate a partir do {@code CurrentTenantIdentifierResolver}
- * — nao ha construtor que o receba, de proposito: {@code contaId} nunca vem de fora da aplicacao
- * (RNF05). O filtro em toda leitura tambem e automatico, via {@link TenantId}.
+ * <p>{@code contaId} é preenchido pelo Hibernate a partir do
+ * {@code CurrentTenantIdentifierResolver}, e não há construtor que o receba, de propósito, porque
+ * {@code contaId} nunca vem de fora da aplicação (RNF05). O filtro em toda leitura também é
+ * automático, via {@link TenantId}.
  *
- * <p><strong>Nao guarda dado de autenticacao.</strong> E-mail e hash de senha vivem em
- * {@link Credencial} (decisao D14d): assim a entidade que carrega {@code @TenantId} nao carrega
- * segredo, e o e-mail tem uma casa so.
+ * <p><strong>Não guarda dado de autenticação.</strong> E-mail e hash de senha vivem em
+ * {@link Credencial}, de modo que a entidade que carrega {@code @TenantId} não carrega segredo, e o
+ * e-mail tem uma casa só.
  */
 @Entity
 @Table(name = "usuario")
@@ -42,7 +43,7 @@ public class Usuario {
     @Column(nullable = false)
     private Perfil perfil;
 
-    /** Soft delete — preserva o historico de vendas do operador. */
+    /** Soft delete: preserva o histórico de vendas do operador. */
     @Column(nullable = false)
     private boolean ativo;
 

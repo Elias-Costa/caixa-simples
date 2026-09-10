@@ -11,21 +11,21 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Produto ou servico do catalogo de uma conta. Raiz do agregado Produto (modelo de dados §4), com
- * {@code MovimentoEstoque} como membro a partir da etapa 1.7.
+ * Produto ou serviço do catálogo de uma conta. Raiz do agregado Produto, que terá
+ * {@code MovimentoEstoque} como membro quando o controle de estoque existir.
  *
- * <p><strong>Nao importa framework</strong> — nem {@code jakarta.persistence}, nem
- * {@code org.springframework} (arquitetura §2). O mapeamento para o banco vive em
+ * <p><strong>Não importa framework</strong>, nem {@code jakarta.persistence} nem
+ * {@code org.springframework}. O mapeamento para o banco vive em
  * {@code cadastro.internal.ProdutoEntity}.
  *
- * <p><strong>Nao carrega {@code contaId}, e isso e deliberado.</strong> O tenant e preenchido pelo
- * Hibernate na entidade, via {@code @TenantId}, a partir do contexto da requisicao. Deixando a
- * conta fora do dominio, nao existe assinatura em que um chamador possa informa-la — que e
- * literalmente o que RNF05 proibe. Ver {@code .claude/rules/multi-tenancy.md}.
+ * <p><strong>Não carrega {@code contaId}, e isso é deliberado.</strong> O tenant é preenchido pelo
+ * Hibernate na entidade, via {@code @TenantId}, a partir do contexto da requisição. Deixando a
+ * conta fora do domínio, não existe assinatura em que um chamador possa informá-la, que é
+ * literalmente o que o isolamento entre contas proíbe (RNF05).
  *
- * <p>Por que estrutura completa aqui e slice simples em {@code Conta}/{@code Usuario}: a P7
- * reservou {@code domain/} a {@code Venda}, {@code SessaoCaixa} e {@code Produto}, que tem
- * invariante de verdade a proteger.
+ * <p>Por que estrutura completa aqui e vertical slice em {@code Cliente}: a camada {@code domain/}
+ * é reservada às raízes que têm invariante de verdade a proteger. Onde não há invariante, ela seria
+ * cerimônia.
  */
 public class Produto {
 
@@ -40,13 +40,14 @@ public class Produto {
     private TipoProduto tipo;
 
     /**
-     * Saldo consolidado, nunca somado do historico a cada leitura (RF20). Quem o move e o
-     * {@code MovimentoEstoque} da etapa 1.7, na mesma transacao — ate la ele so nasce em zero.
+     * Saldo consolidado, nunca somado do histórico a cada leitura, que é o que mantém barato o
+     * alerta de estoque baixo (RF20). Quem o move é o movimento de estoque, na mesma transação.
+     * Enquanto esse movimento não existir, ele apenas nasce em zero.
      *
-     * <p>D16b: existe tambem em SERVICO, que simplesmente nunca recebe movimento. Uma coluna sempre
-     * preenchida evita null em todo leitor; o custo e que um servico aparece com saldo zero, entao
-     * o alerta do RF20 filtra por {@link TipoProduto} — como ja vai filtrar por conta com estoque
-     * habilitado (P4).
+     * <p>Existe também em SERVICO, que simplesmente nunca recebe movimento. Uma coluna sempre
+     * preenchida evita nulo em todo leitor; o custo é que um serviço aparece com saldo zero, então
+     * o alerta filtra por {@link TipoProduto}, do mesmo modo que já vai filtrar pelas contas com
+     * estoque habilitado.
      */
     private BigDecimal estoqueAtual;
 
@@ -54,16 +55,16 @@ public class Produto {
     private boolean ativo;
 
     /**
-     * Cadastro de um item novo (RF01/RF02).
+     * Cadastro de um item novo (RF01, RF02).
      *
-     * @param nome      obrigatorio
-     * @param preco     obrigatorio; zero e valido, negativo nao (D16c)
-     * @param tipo      obrigatorio
-     * @param codigo    opcional (D11); espacos nas pontas somem e texto em branco vira ausencia
-     * @param categoria opcional (D16a)
-     * @param unidade   opcional (D16a) — ex.: {@code un}, {@code kg}, {@code hora}
-     * @param atributos opcional; nulo vira mapa vazio, porque ausencia de atributo especifico nao
-     *                  e um caso a tratar em quem le (RF02)
+     * @param nome      obrigatório
+     * @param preco     obrigatório; zero é válido, negativo não
+     * @param tipo      obrigatório
+     * @param codigo    opcional; espaços nas pontas somem e texto em branco vira ausência
+     * @param categoria opcional
+     * @param unidade   opcional, por exemplo {@code un}, {@code kg} ou {@code hora}
+     * @param atributos opcional; nulo vira mapa vazio, porque ausência de atributo específico não
+     *                  é um caso a tratar em quem lê (RF02)
      */
     public Produto(String nome, Money preco, TipoProduto tipo, String codigo, String categoria,
             String unidade, Map<String, Object> atributos) {
@@ -97,11 +98,11 @@ public class Produto {
     }
 
     /**
-     * Remonta um produto que ja existe no banco, preservando identidade e estado.
+     * Remonta um produto que já existe no banco, preservando identidade e estado.
      *
-     * <p>Existe so para {@code ProdutoEntity} — nao e caminho de cadastro. Por isso nao revalida:
-     * o que esta gravado ja passou pelo construtor publico e pelos CHECK da migration; recusar
-     * aqui deixaria uma linha existente impossivel de ler.
+     * <p>Existe apenas para {@code ProdutoEntity}, e não é caminho de cadastro. Por isso não
+     * revalida: o que está gravado já passou pelo construtor público e pelos CHECK da migration, e
+     * recusar aqui deixaria uma linha existente impossível de ler.
      */
     public static Produto reconstituir(UUID id, Instant criadoEm, String nome, Money preco,
             TipoProduto tipo, String codigo, String categoria, String unidade,
@@ -111,23 +112,22 @@ public class Produto {
     }
 
     /**
-     * Aplica uma edicao do cadastro (RF04). As regras sao as mesmas do construtor, e de proposito:
-     * o que nao entra num produto novo tambem nao entra num produto editado.
+     * Aplica uma edição do cadastro (RF04). As regras são as mesmas do construtor, e de propósito:
+     * o que não entra num produto novo também não entra num produto editado.
      *
-     * <p>Os atributos sao <strong>substituidos por inteiro</strong>, nunca mesclados — a edicao
-     * descreve o produto como ele fica, e nao um delta sobre o que estava la.
+     * <p>Os atributos são <strong>substituídos por inteiro</strong>, nunca mesclados, porque a
+     * edição descreve o produto como ele fica, e não um delta sobre o que estava lá.
      *
-     * <p><strong>Nao recebe {@code tipo}, e a ausencia e que e a decisao</strong>
-     * (D17a): o tipo decide se o item participa de estoque, entao troca-lo depois deixaria
-     * {@code MovimentoEstoque} orfao num item que virou SERVICO — ou um SERVICO com saldo. Errou o
-     * tipo no cadastro? {@link #inativar()} e recadastre; o historico de vendas do item antigo
-     * continua de pe.
+     * <p><strong>Não recebe {@code tipo}, e a ausência é que é a decisão.</strong> O tipo decide se
+     * o item participa de estoque, então trocá-lo depois deixaria um movimento de estoque órfão num
+     * item que virou SERVICO, ou um SERVICO com saldo. Errou o tipo no cadastro? Use
+     * {@link #inativar()} e recadastre; o histórico de vendas do item antigo continua de pé.
      *
-     * <p>Nao recebe {@code estoqueAtual} pelo mesmo tipo de motivo: saldo so se move por
-     * {@code MovimentoEstoque} (R15), nunca por edicao de cadastro.
+     * <p>Não recebe {@code estoqueAtual} pelo mesmo tipo de motivo: saldo só se move por movimento
+     * de estoque, nunca por edição de cadastro.
      *
-     * @throws IllegalStateException se o produto ja foi inativado (D17c) — sem reativacao, editar
-     *                               um registro que ninguem mais enxerga nao teria efeito nenhum
+     * @throws IllegalStateException se o produto já foi inativado. Como não há reativação, editar
+     *                               um registro que ninguém mais enxerga não teria efeito nenhum
      */
     public void alterar(String nome, Money preco, String codigo, String categoria, String unidade,
             Map<String, Object> atributos) {
@@ -143,15 +143,15 @@ public class Produto {
     }
 
     /**
-     * RF05 — soft delete: o registro fica, para o historico de vendas nao perder a referencia.
+     * Soft delete (RF05): o registro fica, para o histórico de vendas não perder a referência.
      *
-     * <p><strong>Idempotente</strong> (D17c): inativar um produto ja inativo nao e erro de
-     * ninguem, e sim o mesmo estado pedido de novo — dois cliques no balcao, ou a requisicao que o
-     * PWA offline (R23) reenvia ao voltar a rede.
+     * <p><strong>É idempotente.</strong> Inativar um produto já inativo não é erro de ninguém, e
+     * sim o mesmo estado pedido de novo: dois cliques no balcão, ou a requisição que o cliente
+     * offline reenvia ao voltar a rede.
      *
-     * <p>Nao existe {@code reativar()}: ficou fora do R03 (D17b). Reativar esbarraria no indice
-     * unico parcial da D11, que so vale entre ativos — o codigo do produto inativado pode ja ter
-     * sido reaproveitado por outro item.
+     * <p>Não existe {@code reativar()}. Reativar esbarraria no índice único parcial do código do
+     * produto, que só vale entre os ativos, porque o código do item inativado pode já ter sido
+     * reaproveitado por outro.
      */
     public void inativar() {
         this.ativo = false;
@@ -160,7 +160,8 @@ public class Produto {
     private static Money exigirPreco(Money preco) {
         Objects.requireNonNull(preco, "preco nao pode ser nulo");
         if (preco.isNegativo()) {
-            // D16c: zero passa (cortesia, brinde, item de acompanhamento); negativo nao e preco.
+            // Zero passa, porque cortesia, brinde e item de acompanhamento existem. Negativo não é
+            // preço: seria desconto, e desconto é da venda, não do cadastro.
             throw new IllegalArgumentException("preco nao pode ser negativo: " + preco);
         }
         return preco;
@@ -184,9 +185,8 @@ public class Produto {
         if (atributos == null) {
             return Map.of();
         }
-        // unmodifiableMap sobre uma copia, e nao Map.copyOf: o JSONB pode ter valor nulo
-        // (`{"tamanho": null}`), que Map.copyOf recusa — e uma linha ja gravada assim ficaria
-        // impossivel de ler.
+        // unmodifiableMap sobre uma cópia, e não Map.copyOf: o JSONB pode ter valor nulo, que
+        // Map.copyOf recusa, e uma linha já gravada assim ficaria impossível de ler.
         return Collections.unmodifiableMap(new LinkedHashMap<>(atributos));
     }
 
@@ -210,7 +210,7 @@ public class Produto {
         return tipo;
     }
 
-    /** D11 — pode ser nulo: muitos negocios nao usam codigo nenhum. */
+    /** Pode ser nulo: muitos negócios não usam código nenhum. */
     public String getCodigo() {
         return codigo;
     }
@@ -227,7 +227,7 @@ public class Produto {
         return estoqueAtual;
     }
 
-    /** Copia imutavel: atributo so muda pela raiz, nunca por quem leu o mapa. */
+    /** Cópia imutável: atributo só muda pela raiz, nunca por quem leu o mapa. */
     public Map<String, Object> getAtributos() {
         return atributos;
     }

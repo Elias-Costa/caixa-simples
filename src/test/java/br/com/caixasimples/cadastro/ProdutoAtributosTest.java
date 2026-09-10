@@ -20,16 +20,16 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
 /**
- * RF02/RNF12 — dois tipos de negocio com atributos completamente diferentes na <strong>mesma
- * tabela, sem alterar schema</strong>. E a premissa do nucleo generico (escopo §1) levada ao dado:
- * colunas fixas para o universal, JSONB para o que varia por nicho (arquitetura §4).
+ * Dois tipos de negócio com atributos completamente diferentes na <strong>mesma tabela, sem alterar
+ * schema</strong> (RF02, RNF12). É a premissa do núcleo genérico levada ao dado: colunas fixas para
+ * o que é universal, JSONB para o que varia por nicho.
  *
- * <p>O filtro por atributo roda em SQL direto aqui, e nao pelo {@code ProdutoRepository}: o que
- * esta sob teste e o <em>schema</em> — o operador {@code @>} e o indice GIN da migration. A regra
- * que proibe query nativa vale para codigo de negocio, que precisa do {@code @TenantId}; um teste
- * que escreve {@code conta_id} explicito no {@code WHERE} esta provando justamente a camada de
- * baixo. Nenhum requisito da Fase 1 pede filtrar produto por atributo, entao o repositorio nao
- * ganha esse metodo (RF06, busca por nome ou codigo, e a etapa 1.6).
+ * <p>O filtro por atributo roda em SQL direto aqui, e não pelo {@code ProdutoRepository}, porque o
+ * que está sob teste é o <em>schema</em>: o operador de contenção do JSONB e o índice GIN da
+ * migration. A regra que proíbe query nativa vale para código de negócio, que precisa do
+ * {@code @TenantId}; um teste que escreve {@code conta_id} explícito no {@code WHERE} está provando
+ * justamente a camada de baixo. Nenhum requisito atual pede filtrar produto por atributo, então o
+ * repositório não ganha esse método.
  */
 class ProdutoAtributosTest extends TesteDeIntegracao {
 
@@ -65,7 +65,8 @@ class ProdutoAtributosTest extends TesteDeIntegracao {
                         TipoProduto.PRODUTO, null, "Vestuario", "un",
                         Map.of("tamanho", "M", "cor", "preta")))).getId());
 
-        // Round-trip pelo JPA: o mapa volta com os mesmos pares, sem coluna nova para nenhum dos dois.
+        // Ida e volta pelo JPA: o mapa retorna com os mesmos pares, sem coluna nova para nenhum dos
+        // dois tipos de negócio.
         TenantContext.executarComo(cafeteria.contaId(), () ->
                 assertThat(produtos.findById(cafe).orElseThrow().paraDominio().getAtributos())
                         .containsExactlyEntriesOf(Map.of("tempo_preparo", 5)));
@@ -77,7 +78,7 @@ class ProdutoAtributosTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("filtro por atributo dentro do JSONB encontra so quem casa")
+    @DisplayName("filtro por atributo dentro do JSONB encontra só quem casa")
     void filtraPorAtributo() {
         ContaCriada loja = criador.criar("Loja com Grades", SENHA_DE_TESTE);
 

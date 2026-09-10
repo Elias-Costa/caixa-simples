@@ -18,15 +18,15 @@ import org.hibernate.annotations.TenantId;
 /**
  * Mapeamento JPA da tabela {@code movimento_caixa}.
  *
- * <p><strong>Esta classe e de visibilidade de pacote, e isso e a regra do agregado escrita em
- * Java.</strong> {@code MovimentoCaixa} e membro, nao raiz (modelo de dados §4): so
- * {@link SessaoCaixaEntity} a enxerga, ninguem de fora consegue declarar uma variavel deste tipo, e
- * por isso nao existe nem pode existir um {@code MovimentoCaixaRepository}. Um repositorio aqui
- * seria uma porta lateral para lancar sangria sem atualizar o esperado da sessao.
+ * <p><strong>Esta classe é de visibilidade de pacote, e isso é a regra do agregado escrita em
+ * Java.</strong> {@code MovimentoCaixa} é membro, não raiz: só {@link SessaoCaixaEntity} a
+ * enxerga, ninguém de fora consegue declarar uma variável deste tipo, e por isso não existe nem
+ * pode existir um {@code MovimentoCaixaRepository}. Um repositório aqui seria uma porta lateral
+ * para lançar sangria sem atualizar o esperado da sessão.
  *
- * <p>Leva {@link TenantId} como qualquer tabela de negocio, mesmo sendo membro: o
- * {@code .claude/rules/multi-tenancy.md} fecha a lista de excecoes em tres, e nenhuma e esta. Na
- * pratica isso significa que a colecao da raiz ja vem filtrada por conta, sem depender de JOIN.
+ * <p>Leva {@link TenantId} como qualquer tabela de negócio, mesmo sendo membro. A lista de tabelas
+ * fora do filtro de tenant tem exatamente três entradas, e nenhuma delas é esta. Na prática isso
+ * significa que a coleção da raiz já vem filtrada por conta, sem depender de JOIN.
  */
 @Entity
 @Table(name = "movimento_caixa")
@@ -40,8 +40,8 @@ class MovimentoCaixaEntity {
     private UUID contaId;
 
     /**
-     * Referencia entre agregados, sempre por id (modelo de dados §4) — e sem {@code FOREIGN KEY} no
-     * banco, porque a tabela {@code venda} so nasce no R11.
+     * Referência entre agregados, sempre por id, e sem {@code FOREIGN KEY} no banco porque a tabela
+     * {@code venda} ainda não existe.
      */
     @Column(name = "venda_id")
     private UUID vendaId;
@@ -50,11 +50,11 @@ class MovimentoCaixaEntity {
     @Column(nullable = false)
     private TipoMovimentoCaixa tipo;
 
-    /** D21b — sempre positivo. Quem carrega o sinal e o {@link #tipo}. */
+    /** Sempre positivo. Quem carrega o sinal é o {@link #tipo}. */
     @Column(nullable = false)
     private BigDecimal valor;
 
-    /** RF14 — obrigatorio em SANGRIA e SUPRIMENTO, pelo CHECK da migration. */
+    /** Obrigatório em SANGRIA e SUPRIMENTO (RF14), pelo CHECK da migration. */
     private String motivo;
 
     @Column(name = "criado_em", nullable = false, updatable = false)
@@ -78,8 +78,8 @@ class MovimentoCaixaEntity {
     }
 
     /**
-     * Nao ha {@code atualizarCom} aqui, ao contrario de {@code ProdutoEntity}: movimento de caixa
-     * lancado nao se edita. Corrigir um lancamento e lancar o oposto, para o historico continuar
+     * Não há {@code atualizarCom} aqui, ao contrário de {@code ProdutoEntity}: movimento de caixa
+     * lançado não se edita. Corrigir um lançamento é lançar o oposto, para o histórico continuar
      * contando o que de fato aconteceu na gaveta.
      */
     MovimentoCaixa paraDominio() {
@@ -87,8 +87,8 @@ class MovimentoCaixaEntity {
     }
 
     /**
-     * Existe so para {@code SessaoCaixaEntity.atualizarCom} saber o que ja esta gravado e nao
-     * reinserir o historico inteiro a cada sangria.
+     * Existe só para {@code SessaoCaixaEntity.atualizarCom} saber o que já está gravado e não
+     * reinserir o histórico inteiro a cada sangria.
      */
     UUID getId() {
         return id;

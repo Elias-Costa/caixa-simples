@@ -25,9 +25,10 @@ import org.junit.jupiter.api.Test;
 class PaymentServiceTest {
 
     /**
-     * Uma forma de pagamento inventada pelo teste, que o código de produção não conhece.
+     * Uma estratégia de pagamento inventada pelo teste, que o código de produção não conhece.
      *
-     * <p>Ela usa PIX porque é um valor do enum sem estratégia de produção neste momento. O que
+     * <p>Ela declara PIX porque precisa declarar alguma forma real. O serviço, aqui, é montado à
+     * mão com a lista que o teste quiser, então nenhuma estratégia de produção participa. O que
      * importa não é a forma escolhida: é que esta classe nasceu depois de {@code PaymentService} e
      * passa a ser resolvida por ele sem que uma linha dele mudasse.
      */

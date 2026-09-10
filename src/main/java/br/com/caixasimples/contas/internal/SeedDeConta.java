@@ -15,24 +15,15 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Cria uma conta com seu usuario administrador (decisoes A3 e D14b).
+ * Cria uma conta com o seu usuário administrador.
  *
- * <p>Nao existe cadastro publico no MVP: os dois negocios-piloto sao criados pelo mantenedor. Isso
- * roda pela aplicacao, e nao por {@code INSERT} em SQL, justamente para passar pelas mesmas regras
- * do sistema — o hash BCrypt e a verificacao de senha vazada da A5 vivem aqui dentro e seriam
- * pulados por um script.
+ * <p>Não existe cadastro público: as contas são criadas pelo mantenedor. Isso roda pela aplicação,
+ * e não por {@code INSERT} em SQL, justamente para passar pelas mesmas regras do sistema. O hash
+ * BCrypt e a verificação de senha vazada vivem aqui dentro e seriam pulados por um script.
  *
- * <p>Uso:
- *
- * <pre>
- * ./mvnw spring-boot:run -Dspring-boot.run.profiles=seed \
- *   -Dspring-boot.run.arguments="--caixa-simples.seed.nome-negocio=Cafeteria Piloto \
- *     --caixa-simples.seed.tipo-negocio=cafeteria \
- *     --caixa-simples.seed.email=dona@exemplo.com \
- *     --caixa-simples.seed.senha=..."
- * </pre>
- *
- * <p>Rodar duas vezes com o mesmo e-mail nao duplica nada: a segunda execucao encerra sem escrever.
+ * <p>Roda apenas sob o perfil {@code seed} e lê os dados da conta de
+ * {@link PropriedadesDoSeed}. Executar duas vezes com o mesmo e-mail não duplica nada: a segunda
+ * execução encerra sem escrever.
  */
 @Component
 @Profile("seed")
@@ -66,11 +57,11 @@ class SeedDeConta implements ApplicationRunner {
         exigirPreenchido(propriedades.senha(), "caixa-simples.seed.senha");
 
         if (credenciais.existsByEmailIgnoreCase(propriedades.email())) {
-            log.info("Ja existe credencial para {} — nada a fazer.", propriedades.email());
+            log.info("Ja existe credencial para {}; nada a fazer.", propriedades.email());
             return;
         }
 
-        // Falha antes de gravar qualquer coisa se a senha nao servir (A5).
+        // Falha antes de gravar qualquer coisa se a senha não servir.
         politica.exigirValida(propriedades.senha());
 
         ContaId contaId = contas

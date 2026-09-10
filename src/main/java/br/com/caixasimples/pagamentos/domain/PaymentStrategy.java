@@ -23,8 +23,9 @@ public interface PaymentStrategy {
      * Registra o pagamento de uma parcela e devolve o que ficou registrado.
      *
      * <p>Cada implementação valida o que a sua forma exige da solicitação: dinheiro exige o valor
-     * recebido, e as formas que não devolvem troco o ignoram. As guardas comuns a todas, valor
-     * presente e positivo, já foram aplicadas por {@link SolicitacaoPagamento}.
+     * recebido em espécie, e as formas que não devolvem troco recusam esse campo em vez de
+     * ignorá-lo. As guardas comuns a todas, valor presente e positivo, já foram aplicadas por
+     * {@link SolicitacaoPagamento}.
      */
     ResultadoPagamento pagar(SolicitacaoPagamento solicitacao);
 }

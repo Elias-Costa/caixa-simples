@@ -3,11 +3,11 @@ package br.com.caixasimples.contas.internal;
 import org.springframework.stereotype.Component;
 
 /**
- * Regras que uma senha precisa cumprir para ser aceita (decisao A5).
+ * Regras que uma senha precisa cumprir para ser aceita.
  *
- * <p>Comprimento minimo de 15 caracteres e <strong>nenhuma regra de composicao</strong>. Exigir
- * numero, simbolo ou maiuscula empurra o usuario para uma senha pior e anotada num papel no
- * balcao — o comprimento faz o trabalho que a composicao nao faz.
+ * <p>Comprimento mínimo de 15 caracteres e <strong>nenhuma regra de composição</strong>. Exigir
+ * número, símbolo ou maiúscula empurra o usuário para uma senha pior, anotada num papel no balcão.
+ * O comprimento faz o trabalho que a composição não faz.
  */
 @Component
 public class PoliticaDeSenha {
@@ -21,7 +21,7 @@ public class PoliticaDeSenha {
     }
 
     /**
-     * @throws SenhaRecusadaException se a senha for curta, vazada, ou se nao der para verificar
+     * @throws SenhaRecusadaException se a senha for curta, vazada, ou se não der para verificar
      */
     public void exigirValida(String senha) {
         if (senha == null || senha.length() < TAMANHO_MINIMO) {

@@ -18,7 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.validation.annotation.Validated;
 
 /**
- * Entrada HTTP da autenticacao. Rotas em {@code /api}, sem versao (decisao D14c).
+ * Entrada HTTP da autenticação. Rotas sob {@code /api}, sem versão no caminho.
  */
 @RestController
 @RequestMapping("/api/auth")
@@ -37,10 +37,10 @@ class AutenticacaoController {
     }
 
     /**
-     * Quem esta autenticado agora.
+     * Quem está autenticado agora.
      *
-     * <p>Existe para que haja um endpoint protegido de verdade: e por ele que se verifica, por
-     * HTTP, que requisicao sem token e recusada e que o tenant do contexto vem do claim, nao do
+     * <p>Existe para que haja um endpoint protegido de verdade: é por ele que se verifica, por
+     * HTTP, que requisição sem token é recusada e que o tenant do contexto vem do claim, não do
      * pedido.
      */
     @GetMapping("/eu")
@@ -52,13 +52,13 @@ class AutenticacaoController {
     }
 
     /**
-     * Login recusado vira 401 sem corpo detalhado. A mensagem e sempre a mesma, e o motivo real
-     * nao viaja para o cliente.
+     * Login recusado vira 401 sem corpo detalhado. A mensagem é sempre a mesma, e o motivo real não
+     * viaja para o cliente.
      */
     @ExceptionHandler(CredenciaisInvalidasException.class)
     @ResponseStatus(HttpStatus.UNAUTHORIZED)
     void credenciaisInvalidas() {
-        // sem corpo de proposito
+        // sem corpo de propósito
     }
 
     record PedidoDeLogin(@NotBlank String email, @NotBlank String senha) {

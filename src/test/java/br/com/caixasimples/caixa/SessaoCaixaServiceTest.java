@@ -33,16 +33,16 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 
 /**
- * Os casos de uso do R07 — abertura (RF13), sangria e suprimento (RF14) — e os do R08 — fechamento
- * com conferencia (RF15) e historico por operador e por dia (RF16) — contra o banco de verdade.
+ * Os casos de uso da sessão de caixa contra o banco de verdade: abertura (RF13), sangria e
+ * suprimento (RF14), fechamento com conferência (RF15) e histórico por operador e por dia (RF16).
  *
- * <p>Existe separado de {@code SessaoCaixaTest} porque prova outra coisa: la a conta do agregado
- * esta certa <em>em memoria</em>; aqui ela <strong>atravessa o banco</strong>, que e o unico jeito
- * de exercitar o {@code atualizarCom} da entidade, a regra da D22a (que depende de consulta), a
- * delimitacao do dia no fuso do balcao (P6/D23a) e o isolamento entre contas.
+ * <p>Existe separado de {@code SessaoCaixaTest} porque prova outra coisa: lá a conta do agregado
+ * está certa <em>em memória</em>; aqui ela <strong>atravessa o banco</strong>, que é o único jeito
+ * de exercitar o {@code atualizarCom} da entidade, a regra de um caixa aberto por operador, que
+ * depende de consulta, a delimitação do dia no fuso do balcão e o isolamento entre contas.
  *
- * <p>Fica no pacote {@code caixa} e enxerga so o que um controller enxergaria — o servico, o
- * dominio e a raiz do agregado.
+ * <p>Fica no pacote {@code caixa} e enxerga só o que um controller enxergaria: o serviço, o domínio
+ * e a raiz do agregado.
  */
 class SessaoCaixaServiceTest extends TesteDeIntegracao {
 
@@ -63,9 +63,9 @@ class SessaoCaixaServiceTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("abrir grava uma sessao ABERTA com o esperado igual ao valor de abertura (RF13)")
+    @DisplayName("abrir grava uma sessão ABERTA com o esperado igual ao valor de abertura (RF13)")
     void abreSessaoComValorInicial() {
-        ContaCriada conta = criador.criar("Cafeteria do R07", SENHA_DE_TESTE);
+        ContaCriada conta = criador.criar("Cafeteria do Centro", SENHA_DE_TESTE);
 
         UUID sessaoId = TenantContext.executarComo(conta.contaId(), () ->
                 sessoesDeCaixa.abrir(conta.usuarioId(), Money.de("150.00")));
@@ -82,15 +82,15 @@ class SessaoCaixaServiceTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("sangria e suprimento atravessam o banco mantendo o esperado e o historico (RF14)")
+    @DisplayName("sangria e suprimento atravessam o banco mantendo o esperado e o histórico (RF14)")
     void sangriaESuprimentoAtualizamASessaoGravada() {
-        ContaCriada conta = criador.criar("Padaria do R07", SENHA_DE_TESTE);
+        ContaCriada conta = criador.criar("Padaria do Centro", SENHA_DE_TESTE);
 
         UUID sessaoId = TenantContext.executarComo(conta.contaId(), () ->
                 sessoesDeCaixa.abrir(conta.usuarioId(), Money.de("100.00")));
 
-        // Dois lancamentos em transacoes separadas: e o que prova que o atualizarCom acrescenta o
-        // movimento novo em vez de trocar a colecao inteira — se trocasse, o primeiro sumiria.
+        // Dois lançamentos em transações separadas: é o que prova que o atualizarCom acrescenta o
+        // movimento novo em vez de trocar a coleção inteira. Se trocasse, o primeiro sumiria.
         TenantContext.executarComo(conta.contaId(), () ->
                 sessoesDeCaixa.registrarSuprimento(sessaoId, Money.de("50.00"),
                         "Reforco de troco"));
@@ -101,7 +101,7 @@ class SessaoCaixaServiceTest extends TesteDeIntegracao {
         TenantContext.executarComo(conta.contaId(), () -> {
             SessaoCaixa gravada = sessoes.findById(sessaoId).orElseThrow().paraDominio();
 
-            // A invariante do agregado atravessou o banco duas vezes: 100 + 50 - 30.
+            // A invariante do agregado atravessou o banco duas vezes: 100 mais 50 menos 30.
             assertThat(gravada.getValorFechamentoEsperado()).isEqualTo(Money.de("120.00"));
 
             assertThat(gravada.getMovimentos())
@@ -116,31 +116,31 @@ class SessaoCaixaServiceTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("o mesmo operador nao abre um segundo caixa enquanto o primeiro esta aberto")
+    @DisplayName("o mesmo operador não abre um segundo caixa enquanto o primeiro está aberto")
     void operadorNaoAbreDoisCaixas() {
-        ContaCriada conta = criador.criar("Loja do R07", SENHA_DE_TESTE);
+        ContaCriada conta = criador.criar("Loja da Esquina", SENHA_DE_TESTE);
 
         TenantContext.executarComo(conta.contaId(), () ->
                 sessoesDeCaixa.abrir(conta.usuarioId(), Money.de("100.00")));
 
-        // D22a — o caso comum e o caixa de ontem que ficou sem fechar, entao a recusa tem nome
-        // proprio em vez de sair como violacao de integridade do indice.
+        // O caso comum é o caixa de ontem que ficou sem fechar, então a recusa tem nome próprio em
+        // vez de sair como violação de integridade do índice.
         assertThatExceptionOfType(OperadorJaTemCaixaAbertoException.class).isThrownBy(() ->
                 TenantContext.executarComo(conta.contaId(), () ->
                         sessoesDeCaixa.abrir(conta.usuarioId(), Money.de("80.00"))));
     }
 
     @Test
-    @DisplayName("o indice da V6 recusa o segundo caixa mesmo sem passar pelo servico")
+    @DisplayName("o índice único parcial recusa o segundo caixa mesmo sem passar pelo serviço")
     void indiceParcialEhARedeDaRegraDeAbertura() {
         ContaCriada conta = criador.criar("Mercearia com Indice", SENHA_DE_TESTE);
 
         TenantContext.executarComo(conta.contaId(), () ->
                 sessoesDeCaixa.abrir(conta.usuarioId(), Money.de("100.00")));
 
-        // A checagem previa do servico mascara o indice no caminho normal, entao aqui a gravacao e
-        // direta: e o que aconteceria com duas requisicoes passando juntas pela checagem. Sem esta
-        // linha, a D22a valeria so enquanto ninguem escrevesse na tabela por outro caminho.
+        // A checagem prévia do serviço mascara o índice no caminho normal, então aqui a gravação é
+        // direta: é o que aconteceria com duas requisições passando juntas pela checagem. Sem esta
+        // linha, a regra valeria só enquanto ninguém escrevesse na tabela por outro caminho.
         assertThatExceptionOfType(DataIntegrityViolationException.class).isThrownBy(() ->
                 TenantContext.executarComo(conta.contaId(), () ->
                         sessoes.save(SessaoCaixaEntity.de(
@@ -148,7 +148,7 @@ class SessaoCaixaServiceTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("dois operadores da mesma conta podem ter caixas simultaneos")
+    @DisplayName("dois operadores da mesma conta podem ter caixas simultâneos")
     void operadoresDiferentesAbremAoMesmoTempo() {
         ContaCriada conta = criador.criar("Mercado com Dois Caixas", SENHA_DE_TESTE);
         UUID segundoOperador = criador.criarOperadorEm(conta.contaId(), "Atendente da tarde");
@@ -156,7 +156,7 @@ class SessaoCaixaServiceTest extends TesteDeIntegracao {
         TenantContext.executarComo(conta.contaId(), () ->
                 sessoesDeCaixa.abrir(conta.usuarioId(), Money.de("100.00")));
 
-        // A regra da D22a e por operador, nao por conta — o negocio com dois pontos de atendimento
+        // A regra é por operador, não por conta, então o negócio com dois pontos de atendimento
         // continua funcionando.
         assertThatNoException().isThrownBy(() ->
                 TenantContext.executarComo(conta.contaId(), () ->
@@ -164,9 +164,9 @@ class SessaoCaixaServiceTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("lancar em sessao que nao existe estoura com nome, e nao com NullPointer")
+    @DisplayName("lançar em sessão que não existe estoura com nome, e não com NullPointer")
     void sessaoInexistenteERecusada() {
-        ContaCriada conta = criador.criar("Salao do R07", SENHA_DE_TESTE);
+        ContaCriada conta = criador.criar("Salao da Praca", SENHA_DE_TESTE);
         UUID inexistente = UUID.randomUUID();
 
         assertThatExceptionOfType(SessaoCaixaNaoEncontradaException.class).isThrownBy(() ->
@@ -175,7 +175,7 @@ class SessaoCaixaServiceTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("conta B nao lanca sangria na sessao da conta A")
+    @DisplayName("conta B não lança sangria na sessão da conta A")
     void naoSeLancaMovimentoNaSessaoDeOutraConta() {
         ContaCriada contaA = criador.criar("Oficina A", SENHA_DE_TESTE);
         ContaCriada contaB = criador.criar("Oficina B", SENHA_DE_TESTE);
@@ -183,8 +183,8 @@ class SessaoCaixaServiceTest extends TesteDeIntegracao {
         UUID sessaoDaContaA = TenantContext.executarComo(contaA.contaId(), () ->
                 sessoesDeCaixa.abrir(contaA.usuarioId(), Money.de("200.00")));
 
-        // RNF05 — o id de outra conta e indistinguivel de um id que nunca existiu, porque a linha
-        // nao volta do banco. Nao ha caminho por onde a conta B mexa no dinheiro da conta A.
+        // O id de outra conta é indistinguível de um id que nunca existiu, porque a linha não volta
+        // do banco (RNF05). Não há caminho por onde a conta B mexa no dinheiro da conta A.
         assertThatExceptionOfType(SessaoCaixaNaoEncontradaException.class).isThrownBy(() ->
                 TenantContext.executarComo(contaB.contaId(), () ->
                         sessoesDeCaixa.registrarSangria(sessaoDaContaA, Money.de("200.00"),
@@ -193,7 +193,7 @@ class SessaoCaixaServiceTest extends TesteDeIntegracao {
         TenantContext.executarComo(contaA.contaId(), () -> {
             SessaoCaixaEntity intacta = sessoes.findById(sessaoDaContaA).orElseThrow();
             assertThat(intacta.paraDominio().getValorFechamentoEsperado())
-                    .as("a gaveta da conta A nao pode ter sido tocada")
+                    .as("a gaveta da conta A não pode ter sido tocada")
                     .isEqualTo(Money.de("200.00"));
         });
     }
@@ -201,7 +201,7 @@ class SessaoCaixaServiceTest extends TesteDeIntegracao {
     @Test
     @DisplayName("o fechamento grava as quatro colunas de uma vez, e elas voltam do banco (RF15)")
     void fechamentoAtravessaOBanco() {
-        ContaCriada conta = criador.criar("Mercearia do R08", SENHA_DE_TESTE);
+        ContaCriada conta = criador.criar("Mercearia da Rua", SENHA_DE_TESTE);
 
         UUID sessaoId = TenantContext.executarComo(conta.contaId(), () ->
                 sessoesDeCaixa.abrir(conta.usuarioId(), Money.de("100.00")));
@@ -210,7 +210,7 @@ class SessaoCaixaServiceTest extends TesteDeIntegracao {
         TenantContext.executarComo(conta.contaId(), () ->
                 sessoesDeCaixa.registrarSangria(sessaoId, Money.de("30.00"), "Almoco"));
 
-        // Esperado de 120,00 construido em tres transacoes; o operador conta 118,00.
+        // Esperado de 120,00 construído em três transações; o operador conta 118,00.
         Money diferenca = TenantContext.executarComo(conta.contaId(), () ->
                 sessoesDeCaixa.fechar(sessaoId, Money.de("118.00")));
 
@@ -219,8 +219,8 @@ class SessaoCaixaServiceTest extends TesteDeIntegracao {
         TenantContext.executarComo(conta.contaId(), () -> {
             SessaoCaixa gravada = sessoes.findById(sessaoId).orElseThrow().paraDominio();
 
-            // O atualizarCom do R07 nao escrevia estas quatro; o R08 e o passo que o fez crescer,
-            // entao sem esta afirmacao o fechamento passaria em memoria e sumiria no commit.
+            // Sem estas afirmações, um fechamento que só valesse em memória passaria no teste e
+            // sumiria no commit, porque as quatro colunas dependem do atualizarCom da entidade.
             assertThat(gravada.getStatus()).isEqualTo(StatusSessaoCaixa.FECHADA);
             assertThat(gravada.getValorFechamentoContado()).isEqualTo(Money.de("118.00"));
             assertThat(gravada.getDiferenca()).isEqualTo(Money.de("2.00"));
@@ -233,17 +233,17 @@ class SessaoCaixaServiceTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("sessao fechada nao aceita sangria nem segundo fechamento, mesmo vinda do banco")
+    @DisplayName("sessão fechada não aceita sangria nem segundo fechamento, mesmo vinda do banco")
     void sessaoFechadaNoBancoRecusaNovasOperacoes() {
-        ContaCriada conta = criador.criar("Bar do R08", SENHA_DE_TESTE);
+        ContaCriada conta = criador.criar("Bar da Esquina", SENHA_DE_TESTE);
 
         UUID sessaoId = TenantContext.executarComo(conta.contaId(), () ->
                 sessoesDeCaixa.abrir(conta.usuarioId(), Money.de("80.00")));
         TenantContext.executarComo(conta.contaId(), () ->
                 sessoesDeCaixa.fechar(sessaoId, Money.de("75.00")));
 
-        // D22d e D23e valem depois da ida e volta pelo banco, e nao so no objeto que foi fechado —
-        // que e o caso real: quem tenta lancar amanha carrega a sessao de novo.
+        // As duas guardas valem depois da ida e volta pelo banco, e não só no objeto que foi
+        // fechado, que é o caso real: quem tenta lançar amanhã carrega a sessão de novo.
         assertThatIllegalStateException().isThrownBy(() ->
                 TenantContext.executarComo(conta.contaId(), () ->
                         sessoesDeCaixa.registrarSangria(sessaoId, Money.de("10.00"), "Troco")));
@@ -253,21 +253,21 @@ class SessaoCaixaServiceTest extends TesteDeIntegracao {
 
         TenantContext.executarComo(conta.contaId(), () ->
                 assertThat(sessoes.findById(sessaoId).orElseThrow().paraDominio().getDiferenca())
-                        .as("a conferencia original tem de estar intacta")
+                        .as("a conferência original tem de estar intacta")
                         .isEqualTo(Money.de("5.00")));
     }
 
     @Test
-    @DisplayName("caixa aberto as 22h em Paulo Afonso e do dia local, nao do dia seguinte em UTC")
+    @DisplayName("caixa aberto às 22h é do dia local do balcão, não do dia seguinte em UTC")
     void oDiaEDoBalcaoENaoDeUtc() {
         ContaCriada conta = criador.criar("Lanchonete da Noite", SENHA_DE_TESTE);
         LocalDate segunda = LocalDate.of(2026, 9, 7);
 
-        // 22h em America/Bahia e 01h do dia SEGUINTE em UTC, que e como a coluna fica gravada. Sem
-        // a conversao da P6, esta sessao apareceria no historico de terca e sumiria do de segunda.
+        // 22h no fuso do balcão é 01h do dia SEGUINTE em UTC, que é como a coluna fica gravada. Sem
+        // a conversão, esta sessão apareceria no histórico de terça e sumiria do de segunda.
         Instant vinteEDuasHoras = instanteLocal(segunda, LocalTime.of(22, 0));
         assertThat(vinteEDuasHoras.atZone(ZoneOffset.UTC).toLocalDate())
-                .as("premissa do teste: em UTC este instante ja e o dia seguinte")
+                .as("premissa do teste: em UTC este instante já é o dia seguinte")
                 .isEqualTo(segunda.plusDays(1));
 
         UUID sessaoId = gravarSessaoAbertaEm(conta, conta.usuarioId(), vinteEDuasHoras);
@@ -278,13 +278,13 @@ class SessaoCaixaServiceTest extends TesteDeIntegracao {
                     .containsExactly(sessaoId);
 
             assertThat(sessoesDeCaixa.historicoDoDia(segunda.plusDays(1), null))
-                    .as("o expediente de segunda nao pode vazar para terca")
+                    .as("o expediente de segunda não pode vazar para terça")
                     .isEmpty();
         });
     }
 
     @Test
-    @DisplayName("o historico do dia filtra por operador e devolve os totais sem os movimentos")
+    @DisplayName("o histórico do dia filtra por operador e devolve os totais sem os movimentos")
     void historicoFiltraPorOperador() {
         ContaCriada conta = criador.criar("Mercado com Dois Turnos", SENHA_DE_TESTE);
         UUID daTarde = criador.criarOperadorEm(conta.contaId(), "Atendente da tarde");
@@ -308,13 +308,13 @@ class SessaoCaixaServiceTest extends TesteDeIntegracao {
             assertThat(soDaTarde.getFirst().valorAbertura()).isEqualTo(Money.de("60.00"));
             assertThat(soDaTarde.getFirst().status()).isEqualTo(StatusSessaoCaixa.ABERTA);
             assertThat(soDaTarde.getFirst().diferenca())
-                    .as("sessao ainda aberta nao tem diferenca apurada")
+                    .as("sessão ainda aberta não tem diferença apurada")
                     .isNull();
         });
     }
 
     @Test
-    @DisplayName("o historico da conta B nao traz sessao da conta A")
+    @DisplayName("o histórico da conta B não traz sessão da conta A")
     void historicoNaoAtravessaConta() {
         ContaCriada contaA = criador.criar("Quitanda A", SENHA_DE_TESTE);
         ContaCriada contaB = criador.criar("Quitanda B", SENHA_DE_TESTE);
@@ -322,8 +322,8 @@ class SessaoCaixaServiceTest extends TesteDeIntegracao {
 
         gravarSessaoAbertaEm(contaA, contaA.usuarioId(), instanteLocal(dia, LocalTime.of(9, 0)));
 
-        // RNF05 — a consulta do historico e nova, entao precisa da prova nova: o @TenantId filtra
-        // consulta derivada tambem, e nao so o findById.
+        // A consulta do histórico é um caminho novo, então precisa da prova nova: o @TenantId
+        // filtra consulta derivada também, e não só o findById (RNF05).
         TenantContext.executarComo(contaB.contaId(), () ->
                 assertThat(sessoesDeCaixa.historicoDoDia(dia, null)).isEmpty());
 
@@ -336,11 +336,11 @@ class SessaoCaixaServiceTest extends TesteDeIntegracao {
     }
 
     /**
-     * Grava uma sessao com {@code abertaEm} escolhido, que o caso de uso de abertura nao permite —
-     * la o instante e sempre o de agora.
+     * Grava uma sessão com {@code abertaEm} escolhido, que o caso de uso de abertura não permite,
+     * porque lá o instante é sempre o de agora.
      *
-     * <p>Remontar e gravar direto e o mesmo caminho que o teste do indice da V6 ja usa, e e o unico
-     * jeito de provar a delimitacao do dia sem esperar as 22h para rodar a suite.
+     * <p>Remontar e gravar direto é o mesmo caminho que o teste do índice único já usa, e é o único
+     * jeito de provar a delimitação do dia sem esperar as 22h para rodar a suíte.
      */
     private UUID gravarSessaoAbertaEm(ContaCriada conta, UUID operador, Instant abertaEm) {
         SessaoCaixa sessao = SessaoCaixa.reconstituir(UUID.randomUUID(), operador,

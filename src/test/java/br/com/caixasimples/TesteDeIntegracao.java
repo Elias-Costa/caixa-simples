@@ -9,21 +9,20 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
 /**
- * Base dos testes de integracao — etapa 0.5 do plano de implementacao.
+ * Base dos testes de integração.
  *
- * <p>Sobe a aplicacao contra um <strong>Postgres real</strong> em container, nunca H2: o
- * comportamento de {@code JSONB} e de indice GIN nao se reproduz em H2, e a diferenca so
- * apareceria em producao (arquitetura §9). O Flyway aplica as migrations no container, entao um
- * teste que sobe verde tambem prova que as migrations batem com as entidades JPA
- * ({@code ddl-auto: validate}).
+ * <p>Sobe a aplicação contra um <strong>PostgreSQL real</strong> em container, nunca H2: o
+ * comportamento de {@code JSONB} e de índice GIN não se reproduz em H2, e a diferença só apareceria
+ * em produção. O Flyway aplica as migrations no container, então um teste que sobe verde também
+ * prova que as migrations batem com as entidades JPA, já que o Hibernate roda em modo de validação.
  *
- * <p>Como todas as subclasses compartilham a mesma configuracao, o Spring reaproveita o contexto e
- * o container sobe uma vez por execucao da suite.
+ * <p>Como todas as subclasses compartilham a mesma configuração, o Spring reaproveita o contexto e
+ * o container sobe uma vez por execução da suíte.
  *
- * <p><strong>Nao anote a subclasse com {@code @Transactional}</strong> se ela troca de tenant no
- * meio do teste: uma transacao unica prende a sessao do Hibernate a um tenant resolvido no inicio,
- * e a troca nao surte efeito. Deixe cada chamada de repositorio abrir a propria transacao — que e
- * tambem o que acontece de verdade, uma por requisicao.
+ * <p><strong>Não anote a subclasse com {@code @Transactional}</strong> se ela troca de tenant no
+ * meio do teste: uma transação única prende a sessão do Hibernate a um tenant resolvido no início,
+ * e a troca não surte efeito. Deixe cada chamada de repositório abrir a própria transação, que é
+ * também o que acontece de verdade, uma por requisição.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -31,11 +30,11 @@ import org.springframework.test.context.DynamicPropertySource;
 public abstract class TesteDeIntegracao {
 
     /**
-     * Chave HMAC aleatoria por execucao da suite.
+     * Chave HMAC aleatória por execução da suíte.
      *
-     * <p>A aplicacao exige {@code caixa-simples.jwt.secret} e nao tem padrao (D14e). Gerar aqui, em
-     * vez de fixar um valor num arquivo de teste, mantem o repositorio <strong>sem nenhum segredo
-     * literal</strong> e ainda exercita o mesmo caminho de configuracao da producao.
+     * <p>A aplicação exige a chave de assinatura e não tem valor padrão para ela. Gerar aqui, em
+     * vez de fixar um valor num arquivo de teste, mantém o repositório <strong>sem nenhum segredo
+     * literal</strong> e ainda exercita o mesmo caminho de configuração da produção.
      */
     @DynamicPropertySource
     static void chaveDeAssinaturaDoTeste(DynamicPropertyRegistry registro) {

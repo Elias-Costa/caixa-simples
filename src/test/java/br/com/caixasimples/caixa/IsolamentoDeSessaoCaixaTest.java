@@ -19,17 +19,16 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 /**
- * RNF05 para {@code sessao_caixa} — o passo 6 da skill {@code nova-entidade-multitenant}, no molde
- * de {@code IsolamentoEntreContasTest}: grava na conta A, consulta como conta B, espera vazio.
+ * Isolamento entre contas (RNF05) para {@code sessao_caixa}, no mesmo molde de
+ * {@code IsolamentoEntreContasTest}: grava na conta A, consulta como conta B e espera vazio.
  *
- * <p>Em nenhuma linha abaixo existe {@code WHERE conta_id}. E o {@code @TenantId} do Hibernate que
- * filtra; se ele sair de {@code SessaoCaixaEntity}, este teste quebra — que e exatamente o ponto
+ * <p>Em nenhuma linha abaixo existe {@code WHERE conta_id}. É o {@code @TenantId} do Hibernate que
+ * filtra, e se ele sair de {@code SessaoCaixaEntity} este teste quebra, que é exatamente o ponto
  * dele.
  *
- * <p>Este arquivo fica no pacote {@code caixa} e so enxerga o que um controller enxergaria: a raiz
- * do agregado e o dominio. O {@code conta_id} do <em>membro</em> nao se ve daqui, e por isso existe
- * um segundo teste em {@code caixa.internal} — pelo mesmo motivo que separou os dois testes de
- * Cliente no R04.
+ * <p>Este arquivo fica no pacote {@code caixa} e só enxerga o que um controller enxergaria: a raiz
+ * do agregado e o domínio. O {@code conta_id} do <em>membro</em> não se vê daqui, e por isso existe
+ * um segundo teste em {@code caixa.internal}.
  */
 class IsolamentoDeSessaoCaixaTest extends TesteDeIntegracao {
 
@@ -47,9 +46,9 @@ class IsolamentoDeSessaoCaixaTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("conta B nao enxerga sessao de caixa da conta A por nenhum caminho de consulta")
+    @DisplayName("conta B não enxerga sessão de caixa da conta A por nenhum caminho de consulta")
     void contaNaoEnxergaSessaoDeOutraConta() {
-        ContaCriada contaA = criador.criar("Cafeteria Piloto", SENHA_DE_TESTE);
+        ContaCriada contaA = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
         ContaCriada contaB = criador.criar("Salao Vizinho", SENHA_DE_TESTE);
 
         UUID sessaoDaContaA = TenantContext.executarComo(contaA.contaId(), () ->
@@ -66,7 +65,7 @@ class IsolamentoDeSessaoCaixaTest extends TesteDeIntegracao {
                     .doesNotContain(sessaoDaContaA);
         });
 
-        // E a conta A continua vendo o proprio dado — filtro nao pode ser esconde de todos.
+        // E a conta A continua vendo o próprio dado: o filtro não pode ser esconder de todos.
         TenantContext.executarComo(contaA.contaId(), () -> {
             assertThat(sessoes.findById(sessaoDaContaA)).isPresent();
             assertThat(sessoes.findAll())
@@ -76,12 +75,12 @@ class IsolamentoDeSessaoCaixaTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("contaId de uma sessao vem do contexto, nunca de parametro")
+    @DisplayName("contaId de uma sessão vem do contexto, nunca de parâmetro")
     void contaIdEPreenchidoPeloContextoDeTenant() {
         ContaCriada conta = criador.criar("Loja Teste", SENHA_DE_TESTE);
 
-        // Repare que nem o construtor de SessaoCaixa nem o save recebem a conta: nao existe
-        // assinatura por onde um chamador pudesse informa-la (RNF05).
+        // Repare que nem o construtor de SessaoCaixa nem o save recebem a conta: não existe
+        // assinatura por onde um chamador pudesse informá-la (RNF05).
         UUID sessaoId = TenantContext.executarComo(conta.contaId(), () ->
                 sessoes.save(SessaoCaixaEntity.de(
                         new SessaoCaixa(conta.usuarioId(), Money.de("0.00")))).getId());
@@ -104,8 +103,8 @@ class IsolamentoDeSessaoCaixaTest extends TesteDeIntegracao {
         original.suprir(Money.de("50.00"), "Reforco de troco");
         original.sangrar(Money.de("30.00"), "Pagamento do entregador");
 
-        // Uma chamada de save grava a raiz e os tres movimentos: o agregado e a unidade
-        // transacional, e e o cascade de SessaoCaixaEntity que faz isso valer.
+        // Uma chamada de save grava a raiz e os três movimentos: o agregado é a unidade
+        // transacional, e é o cascade de SessaoCaixaEntity que faz isso valer.
         TenantContext.executarComo(conta.contaId(), () ->
                 sessoes.save(SessaoCaixaEntity.de(original)));
 
@@ -120,7 +119,7 @@ class IsolamentoDeSessaoCaixaTest extends TesteDeIntegracao {
             assertThat(lida.getDiferenca()).isNull();
             assertThat(lida.getFechadaEm()).isNull();
 
-            // A invariante do agregado atravessou o banco: 100 + 25 + 50 - 30.
+            // A invariante do agregado atravessou o banco: 100 mais 25 mais 50 menos 30.
             assertThat(lida.getValorFechamentoEsperado()).isEqualTo(Money.de("145.00"));
 
             assertThat(lida.getMovimentos())
@@ -133,8 +132,8 @@ class IsolamentoDeSessaoCaixaTest extends TesteDeIntegracao {
                             tuple(TipoMovimentoCaixa.SANGRIA, Money.de("30.00"),
                                     "Pagamento do entregador", null));
 
-            // O @OrderBy da entidade, afirmado sem depender de empate de relogio: tres chamadas
-            // seguidas de Instant.now() podem cair no mesmo microssegundo, e um containsExactly
+            // O @OrderBy da entidade, afirmado sem depender de empate de relógio: três chamadas
+            // seguidas de Instant.now() podem cair no mesmo microssegundo, e uma comparação
             // posicional viraria teste intermitente por causa disso.
             assertThat(lida.getMovimentos())
                     .extracting(MovimentoCaixa::criadoEm)

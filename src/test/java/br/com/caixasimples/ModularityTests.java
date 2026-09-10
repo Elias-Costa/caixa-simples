@@ -5,13 +5,16 @@ import org.springframework.modulith.core.ApplicationModules;
 import org.springframework.modulith.docs.Documenter;
 
 /**
- * Fitness function das fronteiras de modulo (RNF11) — etapa 0.4 do plano de implementacao.
+ * Fitness function das fronteiras de módulo (RNF11).
  *
- * <p>Falha se um modulo acessar o subpacote {@code internal} de outro, ou se houver ciclo entre
- * modulos. A mensagem de erro aponta exatamente quem violou o que; a correcao e sempre na direcao
- * da fronteira (evento de dominio ou API publica do pacote), nunca relaxando a regra.
+ * <p>Falha se um módulo acessar o subpacote {@code internal} de outro, ou se houver ciclo entre
+ * módulos. A mensagem de erro aponta exatamente quem violou o quê, e a correção é sempre na direção
+ * da fronteira, seja por evento de domínio ou pela API pública do pacote, nunca relaxando a regra.
  *
- * @see <a href="file:../../../../../.claude/rules/fronteiras-modulos.md">rules/fronteiras-modulos</a>
+ * <p>O segundo teste gera a documentação de arquitetura a partir dos módulos detectados. Ele
+ * também é o que faz o javadoc de {@code src/main/java} ser exportado para JSON, e por isso um
+ * delimitador sem par num comentário de lá quebra esta classe, com um erro que não menciona
+ * javadoc.
  */
 class ModularityTests {
 

@@ -10,15 +10,15 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Liga o {@link TenantContext} ao Hibernate — e o que faz {@code @TenantId} funcionar de fato.
+ * Liga o {@link TenantContext} ao Hibernate. É o que faz {@code @TenantId} funcionar de fato.
  *
  * <p>Com o resolver registrado, o Hibernate aplica o filtro por {@code conta_id} em toda query
- * JPQL/Criteria e preenche a coluna no insert, sem nenhum {@code WHERE conta_id = ?} escrito a
- * mao. Isso e a implementacao de RF28/RNF05 (arquitetura §3) e o motivo de nao existir filtro
- * manual em repositorio nenhum.
+ * JPQL e Criteria, e preenche a coluna no insert, sem nenhum {@code WHERE conta_id = ?} escrito à
+ * mão. É assim que o isolamento entre contas é implementado (RF28, RNF05), e é o motivo de não
+ * existir filtro manual em repositório nenhum: uma consulta nova nasce filtrada por construção.
  *
- * <p>O resolver <strong>nao</strong> alcanca SQL nativo — por isso query nativa em codigo de
- * negocio e proibida em {@code .claude/rules/multi-tenancy.md}.
+ * <p>O resolver <strong>não</strong> alcança SQL nativo. Por isso query nativa em código de
+ * negócio é proibida neste projeto: ela passaria por fora do filtro sem que nada avisasse.
  */
 @Configuration(proxyBeanMethods = false)
 class MultiTenancyConfiguration {
@@ -35,19 +35,19 @@ class MultiTenancyConfiguration {
     }
 
     /**
-     * Devolve a conta do contexto, ou {@link TenantContext#SEM_TENANT} quando nao ha nenhuma.
+     * Devolve a conta do contexto, ou {@link TenantContext#SEM_TENANT} quando não há nenhuma.
      *
-     * <p>Nao pode devolver {@code null}: o Hibernate 7 recusa abrir sessao sem identificador de
-     * tenant depois que um resolver e registrado, e o contexto nem sobe (o Spring Data valida as
-     * derived queries na inicializacao, quando ainda nao existe requisicao).
+     * <p>Não pode devolver {@code null}: o Hibernate 7 recusa abrir sessão sem identificador de
+     * tenant depois que um resolver é registrado, e o contexto nem sobe, já que o Spring Data
+     * valida as derived queries na inicialização, quando ainda não existe requisição.
      *
-     * <p>O sentinela nao e relaxamento de isolamento — e o oposto, falha fechado. Fluxos legitimos
-     * rodam sem tenant (criacao de conta no cadastro inicial, leitura de {@code ModeloProduto},
-     * migrations do Flyway) e continuam funcionando porque essas tabelas nao tem {@code @TenantId}.
-     * Já uma entidade que <em>tem</em> {@code @TenantId}: na leitura, filtra por um
-     * {@code conta_id} que nenhuma linha possui e devolve vazio; na escrita, a foreign key
-     * {@code conta_id REFERENCES conta (id)} rejeita o insert. Quem precisa de conta e nao pode
-     * seguir sem ela usa {@link TenantContext#exigirAtual()} e falha alto antes disso.
+     * <p>O sentinela não é relaxamento de isolamento, é o oposto: falha fechado. Fluxos legítimos
+     * rodam sem tenant, como a criação de conta, a leitura do catálogo de referência da plataforma
+     * e as migrations do Flyway, e continuam funcionando porque essas tabelas não têm
+     * {@code @TenantId}. Já uma entidade que <em>tem</em> {@code @TenantId} se comporta assim: na
+     * leitura, filtra por um {@code conta_id} que nenhuma linha possui e devolve vazio; na escrita,
+     * a foreign key {@code conta_id REFERENCES conta (id)} rejeita o insert. Quem precisa de conta
+     * e não pode seguir sem ela usa {@link TenantContext#exigirAtual()} e falha alto antes disso.
      */
     static final class ContaTenantIdentifierResolver implements CurrentTenantIdentifierResolver<UUID> {
 

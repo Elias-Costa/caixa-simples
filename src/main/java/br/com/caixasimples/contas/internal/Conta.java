@@ -13,12 +13,12 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * O negocio contratante — o tenant. Agregado de uma entidade so.
+ * O negócio contratante, isto é, o tenant. Agregado de uma entidade só.
  *
- * <p><strong>Nao tem {@code @TenantId}, e isso e correto:</strong> o {@code id} desta entidade
- * <em>e</em> o tenant que as outras tabelas carregam em {@code conta_id}. Nao ha o que filtrar
- * aqui. Em troca, {@link ContaRepository} nunca e consultado com um id vindo de fora da
- * aplicacao — sempre a partir do contexto de tenant. Ver {@code .claude/rules/multi-tenancy.md}.
+ * <p><strong>Não tem {@code @TenantId}, e isso é correto:</strong> o {@code id} desta entidade
+ * <em>é</em> o tenant que as outras tabelas carregam em {@code conta_id}, então não há o que
+ * filtrar aqui. Em troca, {@link ContaRepository} nunca é consultado com um id vindo de fora da
+ * aplicação, e sim sempre a partir do contexto de tenant.
  */
 @Entity
 @Table(name = "conta")
@@ -48,8 +48,8 @@ public class Conta {
     }
 
     /**
-     * @param tipoNegocio opcional — casa com {@code ModeloProduto.tipo_negocio} para sugerir o
-     *                    catalogo inicial (RF32); nulo significa cadastro comecando em branco
+     * @param tipoNegocio opcional; casa com {@code ModeloProduto.tipo_negocio} para sugerir o
+     *                    catálogo inicial (RF32), e nulo significa cadastro começando em branco
      */
     public Conta(String nomeNegocio, String tipoNegocio, Plano plano) {
         this.id = UUID.randomUUID();
@@ -87,7 +87,7 @@ public class Conta {
         return plano;
     }
 
-    /** RF17 — negocio baseado em servico opera com o modulo de estoque desligado. */
+    /** Negócio baseado em serviço opera com o módulo de estoque desligado (RF17). */
     public boolean isEstoqueHabilitado() {
         return estoqueHabilitado;
     }
@@ -96,12 +96,12 @@ public class Conta {
         return criadoEm;
     }
 
-    /** RF31 — a propria conta troca de plano. */
+    /** A própria conta troca de plano (RF31). */
     public void trocarPlano(Plano novo) {
         this.plano = Objects.requireNonNull(novo, "plano nao pode ser nulo");
     }
 
-    /** RF17 — liga/desliga o controle de estoque desta conta. */
+    /** Liga ou desliga o controle de estoque desta conta (RF17). */
     public void definirEstoqueHabilitado(boolean habilitado) {
         this.estoqueHabilitado = habilitado;
     }

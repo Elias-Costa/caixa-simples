@@ -20,14 +20,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 /**
- * RF32 pelo lado de fora: o que um controller enxergaria do catalogo inicial.
+ * O catálogo inicial sugerido (RF32) pelo lado de fora: o que um controller enxergaria.
  *
- * <p>Este teste so fala com {@link CatalogoInicialService} e {@link ProdutoService} — nao alcanca
- * {@code ModeloProdutoEntity} nem o repositorio dele de proposito, no mesmo espirito da separacao
- * feita no R04. O que depende de montar modelo novo vive em {@code CatalogoInicialDoModeloTest},
- * dentro de {@code cadastro.internal}.
+ * <p>Este teste só fala com {@link CatalogoInicialService} e {@link ProdutoService}, e não alcança
+ * {@code ModeloProdutoEntity} nem o repositório dele, de propósito. O que depende de montar modelo
+ * novo vive em {@code CatalogoInicialDoModeloTest}, dentro de {@code cadastro.internal}.
  *
- * <p>O catalogo de fabrica usado aqui e o da {@code cafeteria}, gravado pela {@code V4} (D20a/D20b).
+ * <p>O catálogo de fábrica usado aqui é o de cafeteria, gravado por migration.
  */
 class CatalogoInicialServiceTest extends TesteDeIntegracao {
 
@@ -48,9 +47,9 @@ class CatalogoInicialServiceTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("conta de cafeteria recebe o catalogo de fabrica, com preco zero em todo item")
+    @DisplayName("conta de cafeteria recebe o catálogo de fábrica, com preço zero em todo item")
     void cafeteriaRecebeOCatalogoDeFabrica() {
-        ContaCriada conta = criador.criar("Cafeteria Piloto", SENHA_DE_TESTE);
+        ContaCriada conta = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
 
         int copiados = TenantContext.executarComo(conta.contaId(),
                 () -> catalogoInicial.aplicarPara("cafeteria"));
@@ -63,12 +62,12 @@ class CatalogoInicialServiceTest extends TesteDeIntegracao {
                     .extracting(Produto::getNome)
                     .contains("Cafe expresso", "Pao de queijo");
 
-            // D20c — preco nasce zero e o dono precifica; um valor sugerido pela plataforma seria
-            // chute sobre o mercado do negocio.
+            // O preço nasce zero e o dono precifica; um valor sugerido pela plataforma seria chute
+            // sobre o mercado daquele negócio.
             assertThat(produtos.listarAtivos())
                     .allSatisfy(item -> assertThat(item.getPreco()).isEqualTo(Money.ZERO));
 
-            // A copia carrega o resto da linha, nao so o nome (RF32).
+            // A cópia carrega o resto da linha, não só o nome (RF32).
             assertThat(produtos.listarAtivos())
                     .extracting(Produto::getCategoria, Produto::getUnidade)
                     .contains(tuple("Bebidas", "un"));
@@ -76,26 +75,26 @@ class CatalogoInicialServiceTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("tipo de negocio casa ignorando maiuscula e espaco nas pontas")
+    @DisplayName("tipo de negócio casa ignorando maiúscula e espaço nas pontas")
     void tipoDeNegocioCasaIgnorandoCaixa() {
         ContaCriada conta = criador.criar("Cafeteria em Caixa Alta", SENHA_DE_TESTE);
 
         int copiados = TenantContext.executarComo(conta.contaId(),
                 () -> catalogoInicial.aplicarPara("  CAFETERIA  "));
 
-        // D20e — o campo aceita texto livre; quem cadastrou a conta pode ter digitado com inicial
-        // maiuscula, e o catalogo nao pode sumir por causa disso.
+        // O campo aceita texto livre, e quem cadastrou a conta pode ter digitado com inicial
+        // maiúscula. O catálogo não pode sumir por causa disso.
         assertThat(copiados).isPositive();
     }
 
     @Test
-    @DisplayName("tipo de negocio sem modelo, em branco ou nulo comeca em branco, sem estourar")
+    @DisplayName("tipo de negócio sem modelo, em branco ou nulo começa em branco, sem estourar")
     void tipoSemModeloComecaEmBranco() {
         ContaCriada conta = criador.criar("Negocio Sem Catalogo", SENHA_DE_TESTE);
 
         TenantContext.executarComo(conta.contaId(), () -> {
-            // Modelo de dados §3: sem tipo correspondente, o cadastro simplesmente comeca em
-            // branco. Nao e erro, e nao existe excecao para isso.
+            // Sem tipo correspondente, o cadastro simplesmente começa em branco. Não é erro, e não
+            // existe exceção para isso.
             assertThat(catalogoInicial.aplicarPara("tipo que ninguem cadastrou")).isZero();
             assertThatNoException().isThrownBy(() -> catalogoInicial.aplicarPara(null));
             assertThat(catalogoInicial.aplicarPara("   ")).isZero();
@@ -105,7 +104,7 @@ class CatalogoInicialServiceTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("editar o produto copiado nao alcanca a copia da outra conta")
+    @DisplayName("editar o produto copiado não alcança a cópia da outra conta")
     void editarACopiaNaoAlcancaAOutraConta() {
         ContaCriada contaA = criador.criar("Cafeteria A", SENHA_DE_TESTE);
         ContaCriada contaB = criador.criar("Cafeteria B", SENHA_DE_TESTE);
@@ -123,9 +122,9 @@ class CatalogoInicialServiceTest extends TesteDeIntegracao {
                     Money.de("7.00"), "EXP-1", "Cafes", "un", Map.of("tamanho", "curto")));
         });
 
-        // RNF05 pela porta do RF32: as duas contas copiaram a mesma linha de modelo_produto, e
-        // ainda assim uma editou sem tocar na outra — e o que a copia (em vez de referencia viva)
-        // compra.
+        // Isolamento entre contas pela porta do catálogo inicial: as duas contas copiaram a mesma
+        // linha de modelo_produto, e ainda assim uma editou sem tocar na outra. É o que a cópia,
+        // em vez de referência viva, compra (RNF05).
         TenantContext.executarComo(contaB.contaId(), () ->
                 assertThat(produtos.listarAtivos())
                         .extracting(Produto::getNome)

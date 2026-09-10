@@ -16,22 +16,22 @@ import org.hibernate.annotations.TenantId;
 import org.hibernate.type.SqlTypes;
 
 /**
- * Linha do catalogo sugerido por tipo de negocio (RF32) — passo R05 do roteiro, etapa 1.3 do plano.
+ * Linha do catálogo sugerido por tipo de negócio (RF32).
  *
- * <p><strong>Nao tem {@link TenantId}, e a ausencia e o ponto desta classe.</strong> E dado de
- * referencia da plataforma, nao de negocio de nenhuma conta: junto de {@code Conta} (cujo id
- * <em>e</em> o tenant) e {@code Credencial} (consultada antes de existir tenant), fecha as tres — e
- * so tres — excecoes ao filtro de tenant descritas em {@code .claude/rules/multi-tenancy.md}. O
- * isolamento continua de pe porque estas linhas sao <em>copiadas</em> para {@code produto}, nunca
- * referenciadas ao vivo; depois de copiado, o item pertence a conta como qualquer outro produto.
+ * <p><strong>Não tem {@link TenantId}, e a ausência é o ponto desta classe.</strong> É dado de
+ * referência da plataforma, não de negócio de nenhuma conta. Junto de {@code Conta}, cujo id
+ * <em>é</em> o tenant, e de {@code Credencial}, consultada antes de existir tenant, ela fecha as
+ * três, e só três, exceções ao filtro de tenant no sistema. O isolamento continua de pé porque
+ * estas linhas são <em>copiadas</em> para {@code produto}, nunca referenciadas ao vivo; depois de
+ * copiado, o item pertence à conta como qualquer outro produto.
  *
- * <p>Nao ha {@code domain/} nem mapper aqui, pelo mesmo julgamento da P7 aplicado a
- * {@code Cliente}: uma linha de referencia sem invariante nenhuma a proteger nao ganha estrutura de
- * agregado. Ela nao muda depois de gravada — nao existe setter, nem metodo de alteracao.
+ * <p>Não há {@code domain/} nem mapper aqui, pelo mesmo julgamento aplicado a {@code Cliente}: uma
+ * linha de referência sem invariante nenhuma a proteger não ganha estrutura de agregado. Ela não
+ * muda depois de gravada, e por isso não existe setter nem método de alteração.
  *
- * <p>Publica, e nao com visibilidade de pacote como {@code ClienteEntity}, porque
- * {@code application.CatalogoInicialService} le estas linhas de outro pacote do mesmo modulo. Para
- * fora do modulo nada disso e alcancavel: pelo Modulith, todo subpacote e interno.
+ * <p>É pública, e não de visibilidade de pacote como {@code ClienteEntity}, porque
+ * {@code application.CatalogoInicialService} lê estas linhas de outro pacote do mesmo módulo. Para
+ * fora do módulo nada disso é alcançável, já que pelo Modulith todo subpacote é interno.
  */
 @Entity
 @Table(name = "modelo_produto")
@@ -40,7 +40,7 @@ public class ModeloProdutoEntity {
     @Id
     private UUID id;
 
-    /** Casa com {@code Conta.tipo_negocio} ignorando maiuscula/minuscula (D20e). */
+    /** Casa com {@code Conta.tipo_negocio} ignorando maiúscula e minúscula. */
     @Column(name = "tipo_negocio", nullable = false)
     private String tipoNegocio;
 
@@ -52,15 +52,14 @@ public class ModeloProdutoEntity {
     private String unidade;
 
     /**
-     * D20c — nao estava no modelo de dados §3 e precisou entrar: {@code produto.tipo} e
-     * {@code NOT NULL}, e sem esta coluna um corte de cabelo seria copiado como
-     * {@link TipoProduto#PRODUTO}, carregando estoque que nao existe (RF17/P4).
+     * Coluna necessária porque {@code produto.tipo} é {@code NOT NULL}: sem ela, um corte de cabelo
+     * seria copiado como {@link TipoProduto#PRODUTO} e carregaria estoque que não existe.
      */
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private TipoProduto tipo;
 
-    /** RF02 — copiado para {@code produto.atributos} junto com o resto da linha. */
+    /** Copiado para {@code produto.atributos} junto com o resto da linha (RF02). */
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "atributos_sugeridos", nullable = false)
     private Map<String, Object> atributosSugeridos;
@@ -70,13 +69,13 @@ public class ModeloProdutoEntity {
     }
 
     /**
-     * Visibilidade de pacote de proposito: <strong>em producao ninguem chama isto</strong>. As
-     * linhas de {@code modelo_produto} vem da migration (D20a) e so de la — o catalogo e dado de
-     * referencia versionado junto do schema, nao algo que a aplicacao escreve.
+     * Visibilidade de pacote de propósito: <strong>em produção ninguém chama isto</strong>. As
+     * linhas de {@code modelo_produto} vêm da migration e só de lá, porque o catálogo é dado de
+     * referência versionado junto do schema, não algo que a aplicação escreve.
      *
-     * <p>Existe para o teste do modulo montar o catalogo de um tipo de negocio ficticio, e provar
-     * que contas de tipos diferentes recebem catalogos diferentes sem depender do conteudo de
-     * fabrica — que hoje tem um tipo so (D20b) e mudaria a cada catalogo novo.
+     * <p>Existe para o teste do módulo montar o catálogo de um tipo de negócio fictício e provar
+     * que contas de tipos diferentes recebem catálogos diferentes, sem depender do conteúdo de
+     * fábrica, que mudaria a cada catálogo novo.
      */
     ModeloProdutoEntity(String tipoNegocio, String nome, String categoria, String unidade,
             TipoProduto tipo, Map<String, Object> atributosSugeridos) {
@@ -93,7 +92,7 @@ public class ModeloProdutoEntity {
         if (atributos == null) {
             return Map.of();
         }
-        // unmodifiableMap sobre uma copia, e nao Map.copyOf, pelo mesmo motivo de Produto: o JSONB
+        // unmodifiableMap sobre uma cópia, e não Map.copyOf, pelo mesmo motivo de Produto: o JSONB
         // pode ter valor nulo, que Map.copyOf recusa.
         return Collections.unmodifiableMap(new LinkedHashMap<>(atributos));
     }
@@ -118,7 +117,7 @@ public class ModeloProdutoEntity {
         return tipo;
     }
 
-    /** Copia imutavel: o modelo nao muda por quem leu o mapa para copiar dele. */
+    /** Cópia imutável: o modelo não muda por quem leu o mapa para copiar dele. */
     public Map<String, Object> getAtributosSugeridos() {
         return copiar(atributosSugeridos);
     }

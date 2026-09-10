@@ -16,12 +16,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 /**
- * RNF05 para {@code cliente} — o passo 6 da skill {@code nova-entidade-multitenant}, no molde de
- * {@code IsolamentoDeProdutoTest}: grava na conta A, consulta como conta B, espera vazio.
+ * Isolamento entre contas para {@code cliente} (RNF05), no mesmo molde de
+ * {@code IsolamentoDeProdutoTest}: grava na conta A, consulta como conta B e espera vazio.
  *
  * <p>Vive no pacote {@code internal} porque precisa falar direto com {@code ClienteRepository}, que
- * e de visibilidade de pacote. E de proposito: se as afirmacoes passassem so pelo servico, o teste
- * nao distinguiria filtro de {@code @TenantId} de filtro escrito no caso de uso — e e o
+ * é de visibilidade de pacote. É de propósito: se as afirmações passassem só pelo serviço, o teste
+ * não distinguiria o filtro de {@code @TenantId} de um filtro escrito no caso de uso, e é o
  * {@code @TenantId} que se quer provar. Em nenhuma linha abaixo existe {@code WHERE conta_id}.
  */
 class IsolamentoDeClienteTest extends TesteDeIntegracao {
@@ -43,9 +43,9 @@ class IsolamentoDeClienteTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("conta B nao enxerga cliente da conta A por nenhum caminho de consulta")
+    @DisplayName("conta B não enxerga cliente da conta A por nenhum caminho de consulta")
     void contaNaoEnxergaClienteDeOutraConta() {
-        ContaCriada contaA = criador.criar("Cafeteria Piloto", SENHA_DE_TESTE);
+        ContaCriada contaA = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
         ContaCriada contaB = criador.criar("Salao Vizinho", SENHA_DE_TESTE);
 
         UUID clienteDaContaA = TenantContext.executarComo(contaA.contaId(), () ->
@@ -68,7 +68,7 @@ class IsolamentoDeClienteTest extends TesteDeIntegracao {
                     .isEmpty();
         });
 
-        // E a conta A continua vendo o proprio dado — filtro nao pode ser esconde de todos.
+        // E a conta A continua vendo o próprio dado: o filtro não pode ser esconder de todos.
         TenantContext.executarComo(contaA.contaId(), () -> {
             assertThat(clientes.findById(clienteDaContaA)).isPresent();
             assertThat(clienteService.listarAtivos())
@@ -82,7 +82,7 @@ class IsolamentoDeClienteTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("caso de uso de outra conta nao alcanca o cliente nem para editar ou inativar")
+    @DisplayName("caso de uso de outra conta não alcança o cliente nem para editar ou inativar")
     void casoDeUsoDeOutraContaNaoAlcancaOCliente() {
         ContaCriada contaA = criador.criar("Loja A", SENHA_DE_TESTE);
         ContaCriada contaB = criador.criar("Loja B", SENHA_DE_TESTE);
@@ -111,12 +111,12 @@ class IsolamentoDeClienteTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("contaId de um cliente vem do contexto, nunca de parametro")
+    @DisplayName("contaId de um cliente vem do contexto, nunca de parâmetro")
     void contaIdEPreenchidoPeloContextoDeTenant() {
         ContaCriada conta = criador.criar("Oficina Teste", SENHA_DE_TESTE);
 
-        // Repare que nem o caso de uso nem a entidade recebem a conta: nao existe assinatura por
-        // onde um chamador pudesse informa-la (RNF05).
+        // Repare que nem o caso de uso nem a entidade recebem a conta: não existe assinatura por
+        // onde um chamador pudesse informá-la (RNF05).
         UUID clienteId = TenantContext.executarComo(conta.contaId(), () ->
                 clienteService.cadastrar(new DadosDoCliente("Cliente da oficina", null)));
 

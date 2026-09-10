@@ -13,12 +13,12 @@ import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 
 /**
- * Chave e beans de emissao/validacao de JWT (decisao D14a).
+ * Chave e beans de emissão e validação de JWT.
  *
- * <p>HMAC-SHA256 com chave simetrica: emissor e validador sao a mesma aplicacao, entao par de
- * chaves assimetricas seria maquinario sem uso. A chave vem de {@code CAIXA_SIMPLES_JWT_SECRET} e
- * <strong>nao tem valor padrao</strong> — a aplicacao nao sobe sem ela (D14e). Um padrao em codigo
- * seria o mesmo em toda instalacao, o que equivale a nao ter chave.
+ * <p>HMAC-SHA256 com chave simétrica: emissor e validador são a mesma aplicação, então um par de
+ * chaves assimétricas seria maquinário sem uso. A chave vem do ambiente e <strong>não tem valor
+ * padrão</strong>, de modo que a aplicação não sobe sem ela. Um padrão em código seria o mesmo em
+ * toda instalação, o que equivale a não ter chave.
  */
 @Configuration(proxyBeanMethods = false)
 class JwtConfiguration {

@@ -14,11 +14,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Regras que a raiz do agregado garante sozinha, sem banco e sem Spring — que e a razao de
- * {@code domain/} nao importar framework nenhum (arquitetura §2).
+ * Regras que a raiz do agregado garante sozinha, sem banco e sem Spring, que é justamente a razão
+ * de {@code domain/} não importar framework nenhum.
  *
- * <p>A invariante do modelo de dados §4 ({@code estoqueAtual} = soma dos movimentos) ainda nao
- * pode ser violada: {@code MovimentoEstoque} nasce na etapa 1.7 (R15), e o teste dela vai junto.
+ * <p>A invariante de que {@code estoqueAtual} é a soma dos movimentos ainda não pode ser violada
+ * aqui, porque o movimento de estoque ainda não existe. O teste dela nasce junto com ele.
  */
 class ProdutoTest {
 
@@ -27,7 +27,7 @@ class ProdutoTest {
     }
 
     @Test
-    @DisplayName("preco negativo e recusado — nao e preco")
+    @DisplayName("preço negativo é recusado, porque não é preço")
     void precoNegativoERecusado() {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> valido(Money.de("-0.01")))
@@ -35,13 +35,13 @@ class ProdutoTest {
     }
 
     @Test
-    @DisplayName("preco zero e aceito: cortesia, brinde, item de acompanhamento (D16c)")
+    @DisplayName("preço zero é aceito: cortesia, brinde, item de acompanhamento")
     void precoZeroEAceito() {
         assertThat(valido(Money.ZERO).getPreco()).isEqualTo(Money.ZERO);
     }
 
     @Test
-    @DisplayName("nome e obrigatorio; preco e tipo tambem (D16a)")
+    @DisplayName("nome é obrigatório; preço e tipo também")
     void camposObrigatorios() {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new Produto("   ", Money.de("1.00"), TipoProduto.PRODUTO, null,
@@ -57,7 +57,7 @@ class ProdutoTest {
     }
 
     @Test
-    @DisplayName("categoria e unidade sao opcionais (D16a), e codigo tambem (D11)")
+    @DisplayName("categoria, unidade e código são opcionais")
     void camposOpcionais() {
         Produto produto = valido(Money.de("6.50"));
 
@@ -67,7 +67,7 @@ class ProdutoTest {
     }
 
     @Test
-    @DisplayName("texto em branco vira ausencia, nao um codigo vazio disputando o indice unico")
+    @DisplayName("texto em branco vira ausência, não um código vazio disputando o índice único")
     void textoEmBrancoViraNulo() {
         Produto produto = new Produto("Corte", Money.de("40.00"), TipoProduto.SERVICO, "   ", "  ",
                 "", null);
@@ -78,7 +78,7 @@ class ProdutoTest {
     }
 
     @Test
-    @DisplayName("espacos nas pontas somem — 'ABC-12 ' e 'ABC-12' sao o mesmo cadastro")
+    @DisplayName("espaços nas pontas somem, de modo que ABC-12 com e sem espaço é o mesmo cadastro")
     void textoEhAparado() {
         Produto produto = new Produto("  Cappuccino  ", Money.de("9.00"), TipoProduto.PRODUTO,
                 " ABC-12 ", " Bebidas ", " un ", null);
@@ -90,7 +90,7 @@ class ProdutoTest {
     }
 
     @Test
-    @DisplayName("estoque nasce zerado, inclusive em servico (D16b)")
+    @DisplayName("estoque nasce zerado, inclusive em serviço")
     void estoqueNasceZerado() {
         Produto servico = new Produto("Corte", Money.de("40.00"), TipoProduto.SERVICO, null, null,
                 null, null);
@@ -99,7 +99,7 @@ class ProdutoTest {
     }
 
     @Test
-    @DisplayName("atributo so muda pela raiz: o mapa de fora nao entra e o de dentro nao sai mutavel")
+    @DisplayName("atributo só muda pela raiz: o mapa de fora não entra e o de dentro não sai mutável")
     void atributosSaoIsolados() {
         Map<String, Object> mutavel = new HashMap<>();
         mutavel.put("tamanho", "M");
@@ -110,22 +110,22 @@ class ProdutoTest {
         mutavel.put("cor", "preta");
 
         assertThat(produto.getAtributos())
-                .as("mapa de fora nao entra depois de construido")
+                .as("mapa de fora não entra depois de construído")
                 .containsExactlyEntriesOf(Map.of("tamanho", "M"));
 
         assertThatExceptionOfType(UnsupportedOperationException.class)
-                .as("mapa de dentro nao sai mutavel")
+                .as("mapa de dentro não sai mutável")
                 .isThrownBy(() -> produto.getAtributos().put("cor", "preta"));
     }
 
     @Test
-    @DisplayName("sem atributo especifico, mapa vazio — nunca nulo para quem le (RF02)")
+    @DisplayName("sem atributo específico, o mapa é vazio e nunca nulo para quem lê (RF02)")
     void semAtributosViraMapaVazio() {
         assertThat(valido(Money.de("6.50")).getAtributos()).isEmpty();
     }
 
     @Test
-    @DisplayName("inativar preserva o registro — soft delete do RF05")
+    @DisplayName("inativar preserva o registro, que é o soft delete do RF05")
     void inativarNaoApaga() {
         Produto produto = valido(Money.de("6.50"));
         assertThat(produto.isAtivo()).isTrue();
@@ -138,7 +138,7 @@ class ProdutoTest {
     }
 
     @Test
-    @DisplayName("inativar e idempotente — dois cliques no balcao nao sao erro (D17c)")
+    @DisplayName("inativar é idempotente, porque dois cliques no balcão não são erro")
     void inativarDuasVezesNaoEstoura() {
         Produto produto = valido(Money.de("6.50"));
 
@@ -149,7 +149,7 @@ class ProdutoTest {
     }
 
     @Test
-    @DisplayName("alterar cobra as mesmas regras do cadastro: nome obrigatorio, preco nao negativo")
+    @DisplayName("alterar cobra as mesmas regras do cadastro: nome obrigatório, preço não negativo")
     void alterarValidaComoOConstrutor() {
         Produto produto = valido(Money.de("6.50"));
 
@@ -167,7 +167,7 @@ class ProdutoTest {
     }
 
     @Test
-    @DisplayName("alterar substitui os campos editaveis, aparando texto e tratando branco como ausencia")
+    @DisplayName("alterar substitui os campos editáveis, aparando texto e tratando branco como ausência")
     void alterarSubstituiOsCamposEditaveis() {
         Produto produto = new Produto("Cafe coado", Money.de("6.50"), TipoProduto.PRODUTO, "ABC-1",
                 "Bebidas", "un", Map.of("tamanho", "M"));
@@ -181,17 +181,17 @@ class ProdutoTest {
         assertThat(produto.getCategoria()).isNull();
         assertThat(produto.getUnidade()).isNull();
         assertThat(produto.getAtributos())
-                .as("atributo e substituido por inteiro, nunca mesclado com o que estava la")
+                .as("atributo é substituído por inteiro, nunca mesclado com o que estava lá")
                 .containsExactlyEntriesOf(Map.of("cor", "preta"));
     }
 
     @Test
-    @DisplayName("alterar nao mexe em tipo nem em estoque (D17a, R15)")
+    @DisplayName("alterar não mexe em tipo nem em estoque")
     void alterarNaoTocaNoQueNaoEDoCadastro() {
         Produto servico = new Produto("Corte", Money.de("40.00"), TipoProduto.SERVICO, null, null,
                 null, null);
 
-        // Nao ha assinatura por onde passar tipo ou estoque — a ausencia e que e a regra.
+        // Não há assinatura por onde passar tipo ou estoque: a ausência é que é a regra.
         servico.alterar("Corte masculino", Money.de("45.00"), null, null, "hora", null);
 
         assertThat(servico.getTipo()).isEqualTo(TipoProduto.SERVICO);
@@ -199,7 +199,7 @@ class ProdutoTest {
     }
 
     @Test
-    @DisplayName("produto inativo nao pode ser editado (D17c)")
+    @DisplayName("produto inativo não pode ser editado")
     void alterarProdutoInativoERecusado() {
         Produto produto = valido(Money.de("6.50"));
         produto.inativar();
@@ -210,7 +210,7 @@ class ProdutoTest {
                 .withMessageContaining("inativo");
 
         assertThat(produto.getNome())
-                .as("a recusa nao pode ter aplicado nada pela metade")
+                .as("a recusa não pode ter aplicado nada pela metade")
                 .isEqualTo("Cafe coado");
     }
 }

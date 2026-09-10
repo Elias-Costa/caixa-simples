@@ -1,8 +1,8 @@
 /**
- * Bounded Context de vendas (PDV): agregado {@code Venda} (raiz, com {@code ItemVenda} e
- * {@code Pagamento} como membros).
+ * Bounded Context de vendas: agregado {@code Venda}, raiz que tem {@code ItemVenda} e
+ * {@code Pagamento} como membros.
  *
- * <p>Concluir ou cancelar uma venda publica evento de dominio — este modulo nunca chama
+ * <p>Concluir ou cancelar uma venda publica evento de domínio. Este módulo nunca chama
  * {@code caixa} nem {@code estoque} diretamente para produzir efeito colateral.
  */
 @ApplicationModule(displayName = "Vendas")

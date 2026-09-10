@@ -21,15 +21,15 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 /**
- * RF32 pelo lado de dentro: o que so se prova com {@link ModeloProdutoRepository} na mao.
+ * O catálogo inicial sugerido (RF32) pelo lado de dentro: o que só se prova com
+ * {@link ModeloProdutoRepository} na mão.
  *
- * <p>Mora em {@code cadastro.internal}, e nao ao lado de {@code CatalogoInicialServiceTest}, pelo
- * mesmo motivo que separou os dois testes de {@code Cliente} no R04: aqui e preciso <em>montar</em>
- * modelo de tipo de negocio, e um catalogo de fabrica so ({@code cafeteria}, D20b) nao provaria que
- * tipos diferentes recebem catalogos diferentes.
+ * <p>Mora em {@code cadastro.internal}, e não ao lado de {@code CatalogoInicialServiceTest}, porque
+ * aqui é preciso <em>montar</em> modelo de tipo de negócio, e o catálogo que vem de fábrica não
+ * provaria que tipos diferentes recebem catálogos diferentes.
  *
- * <p>Os tipos de negocio usados aqui sao ficticios de proposito. Amarrar o teste ao conteudo de
- * fabrica faria cada catalogo novo quebrar um teste que nao e sobre catalogo nenhum.
+ * <p>Os tipos de negócio usados aqui são fictícios de propósito. Amarrar o teste ao conteúdo de
+ * fábrica faria cada catálogo novo quebrar um teste que não é sobre catálogo nenhum.
  */
 class CatalogoInicialDoModeloTest extends TesteDeIntegracao {
 
@@ -52,13 +52,13 @@ class CatalogoInicialDoModeloTest extends TesteDeIntegracao {
         TenantContext.limpar();
     }
 
-    /** Tipo unico por execucao: modelo_produto e global e nao se limpa entre testes. */
+    /** Tipo único por execução: {@code modelo_produto} é global e não se limpa entre testes. */
     private static String tipoFicticio(String prefixo) {
         return prefixo + "-" + UUID.randomUUID();
     }
 
     @Test
-    @DisplayName("contas de tipos de negocio diferentes recebem catalogos diferentes")
+    @DisplayName("contas de tipos de negócio diferentes recebem catálogos diferentes")
     void tiposDiferentesRecebemCatalogosDiferentes() {
         String tipoDaPadaria = tipoFicticio("padaria");
         String tipoDaBarbearia = tipoFicticio("barbearia");
@@ -88,7 +88,7 @@ class CatalogoInicialDoModeloTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("a copia carrega tipo SERVICO e os atributos sugeridos do jsonb")
+    @DisplayName("a cópia carrega tipo SERVICO e os atributos sugeridos do jsonb")
     void copiaCarregaTipoEAtributos() {
         String tipo = tipoFicticio("oficina");
         modelos.save(new ModeloProdutoEntity(tipo, "Troca de oleo", "Servicos", "un",
@@ -100,7 +100,8 @@ class CatalogoInicialDoModeloTest extends TesteDeIntegracao {
         TenantContext.executarComo(conta.contaId(), () -> {
             Produto copiado = produtos.listarAtivos().getFirst();
 
-            // D20c — sem a coluna `tipo`, isto viria como PRODUTO e um servico carregaria estoque.
+            // Sem a coluna de tipo no modelo, isto viria como PRODUTO e um serviço carregaria
+            // estoque que não existe.
             assertThat(copiado.getTipo()).isEqualTo(TipoProduto.SERVICO);
             assertThat(copiado.getAtributos())
                     .containsEntry("garantia_dias", 90)
@@ -109,7 +110,7 @@ class CatalogoInicialDoModeloTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("editar o produto copiado nao altera a linha de modelo_produto")
+    @DisplayName("editar o produto copiado não altera a linha de modelo_produto")
     void editarACopiaNaoAlteraOModelo() {
         String tipo = tipoFicticio("floricultura");
         UUID modeloId = modelos.save(new ModeloProdutoEntity(tipo, "Buque de rosas", "Arranjos",
@@ -124,7 +125,7 @@ class CatalogoInicialDoModeloTest extends TesteDeIntegracao {
                     null, "Especiais", "un", Map.of("cor", "branca")));
         });
 
-        // O item copiado passou a pertencer a conta; o modelo e da plataforma e nao se move junto.
+        // O item copiado passou a pertencer à conta; o modelo é da plataforma e não se move junto.
         ModeloProdutoEntity modelo = modelos.findById(modeloId).orElseThrow();
         assertThat(modelo.getNome()).isEqualTo("Buque de rosas");
         assertThat(modelo.getCategoria()).isEqualTo("Arranjos");
@@ -132,7 +133,7 @@ class CatalogoInicialDoModeloTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("modelo_produto e lida igual pelas duas contas — a ausencia de filtro e deliberada")
+    @DisplayName("modelo_produto é lida igual pelas duas contas, e a ausência de filtro é deliberada")
     void modeloProdutoEGlobal() {
         String tipo = tipoFicticio("banca");
         modelos.save(new ModeloProdutoEntity(tipo, "Revista", "Publicacoes", "un",
@@ -141,9 +142,9 @@ class CatalogoInicialDoModeloTest extends TesteDeIntegracao {
         ContaCriada contaA = criador.criar("Banca A", SENHA_DE_TESTE);
         ContaCriada contaB = criador.criar("Banca B", SENHA_DE_TESTE);
 
-        // Ao contrario de todo outro repositorio do sistema, este devolve a mesma coisa sob
-        // qualquer tenant: modelo_produto e dado da plataforma (.claude/rules/multi-tenancy.md).
-        // Se um @TenantId aparecer em ModeloProdutoEntity por engano, e aqui que quebra.
+        // Ao contrário de todo outro repositório do sistema, este devolve a mesma coisa sob
+        // qualquer tenant, porque modelo_produto é dado da plataforma. Se um @TenantId aparecer em
+        // ModeloProdutoEntity por engano, é aqui que quebra.
         List<String> pelaContaA = TenantContext.executarComo(contaA.contaId(),
                 () -> nomesDoTipo(tipo));
         List<String> pelaContaB = TenantContext.executarComo(contaB.contaId(),

@@ -5,35 +5,37 @@ import java.util.Optional;
 import java.util.function.Supplier;
 
 /**
- * Conta (tenant) da operacao em curso.
+ * Conta (tenant) da operação em curso.
  *
- * <p>Preenchido pelo filtro de autenticacao a partir do claim do JWT — <strong>nunca</strong> a
- * partir de corpo, path, query ou header da requisicao (arquitetura §3, RNF05). O
- * {@code CurrentTenantIdentifierResolver} do Hibernate le daqui para aplicar o filtro de
+ * <p>Preenchido pelo filtro de autenticação a partir do claim do token, <strong>nunca</strong> a
+ * partir de corpo, path, query ou header da requisição, porque qualquer um desses seria um valor
+ * que o cliente pode forjar para alcançar dado de outra conta (RNF05). O
+ * {@code CurrentTenantIdentifierResolver} do Hibernate lê daqui para aplicar o filtro de
  * {@code @TenantId} em toda query automaticamente.
  *
- * <p>Implementado com {@link ThreadLocal}, nao com {@code ScopedValue}: {@code ScopedValue} ainda e
- * <em>preview</em> no Java 21 (so ficou final no 25) e exigiria {@code --enable-preview}. Cada
- * virtual thread tem seu proprio valor de {@code ThreadLocal}, entao a semantica por requisicao
- * esta correta com {@code spring.threads.virtual.enabled=true}. Ao migrar para o Java 25, este e o
- * unico arquivo a trocar.
+ * <p>Implementado com {@link ThreadLocal} e não com {@code ScopedValue}, porque
+ * {@code ScopedValue} ainda é <em>preview</em> no Java 21, tendo se tornado final apenas no 25, e
+ * exigiria {@code --enable-preview}. Cada virtual thread tem seu próprio valor de
+ * {@link ThreadLocal}, então a semântica por requisição continua correta com
+ * {@code spring.threads.virtual.enabled=true}. Ao migrar para o Java 25, este é o único arquivo a
+ * trocar.
  */
 public final class TenantContext {
 
     private static final ThreadLocal<ContaId> ATUAL = new ThreadLocal<>();
 
     /**
-     * Tenant sentinela usado quando nao ha conta no contexto.
+     * Tenant sentinela usado quando não há conta no contexto.
      *
-     * <p>Existe por exigencia do Hibernate 7: com um resolver de tenant registrado, ele recusa
-     * abrir sessao sem identificador — inclusive na inicializacao, quando o Spring Data valida as
+     * <p>Existe por exigência do Hibernate 7: com um resolver de tenant registrado, ele recusa
+     * abrir sessão sem identificador, inclusive na inicialização, quando o Spring Data valida as
      * derived queries. Devolver {@code null} derruba o contexto.
      *
-     * <p>E infraestrutura, <strong>nunca</strong> uma conta de verdade, e o desenho falha fechado
-     * nas duas direcoes: na leitura, filtra por um {@code conta_id} que nenhuma linha tem, logo
+     * <p>É infraestrutura, <strong>nunca</strong> uma conta de verdade, e o desenho falha fechado
+     * nas duas direções: na leitura, filtra por um {@code conta_id} que nenhuma linha tem, logo
      * devolve vazio; na escrita, a foreign key {@code conta_id REFERENCES conta (id)} rejeita o
-     * insert no banco. A migration V1 ainda proibe por {@code CHECK} que alguma conta real receba
-     * este id.
+     * insert no banco. A primeira migration ainda proíbe por {@code CHECK} que alguma conta real
+     * receba este id.
      */
     public static final ContaId SEM_TENANT = ContaId.de(new java.util.UUID(0L, 0L));
 
@@ -49,8 +51,8 @@ public final class TenantContext {
     }
 
     /**
-     * @throws TenantNaoResolvidoException se nao houver conta no contexto — falhar e correto,
-     *         consultar sem filtro nao.
+     * @throws TenantNaoResolvidoException se não houver conta no contexto. Falhar é o
+     *         comportamento correto; consultar sem filtro não é.
      */
     public static ContaId exigirAtual() {
         ContaId contaId = ATUAL.get();
@@ -60,15 +62,18 @@ public final class TenantContext {
         return contaId;
     }
 
-    /** Obrigatorio ao fim de cada requisicao — thread reaproveitada nao pode herdar tenant. */
+    /**
+     * Obrigatório ao fim de cada requisição: thread reaproveitada não pode herdar o tenant da
+     * requisição anterior.
+     */
     public static void limpar() {
         ATUAL.remove();
     }
 
     /**
-     * Executa uma acao no contexto de uma conta especifica, restaurando o contexto anterior no
-     * fim. Use em listener de evento assincrono e em teste; nunca para "emprestar" outra conta
-     * dentro do fluxo de uma requisicao.
+     * Executa uma ação no contexto de uma conta específica, restaurando o contexto anterior no
+     * fim. Use em listener de evento assíncrono e em teste. Nunca use para tomar emprestada outra
+     * conta dentro do fluxo de uma requisição.
      */
     public static <T> T executarComo(ContaId contaId, Supplier<T> acao) {
         ContaId anterior = ATUAL.get();

@@ -3,13 +3,13 @@ package br.com.caixasimples.contas.internal;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * Dados da conta criada pelo {@link SeedDeConta}, vindos da linha de comando ou do ambiente.
+ * Dados da conta criada pelo {@link SeedDeConta}, vindos do ambiente.
  *
- * <p>Sem valor padrao para {@code email} e {@code senha}: uma senha padrao em codigo seria a mesma
- * em toda instalacao.
+ * <p>Sem valor padrão para {@code email} e {@code senha}: uma senha padrão em código seria a mesma
+ * em toda instalação.
  *
- * @param tipoNegocio opcional — casa com {@code modelo_produto.tipo_negocio} para sugerir o
- *                    catalogo inicial (RF32); nulo significa cadastro comecando em branco
+ * @param tipoNegocio opcional; casa com {@code modelo_produto.tipo_negocio} para sugerir o
+ *                    catálogo inicial (RF32), e nulo significa cadastro começando em branco
  */
 @ConfigurationProperties(prefix = "caixa-simples.seed")
 record PropriedadesDoSeed(

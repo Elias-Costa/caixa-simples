@@ -28,18 +28,14 @@ import org.hibernate.annotations.TenantId;
 /**
  * Mapeamento JPA da tabela {@code sessao_caixa} e tradutor de e para {@link SessaoCaixa}.
  *
- * <p>A entidade e o dominio sao classes separadas de proposito (arquitetura §2, P7): e o que
- * permite {@link SessaoCaixa} nao conhecer {@code jakarta.persistence}. Este arquivo e a unica
- * ponte entre os dois.
+ * <p>A entidade e o domínio são classes separadas de propósito, e é isso que permite
+ * {@link SessaoCaixa} não conhecer {@code jakarta.persistence}. Este arquivo é a única ponte entre
+ * os dois.
  *
- * <p>{@code contaId} e preenchido pelo Hibernate a partir do
- * {@code CurrentTenantIdentifierResolver} e filtra toda consulta automaticamente ({@link TenantId}).
- * Nao ha construtor nem setter que o receba — {@code contaId} nunca vem de fora da aplicacao
- * (RNF05).
- *
- * <p><strong>O {@code atualizarCom} nasceu no R07</strong>, junto com o caso de uso que precisou
- * dele — sangria e suprimento sao as duas primeiras operacoes que alteram uma sessao ja gravada.
- * Ele so escreve o que o R07 muda; as colunas de fechamento continuam de fora, e entram no R08.
+ * <p>{@code contaId} é preenchido pelo Hibernate a partir do
+ * {@code CurrentTenantIdentifierResolver} e filtra toda consulta automaticamente
+ * ({@link TenantId}). Não há construtor nem setter que o receba, porque {@code contaId} nunca vem
+ * de fora da aplicação (RNF05).
  */
 @Entity
 @Table(name = "sessao_caixa")
@@ -52,7 +48,7 @@ public class SessaoCaixaEntity {
     @Column(name = "conta_id", nullable = false, updatable = false)
     private UUID contaId;
 
-    /** Quem abriu. Referencia entre agregados, sempre por id (modelo de dados §4). */
+    /** Quem abriu. Referência entre agregados, sempre por id. */
     @Column(name = "usuario_id", nullable = false, updatable = false)
     private UUID usuarioId;
 
@@ -60,14 +56,14 @@ public class SessaoCaixaEntity {
     private BigDecimal valorAbertura;
 
     /**
-     * D21a — coluna viva, nao calculo do fechamento: acompanha os movimentos na mesma transacao,
-     * como {@code produto.estoque_atual} acompanha os movimentos de estoque. Por isso e
-     * {@code NOT NULL} desde a abertura, e nao nula ate o fechamento como as tres abaixo.
+     * Coluna viva, não cálculo do fechamento: acompanha os movimentos na mesma transação, como
+     * {@code produto.estoque_atual} acompanha os movimentos de estoque. Por isso é
+     * {@code NOT NULL} desde a abertura, e não nula até o fechamento como as três abaixo.
      */
     @Column(name = "valor_fechamento_esperado", nullable = false)
     private BigDecimal valorFechamentoEsperado;
 
-    /** Nulas ate o fechamento (R08), as tres juntas. */
+    /** Nulas até o fechamento, as três juntas. */
     @Column(name = "valor_fechamento_contado")
     private BigDecimal valorFechamentoContado;
 
@@ -85,30 +81,29 @@ public class SessaoCaixaEntity {
     private StatusSessaoCaixa status;
 
     /**
-     * Os movimentos da sessao, mapeados como membros do agregado e nao como entidade independente.
+     * Os movimentos da sessão, mapeados como membros do agregado e não como entidade independente.
      *
-     * <p>{@code cascade} e {@code orphanRemoval} sao o que faz o agregado ser gravado como uma
-     * unidade so: salvar a raiz grava os movimentos junto, na mesma transacao. A associacao e
-     * <strong>unidirecional</strong> — o movimento nao aponta de volta para a sessao, porque a unica
-     * navegacao que faz sentido no agregado e da raiz para o membro.
+     * <p>{@code cascade} e {@code orphanRemoval} são o que faz o agregado ser gravado como uma
+     * unidade só: salvar a raiz grava os movimentos junto, na mesma transação. A associação é
+     * <strong>unidirecional</strong>, porque a única navegação que faz sentido no agregado é da
+     * raiz para o membro.
      *
-     * <p><strong>{@code EAGER}, e a escolha custa algo — vale ler o porque.</strong> A regra do
-     * projeto e que membro de agregado se carrega pela raiz, com o agregado inteiro na transacao
-     * ({@code .claude/rules/agregados-e-repositorios.md}), e uma sessao sem os movimentos nao
-     * responde a pergunta que ela existe para responder. Com {@code LAZY} isso so seria verdade
-     * dentro de uma transacao aberta: quem chamasse {@code findById} fora de uma e tocasse na lista
-     * levaria {@code LazyInitializationException} — o tipo de comportamento implicito que este
-     * projeto evita, e que ja apareceu de fato ao escrever o teste de ida e volta deste passo.
+     * <p><strong>É {@code EAGER}, e a escolha custa algo. Vale ler o porquê.</strong> A regra do
+     * projeto é que membro de agregado se carrega pela raiz, com o agregado inteiro na transação, e
+     * uma sessão sem os movimentos não responde à pergunta que ela existe para responder. Com
+     * {@code LAZY} isso só seria verdade dentro de uma transação aberta: quem chamasse
+     * {@code findById} fora de uma e tocasse na lista levaria {@code LazyInitializationException},
+     * que é o tipo de comportamento implícito que este projeto evita, e que chegou a aparecer ao
+     * escrever o teste de ida e volta do mapeamento.
      *
-     * <p>O preco e listar sessoes: {@code findAll} traz os movimentos de todas. Enquanto so existe
-     * consulta por id, isso nao pesa. O historico por operador e por dia do <strong>R08</strong> e
-     * o ponto em que a conta muda — e la a saida deve ser uma projecao com os totais, nao uma lista
-     * de agregados inteiros.
+     * <p>O preço é listar sessões, porque {@code findAll} traria os movimentos de todas. É por isso
+     * que o histórico por operador e por dia não usa esta entidade, e sim uma projeção com os
+     * totais, em {@link LinhaDoHistorico}.
      *
      * <p>{@link OrderBy} por {@code criadoEm} para a leitura sair na ordem em que o expediente
-     * aconteceu — sem ele, a ordem seria a que o banco resolvesse devolver, e o extrato do caixa
-     * (R08) sairia embaralhado. Empate de microssegundo continua sem ordem definida, e isso e
-     * aceitavel: o extrato nao precisa desempatar dois lancamentos do mesmo instante.
+     * aconteceu. Sem ele, a ordem seria a que o banco resolvesse devolver, e o extrato do caixa
+     * sairia embaralhado. Empate de microssegundo continua sem ordem definida, e isso é aceitável:
+     * o extrato não precisa desempatar dois lançamentos do mesmo instante.
      */
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     @JoinColumn(name = "sessao_caixa_id", nullable = false)
@@ -139,19 +134,19 @@ public class SessaoCaixaEntity {
     }
 
     /**
-     * Copia para a linha tudo o que o agregado pode ter mudado: o esperado (D21a), os movimentos
-     * novos e — desde o R08 — as quatro colunas do fechamento.
+     * Copia para a linha tudo o que o agregado pode ter mudado: o esperado, os movimentos novos e
+     * as quatro colunas do fechamento.
      *
-     * <p><strong>Acrescenta em vez de substituir a colecao</strong>, e a diferenca importa: com
-     * {@code orphanRemoval}, trocar a lista inteira apagaria e reinseriria o historico do
-     * expediente a cada lancamento. Entao a comparacao e por id — o que ja esta gravado fica onde
-     * esta, e so o que o dominio criou agora vira linha nova.
+     * <p><strong>Acrescenta em vez de substituir a coleção</strong>, e a diferença importa: com
+     * {@code orphanRemoval}, trocar a lista inteira apagaria e reinseriria o histórico do
+     * expediente a cada lançamento. Por isso a comparação é por id, de modo que o que já está
+     * gravado fica onde está e só o que o domínio criou agora vira linha nova.
      *
-     * <p><strong>Continua sendo um metodo so, e nao um por caso de uso.</strong> A linha copia o
-     * estado do dominio, que e a fonte da verdade; para uma sessao ABERTA, copiar as quatro colunas
-     * do fechamento e escrever nulo por cima de nulo e ABERTA por cima de ABERTA. Um segundo metodo
+     * <p><strong>É um método só, e não um por caso de uso.</strong> A linha copia o estado do
+     * domínio, que é a fonte da verdade; para uma sessão ABERTA, copiar as quatro colunas do
+     * fechamento é escrever nulo por cima de nulo e ABERTA por cima de ABERTA. Um segundo método
      * exigiria que quem chama soubesse escolher entre os dois, e escolher errado gravaria pela
-     * metade — que e um defeito bem mais caro de achar do que quatro atribuicoes sem efeito.
+     * metade, que é um defeito bem mais caro de achar do que quatro atribuições sem efeito.
      */
     public void atualizarCom(SessaoCaixa sessao) {
         this.valorFechamentoEsperado = sessao.getValorFechamentoEsperado().valor();
@@ -184,14 +179,14 @@ public class SessaoCaixaEntity {
         return id;
     }
 
-    /** Existe para o teste de isolamento poder afirmar de que conta a linha e. */
+    /** Existe para o teste de isolamento poder afirmar de que conta a linha é. */
     public ContaId getContaId() {
         return ContaId.de(contaId);
     }
 
     /**
-     * Visibilidade de pacote de proposito: quem esta fora de {@code caixa.internal} nem consegue
-     * nomear {@code MovimentoCaixaEntity}, entao o membro do agregado so se le pelo dominio.
+     * Visibilidade de pacote de propósito: quem está fora de {@code caixa.internal} nem consegue
+     * nomear {@code MovimentoCaixaEntity}, então o membro do agregado só se lê pelo domínio.
      */
     List<MovimentoCaixaEntity> getMovimentos() {
         return movimentos;

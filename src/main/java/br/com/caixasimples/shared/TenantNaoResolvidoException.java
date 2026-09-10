@@ -1,10 +1,10 @@
 package br.com.caixasimples.shared;
 
 /**
- * Lancada quando uma operacao que depende de tenant roda sem conta no contexto.
+ * Lançada quando uma operação que depende de tenant roda sem conta no contexto.
  *
- * <p>Falhar aqui e deliberado: o alternativo seria consultar sem filtro de conta, que e exatamente
- * a falha que RNF05 proibe. Nunca trate esta excecao devolvendo dado sem filtro.
+ * <p>Falhar aqui é deliberado: a alternativa seria consultar sem filtro de conta, que é exatamente
+ * a falha de isolamento que o RNF05 proíbe. Nunca trate esta exceção devolvendo dado sem filtro.
  */
 public class TenantNaoResolvidoException extends RuntimeException {
 

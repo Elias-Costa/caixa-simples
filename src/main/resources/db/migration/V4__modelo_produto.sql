@@ -1,16 +1,13 @@
--- Etapa 1.3 do plano de implementacao (passo R05 do roteiro): catalogo inicial sugerido.
+-- Catálogo inicial sugerido por tipo de negócio.
 --
--- Dicionario de dados: modelo-dados-caixa-simples.md §3, mais a coluna `tipo` da D20c.
--- Tipos de coluna: todos saem da tabela da D12 — nenhum tamanho inventado aqui.
+-- Cobre RF32 (sugerir catálogo inicial com base no tipo de negócio informado no primeiro acesso).
 --
--- Cobre RF32 (sugerir catalogo inicial com base no tipo de negocio informado no primeiro acesso).
---
--- ESTA E A TABELA SEM `conta_id`, e a ausencia e o ponto dela: e dado de referencia da PLATAFORMA,
--- nao de negocio de nenhuma conta. Junto de `conta` (cujo id *e* o tenant) e `credencial`
--- (consultada antes de existir tenant), fecha as tres — e so tres — excecoes ao filtro de tenant
--- descritas em .claude/rules/multi-tenancy.md. O isolamento continua de pe porque as linhas daqui
--- sao COPIADAS para `produto`, nunca referenciadas ao vivo: depois de copiado, o item pertence a
--- conta como qualquer outro produto e some da vista das demais.
+-- ESTA É A TABELA SEM `conta_id`, e a ausência é o ponto dela: é dado de referência da PLATAFORMA,
+-- não de negócio de nenhuma conta. Junto de `conta`, cujo id é o próprio tenant, e `credencial`,
+-- consultada antes de existir tenant, fecha as três, e só três, exceções ao filtro de tenant. O
+-- isolamento continua de pé porque as linhas daqui são COPIADAS para `produto`, nunca
+-- referenciadas ao vivo: depois de copiado, o item pertence à conta como qualquer outro produto e
+-- some da vista das demais.
 
 CREATE TABLE modelo_produto (
     id                   uuid          PRIMARY KEY,
@@ -21,30 +18,28 @@ CREATE TABLE modelo_produto (
     tipo                 varchar(20)   NOT NULL,
     atributos_sugeridos  jsonb         NOT NULL DEFAULT '{}'::jsonb,
 
-    -- Enum como VARCHAR + CHECK, nunca o tipo ENUM do Postgres (P5). Mesmo dominio de
-    -- `produto.tipo`, porque este valor e copiado direto para la.
+    -- Enum como VARCHAR + CHECK, nunca o tipo ENUM do Postgres. Mesmo domínio de `produto.tipo`,
+    -- porque este valor é copiado direto para lá.
     CONSTRAINT modelo_produto_tipo_valido
         CHECK (tipo IN ('PRODUTO', 'SERVICO'))
 );
 
--- D20e — o casamento com `conta.tipo_negocio` ignora maiuscula/minuscula, mesmo tratamento que a
--- P3 da ao e-mail e a D11 ao codigo do produto: o campo aceita texto livre em "outro" (modelo de
--- dados §3), e "Cafeteria" digitado no cadastro da conta nao pode deixar de casar com "cafeteria".
--- O indice sustenta exatamente a consulta que o caso de uso faz.
+-- O casamento com `conta.tipo_negocio` ignora maiúscula e minúscula, mesmo tratamento dado ao
+-- e-mail e ao código do produto: o campo aceita texto livre, e Cafeteria digitado no cadastro da
+-- conta não pode deixar de casar com cafeteria. O índice sustenta exatamente a consulta que o caso
+-- de uso faz.
 CREATE INDEX idx_modelo_produto_tipo_negocio ON modelo_produto (lower(tipo_negocio));
 
--- D20b — catalogo de fabrica: so `cafeteria`, o unico negocio-piloto que existe de verdade
--- (escopo §11). Loja, salao e oficina aparecem no escopo §1 como tipos possiveis, mas nenhum
--- documento lista os itens de nenhum deles — inventar tres catalogos que ninguem validou seria
--- furar a regra de ouro do CLAUDE.md. Entram quando o segundo piloto existir.
+-- Catálogo de fábrica com um tipo de negócio só, `cafeteria`. Loja, salão e oficina são tipos
+-- previstos, mas os itens de cada um ainda não foram levantados com quem opera esse negócio, e
+-- inventar três catálogos que ninguém validou entregaria sugestão errada logo no primeiro acesso.
+-- Entram quando o levantamento existir.
 --
--- Os ids sao literais fixos de proposito: dado de referencia precisa ter o mesmo id em todo
--- ambiente, para uma correcao futura poder mirar a linha certa.
+-- Os ids são literais fixos de propósito: dado de referência precisa ter o mesmo id em todo
+-- ambiente, para uma correção futura poder mirar a linha certa.
 --
--- `atributos_sugeridos` fica vazio em todas: nenhum documento define quais atributos uma cafeteria
--- usa, e chave de JSONB inventada aqui viraria contrato para o RF02 sem ninguem ter decidido.
---
--- Nomes sem acento acompanham o resto do repositorio, que e integralmente ASCII.
+-- `atributos_sugeridos` fica vazio em todas: quais atributos uma cafeteria usa ainda não está
+-- definido, e chave de JSONB inventada aqui viraria contrato para o RF02 sem decisão nenhuma.
 INSERT INTO modelo_produto (id, tipo_negocio, nome, categoria, unidade, tipo) VALUES
     ('a5e1c000-0000-4000-8000-000000000001', 'cafeteria', 'Cafe expresso',     'Bebidas',  'un', 'PRODUTO'),
     ('a5e1c000-0000-4000-8000-000000000002', 'cafeteria', 'Cafe coado',        'Bebidas',  'un', 'PRODUTO'),
@@ -56,10 +51,10 @@ INSERT INTO modelo_produto (id, tipo_negocio, nome, categoria, unidade, tipo) VA
     ('a5e1c000-0000-4000-8000-000000000008', 'cafeteria', 'Bolo em fatia',     'Doces',    'un', 'PRODUTO');
 
 COMMENT ON TABLE  modelo_produto IS
-    'Catalogo sugerido por tipo de negocio (RF32). Dado de referencia da plataforma: unica tabela do sistema sem conta_id por nao ser dado de conta nenhuma (modelo-dados §5).';
+    'Catálogo sugerido por tipo de negócio (RF32). Dado de referência da plataforma: única tabela do sistema sem conta_id, por não ser dado de conta nenhuma.';
 COMMENT ON COLUMN modelo_produto.tipo_negocio IS
-    'Casa com conta.tipo_negocio, ignorando maiuscula/minuscula (D20e).';
+    'Casa com conta.tipo_negocio, ignorando maiúscula e minúscula.';
 COMMENT ON COLUMN modelo_produto.tipo IS
-    'D20c — nao estava no modelo de dados §3 e precisou entrar: produto.tipo e NOT NULL, e sem esta coluna um corte de cabelo seria copiado como PRODUTO, carregando estoque que nao existe (RF17/P4).';
+    'produto.tipo é NOT NULL, e sem esta coluna um corte de cabelo seria copiado como PRODUTO, carregando estoque que não existe (RF17).';
 COMMENT ON COLUMN modelo_produto.atributos_sugeridos IS
-    'RF02 — copiado para produto.atributos junto com o resto da linha.';
+    'RF02: copiado para produto.atributos junto com o resto da linha.';

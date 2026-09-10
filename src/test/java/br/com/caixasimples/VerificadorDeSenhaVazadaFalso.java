@@ -6,14 +6,14 @@ import java.util.HashSet;
 import java.util.Set;
 
 /**
- * Substitui o cliente do Have I Been Pwned na suite.
+ * Substitui o cliente do Have I Been Pwned na suíte.
  *
  * <p>Existe por um motivo concreto: <strong>nenhum teste pode depender de rede</strong>. O adapter
- * real faz chamada HTTP externa, e uma suite que a executasse ficaria lenta, instavel e falharia
- * offline — justo neste projeto, cujo requisito central e funcionar sem conexao.
+ * real faz chamada HTTP externa, e uma suíte que a executasse ficaria lenta, instável e falharia
+ * sem conexão, justo neste projeto, cujo requisito central é funcionar offline.
  *
- * <p>E um objeto simples, nao um mock, porque os dois estados que importam (senha vazada e servico
- * indisponivel) sao configuraveis em uma linha cada.
+ * <p>É um objeto simples, e não um mock, porque os dois estados que importam, senha vazada e
+ * serviço indisponível, são configuráveis em uma linha cada.
  */
 public class VerificadorDeSenhaVazadaFalso implements VerificadorDeSenhaVazada {
 
@@ -40,7 +40,7 @@ public class VerificadorDeSenhaVazadaFalso implements VerificadorDeSenhaVazada {
         this.indisponivel = indisponivel;
     }
 
-    /** Volta ao estado neutro — chame no {@code @AfterEach} de quem alterar os sinalizadores. */
+    /** Volta ao estado neutro. Chame no {@code @AfterEach} de quem alterar os sinalizadores. */
     public void limpar() {
         vazadas.clear();
         indisponivel = false;

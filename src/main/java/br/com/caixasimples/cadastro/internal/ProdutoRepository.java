@@ -5,18 +5,18 @@ import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 /**
- * Repositorio da raiz de agregado {@code Produto}.
+ * Repositório da raiz de agregado {@code Produto}.
  *
- * <p>Toda consulta aqui e filtrada automaticamente por {@code conta_id} pelo {@code @TenantId} —
- * inclusive {@link #findAll()} e {@link #findById(Object)}. Nao escreva {@code WHERE conta_id} a
- * mao, e nao use query nativa: o filtro do Hibernate nao alcanca SQL nativo.
+ * <p>Toda consulta aqui é filtrada automaticamente por {@code conta_id} pelo {@code @TenantId},
+ * inclusive {@link #findAll()} e {@link #findById(Object)}. Não escreva {@code WHERE conta_id} à
+ * mão, e não use query nativa: o filtro do Hibernate não alcança SQL nativo.
  *
- * <p><strong>Nao ha consulta por atributo do JSONB aqui</strong>, apesar do indice GIN existir:
- * nenhum requisito da Fase 1 pede filtrar produto por atributo — RF06 busca por nome ou codigo, e
- * isso nasce na etapa 1.6. Abstracao se justifica com uso, nao com previsao.
+ * <p><strong>Não há consulta por atributo do JSONB aqui</strong>, apesar de o índice GIN existir.
+ * Nenhum requisito atual pede filtrar produto por atributo, já que a busca durante a venda é por
+ * nome ou código (RF06). Abstração se justifica com uso, não com previsão.
  *
- * <p>{@code MovimentoEstoque} e membro do agregado e nunca tera repositorio proprio: e carregado e
- * alterado pela raiz (regra 3 do CLAUDE.md).
+ * <p>{@code MovimentoEstoque} é membro do agregado e nunca terá repositório próprio: é carregado e
+ * alterado pela raiz.
  */
 public interface ProdutoRepository extends JpaRepository<ProdutoEntity, UUID> {
 

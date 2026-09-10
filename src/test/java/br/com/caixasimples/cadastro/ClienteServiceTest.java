@@ -19,12 +19,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 /**
- * Casos de uso do R04 contra o banco de verdade: cadastrar (RF03), editar (RF04), inativar e
- * reativar (RF05).
+ * Os casos de uso do cadastro de cliente contra o banco de verdade: cadastrar (RF03), editar
+ * (RF04), inativar e reativar (RF05).
  *
- * <p>Fica fora do pacote {@code internal} de proposito: aqui so se enxerga o que um controller vai
- * enxergar. Se algum teste daqui precisasse da entidade ou do repositorio, seria sinal de que o
- * slice nao expoe o suficiente — ou de que expoe demais.
+ * <p>Fica fora do pacote {@code internal} de propósito: aqui só se enxerga o que um controller vai
+ * enxergar. Se algum teste daqui precisasse da entidade ou do repositório, seria sinal de que o
+ * slice não expõe o suficiente, ou de que expõe demais.
  */
 class ClienteServiceTest extends TesteDeIntegracao {
 
@@ -44,7 +44,7 @@ class ClienteServiceTest extends TesteDeIntegracao {
     @Test
     @DisplayName("cadastrar grava o cliente e ele aparece na listagem ativa")
     void cadastrarGravaEListaOCliente() {
-        ContaCriada conta = criador.criar("Cafeteria do R04", SENHA_DE_TESTE);
+        ContaCriada conta = criador.criar("Cafeteria do Centro", SENHA_DE_TESTE);
 
         UUID id = TenantContext.executarComo(conta.contaId(), () ->
                 clienteService.cadastrar(new DadosDoCliente("Dona Marta", "marta@exemplo.test")));
@@ -60,7 +60,7 @@ class ClienteServiceTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("D19a — cliente existe so com nome, e contato em branco vira ausente")
+    @DisplayName("cliente existe só com nome, e contato em branco vira ausente")
     void contatoEOpcional() {
         ContaCriada conta = criador.criar("Balcao Apressado", SENHA_DE_TESTE);
 
@@ -78,7 +78,7 @@ class ClienteServiceTest extends TesteDeIntegracao {
     @Test
     @DisplayName("editar substitui nome e contato (RF04)")
     void editarSubstituiOsCampos() {
-        ContaCriada conta = criador.criar("Loja do R04", SENHA_DE_TESTE);
+        ContaCriada conta = criador.criar("Loja da Esquina", SENHA_DE_TESTE);
 
         UUID id = TenantContext.executarComo(conta.contaId(), () ->
                 clienteService.cadastrar(new DadosDoCliente("Nome errado", "(75) 90000-0000")));
@@ -93,9 +93,9 @@ class ClienteServiceTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("inativar tira o cliente da listagem e reativar traz de volta (RF05, D19c)")
+    @DisplayName("inativar tira o cliente da listagem e reativar traz de volta (RF05)")
     void inativarEReativar() {
-        ContaCriada conta = criador.criar("Salao do R04", SENHA_DE_TESTE);
+        ContaCriada conta = criador.criar("Salao da Praca", SENHA_DE_TESTE);
 
         UUID id = TenantContext.executarComo(conta.contaId(), () ->
                 clienteService.cadastrar(new DadosDoCliente("Cliente antigo", null)));
@@ -115,14 +115,14 @@ class ClienteServiceTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("D19c — inativar e reativar sao idempotentes")
+    @DisplayName("inativar e reativar são idempotentes")
     void inativarEReativarSaoIdempotentes() {
-        ContaCriada conta = criador.criar("Mercadinho do R04", SENHA_DE_TESTE);
+        ContaCriada conta = criador.criar("Mercadinho do Bairro", SENHA_DE_TESTE);
 
         UUID id = TenantContext.executarComo(conta.contaId(), () ->
                 clienteService.cadastrar(new DadosDoCliente("Cliente repetido", null)));
 
-        // Dois cliques no balcao, ou a requisicao que o PWA offline reenvia ao voltar a rede.
+        // Dois cliques no balcão, ou a requisição que o cliente offline reenvia ao voltar a rede.
         TenantContext.executarComo(conta.contaId(), () ->
                 assertThatNoException().isThrownBy(() -> {
                     clienteService.inativar(id);
@@ -138,9 +138,9 @@ class ClienteServiceTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("D19c — editar cliente inativo e recusado")
+    @DisplayName("editar cliente inativo é recusado")
     void editarClienteInativoERecusado() {
-        ContaCriada conta = criador.criar("Oficina do R04", SENHA_DE_TESTE);
+        ContaCriada conta = criador.criar("Oficina da Avenida", SENHA_DE_TESTE);
 
         UUID id = TenantContext.executarComo(conta.contaId(), () ->
                 clienteService.cadastrar(new DadosDoCliente("Cliente que saiu", null)));
@@ -154,16 +154,16 @@ class ClienteServiceTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("cliente sem nome e recusado, e id que nao existe nesta conta tambem")
+    @DisplayName("cliente sem nome é recusado, e id que não existe nesta conta também")
     void bordasDeEntrada() {
-        ContaCriada conta = criador.criar("Padaria do R04", SENHA_DE_TESTE);
+        ContaCriada conta = criador.criar("Padaria do Centro", SENHA_DE_TESTE);
 
         TenantContext.executarComo(conta.contaId(), () -> {
             assertThatExceptionOfType(IllegalArgumentException.class)
                     .as("nome em branco")
                     .isThrownBy(() -> clienteService.cadastrar(new DadosDoCliente("  ", null)));
             assertThatExceptionOfType(ClienteNaoEncontradoException.class)
-                    .as("id que nao existe")
+                    .as("id que não existe")
                     .isThrownBy(() -> clienteService.inativar(UUID.randomUUID()));
         });
     }

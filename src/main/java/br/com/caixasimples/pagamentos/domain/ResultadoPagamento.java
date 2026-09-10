@@ -75,4 +75,45 @@ public record ResultadoPagamento(FormaPagamento forma, Money valor, StatusPagame
         return new ResultadoPagamento(FormaPagamento.DINHEIRO, valor, StatusPagamento.CONFIRMADO,
                 troco);
     }
+
+    /**
+     * Pagamento lançado à mão pelo operador, sem integração externa: o Pix conferido na
+     * notificação de recebimento ou o cartão passado na maquininha e digitado aqui em seguida
+     * (RF26).
+     *
+     * <p><strong>Nasce CONFIRMADO</strong> porque quem lança já viu o dinheiro entrar. Não há
+     * segundo momento a esperar, e é isso que permite a venda fechar na hora. Uma cobrança de Pix
+     * gerada por um provedor é outra história: nasce PENDENTE e espera a notificação dele. A
+     * diferença entre as duas está em quem confirmou, a pessoa ou o provedor, e não na forma.
+     *
+     * <p>Recebe a solicitação inteira, e não apenas a forma e o valor, porque parte da regra é
+     * recusar o que ela traz de sobra:
+     *
+     * <ul>
+     *   <li>{@code valorRecebido} preenchido é recusado. Nenhuma destas formas devolve troco, então
+     *       o campo não teria efeito nenhum, e aceitá-lo calado esconderia o engano de quem
+     *       chamou.</li>
+     *   <li>A forma DINHEIRO é recusada aqui. Ela tem regra própria, com troco, em
+     *       {@link #emDinheiro}, e passar por este caminho a devolveria confirmada sem que o
+     *       dinheiro entregue pelo cliente tivesse sido conferido.</li>
+     * </ul>
+     *
+     * @throws IllegalArgumentException se a solicitação é em dinheiro ou traz valor recebido
+     */
+    public static ResultadoPagamento registradoAMao(SolicitacaoPagamento solicitacao) {
+        Objects.requireNonNull(solicitacao, "solicitacao de pagamento nao pode ser nula");
+
+        if (solicitacao.forma() == FormaPagamento.DINHEIRO) {
+            throw new IllegalArgumentException("pagamento em dinheiro tem regra propria de troco; "
+                    + "use a fabrica emDinheiro");
+        }
+        if (solicitacao.valorRecebido() != null) {
+            throw new IllegalArgumentException("a forma " + solicitacao.forma() + " nao devolve "
+                    + "troco e por isso nao aceita valor recebido em especie: "
+                    + solicitacao.valorRecebido());
+        }
+
+        return new ResultadoPagamento(solicitacao.forma(), solicitacao.valor(),
+                StatusPagamento.CONFIRMADO, Money.ZERO);
+    }
 }

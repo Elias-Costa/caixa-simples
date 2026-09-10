@@ -10,19 +10,19 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Ponto de entrada do login: mapeia um e-mail para o usuario e a conta dele (decisao D9).
+ * Ponto de entrada do login: mapeia um e-mail para o usuário e a conta dele.
  *
- * <p><strong>Nao tem {@code @TenantId}, e isso e o proposito da entidade.</strong> No login ainda
- * nao existe conta no contexto; uma consulta filtrada por tenant devolveria vazio e a autenticacao
- * nunca funcionaria. Esta nao e uma tabela sem isolamento — e a tabela que <em>resolve</em> o
- * isolamento, e por isso nao pode estar sujeita a ele.
+ * <p><strong>Não tem {@code @TenantId}, e isso é o propósito da entidade.</strong> No login ainda
+ * não existe conta no contexto, e uma consulta filtrada por tenant devolveria vazio, de modo que a
+ * autenticação nunca funcionaria. Esta não é uma tabela sem isolamento: é a tabela que
+ * <em>resolve</em> o isolamento, e por isso não pode estar sujeita a ele.
  *
- * <p>Cuidado ao ler o campo {@code contaId} aqui: e <strong>dado</strong>, nao discriminador de
- * tenant. E exatamente o valor que o login descobre para popular o {@code TenantContext} e so
- * entao resolver o resto sob filtro normal.
+ * <p>Cuidado ao ler o campo {@code contaId} aqui, porque ele é <strong>dado</strong>, não
+ * discriminador de tenant. É exatamente o valor que o login descobre para popular o
+ * {@code TenantContext} e só então resolver o resto sob filtro normal.
  *
- * <p>Um e-mail pertence a exatamente uma conta (decisao P3), garantido por indice unico global
- * sobre {@code lower(email)}. E um login por usuario, por indice unico em {@code usuario_id}.
+ * <p>Um e-mail pertence a exatamente uma conta, garantido por índice único global sobre
+ * {@code lower(email)}, e há um login por usuário, por índice único em {@code usuario_id}.
  */
 @Entity
 @Table(name = "credencial")
@@ -52,7 +52,7 @@ public class Credencial {
     }
 
     /**
-     * @param senhaHash hash BCrypt ja calculado — esta classe nunca recebe senha em texto puro
+     * @param senhaHash hash BCrypt já calculado; esta classe nunca recebe senha em texto puro
      */
     public Credencial(String email, String senhaHash, UUID usuarioId, ContaId contaId) {
         this.id = UUID.randomUUID();

@@ -1,13 +1,12 @@
 /**
- * Bounded Context de identidade e tenancy: {@code Conta} (o negocio contratante, isto e, o
- * tenant), {@code Usuario}, autenticacao e plano contratado.
+ * Bounded Context de identidade e tenancy: {@code Conta}, que é o negócio contratante e portanto o
+ * tenant, {@code Usuario}, autenticação e plano contratado.
  *
- * <p>Cobre a area funcional do escopo §4.7 e dos requisitos §3.7 — RF28 (isolamento), RF29/RF30
- * (perfis Administrador e Operador), RF31 (troca de plano) e RNF06 (autenticacao) — que a
- * arquitetura §2 nao incluiu na lista de pacotes. Decisao D4 do plano de implementacao.
+ * <p>Cobre o isolamento entre contas (RF28), os perfis de Administrador e Operador (RF29, RF30), a
+ * troca de plano (RF31) e a autenticação (RNF06).
  *
- * <p>Este e o unico modulo cuja raiz de agregado ({@code Conta}) nao carrega {@code @TenantId}:
- * o {@code id} dela <em>e</em> o tenant. Ver {@code .claude/rules/multi-tenancy.md}.
+ * <p>Este é o único módulo cuja raiz de agregado, {@code Conta}, não carrega {@code @TenantId}: o
+ * {@code id} dela <em>é</em> o tenant, então não há o que filtrar.
  */
 @ApplicationModule(displayName = "Contas")
 package br.com.caixasimples.contas;

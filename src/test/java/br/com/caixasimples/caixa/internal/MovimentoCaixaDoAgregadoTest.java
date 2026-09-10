@@ -15,16 +15,17 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 /**
- * RNF05 para {@code movimento_caixa}, o <strong>membro</strong> do agregado Caixa.
+ * Isolamento entre contas (RNF05) para {@code movimento_caixa}, o <strong>membro</strong> do
+ * agregado Caixa.
  *
- * <p>Este arquivo esta em {@code caixa.internal} de proposito, pelo mesmo motivo que colocou o
- * {@code IsolamentoDeClienteTest} do R04 no pacote interno: {@code MovimentoCaixaEntity} tem
- * visibilidade de pacote — ninguem de fora consegue nomear o tipo — e a unica coisa que o caminho
- * publico <em>nao</em> consegue mostrar e justamente o {@code conta_id} do membro. Pelo dominio, o
- * teste nao distinguiria um movimento com a conta certa de um com a coluna errada.
+ * <p>Este arquivo está em {@code caixa.internal} de propósito, pelo mesmo motivo que colocou o
+ * teste de isolamento de cliente no pacote interno: {@code MovimentoCaixaEntity} tem visibilidade
+ * de pacote, ninguém de fora consegue nomear o tipo, e a única coisa que o caminho público
+ * <em>não</em> consegue mostrar é justamente o {@code conta_id} do membro. Pelo domínio, o teste
+ * não distinguiria um movimento com a conta certa de um com a coluna errada.
  *
- * <p>O par disso e o {@code IsolamentoDeSessaoCaixaTest}, no pacote {@code caixa}, que cobre a raiz
- * enxergando so o que um controller enxergaria.
+ * <p>O par disso é o {@code IsolamentoDeSessaoCaixaTest}, no pacote {@code caixa}, que cobre a raiz
+ * enxergando só o que um controller enxergaria.
  */
 class MovimentoCaixaDoAgregadoTest extends TesteDeIntegracao {
 
@@ -42,7 +43,7 @@ class MovimentoCaixaDoAgregadoTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("o movimento herda a conta da raiz, tambem pelo contexto e nunca por parametro")
+    @DisplayName("o movimento herda a conta da raiz, também pelo contexto e nunca por parâmetro")
     void movimentoRecebeOMesmoTenantDaRaiz() {
         ContaCriada conta = criador.criar("Mercearia Teste", SENHA_DE_TESTE);
 
@@ -57,14 +58,14 @@ class MovimentoCaixaDoAgregadoTest extends TesteDeIntegracao {
             assertThat(gravada.getMovimentos())
                     .singleElement()
                     .extracting(MovimentoCaixaEntity::getContaId)
-                    .as("movimento_caixa tem conta_id proprio, e ele vem do @TenantId — nao de JOIN"
-                            + " com a sessao nem de parametro de chamada")
+                    .as("movimento_caixa tem conta_id próprio, vindo do @TenantId, e não de JOIN"
+                            + " com a sessão nem de parâmetro de chamada")
                     .isEqualTo(conta.contaId());
         });
     }
 
     @Test
-    @DisplayName("conta B nao alcanca o movimento da conta A nem pela raiz do agregado")
+    @DisplayName("conta B não alcança o movimento da conta A nem pela raiz do agregado")
     void contaNaoEnxergaMovimentoDeOutraConta() {
         ContaCriada contaA = criador.criar("Bar do Teste", SENHA_DE_TESTE);
         ContaCriada contaB = criador.criar("Barbearia Teste", SENHA_DE_TESTE);
@@ -75,9 +76,9 @@ class MovimentoCaixaDoAgregadoTest extends TesteDeIntegracao {
         TenantContext.executarComo(contaA.contaId(), () ->
                 sessoes.save(SessaoCaixaEntity.de(sessaoDaContaA)));
 
-        // Como nao existe MovimentoCaixaRepository (regra 3 do CLAUDE.md), a unica porta para o
-        // membro e a raiz — e a raiz ja esta fechada para a conta B. E esse o desenho: menos um
-        // caminho de consulta e menos um lugar onde o filtro poderia faltar.
+        // Como não existe repositório para o membro do agregado, a única porta para ele é a raiz, e
+        // a raiz já está fechada para a conta B. Esse é o desenho: menos um caminho de consulta é
+        // menos um lugar onde o filtro poderia faltar.
         TenantContext.executarComo(contaB.contaId(), () ->
                 assertThat(sessoes.findById(sessaoDaContaA.getId())).isEmpty());
     }

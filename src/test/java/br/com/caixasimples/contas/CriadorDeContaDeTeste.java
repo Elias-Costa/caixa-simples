@@ -12,10 +12,10 @@ import java.util.UUID;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
- * Monta conta, usuario e credencial num passo so, pelo mesmo caminho que o seed usa.
+ * Monta conta, usuário e credencial num passo só, pelo mesmo caminho que a criação de conta usa.
  *
- * <p>Existe porque quase todo teste daqui pra frente precisa de uma conta com alguem que consiga
- * logar, e montar isso a mao em cada teste esconderia o que o teste quer de fato provar.
+ * <p>Existe porque quase todo teste de integração precisa de uma conta com alguém que consiga
+ * entrar, e montar isso à mão em cada teste esconderia o que o teste quer de fato provar.
  */
 public class CriadorDeContaDeTeste {
 
@@ -53,11 +53,11 @@ public class CriadorDeContaDeTeste {
     }
 
     /**
-     * Mais um usuario dentro de uma conta que ja existe — o segundo atendente do mesmo negocio.
+     * Mais um usuário dentro de uma conta que já existe: o segundo atendente do mesmo negócio.
      *
-     * <p>Nasce <strong>sem credencial</strong>, de proposito: quem precisa dele e teste de regra
-     * por operador, como a D22a do caixa, e nao teste de login. Acrescentar uma credencial que
-     * ninguem usa so tornaria a fixture mais lenta e menos legivel.
+     * <p>Nasce <strong>sem credencial</strong>, de propósito. Quem precisa dele é teste de regra
+     * por operador, como a de um caixa aberto por vez, e não teste de login. Acrescentar uma
+     * credencial que ninguém usa só tornaria a fixture mais lenta e menos legível.
      */
     public UUID criarOperadorEm(ContaId contaId, String nome) {
         return TenantContext.executarComo(contaId, () ->

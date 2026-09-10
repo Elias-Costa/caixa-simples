@@ -11,13 +11,13 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
 /**
- * Adapter da API Pwned Passwords, do Have I Been Pwned (decisao A5).
+ * Adapter da API Pwned Passwords, do Have I Been Pwned.
  *
  * <p>Usa k-anonimato: envia apenas os <strong>5 primeiros caracteres</strong> do SHA-1 da senha e
  * recebe de volta a faixa de sufixos correspondente, comparada aqui. A senha, e mesmo o hash
- * completo dela, nunca saem deste servidor. A API e gratuita e nao exige chave.
+ * completo dela, nunca saem deste servidor. A API é gratuita e não exige chave.
  *
- * <p>O SHA-1 aqui nao e escolha de seguranca — e o formato que a API define. O armazenamento da
+ * <p>O SHA-1 aqui não é escolha de segurança, e sim o formato que a API define. O armazenamento da
  * senha continua sendo BCrypt.
  */
 @Component
@@ -26,9 +26,9 @@ class PwnedPasswordsClient implements VerificadorDeSenhaVazada {
     private static final String URL_BASE = "https://api.pwnedpasswords.com/range/";
 
     /**
-     * Timeout curto de proposito: esta chamada fica no caminho de criar conta ou trocar senha, e
-     * sem limite uma indisponibilidade da API travaria a operacao em vez de recusa-la. Como a
-     * decisao A5 e falhar fechado, esgotar o tempo tem o mesmo efeito de a API dizer que nao sabe.
+     * Timeout curto de propósito: esta chamada fica no caminho de criar conta ou trocar senha, e
+     * sem limite uma indisponibilidade da API travaria a operação em vez de recusá-la. Como a
+     * política é falhar fechado, esgotar o tempo tem o mesmo efeito de a API dizer que não sabe.
      */
     private static final Duration TIMEOUT = Duration.ofSeconds(5);
 
@@ -51,7 +51,7 @@ class PwnedPasswordsClient implements VerificadorDeSenhaVazada {
         try {
             faixa = http.get().uri(prefixo).retrieve().body(String.class);
         } catch (RestClientException erroDeRede) {
-            // Falha fechada (A5): sem conseguir verificar, nenhuma senha entra.
+            // Falha fechada: sem conseguir verificar, nenhuma senha entra.
             throw new SenhaRecusadaException(
                     "Nao foi possivel verificar a senha contra a lista de vazamentos", erroDeRede);
         }
@@ -61,7 +61,8 @@ class PwnedPasswordsClient implements VerificadorDeSenhaVazada {
                     "Nao foi possivel verificar a senha contra a lista de vazamentos");
         }
 
-        // Cada linha vem como SUFIXO:QUANTIDADE. So interessa se o sufixo aparece.
+        // Cada linha vem no formato sufixo, dois-pontos, quantidade. Só interessa se o sufixo
+        // aparece; a contagem de ocorrências não muda a decisão.
         for (String linha : faixa.split("\\R")) {
             int separador = linha.indexOf(':');
             String sufixo = separador < 0 ? linha.trim() : linha.substring(0, separador).trim();
@@ -78,7 +79,7 @@ class PwnedPasswordsClient implements VerificadorDeSenhaVazada {
             byte[] digest = sha1.digest(senha.getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().withUpperCase().formatHex(digest);
         } catch (NoSuchAlgorithmException impossivel) {
-            // SHA-1 e obrigatorio em toda JVM.
+            // SHA-1 é obrigatório em toda JVM.
             throw new IllegalStateException("JVM sem SHA-1", impossivel);
         }
     }

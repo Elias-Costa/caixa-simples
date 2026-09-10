@@ -4,12 +4,12 @@ import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 /**
- * Repositorio da raiz de agregado {@code Conta}.
+ * Repositório da raiz de agregado {@code Conta}.
  *
- * <p>Atencao: {@code Conta} nao tem {@code @TenantId} (o {@code id} dela <em>e</em> o tenant),
- * entao <strong>este repositorio nao e protegido por filtro automatico</strong>. Consulte-o
- * sempre com o id vindo de {@code TenantContext.exigirAtual()}, nunca com id recebido em
- * requisicao — caso contrario e IDOR direto.
+ * <p>Atenção: {@code Conta} não tem {@code @TenantId}, porque o {@code id} dela <em>é</em> o
+ * tenant, e portanto <strong>este repositório não é protegido por filtro automático</strong>.
+ * Consulte-o sempre com o id vindo de {@code TenantContext.exigirAtual()}, nunca com um id recebido
+ * na requisição; caso contrário, é acesso direto a objeto de outra conta.
  */
 public interface ContaRepository extends JpaRepository<Conta, UUID> {
 }

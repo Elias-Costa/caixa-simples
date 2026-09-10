@@ -5,15 +5,14 @@ import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 /**
- * Repositorio de {@link Credencial}.
+ * Repositório de {@link Credencial}.
  *
- * <p>{@link #findByEmailIgnoreCase(String)} e a <strong>unica consulta do sistema que roda
- * legitimamente sem tenant no contexto</strong>. Isso nao e exceção à regra de isolamento: a
- * tabela {@code credencial} nao pertence a nenhuma conta — ela e o que descobre a conta. Ver
- * {@code .claude/rules/multi-tenancy.md}.
+ * <p>{@link #findByEmailIgnoreCase(String)} é a <strong>única consulta do sistema que roda
+ * legitimamente sem tenant no contexto</strong>. Isso não é exceção à regra de isolamento: a tabela
+ * {@code credencial} não pertence a nenhuma conta, porque ela é o que descobre a conta.
  *
- * <p>Toda consulta que dependa de conta deve usar {@link UsuarioRepository} ou os repositorios dos
- * demais modulos, que sao filtrados automaticamente.
+ * <p>Toda consulta que dependa de conta deve usar {@link UsuarioRepository} ou os repositórios dos
+ * demais módulos, que são filtrados automaticamente.
  */
 public interface CredencialRepository extends JpaRepository<Credencial, UUID> {
 
