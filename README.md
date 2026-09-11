@@ -70,7 +70,7 @@ cliente) sem redesenhar o núcleo.
 
 O núcleo transacional é construído módulo a módulo, e cada um fecha com a suíte verde antes do
 próximo começar. Os oito módulos estão declarados e têm suas fronteiras verificadas desde o
-primeiro dia; quatro já têm código de negócio dentro.
+primeiro dia; seis já têm código de negócio dentro.
 
 | Módulo | Estado | O que existe hoje |
 |---|---|---|
@@ -78,20 +78,21 @@ primeiro dia; quatro já têm código de negócio dentro.
 | `contas` | Implementado | `Conta`, `Usuario`, `Credencial`, login por JWT, política de senha, provisionamento de conta |
 | `cadastro` | Implementado | `Produto` com atributos `JSONB`, `Cliente` como vertical slice, catálogo sugerido por tipo de negócio |
 | `caixa` | Implementado | `SessaoCaixa`: abertura, sangria, suprimento, fechamento com conferência, histórico por operador e por dia |
-| `pagamentos` | Próximo | pacote e fronteira declarados, sem código de negócio |
-| `vendas` | Planejado | pacote e fronteira declarados, sem código de negócio |
+| `pagamentos` | Implementado | Strategy por forma de pagamento: dinheiro com troco calculado no domínio, Pix e cartão lançados à mão pelo operador. Sem provedor de Pix ainda |
+| `vendas` | Em andamento | schema e persistência do agregado `Venda`, com `ItemVenda` e `Pagamento` como membros. A montagem da comanda e a conclusão da venda são o próximo passo |
 | `estoque` | Planejado | pacote e fronteira declarados, sem código de negócio |
 | `relatorios` | Planejado | pacote e fronteira declarados, sem código de negócio |
 
-**Schema.** Seis migrations Flyway, de `V1` a `V6`: conta, usuário e credencial; produto; cliente;
-catálogo de referência; e o agregado de caixa, com a regra de uma sessão aberta por operador.
+**Schema.** Sete migrations Flyway, de `V1` a `V7`: conta, usuário e credencial; produto; cliente;
+catálogo de referência; o agregado de caixa, com a regra de uma sessão aberta por operador; e o
+agregado de venda, com a venda, seus itens e seus pagamentos.
 
 **Superfície HTTP.** Dois endpoints, ambos de autenticação: `POST /api/auth/login`, que devolve o
 token, e `GET /api/auth/eu`, que existe para haver um recurso protegido de verdade contra o qual
 verificar, por HTTP, que requisição sem token é recusada e que o tenant vem do claim e não do
-pedido. Os casos de uso de produto, cliente e caixa vivem na camada de aplicação e são exercitados
-por teste de integração: a camada `web` de cada módulo nasce junto com o PWA que vai consumi-la, e
-não antes, para o contrato HTTP não ser desenhado às cegas.
+pedido. Os casos de uso de produto, cliente, caixa e pagamento vivem na camada de aplicação e são
+exercitados por teste de integração: a camada `web` de cada módulo nasce junto com o PWA que vai
+consumi-la, e não antes, para o contrato HTTP não ser desenhado às cegas.
 
 ## Por onde começar a leitura
 
@@ -105,6 +106,9 @@ Atalhos para avaliar o código sem percorrer o repositório inteiro.
 | Raiz de agregado sem framework | [SessaoCaixa.java](src/main/java/br/com/caixasimples/caixa/domain/SessaoCaixa.java) | Regra de negócio e invariantes isoladas de Spring e de JPA |
 | Value object monetário | [Money.java](src/main/java/br/com/caixasimples/shared/Money.java) | Arredondamento explícito no ponto de uso, sem `double` e sem construtor que reescreve valor em silêncio |
 | Uma decisão explicada onde ela mora | [FusoDeReferencia.java](src/main/java/br/com/caixasimples/shared/FusoDeReferencia.java) | Por que o fuso é constante única e não coluna, e o que precisa acontecer para reabrir a decisão |
+| Strategy sem `switch` | [PaymentService.java](src/main/java/br/com/caixasimples/pagamentos/application/PaymentService.java) | Forma de pagamento nova é classe nova; duas estratégias para a mesma forma derrubam a aplicação na subida, em vez de uma sobrescrever a outra em silêncio |
+| A regra do troco no domínio | [ResultadoPagamento.java](src/main/java/br/com/caixasimples/pagamentos/domain/ResultadoPagamento.java) | A conta mora numa fábrica nomeada de um tipo sem framework, e não no componente do Spring que a chama |
+| Membro de agregado invisível de fora | [VendaEntity.java](src/main/java/br/com/caixasimples/vendas/internal/VendaEntity.java) | As entidades de item e pagamento têm visibilidade de pacote, então a proibição de repositório para elas não depende de disciplina |
 | Atributos variáveis em `JSONB` | [V2\_\_produto.sql](src/main/resources/db/migration/V2__produto.sql) | Índice GIN `jsonb_path_ops` e índice único parcial que só vale entre registros ativos |
 | Vertical slice deliberado | [ClienteService.java](src/main/java/br/com/caixasimples/cadastro/internal/ClienteService.java) | Onde o projeto decide **não** aplicar DDD, porque não há invariante a proteger |
 
@@ -129,8 +133,9 @@ está em [Estado atual](#estado-atual).
 ```
 
 Nem todo módulo tem as quatro: uma camada nasce quando há o que colocar nela. Hoje só `contas` tem
-`web/`, por ser o único com superfície HTTP, e `cadastro` acomoda `Cliente` inteiro em `internal/`,
-porque um slice sem invariante não precisa de `domain/`.
+`web/`, por ser o único com superfície HTTP; `cadastro` acomoda `Cliente` inteiro em `internal/`,
+porque um slice sem invariante não precisa de `domain/`; e `vendas` ainda não tem `application/`,
+porque a raiz do agregado só remonta o que está gravado e não tem caso de uso a orquestrar.
 
 Um módulo nunca importa de `internal/` de outro. Efeito colateral entre módulos é Domain Event;
 consulta é chamada direta à API pública do pacote. A regra que resume as duas: *eventos anunciam
@@ -141,21 +146,26 @@ fatos, chamadas diretas fazem perguntas.*
 Nenhum padrão entra por simetria, e nenhum entra antes do problema que o justifica. O que está em
 uso hoje:
 
-- **Repository apenas por raiz de agregado.** Não existe `MovimentoCaixaRepository`: membro de
-  agregado entra e sai pela raiz.
+- **Repository apenas por raiz de agregado.** Não existe `MovimentoCaixaRepository`,
+  `ItemVendaRepository` nem `PagamentoRepository`: membro de agregado entra e sai pela raiz.
+- **Strategy** por forma de pagamento, resolvido por mapa e sem `switch` em código de negócio:
+  dinheiro, Pix e cartão têm uma classe cada, e a regra de cada forma mora no domínio, não no
+  componente do Spring.
 - **Value object** para dinheiro, com o arredondamento visível em quem o chama.
 - **Vertical slice** onde não há invariante a proteger, em vez de agregado por simetria.
 - **Fitness function de arquitetura**, que transforma a regra de fronteira em teste.
 
 ### Padrões decididos, ainda não escritos
 
-Estes estão amarrados a requisitos e a módulos que ainda não começaram. Aparecem aqui como desenho,
-não como código: **Strategy** por forma de pagamento, **Adapter** para trocar de provedor de Pix sem
-tocar na regra de negócio, **Domain Events** para a venda concluída avisar caixa e estoque sem
-acoplar os três, e **Specification** para os filtros combináveis dos relatórios.
+Estes estão amarrados a requisitos e a passos que ainda não começaram. Aparecem aqui como desenho,
+não como código: **Adapter** para trocar de provedor de Pix sem tocar na regra de negócio, **Domain
+Events** para a venda concluída avisar caixa e estoque sem acoplar os três, e **Specification** para
+os filtros combináveis dos relatórios.
 
 Nenhum deles foi criado por antecipação, e essa é a política do projeto: uma abstração se justifica
-com dois usos reais, não com um previsto.
+com dois usos reais, não com um previsto. O Strategy de pagamento seguiu essa regra: a interface
+nasceu junto da primeira implementação, e a fábrica que Pix e cartão compartilham só existe porque
+os dois a usam.
 
 ## Decisões estruturais
 
@@ -167,7 +177,9 @@ com dois usos reais, não com um previsto.
   registro offline com identidade definitiva e sincronizar depois sem renumerar nada, tornando o
   reenvio de uma operação naturalmente idempotente.
 - **O schema pertence ao Flyway.** O Hibernate roda com `ddl-auto: validate` e apenas confere se
-  bate. Migration já publicada é imutável: correção é sempre versão nova, como a `V6` é para a `V5`.
+  bate. Migration já publicada é imutável: correção é sempre versão nova, como a `V6` é para a `V5`,
+  e como a `V7` acrescenta a `movimento_caixa` a chave estrangeira que a `V5` não podia criar,
+  porque a tabela de venda ainda não existia.
 - **Repositório só para raiz de agregado.** Membro de agregado (item de venda, movimento de caixa)
   entra e sai pela raiz, o que impede alterar um item sem recalcular o total que a raiz garante.
 - **Soft delete**, nunca exclusão física, para preservar o histórico de vendas antigas.
@@ -176,9 +188,14 @@ com dois usos reais, não com um previsto.
 - **O dia é o do balcão.** Timestamps gravados em UTC; a fronteira do dia vem de uma constante única
   da aplicação. Sem isso, todo caixa aberto depois das 21h cairia no dia seguinte do relatório, e
   nada denunciaria o erro.
-- **DDD onde existe invariante para proteger.** `SessaoCaixa` e `Produto` têm domínio rico.
-  `Cliente`, que não tem invariante, é um vertical slice em um arquivo só. A régua: se acrescentar
-  um campo exigir tocar em mais de três ou quatro arquivos, é cerimônia demais.
+- **DDD onde existe invariante para proteger.** `SessaoCaixa`, `Produto` e `Venda` têm domínio
+  rico. `Cliente`, que não tem invariante, é um vertical slice em um arquivo só. A régua: se
+  acrescentar um campo exigir tocar em mais de três ou quatro arquivos, é cerimônia demais.
+- **Regra de negócio entra com o caso de uso, não com a tabela.** O agregado de venda tem schema,
+  entidades e repositório, mas a raiz ainda não tem caminho de escrita: um construtor público sem
+  as regras do total seria uma porta lateral. As regras chegam com a montagem da comanda e com a
+  conclusão da venda, e até lá os testes gravam pelo mesmo método que a entidade usa para remontar
+  o agregado a partir do banco.
 
 ## Segurança e isolamento
 
@@ -191,8 +208,10 @@ pontos:
   construção; esquecer o `where` não é uma falha possível. Em contrapartida, o filtro não alcança
   SQL nativo, e por isso query nativa em código de negócio é proibida no projeto.
 - **Todo dado persistido tem teste de isolamento**, no molde de gravar na conta A e provar que a
-  conta B recebe vazio. Usuário, credencial, produto, cliente e sessão de caixa têm o seu. O teste
-  falha se a anotação de tenant for removida.
+  conta B recebe vazio. Usuário, credencial, produto, cliente, sessão de caixa e venda têm o seu, e
+  os membros de agregado (movimento de caixa, item e pagamento da venda) têm um teste próprio, que
+  prova que a coluna de conta deles vem do contexto e não da raiz por junção. O teste falha se a
+  anotação de tenant for removida.
 
 A autenticação usa JWT emitido e validado pelo próprio Spring Security, sem biblioteca de JWT de
 terceiro, com API stateless e senha em BCrypt verificada contra bases de senhas vazadas. A política
@@ -217,6 +236,7 @@ monetários são `numeric(12,2)` e timestamps são `timestamptz` gravados em UTC
 
 | Agregado | Raiz | Membros | O que a raiz garante | Estado |
 |---|---|---|---|---|
+| **Venda** | `Venda` | `ItemVenda`, `Pagamento` | `valor_total` reflete a soma dos itens menos o desconto; numa venda concluída, a soma dos pagamentos confirmados é igual ao total | Schema e persistência implementados; as regras chegam com a montagem e a conclusão da venda |
 | **Caixa** | `SessaoCaixa` | `MovimentoCaixa` | `valor_fechamento_esperado` reflete o valor de abertura mais a soma assinada dos movimentos | Implementado |
 | **Produto** | `Produto` | `MovimentoEstoque` | `estoque_atual` reflete a soma dos movimentos, atualizado na mesma transação | Raiz implementada; o membro nasce com o módulo `estoque` |
 | Entidade única | `Conta`, `Usuario`, `Cliente` | nenhum | são agregados de uma entidade só | Implementado |
@@ -238,6 +258,17 @@ editar um agregado através de outro.
   positivo, e quem carrega o sinal é o tipo.
 - **`estoque_atual` é consolidado na raiz**, e não somado do histórico a cada leitura, para o alerta
   de estoque baixo não pagar esse preço.
+- **`preco_unitario` do item é cópia** do preço do produto no momento da venda, nunca leitura viva:
+  reajustar o produto depois não pode alterar o valor de uma venda passada.
+- **`Pagamento` é entidade própria**, e não colunas na venda, porque uma venda pode ser dividida
+  entre formas: metade em dinheiro e metade no cartão são dois registros, cada um com o seu valor e
+  o seu estado.
+- **A venda nasce aberta.** É o estado da comanda em montagem e também o da venda que espera a
+  confirmação de um pagamento que chega depois, como uma cobrança de Pix gerada por provedor. Os
+  dois são o mesmo estado porque em ambos a venda existe e ainda não está paga.
+- **Toda coluna numérica tem restrição de sinal no banco.** Valor e preço nunca negativos, quantidade
+  sempre positiva, desconto ausente gravado como zero e não como nulo. O domínio repete as mesmas
+  guardas; a restrição no banco existe para um script de correção não gravar o que o código recusa.
 
 ## Qualidade e testes
 
@@ -285,22 +316,23 @@ src
 │   │   ├── cadastro/       domain, application, internal
 │   │   ├── caixa/          domain, application, internal
 │   │   ├── contas/         application, web, internal
+│   │   ├── pagamentos/     domain, application, internal
+│   │   ├── vendas/         domain, internal
 │   │   ├── shared/         Money, ContaId, TenantContext, FusoDeReferencia
 │   │   ├── estoque/        declarado, sem código de negócio
-│   │   ├── pagamentos/     declarado, sem código de negócio
-│   │   ├── relatorios/     declarado, sem código de negócio
-│   │   └── vendas/         declarado, sem código de negócio
+│   │   └── relatorios/     declarado, sem código de negócio
 │   └── resources
-│       └── db/migration/   V1 a V6, imutáveis depois de publicadas
+│       └── db/migration/   V1 a V7, imutáveis depois de publicadas
 └── test/java/br/com/caixasimples
     ├── ModularityTests     fitness function das fronteiras
     ├── TesteDeIntegracao   base com Testcontainers, herdada pelos testes de banco
     └── ...                 testes por módulo, incluindo isolamento entre contas
 ```
 
-Os quatro módulos sem código de negócio não são pastas vazias por descuido: eles declaram a
-fronteira desde o início, e o `ModularityTests` já os verifica. É o que faz a primeira classe de
-`pagamentos` nascer dentro de um limite que já existe, em vez de criar o limite depois do código.
+Os dois módulos sem código de negócio não são pastas vazias por descuido: eles declaram a
+fronteira desde o início, e o `ModularityTests` já os verifica. Foi assim que a primeira classe de
+`pagamentos` nasceu dentro de um limite que já existia, em vez de criar o limite depois do código,
+e é assim que `estoque` e `relatorios` vão nascer.
 
 ## Autor
 
