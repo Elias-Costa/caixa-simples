@@ -30,6 +30,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.modulith.events.CompletedEventPublications;
 import org.springframework.modulith.events.EventPublication;
+import org.springframework.modulith.events.core.TargetEventPublication;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -168,9 +169,12 @@ class VendaConcluidaListenerTest extends TesteDeIntegracao {
         // reentrega do registro de publicação faz. Ela também termina sem erro: fica concluída no
         // registro em vez de presa como falha.
         publicar(evento);
+        // Há dois ouvintes do mesmo evento, o caixa e o estoque; conta-se só as entregas ao
+        // caixa, que é o que este teste prova.
         await().atMost(ESPERA).untilAsserted(() ->
                 assertThat(publicacoesConcluidas.findAll())
                         .filteredOn(publicacao -> publicacao.getEvent().equals(evento))
+                        .filteredOn(VendaConcluidaListenerTest::entregueAoCaixa)
                         .as("as duas entregas terminaram, nenhuma delas com erro")
                         .hasSize(2));
 
@@ -250,5 +254,14 @@ class VendaConcluidaListenerTest extends TesteDeIntegracao {
 
     private void publicar(VendaConcluida evento) {
         transacao.executeWithoutResult(status -> publicador.publishEvent(evento));
+    }
+
+    /**
+     * O identificador do alvo de uma publicação é a assinatura do método do listener, então o
+     * nome da classe basta para separar as entregas ao caixa das entregas ao estoque.
+     */
+    private static boolean entregueAoCaixa(EventPublication publicacao) {
+        return publicacao instanceof TargetEventPublication alvo
+                && alvo.getTargetIdentifier().getValue().contains("VendaConcluidaListener");
     }
 }

@@ -11,8 +11,14 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Produto ou serviço do catálogo de uma conta. Raiz do agregado Produto, que terá
- * {@code MovimentoEstoque} como membro quando o controle de estoque existir.
+ * Produto ou serviço do catálogo de uma conta. Raiz do agregado Produto, que tem
+ * {@link MovimentoEstoque} como membro.
+ *
+ * <p><strong>A raiz não carrega o histórico de movimentos</strong>, e isso é deliberado. Ela
+ * guarda o saldo consolidado e, a cada baixa, devolve o movimento novo a quem a chamou, para que
+ * os dois sejam gravados juntos. O histórico de um produto cresce a cada venda, sem limite, e o
+ * produto é lido em toda venda; remontá-lo inteiro a cada leitura, como o caixa faz com um
+ * expediente, seria pagar exatamente o custo que o saldo consolidado existe para evitar.
  *
  * <p><strong>Não importa framework</strong>, nem {@code jakarta.persistence} nem
  * {@code org.springframework}. O mapeamento para o banco vive em
@@ -41,8 +47,14 @@ public class Produto {
 
     /**
      * Saldo consolidado, nunca somado do histórico a cada leitura, que é o que mantém barato o
-     * alerta de estoque baixo (RF20). Quem o move é o movimento de estoque, na mesma transação.
-     * Enquanto esse movimento não existir, ele apenas nasce em zero.
+     * alerta de estoque baixo (RF20). Só se move por {@link #darBaixaPorVenda}, que devolve o
+     * movimento correspondente para ser gravado na mesma transação; não há setter nem edição de
+     * cadastro que o toque.
+     *
+     * <p><strong>Pode ficar negativo.</strong> A venda que baixou mais do que o saldo registrava
+     * já aconteceu no balcão; recusar a baixa aqui não desfaria a venda, só deixaria o estoque
+     * mentindo por omissão. O saldo negativo é o fato a corrigir, por um ajuste de contagem, e é o
+     * que o alerta de estoque baixo vai expor.
      *
      * <p>Existe também em SERVICO, que simplesmente nunca recebe movimento. Uma coluna sempre
      * preenchida evita nulo em todo leitor; o custo é que um serviço aparece com saldo zero, então
@@ -155,6 +167,52 @@ public class Produto {
      */
     public void inativar() {
         this.ativo = false;
+    }
+
+    /**
+     * Se este item tem estoque para controlar: só PRODUTO tem. SERVICO nunca recebe movimento, e é
+     * esta pergunta que o caso de uso faz antes de pedir a baixa, porque vender um serviço é
+     * legítimo e não é erro de ninguém.
+     */
+    public boolean controlaEstoque() {
+        return tipo == TipoProduto.PRODUTO;
+    }
+
+    /**
+     * Baixa de uma venda concluída (RF18): o saldo desce e o movimento correspondente é devolvido,
+     * para que quem persiste grave os dois na mesma transação. É o único caminho que move
+     * {@code estoqueAtual}.
+     *
+     * <p><strong>O saldo pode ficar negativo</strong>; ver o comentário do campo.
+     *
+     * <p><strong>Não olha {@code ativo}</strong>, de propósito: a venda aconteceu enquanto o
+     * produto estava ativo, e a montagem da venda já recusa produto inativado. Um produto
+     * inativado entre a venda e a baixa ainda deve o estoque que vendeu.
+     *
+     * <p><strong>Não sabe se a mesma venda já baixou.</strong> A raiz não carrega o histórico,
+     * então a pergunta de reentrega é feita ao repositório pelo caso de uso, que recusa a
+     * duplicata antes de chegar aqui; a rede embaixo é o índice único da migration V9.
+     *
+     * @param quantidade o que a venda levou; positiva
+     * @param vendaId    a venda que levou; referência entre agregados, sempre por id
+     * @return o movimento de SAIDA que esta baixa gerou, para ser gravado junto do saldo
+     * @throws IllegalStateException    se o item é SERVICO, que não tem estoque
+     * @throws IllegalArgumentException se a quantidade é nula, zero ou negativa
+     */
+    public MovimentoEstoque darBaixaPorVenda(BigDecimal quantidade, UUID vendaId) {
+        Objects.requireNonNull(quantidade, "quantidade nao pode ser nula");
+        Objects.requireNonNull(vendaId, "vendaId nao pode ser nulo");
+        if (!controlaEstoque()) {
+            throw new IllegalStateException(
+                    "servico nao tem estoque para baixar: " + id
+                            + ". So produto recebe movimento de estoque.");
+        }
+        if (quantidade.signum() <= 0) {
+            throw new IllegalArgumentException(
+                    "quantidade da baixa deve ser positiva: " + quantidade);
+        }
+        this.estoqueAtual = this.estoqueAtual.subtract(quantidade);
+        return MovimentoEstoque.saidaPorVenda(quantidade, vendaId);
     }
 
     private static Money exigirPreco(Money preco) {

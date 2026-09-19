@@ -6,10 +6,13 @@ import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException
 import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
+import br.com.caixasimples.cadastro.TipoMovimentoEstoque;
 import br.com.caixasimples.cadastro.TipoProduto;
 import br.com.caixasimples.shared.Money;
+import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -17,8 +20,10 @@ import org.junit.jupiter.api.Test;
  * Regras que a raiz do agregado garante sozinha, sem banco e sem Spring, que é justamente a razão
  * de {@code domain/} não importar framework nenhum.
  *
- * <p>A invariante de que {@code estoqueAtual} é a soma dos movimentos ainda não pode ser violada
- * aqui, porque o movimento de estoque ainda não existe. O teste dela nasce junto com ele.
+ * <p>A raiz não carrega o histórico de movimentos, então a invariante de que {@code estoqueAtual}
+ * é a soma deles não se prova aqui, e sim em integração, onde saldo e movimento são gravados
+ * juntos. O que se prova aqui é o que a raiz garante sozinha: só produto baixa, só quantidade
+ * positiva baixa, e cada baixa devolve exatamente o movimento que a explica.
  */
 class ProdutoTest {
 
@@ -212,5 +217,87 @@ class ProdutoTest {
         assertThat(produto.getNome())
                 .as("a recusa não pode ter aplicado nada pela metade")
                 .isEqualTo("Cafe coado");
+    }
+
+    @Test
+    @DisplayName("só produto controla estoque; serviço não")
+    void soProdutoControlaEstoque() {
+        assertThat(valido(Money.de("6.50")).controlaEstoque()).isTrue();
+        assertThat(new Produto("Corte", Money.de("40.00"), TipoProduto.SERVICO, null, null, null,
+                null).controlaEstoque()).isFalse();
+    }
+
+    @Test
+    @DisplayName("a baixa desce o saldo e devolve a SAIDA que a explica, apontando para a venda")
+    void baixaDesceOSaldoEDevolveOMovimento() {
+        Produto produto = valido(Money.de("6.50"));
+        UUID vendaId = UUID.randomUUID();
+
+        MovimentoEstoque movimento = produto.darBaixaPorVenda(new BigDecimal("0.750"), vendaId);
+
+        assertThat(produto.getEstoqueAtual()).isEqualByComparingTo("-0.750");
+        assertThat(movimento.tipo()).isEqualTo(TipoMovimentoEstoque.SAIDA);
+        assertThat(movimento.quantidade()).isEqualByComparingTo("0.750");
+        assertThat(movimento.vendaId()).isEqualTo(vendaId);
+        assertThat(movimento.motivo()).isNull();
+        assertThat(movimento.id()).isNotNull();
+        assertThat(movimento.criadoEm()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("o saldo pode ficar negativo: a venda já aconteceu, e o acerto é um ajuste de contagem")
+    void saldoPodeFicarNegativo() {
+        Produto produto = valido(Money.de("6.50"));
+
+        produto.darBaixaPorVenda(new BigDecimal("2"), UUID.randomUUID());
+        produto.darBaixaPorVenda(new BigDecimal("3"), UUID.randomUUID());
+
+        assertThat(produto.getEstoqueAtual()).isEqualByComparingTo("-5");
+    }
+
+    @Test
+    @DisplayName("serviço não baixa: não tem estoque")
+    void servicoNaoBaixa() {
+        Produto servico = new Produto("Corte", Money.de("40.00"), TipoProduto.SERVICO, null, null,
+                null, null);
+
+        assertThatIllegalStateException()
+                .isThrownBy(() -> servico.darBaixaPorVenda(BigDecimal.ONE, UUID.randomUUID()))
+                .withMessageContaining("servico");
+
+        assertThat(servico.getEstoqueAtual()).isEqualByComparingTo("0");
+    }
+
+    @Test
+    @DisplayName("quantidade da baixa tem de ser positiva: zero e negativo são recusados")
+    void baixaExigeQuantidadePositiva() {
+        Produto produto = valido(Money.de("6.50"));
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> produto.darBaixaPorVenda(BigDecimal.ZERO, UUID.randomUUID()))
+                .withMessageContaining("positiva");
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> produto.darBaixaPorVenda(new BigDecimal("-1"),
+                        UUID.randomUUID()))
+                .withMessageContaining("positiva");
+        assertThatNullPointerException()
+                .isThrownBy(() -> produto.darBaixaPorVenda(null, UUID.randomUUID()));
+        assertThatNullPointerException()
+                .isThrownBy(() -> produto.darBaixaPorVenda(BigDecimal.ONE, null));
+
+        assertThat(produto.getEstoqueAtual())
+                .as("nenhuma recusa pode ter movido o saldo")
+                .isEqualByComparingTo("0");
+    }
+
+    @Test
+    @DisplayName("produto inativado ainda baixa: a venda aconteceu antes da inativação")
+    void produtoInativoAindaBaixa() {
+        Produto produto = valido(Money.de("6.50"));
+        produto.inativar();
+
+        produto.darBaixaPorVenda(BigDecimal.ONE, UUID.randomUUID());
+
+        assertThat(produto.getEstoqueAtual()).isEqualByComparingTo("-1");
     }
 }

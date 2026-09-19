@@ -64,6 +64,17 @@ public class CriadorDeContaDeTeste {
                 usuarios.save(new Usuario(nome, Perfil.OPERADOR)).getId());
     }
 
+    /**
+     * Liga o controle de estoque da conta (RF17). Conta nasce com ele desligado, então todo teste
+     * da baixa por venda precisa deste passo; a tela de configuração que fará isso ainda não
+     * existe.
+     */
+    public void habilitarEstoque(ContaId contaId) {
+        Conta conta = contas.findById(contaId.valor()).orElseThrow();
+        conta.definirEstoqueHabilitado(true);
+        contas.save(conta);
+    }
+
     public record ContaCriada(ContaId contaId, UUID usuarioId, String email, String senha) {
     }
 }

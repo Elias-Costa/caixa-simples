@@ -16,10 +16,23 @@ import org.springframework.data.jpa.repository.JpaRepository;
  * Nenhum requisito atual pede filtrar produto por atributo, já que a busca durante a venda é por
  * nome ou código (RF06). Abstração se justifica com uso, não com previsão.
  *
- * <p>{@code MovimentoEstoque} é membro do agregado e nunca terá repositório próprio: é carregado e
- * alterado pela raiz.
+ * <p>{@code MovimentoEstoque} é membro do agregado e não tem repositório próprio: é gravado pela
+ * raiz, junto do saldo. A entidade dele nem sequer é visível fora deste pacote, então a regra não
+ * depende apenas de disciplina. A única pergunta sobre o membro que se faz aqui,
+ * {@link #existsByIdAndMovimentosVendaId}, passa pela raiz.
  */
 public interface ProdutoRepository extends JpaRepository<ProdutoEntity, UUID> {
+
+    /**
+     * Se este produto já tem movimento vindo desta venda. É a pergunta que o caso de uso de baixa
+     * faz antes de gravar, porque o evento de venda concluída pode chegar mais de uma vez e a
+     * raiz, que não carrega o histórico, não tem como responder sozinha.
+     *
+     * <p>Derivada, e não {@code @Query}, que o projeto não usa: o caminho {@code movimentos.vendaId}
+     * atravessa a coleção da raiz com um {@code JOIN}, sem carregar o histórico na memória. Sem
+     * {@code conta_id} na assinatura, como todo o resto: o {@code @TenantId} filtra (RNF05).
+     */
+    boolean existsByIdAndMovimentosVendaId(UUID id, UUID vendaId);
 
     List<ProdutoEntity> findByAtivoTrue();
 

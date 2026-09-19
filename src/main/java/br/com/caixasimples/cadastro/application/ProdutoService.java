@@ -1,22 +1,26 @@
 package br.com.caixasimples.cadastro.application;
 
 import br.com.caixasimples.cadastro.TipoProduto;
+import br.com.caixasimples.cadastro.domain.MovimentoEstoque;
 import br.com.caixasimples.cadastro.domain.Produto;
 import br.com.caixasimples.cadastro.internal.ProdutoEntity;
 import br.com.caixasimples.cadastro.internal.ProdutoRepository;
 import br.com.caixasimples.shared.Money;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Casos de uso do cadastro de produto e serviço: cadastrar (RF01, RF02), editar (RF04), inativar
- * (RF05), buscar por nome ou código durante a venda (RF06) e responder o preço vigente a quem
- * monta a venda.
+ * (RF05), buscar por nome ou código durante a venda (RF06), responder o preço vigente a quem
+ * monta a venda e dar baixa no estoque de um produto vendido (RF18).
  *
  * <p>Cada caso de uso de escrita é sempre a mesma sequência: carrega a linha, deixa a raiz do
  * agregado decidir, grava o que ela decidiu. Nenhuma regra mora aqui. É {@link Produto} que sabe o
@@ -25,6 +29,13 @@ import org.springframework.transaction.annotation.Transactional;
  * <p><strong>Este pacote é a API do módulo para os outros módulos</strong>, e por isso
  * {@link #consultarParaVenda} devolve um record próprio, e não {@link Produto}: quem está fora do
  * cadastro recebe o que precisa copiar, sem receber a raiz do agregado e seus mutadores.
+ *
+ * <p><strong>A baixa de estoque é um caso de uso público, e a exceção que ele abre é medida.</strong>
+ * A regra do projeto é que efeito colateral entre módulos viaja por evento; aqui é o módulo de
+ * estoque que ouve a venda concluída e decide, com a conta ligada ou não, se há o que baixar.
+ * Decidido, ele pede ao cadastro, porque o agregado é daqui e ninguém de fora toca a entidade.
+ * O evento continua desacoplando a venda de quem reage a ela; o que este método faz é executar a
+ * reação de outro módulo sobre o agregado que ele não pode abrir.
  *
  * <p><strong>Não existe caso de uso de reativação</strong>, nem de exclusão: o RF05 é soft delete,
  * e {@code DELETE} não aparece em lugar nenhum deste módulo.
@@ -37,6 +48,8 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class ProdutoService {
+
+    private static final Logger log = LoggerFactory.getLogger(ProdutoService.class);
 
     private final ProdutoRepository produtos;
 
@@ -166,6 +179,71 @@ public class ProdutoService {
     public ProdutoParaVenda consultarParaVenda(UUID id) {
         Produto produto = buscar(id).paraDominio();
         return new ProdutoParaVenda(produto.getId(), produto.getPreco(), produto.isAtivo());
+    }
+
+    /**
+     * Baixa de estoque de um item vendido (RF18). Grava o movimento de SAIDA e o saldo novo do
+     * produto na mesma transação; é o único caminho pelo qual {@code estoque_atual} muda.
+     *
+     * <p><strong>Em SERVICO não faz nada</strong>, e não é erro: vender um serviço é legítimo, só
+     * não há estoque a baixar. Quem chama recebe os itens da venda sem saber o tipo de cada um, e
+     * é aqui, com o produto na mão, que a distinção se faz. A raiz recusa a baixa em serviço por
+     * conta própria; este método pergunta antes para não chegar lá.
+     *
+     * <p><strong>A mesma venda não baixa duas vezes.</strong> O evento de venda concluída é
+     * entregue ao menos uma vez, e quem chama deve perguntar por {@link #jaDeuBaixaPorVenda} antes,
+     * e pular a reentrega. A recusa aqui é a invariante em si, para qualquer chamador: estoque
+     * baixado em dobro é uma falta que nunca existiu. A raiz não carrega o histórico, então a
+     * pergunta vai ao repositório; a rede embaixo é o índice único da migration V9.
+     *
+     * <p>Não olha se o produto está ativo, de propósito: a venda aconteceu antes de qualquer
+     * inativação, e o estoque que saiu, saiu.
+     *
+     * @param produtoId  o produto vendido, nesta conta
+     * @param quantidade o que a venda levou; positiva
+     * @param vendaId    a venda que levou
+     * @throws ProdutoNaoEncontradoException se o id não existe nesta conta
+     * @throws IllegalStateException         se esta venda já deu baixa neste produto
+     * @throws IllegalArgumentException      se a quantidade não é positiva
+     */
+    @Transactional
+    public void darBaixaPorVenda(UUID produtoId, BigDecimal quantidade, UUID vendaId) {
+        Objects.requireNonNull(vendaId, "vendaId nao pode ser nulo");
+
+        ProdutoEntity linha = buscar(produtoId);
+        Produto produto = linha.paraDominio();
+
+        if (!produto.controlaEstoque()) {
+            log.debug("produto {} e servico; venda {} nao gera movimento de estoque", produtoId,
+                    vendaId);
+            return;
+        }
+        if (produtos.existsByIdAndMovimentosVendaId(produtoId, vendaId)) {
+            throw new IllegalStateException(
+                    "venda " + vendaId + " ja deu baixa no produto " + produtoId
+                            + " e nao baixa de novo. O estoque de uma venda sai uma vez so.");
+        }
+
+        MovimentoEstoque movimento = produto.darBaixaPorVenda(quantidade, vendaId);
+
+        linha.registrarMovimento(produto, movimento);
+        produtos.save(linha);
+    }
+
+    /**
+     * Se esta venda já deu baixa neste produto. É a pergunta que o ouvinte do evento faz antes de
+     * pedir a baixa, porque o evento pode chegar mais de uma vez e a reentrega tem de terminar sem
+     * erro.
+     *
+     * <p>Responde falso para um produto que não existe nesta conta, em vez de lançar: a pergunta
+     * é sobre o movimento, e a ausência do produto vai estourar logo em seguida, em
+     * {@link #darBaixaPorVenda}, com a exceção certa.
+     */
+    @Transactional(readOnly = true)
+    public boolean jaDeuBaixaPorVenda(UUID produtoId, UUID vendaId) {
+        Objects.requireNonNull(produtoId, "id do produto nao pode ser nulo");
+        Objects.requireNonNull(vendaId, "vendaId nao pode ser nulo");
+        return produtos.existsByIdAndMovimentosVendaId(produtoId, vendaId);
     }
 
     private ProdutoEntity buscar(UUID id) {

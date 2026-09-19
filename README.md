@@ -75,19 +75,19 @@ primeiro dia; seis já têm código de negócio dentro.
 | Módulo | Estado | O que existe hoje |
 |---|---|---|
 | `shared` | Implementado | `Money`, `ContaId`, `TenantContext`, `FusoDeReferencia` |
-| `contas` | Implementado | `Conta`, `Usuario`, `Credencial`, login por JWT, política de senha, provisionamento de conta |
-| `cadastro` | Implementado | `Produto` com atributos `JSONB`, busca por nome ou código para o balcão, `Cliente` como vertical slice, catálogo sugerido por tipo de negócio |
+| `contas` | Implementado | `Conta`, `Usuario`, `Credencial`, login por JWT, política de senha, provisionamento de conta, e a pergunta que os outros módulos fazem à conta em operação, como se o controle de estoque está ligado |
+| `cadastro` | Implementado | `Produto` com atributos `JSONB`, busca por nome ou código para o balcão, `Cliente` como vertical slice, catálogo sugerido por tipo de negócio, e o agregado inteiro: `MovimentoEstoque` como membro, com a baixa por venda gravando movimento e saldo na mesma transação |
 | `caixa` | Implementado | `SessaoCaixa`: abertura, sangria, suprimento, fechamento com conferência, histórico por operador e por dia, e o dinheiro em espécie de cada venda concluída entrando na gaveta por evento, uma vez só, mesmo que o evento chegue de novo |
 | `pagamentos` | Implementado | Strategy por forma de pagamento: dinheiro com troco calculado no domínio, Pix e cartão lançados à mão pelo operador. Sem provedor de Pix ainda |
 | `vendas` | Em andamento | agregado `Venda`, com `ItemVenda` e `Pagamento` como membros: abrir a comanda num caixa aberto, lançar e remover itens com o preço copiado do produto, desconto por item e por venda, total recalculado a cada operação, pagamento dividido entre formas com o troco vindo do módulo de pagamentos, e conclusão como passo explícito, que exige o caixa ainda aberto e publica o evento `VendaConcluida` pelo outbox. Faltam cancelamento com estorno e o vínculo de cliente |
-| `estoque` | Planejado | pacote e fronteira declarados, sem código de negócio |
+| `estoque` | Em andamento | o ouvinte da venda concluída: quando a conta ligou o controle de estoque, cada produto vendido vira uma baixa, pedida ao cadastro, dono do agregado; serviço no meio dos itens não gera nada, e o evento entregue de novo não baixa em dobro. Faltam ajuste manual, alerta de estoque baixo e o estorno do cancelamento |
 | `relatorios` | Planejado | pacote e fronteira declarados, sem código de negócio |
 
-**Schema.** Oito migrations Flyway, de `V1` a `V8`: conta, usuário e credencial; produto; cliente;
+**Schema.** Nove migrations Flyway, de `V1` a `V9`: conta, usuário e credencial; produto; cliente;
 catálogo de referência; o agregado de caixa, com a regra de uma sessão aberta por operador; o
-agregado de venda, com a venda, seus itens e seus pagamentos; e o outbox de eventos de domínio do
+agregado de venda, com a venda, seus itens e seus pagamentos; o outbox de eventos de domínio do
 Spring Modulith, cujo DDL foi gerado a partir da entidade do framework em vez de escrito de
-memória.
+memória; e o movimento de estoque, o membro que o agregado de produto esperava desde a segunda.
 
 **Superfície HTTP.** Dois endpoints, ambos de autenticação: `POST /api/auth/login`, que devolve o
 token, e `GET /api/auth/eu`, que existe para haver um recurso protegido de verdade contra o qual
@@ -109,6 +109,8 @@ Atalhos para avaliar o código sem percorrer o repositório inteiro.
 | Invariante viva, recalculada a cada operação | [Venda.java](src/main/java/br/com/caixasimples/vendas/domain/Venda.java) | O total nunca fica negativo, nunca diverge dos itens e nunca fica abaixo do já pago; a venda só conclui com os pagamentos confirmados iguais ao total. Cada operação que quebraria uma regra é recusada antes de tocar no agregado, e o estado remontado do banco passa pela mesma conferência |
 | Pergunta entre módulos sem expor o agregado | [VendaService.java](src/main/java/br/com/caixasimples/vendas/application/VendaService.java) | A venda copia o preço do cadastro por chamada à camada de aplicação dele, recebendo um record e nunca a raiz alheia; confere o caixa por uma interface que ela mesma declara; e, ao concluir, publica o evento em vez de chamar quem reage |
 | Efeito colateral entre módulos por evento | [VendaConcluidaListener.java](src/main/java/br/com/caixasimples/caixa/internal/VendaConcluidaListener.java) | O caixa reage à venda concluída sem que a venda o conheça: só o dinheiro em espécie entra na gaveta, a reentrega do outbox não duplica, e o tenant é definido antes de a transação abrir, com o porquê escrito no lugar |
+| Um módulo que decide e outro que executa | [BaixaDeEstoqueListener.java](src/main/java/br/com/caixasimples/estoque/internal/BaixaDeEstoqueListener.java) | O estoque ouve o mesmo evento e decide, pela conta, se há o que baixar; o agregado é do cadastro, então a baixa é pedida pela API pública dele, e a fronteira continua verificada por compilação |
+| Agregado que não carrega o próprio histórico | [ProdutoEntity.java](src/main/java/br/com/caixasimples/cadastro/internal/ProdutoEntity.java) | O saldo é coluna viva e o único método que a escreve exige o movimento junto; a coleção é preguiçosa de propósito, com o custo aceito escrito no lugar, porque o histórico de um produto cresce a cada venda e o produto é lido em toda venda |
 | Dependência num sentido só | [CaixaParaVenda.java](src/main/java/br/com/caixasimples/vendas/CaixaParaVenda.java) | A pergunta da venda ao caixa é uma interface declarada em vendas e implementada no caixa, porque o caixa já depende de vendas para ouvir o evento e a verificação de fronteiras recusa ciclo |
 | Schema gerado do framework, não adivinhado | [V8\_\_event_publication.sql](src/main/resources/db/migration/V8__event_publication.sql) | A tabela do outbox é mapeada por entidade do Modulith; a migration nasceu do DDL gerado dela, com a receita para repetir numa atualização e os dois ajustes tirados do schema oficial |
 | Value object monetário | [Money.java](src/main/java/br/com/caixasimples/shared/Money.java) | Arredondamento explícito no ponto de uso, sem `double` e sem construtor que reescreve valor em silêncio |
@@ -164,6 +166,13 @@ composta que o Modulith oferece: ela abriria a transação antes de o tenant est
 Hibernate resolve o tenant na abertura da sessão. O molde do projeto define a conta a partir do
 evento e só então abre a transação, com a ordem escrita no próprio arquivo.
 
+O mesmo evento tem dois ouvintes, e o segundo mostra o outro lado da regra de ciclo. O estoque
+reage à venda concluída, mas o agregado que ele move, o produto com seu saldo, é do cadastro, e o
+cadastro não pode ouvir o evento sem fechar um ciclo com a venda, que já lhe pergunta o preço. A
+saída foi separar quem decide de quem executa: o módulo de estoque guarda a política, se a conta
+ligou o controle e o que fazer com cada item, e pede a baixa ao cadastro pela camada de aplicação
+dele. Ninguém depende de `estoque`, e é isso que permite a ele depender de três módulos.
+
 ### Padrões aplicados
 
 Nenhum padrão entra por simetria, e nenhum entra antes do problema que o justifica. O que está em
@@ -175,10 +184,11 @@ uso hoje:
   dinheiro, Pix e cartão têm uma classe cada, e a regra de cada forma mora no domínio, não no
   componente do Spring.
 - **Value object** para dinheiro, com o arredondamento visível em quem o chama.
-- **Domain Events com outbox** para a venda concluída avisar o caixa sem acoplar os dois: a
-  publicação é gravada na mesma transação que conclui a venda, o listener roda depois do commit,
-  em outra thread, e uma falha deixa a publicação incompleta em vez de perder o efeito. O evento
-  carrega o fato inteiro, itens e parcelas, e quem decide o que fazer com ele é quem ouve.
+- **Domain Events com outbox** para a venda concluída avisar o caixa e o estoque sem acoplar os
+  três: a publicação é gravada na mesma transação que conclui a venda, cada listener roda depois
+  do commit, em outra thread, e uma falha deixa a publicação incompleta em vez de perder o efeito.
+  O evento carrega o fato inteiro, itens e parcelas, e quem decide o que fazer com ele é quem
+  ouve: o caixa lê as parcelas, o estoque lê os itens.
 - **Dependency inversion entre módulos** onde uma pergunta e um evento cruzariam em sentidos
   opostos: a interface mora em quem pergunta, a implementação em quem responde.
 - **Vertical slice** onde não há invariante a proteger, em vez de agregado por simetria.
@@ -187,9 +197,8 @@ uso hoje:
 ### Padrões decididos, ainda não escritos
 
 Estes estão amarrados a requisitos e a passos que ainda não começaram. Aparecem aqui como desenho,
-não como código: **Adapter** para trocar de provedor de Pix sem tocar na regra de negócio, o
-segundo ouvinte de **Domain Events**, o estoque dando baixa na venda concluída, e **Specification**
-para os filtros combináveis dos relatórios.
+não como código: **Adapter** para trocar de provedor de Pix sem tocar na regra de negócio, e
+**Specification** para os filtros combináveis dos relatórios.
 
 Nenhum deles foi criado por antecipação, e essa é a política do projeto: uma abstração se justifica
 com dois usos reais, não com um previsto. O Strategy de pagamento seguiu essa regra: a interface
@@ -212,8 +221,9 @@ os dois a usam.
   porque a tabela de venda ainda não existia. Vale até para tabela que não é do projeto: a do
   outbox do Modulith, na `V8`, foi gerada a partir da entidade do framework, e a suíte prova que o
   gerado bate, porque o contexto não subiria se não batesse.
-- **Repositório só para raiz de agregado.** Membro de agregado (item de venda, movimento de caixa)
-  entra e sai pela raiz, o que impede alterar um item sem recalcular o total que a raiz garante.
+- **Repositório só para raiz de agregado.** Membro de agregado (item de venda, movimento de caixa,
+  movimento de estoque) entra e sai pela raiz, o que impede alterar um item sem recalcular o total
+  que a raiz garante.
 - **Soft delete**, nunca exclusão física, para preservar o histórico de vendas antigas.
 - **Dinheiro é um value object `Money`**, `numeric(12,2)` no banco, com arredondamento a duas casas
   visível no ponto de uso. Nada de `double`.
@@ -241,6 +251,11 @@ os dois a usam.
   consulta o preço vigente no cadastro na hora de gravar. Um preço vindo do pedido seria uma porta
   para vender por qualquer valor; a cópia feita ali é o que impede uma venda passada de mudar quando
   o produto é reajustado.
+- **O saldo de estoque pode ficar negativo.** A venda que levou mais do que o saldo registrava já
+  aconteceu no balcão; recusar a baixa não a desfaria, só deixaria o estoque mentindo por omissão,
+  com o evento preso no outbox. O saldo negativo é o fato a corrigir, por um ajuste de contagem, e
+  é o que o alerta de estoque baixo vai expor. O controle nasce desligado por conta, e ligar não
+  conta o que já está na prateleira.
 
 ## Segurança e isolamento
 
@@ -254,14 +269,18 @@ pontos:
   SQL nativo, e por isso query nativa em código de negócio é proibida no projeto.
 - **Todo dado persistido tem teste de isolamento**, no molde de gravar na conta A e provar que a
   conta B recebe vazio. Usuário, credencial, produto, cliente, sessão de caixa e venda têm o seu, e
-  os membros de agregado (movimento de caixa, item e pagamento da venda) têm um teste próprio, que
-  prova que a coluna de conta deles vem do contexto e não da raiz por junção. O teste falha se a
-  anotação de tenant for removida.
-- **O listener de evento lança na conta do evento, não na de quem publicou.** Ele roda em outra
+  os membros de agregado (movimento de caixa, item e pagamento da venda, movimento de estoque) têm
+  um teste próprio, que prova que a coluna de conta deles vem do contexto e não da raiz por
+  junção. O teste falha se a anotação de tenant for removida.
+- **Os listeners de evento agem na conta do evento, não na de quem publicou.** Eles rodam em outra
   thread, sem o tenant da requisição, e uma reentrega pode partir do outbox horas depois; a conta
-  vai dentro do evento, lida do contexto autenticado no ato da publicação, e há teste que publica
-  como uma conta e prova que o movimento cai na conta do evento e que a outra não o vê. A tabela do
-  outbox não tem coluna de conta, porque é do framework e nenhum código de negócio a lê.
+  vai dentro do evento, lida do contexto autenticado no ato da publicação, e há teste, para o
+  caixa e para o estoque, que publica como uma conta e prova que o efeito cai na conta do evento e
+  que a outra não o vê. A tabela do outbox não tem coluna de conta, porque é do framework e nenhum
+  código de negócio a lê.
+- **A pergunta sobre a conta não aceita conta.** A tabela de contas é a única sem filtro
+  automático, porque o id dela é o tenant; em troca, o serviço que responde por ela lê a conta do
+  contexto e nada mais, sem assinatura por onde perguntar sobre outra.
 
 A autenticação usa JWT emitido e validado pelo próprio Spring Security, sem biblioteca de JWT de
 terceiro, com API stateless e senha em BCrypt verificada contra bases de senhas vazadas. A política
@@ -288,7 +307,7 @@ monetários são `numeric(12,2)` e timestamps são `timestamptz` gravados em UTC
 |---|---|---|---|---|
 | **Venda** | `Venda` | `ItemVenda`, `Pagamento` | `valor_total` reflete a soma dos itens menos o desconto; numa venda concluída, a soma dos pagamentos confirmados é igual ao total | Implementado até a conclusão: as duas regras vivas a cada operação, e conferidas de novo ao remontar o agregado do banco. O cancelamento ainda não existe |
 | **Caixa** | `SessaoCaixa` | `MovimentoCaixa` | `valor_fechamento_esperado` reflete o valor de abertura mais a soma assinada dos movimentos | Implementado |
-| **Produto** | `Produto` | `MovimentoEstoque` | `estoque_atual` reflete a soma dos movimentos, atualizado na mesma transação | Raiz implementada; o membro nasce com o módulo `estoque` |
+| **Produto** | `Produto` | `MovimentoEstoque` | `estoque_atual` reflete a soma dos movimentos, atualizado na mesma transação | Implementado para a saída por venda: o único método que escreve o saldo exige o movimento junto. Entrada e ajuste manual ainda não existem |
 | Entidade única | `Conta`, `Usuario`, `Cliente` | nenhum | são agregados de uma entidade só | Implementado |
 
 Referência que cruza agregado é sempre por ID, nunca um `@ManyToOne` navegável. É o que impede
@@ -309,7 +328,16 @@ editar um agregado através de outro.
   concluída, vale só a parte paga em dinheiro, e a mesma venda não entra duas vezes na mesma
   sessão: a raiz recusa a duplicata, e o listener reconhece a reentrega antes de chegar nela.
 - **`estoque_atual` é consolidado na raiz**, e não somado do histórico a cada leitura, para o alerta
-  de estoque baixo não pagar esse preço.
+  de estoque baixo não pagar esse preço. Levado às últimas consequências: a raiz não carrega o
+  histórico, ao contrário da sessão de caixa, cujo extrato é um expediente. O histórico de um
+  produto cresce a cada venda e o produto é lido em toda venda, então a coleção é preguiçosa, o
+  domínio conhece só o saldo, e cada baixa devolve o movimento que a explica para que os dois sejam
+  gravados juntos. A pergunta de reentrega, se a mesma venda já baixou este produto, vai ao
+  repositório por consulta derivada, e um índice único parcial é a rede embaixo.
+- **`MovimentoEstoque` segue o mesmo molde do movimento de caixa**: entrada, saída e ajuste numa
+  tabela só, quantidade sempre positiva na entrada e na saída, com o sinal no tipo. O ajuste
+  manual ainda não existe, e o schema deixa a convenção de sinal dele em aberto de propósito, para
+  a decisão ser tomada com o caso de uso na mão em vez de presa numa migration imutável.
 - **`preco_unitario` do item é cópia** do preço do produto no momento da venda, nunca leitura viva:
   reajustar o produto depois não pode alterar o valor de uma venda passada. Há teste que reajusta o
   produto e prova que a venda gravada não muda.
@@ -360,9 +388,11 @@ Quatro tipos de teste sustentam o projeto:
 Nenhuma etapa fecha com teste vermelho. Regra do projeto: dado persistido novo exige teste de
 isolamento, e raiz de agregado tocada exige teste que tenta violar a invariante e espera falha.
 
-O evento de domínio é testado com o outbox de verdade: o teste publica, espera o listener terminar
-em outra thread e confere o movimento no caixa, a reentrega que não duplica e a publicação
-concluída no registro, remontada do JSON igual ao evento original.
+O evento de domínio é testado com o outbox de verdade: o teste publica, espera cada listener
+terminar em outra thread e confere o movimento no caixa e a baixa no estoque, a reentrega que não
+duplica em nenhum dos dois, a conta desligada que não baixa nada, e a publicação concluída no
+registro, remontada do JSON igual ao evento original. Como há dois ouvintes por evento, quem conta
+publicações concluídas filtra pelo ouvinte.
 
 ## Stack
 
@@ -395,20 +425,22 @@ src
 │   │   ├── pagamentos/     domain, application, internal
 │   │   ├── vendas/         domain, application, internal
 │   │   ├── shared/         Money, ContaId, TenantContext, FusoDeReferencia
-│   │   ├── estoque/        declarado, sem código de negócio
+│   │   ├── estoque/        internal
 │   │   └── relatorios/     declarado, sem código de negócio
 │   └── resources
-│       └── db/migration/   V1 a V8, imutáveis depois de publicadas
+│       └── db/migration/   V1 a V9, imutáveis depois de publicadas
 └── test/java/br/com/caixasimples
     ├── ModularityTests     fitness function das fronteiras
     ├── TesteDeIntegracao   base com Testcontainers, herdada pelos testes de banco
     └── ...                 testes por módulo, incluindo isolamento entre contas
 ```
 
-Os dois módulos sem código de negócio não são pastas vazias por descuido: eles declaram a
-fronteira desde o início, e o `ModularityTests` já os verifica. Foi assim que a primeira classe de
-`pagamentos` nasceu dentro de um limite que já existia, em vez de criar o limite depois do código,
-e é assim que `estoque` e `relatorios` vão nascer.
+O módulo sem código de negócio não é uma pasta vazia por descuido: ele declara a fronteira desde o
+início, e o `ModularityTests` já a verifica. Foi assim que a primeira classe de `pagamentos`
+nasceu dentro de um limite que já existia, em vez de criar o limite depois do código; `estoque`
+acabou de nascer do mesmo jeito, com o ouvinte da venda concluída entrando num pacote cuja
+fronteira já era testada, e é assim que `relatorios` vai nascer. `estoque` só tem `internal/`
+porque, por ora, é um adapter de entrada e uma política: o agregado que ele move é do cadastro.
 
 ## Autor
 

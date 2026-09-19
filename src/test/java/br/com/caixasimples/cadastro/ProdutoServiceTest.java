@@ -3,6 +3,7 @@ package br.com.caixasimples.cadastro;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
+import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 
 import br.com.caixasimples.TesteDeIntegracao;
@@ -13,10 +14,13 @@ import br.com.caixasimples.cadastro.application.ProdutoService.ProdutoParaVenda;
 import br.com.caixasimples.cadastro.domain.Produto;
 import br.com.caixasimples.cadastro.internal.ProdutoEntity;
 import br.com.caixasimples.cadastro.internal.ProdutoRepository;
+import br.com.caixasimples.caixa.application.SessaoCaixaService;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.TenantContext;
+import br.com.caixasimples.vendas.CriadorDeVendaDeTeste;
+import java.math.BigDecimal;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -26,7 +30,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 /**
  * Os casos de uso do cadastro de produto contra o banco de verdade: cadastrar (RF01, RF02), editar
- * (RF04) e inativar (RF05).
+ * (RF04), inativar (RF05) e dar baixa por venda (RF18).
+ *
+ * <p>A baixa aponta para uma venda de verdade, porque {@code movimento_estoque.venda_id} é chave
+ * estrangeira; por isso os testes dela abrem um caixa e gravam uma venda vazia pelas fixtures.
+ * O que se lê depois é o saldo pelo domínio; o movimento em si, que só o pacote interno enxerga,
+ * é conferido em {@code MovimentoEstoqueDoAgregadoTest}.
  *
  * <p>Roda sobre PostgreSQL real, e não com repositório falso, porque metade do que se quer provar
  * só existe no banco: o {@code jsonb} de ida e volta, o soft delete preservando a linha e o filtro
@@ -44,6 +53,12 @@ class ProdutoServiceTest extends TesteDeIntegracao {
 
     @Autowired
     private CriadorDeContaDeTeste criador;
+
+    @Autowired
+    private SessaoCaixaService sessoesDeCaixa;
+
+    @Autowired
+    private CriadorDeVendaDeTeste vendas;
 
     @AfterEach
     void limparContexto() {
@@ -335,6 +350,138 @@ class ProdutoServiceTest extends TesteDeIntegracao {
         assertThatExceptionOfType(ProdutoNaoEncontradoException.class).isThrownBy(() ->
                 TenantContext.executarComo(conta.contaId(), () ->
                         produtoService.consultarParaVenda(UUID.randomUUID())));
+    }
+
+
+    @Test
+    @DisplayName("a baixa por venda desce o saldo, e a mesma venda não baixa duas vezes")
+    void baixaPorVendaDesceOSaldoUmaVezSo() {
+        ContaCriada conta = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
+        UUID cafeId = TenantContext.executarComo(conta.contaId(), () ->
+                produtoService.cadastrar(TipoProduto.PRODUTO, cafe()));
+        UUID vendaId = vendaEm(conta, abrirCaixa(conta));
+
+        TenantContext.executarComo(conta.contaId(), () -> {
+            assertThat(produtoService.jaDeuBaixaPorVenda(cafeId, vendaId)).isFalse();
+            produtoService.darBaixaPorVenda(cafeId, new BigDecimal("2"), vendaId);
+        });
+
+        TenantContext.executarComo(conta.contaId(), () -> {
+            assertThat(saldoDe(cafeId)).isEqualByComparingTo("-2");
+            assertThat(produtoService.jaDeuBaixaPorVenda(cafeId, vendaId)).isTrue();
+        });
+
+        // A reentrega do evento pergunta antes e pula; quem chama sem perguntar é recusado, e o
+        // saldo não se move.
+        assertThatIllegalStateException()
+                .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+                        produtoService.darBaixaPorVenda(cafeId, new BigDecimal("2"), vendaId)))
+                .withMessageContaining("ja deu baixa");
+        TenantContext.executarComo(conta.contaId(), () ->
+                assertThat(saldoDe(cafeId)).isEqualByComparingTo("-2"));
+    }
+
+    @Test
+    @DisplayName("vendas diferentes baixam o mesmo produto, e o saldo acompanha cada uma")
+    void vendasDiferentesBaixamOMesmoProduto() {
+        ContaCriada conta = criador.criar("Padaria Central", SENHA_DE_TESTE);
+        UUID queijoId = TenantContext.executarComo(conta.contaId(), () ->
+                produtoService.cadastrar(TipoProduto.PRODUTO, produto("Queijo minas", null)));
+        UUID sessaoId = abrirCaixa(conta);
+        UUID primeiraVenda = vendaEm(conta, sessaoId);
+        UUID segundaVenda = vendaEm(conta, sessaoId);
+
+        TenantContext.executarComo(conta.contaId(), () -> {
+            produtoService.darBaixaPorVenda(queijoId, new BigDecimal("0.750"), primeiraVenda);
+            produtoService.darBaixaPorVenda(queijoId, new BigDecimal("1.250"), segundaVenda);
+        });
+
+        TenantContext.executarComo(conta.contaId(), () ->
+                assertThat(saldoDe(queijoId)).isEqualByComparingTo("-2.000"));
+    }
+
+    @Test
+    @DisplayName("serviço vendido não gera movimento nem muda saldo, e não é erro")
+    void servicoNaoGeraMovimento() {
+        ContaCriada conta = criador.criar("Salao Vizinho", SENHA_DE_TESTE);
+        UUID corteId = TenantContext.executarComo(conta.contaId(), () ->
+                produtoService.cadastrar(TipoProduto.SERVICO, produto("Corte", null)));
+        UUID vendaId = vendaEm(conta, abrirCaixa(conta));
+
+        assertThatNoException().isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+                produtoService.darBaixaPorVenda(corteId, BigDecimal.ONE, vendaId)));
+
+        TenantContext.executarComo(conta.contaId(), () -> {
+            assertThat(saldoDe(corteId)).isEqualByComparingTo("0");
+            assertThat(produtoService.jaDeuBaixaPorVenda(corteId, vendaId)).isFalse();
+        });
+    }
+
+    @Test
+    @DisplayName("produto inativado ainda recebe baixa: a venda aconteceu antes")
+    void produtoInativoAindaRecebeBaixa() {
+        ContaCriada conta = criador.criar("Loja da Esquina", SENHA_DE_TESTE);
+        UUID id = TenantContext.executarComo(conta.contaId(), () ->
+                produtoService.cadastrar(TipoProduto.PRODUTO, cafe()));
+        UUID vendaId = vendaEm(conta, abrirCaixa(conta));
+        TenantContext.executarComo(conta.contaId(), () -> produtoService.inativar(id));
+
+        TenantContext.executarComo(conta.contaId(), () ->
+                produtoService.darBaixaPorVenda(id, BigDecimal.ONE, vendaId));
+
+        TenantContext.executarComo(conta.contaId(), () ->
+                assertThat(saldoDe(id)).isEqualByComparingTo("-1"));
+    }
+
+    @Test
+    @DisplayName("baixa em produto que não existe nesta conta é recusada com a exceção do cadastro")
+    void baixaEmProdutoInexistenteERecusada() {
+        ContaCriada conta = criador.criar("Mercearia da Rua", SENHA_DE_TESTE);
+        UUID vendaId = vendaEm(conta, abrirCaixa(conta));
+
+        assertThatExceptionOfType(ProdutoNaoEncontradoException.class).isThrownBy(() ->
+                TenantContext.executarComo(conta.contaId(), () ->
+                        produtoService.darBaixaPorVenda(UUID.randomUUID(), BigDecimal.ONE,
+                                vendaId)));
+        // A pergunta sobre um produto inexistente responde falso em vez de estourar.
+        TenantContext.executarComo(conta.contaId(), () ->
+                assertThat(produtoService.jaDeuBaixaPorVenda(UUID.randomUUID(), vendaId))
+                        .isFalse());
+    }
+
+    @Test
+    @DisplayName("quantidade da baixa tem de ser positiva, e a recusa não move o saldo")
+    void baixaExigeQuantidadePositiva() {
+        ContaCriada conta = criador.criar("Emporio do Bairro", SENHA_DE_TESTE);
+        UUID id = TenantContext.executarComo(conta.contaId(), () ->
+                produtoService.cadastrar(TipoProduto.PRODUTO, cafe()));
+        UUID vendaId = vendaEm(conta, abrirCaixa(conta));
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+                        produtoService.darBaixaPorVenda(id, BigDecimal.ZERO, vendaId)))
+                .withMessageContaining("positiva");
+
+        TenantContext.executarComo(conta.contaId(), () -> {
+            assertThat(saldoDe(id)).isEqualByComparingTo("0");
+            assertThat(produtoService.jaDeuBaixaPorVenda(id, vendaId)).isFalse();
+        });
+    }
+
+    /** O saldo como o domínio o vê: a única leitura pública de {@code estoque_atual} hoje. */
+    private BigDecimal saldoDe(UUID produtoId) {
+        return produtos.findById(produtoId).orElseThrow().paraDominio().getEstoqueAtual();
+    }
+
+    /** Um caixa aberto, uma vez por conta: um operador só tem uma sessão ABERTA por vez. */
+    private UUID abrirCaixa(ContaCriada conta) {
+        return TenantContext.executarComo(conta.contaId(), () ->
+                sessoesDeCaixa.abrir(conta.usuarioId(), Money.ZERO));
+    }
+
+    /** Uma venda vazia nesse caixa: só o alvo da chave estrangeira de {@code venda_id}. */
+    private UUID vendaEm(ContaCriada conta, UUID sessaoId) {
+        return vendas.criarAbertaEm(conta.contaId(), sessaoId, conta.usuarioId());
     }
 
     private static DadosDoProduto produto(String nome, String codigo) {
