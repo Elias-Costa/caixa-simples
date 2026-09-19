@@ -18,7 +18,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Casos de uso da sessão de caixa: abrir (RF13), registrar sangria e suprimento (RF14), fechar com
- * conferência (RF15) e consultar o histórico por operador e por dia (RF16).
+ * conferência (RF15), consultar o histórico por operador e por dia (RF16) e responder em que
+ * estado uma sessão está, que é a pergunta que a venda faz antes de começar.
  *
  * <p>Cada caso de uso de escrita é sempre a mesma sequência: carrega a linha, deixa a raiz do
  * agregado decidir, grava o que ela decidiu. Nenhuma regra de dinheiro mora aqui. É
@@ -173,7 +174,28 @@ public class SessaoCaixaService {
     }
 
     /**
-     * Uma sessão no histórico, <strong>sem os movimentos</strong>.
+     * Uma sessão, pelo id, <strong>sem os movimentos</strong>.
+     *
+     * <p>É a pergunta que o módulo de vendas faz antes de iniciar uma venda: esta sessão existe
+     * nesta conta, e está ABERTA? A resposta é o mesmo resumo do histórico, com o status dentro,
+     * e quem decide o que fazer com ele é quem perguntou. Não há um <em>exigir aberta</em> aqui,
+     * porque a regra de que venda só começa em caixa aberto é da venda, não do caixa.
+     *
+     * <p>Sai como projeção, e não pelo agregado, pelo motivo do histórico: carregar a sessão
+     * inteira traria o extrato do expediente para responder uma pergunta de uma coluna.
+     *
+     * @throws SessaoCaixaNaoEncontradaException se o id não existe nesta conta
+     */
+    @Transactional(readOnly = true)
+    public ResumoDeSessao consultar(UUID sessaoId) {
+        Objects.requireNonNull(sessaoId, "id da sessao de caixa nao pode ser nulo");
+        return sessoes.findLinhaById(sessaoId)
+                .map(ResumoDeSessao::de)
+                .orElseThrow(() -> new SessaoCaixaNaoEncontradaException(sessaoId));
+    }
+
+    /**
+     * Uma sessão no histórico ou na consulta por id, <strong>sem os movimentos</strong>.
      *
      * <p>Aninhado no serviço, como {@code ProdutoService.DadosDoProduto}, porque é o formato de
      * resposta deste caso de uso e de mais nenhum.

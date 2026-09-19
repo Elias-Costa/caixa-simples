@@ -20,9 +20,10 @@ import java.util.Objects;
  *
  * <p><strong>A aritmética entra por uso, nunca por previsão.</strong> {@link #somar} e
  * {@link #subtrair} existem porque o saldo esperado da sessão de caixa acompanha os movimentos em
- * tempo real, não porque um tipo monetário costuma ter as quatro operações. Multiplicação continua
- * fora: ela entra quando houver o primeiro uso real, que é quantidade vezes preço unitário no
- * total da venda.
+ * tempo real, não porque um tipo monetário costuma ter as quatro operações.
+ * {@link #multiplicarArredondando} existe porque o item da venda vale quantidade vezes preço
+ * unitário, e é a única operação daqui que pode produzir fração de centavo. Divisão continua fora,
+ * porque nada a usa.
  */
 public record Money(BigDecimal valor) {
 
@@ -92,6 +93,25 @@ public record Money(BigDecimal valor) {
     public Money subtrair(Money outro) {
         Objects.requireNonNull(outro, "outro nao pode ser nulo");
         return new Money(valor.subtract(outro.valor));
+    }
+
+    /**
+     * Multiplica por uma quantidade e arredonda o resultado para duas casas com
+     * {@link RoundingMode#HALF_UP}, que é o arredondamento por item da venda.
+     *
+     * <p><strong>O nome carrega o arredondamento de propósito.</strong> Ao contrário de
+     * {@link #somar} e {@link #subtrair}, esta é a única operação daqui que pode produzir fração de
+     * centavo: {@code 0,750 kg} a {@code R$ 39,90} dá {@code R$ 29,925}. Um {@code multiplicar}
+     * que arredondasse por dentro esconderia na assinatura a mesma decisão que o construtor se
+     * recusa a tomar às escondidas. Delega a {@link #arredondando}, que segue sendo o único ponto
+     * que arredonda dinheiro.
+     *
+     * @param quantidade o multiplicador, que não é dinheiro: uma quantidade de itens, inteira ou
+     *                   fracionada
+     */
+    public Money multiplicarArredondando(BigDecimal quantidade) {
+        Objects.requireNonNull(quantidade, "quantidade nao pode ser nula");
+        return arredondando(valor.multiply(quantidade));
     }
 
     public boolean isNegativo() {

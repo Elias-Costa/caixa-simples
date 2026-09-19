@@ -21,6 +21,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.hibernate.annotations.Fetch;
@@ -37,11 +38,6 @@ import org.hibernate.annotations.TenantId;
  * {@code CurrentTenantIdentifierResolver} e filtra toda consulta automaticamente
  * ({@link TenantId}). Não há construtor nem setter que o receba, porque {@code contaId} nunca vem
  * de fora da aplicação (RNF05).
- *
- * <p><strong>Não há {@code atualizarCom}</strong>, ao contrário de {@code SessaoCaixaEntity}, e a
- * ausência acompanha o domínio: {@link Venda} ainda não tem caminho de escrita, então não existe
- * estado alterado para copiar. O método nasce junto da primeira mutação, que é a montagem da
- * comanda.
  */
 @Entity
 @Table(name = "venda")
@@ -139,6 +135,44 @@ public class VendaEntity {
 
     public static VendaEntity de(Venda venda) {
         return new VendaEntity(venda);
+    }
+
+    /**
+     * Copia para a linha tudo o que a montagem pode ter mudado: o status, os dois totais e a lista
+     * de itens.
+     *
+     * <p><strong>Os itens são sincronizados por id, nos dois sentidos.</strong> O que saiu do
+     * domínio sai da coleção, e {@code orphanRemoval} apaga a linha; o que entrou vira linha nova;
+     * o que já estava fica onde está. Trocar a lista inteira apagaria e reinseriria a comanda a
+     * cada item, que é o mesmo motivo pelo qual {@code SessaoCaixaEntity} acrescenta em vez de
+     * substituir. Aqui a remoção existe porque a raiz tem {@code removerItem}; lá não há o que
+     * remover.
+     *
+     * <p><strong>Os pagamentos não são tocados</strong>, e a ausência acompanha o domínio: a raiz
+     * ainda não registra pagamento, então não há estado deles para copiar. Esta parte nasce junto
+     * do caso de uso que a traz.
+     *
+     * <p>É um método só, e não um por caso de uso, pelo motivo dado em {@code SessaoCaixaEntity}:
+     * a linha copia o estado do domínio, que é a fonte da verdade, e escrever ABERTA por cima de
+     * ABERTA custa menos que escolher errado entre dois métodos.
+     */
+    public void atualizarCom(Venda venda) {
+        this.status = venda.getStatus();
+        this.valorTotal = venda.getValorTotal().valor();
+        this.valorDesconto = venda.getValorDesconto().valor();
+
+        Set<UUID> noDominio = venda.getItens().stream()
+                .map(ItemVenda::id)
+                .collect(Collectors.toSet());
+        itens.removeIf(linha -> !noDominio.contains(linha.getId()));
+
+        Set<UUID> jaGravados = itens.stream()
+                .map(ItemVendaEntity::getId)
+                .collect(Collectors.toSet());
+        venda.getItens().stream()
+                .filter(item -> !jaGravados.contains(item.id()))
+                .map(ItemVendaEntity::de)
+                .forEach(itens::add);
     }
 
     public Venda paraDominio() {

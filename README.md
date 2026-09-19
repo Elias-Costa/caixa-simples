@@ -76,10 +76,10 @@ primeiro dia; seis já têm código de negócio dentro.
 |---|---|---|
 | `shared` | Implementado | `Money`, `ContaId`, `TenantContext`, `FusoDeReferencia` |
 | `contas` | Implementado | `Conta`, `Usuario`, `Credencial`, login por JWT, política de senha, provisionamento de conta |
-| `cadastro` | Implementado | `Produto` com atributos `JSONB`, `Cliente` como vertical slice, catálogo sugerido por tipo de negócio |
+| `cadastro` | Implementado | `Produto` com atributos `JSONB`, busca por nome ou código para o balcão, `Cliente` como vertical slice, catálogo sugerido por tipo de negócio |
 | `caixa` | Implementado | `SessaoCaixa`: abertura, sangria, suprimento, fechamento com conferência, histórico por operador e por dia |
 | `pagamentos` | Implementado | Strategy por forma de pagamento: dinheiro com troco calculado no domínio, Pix e cartão lançados à mão pelo operador. Sem provedor de Pix ainda |
-| `vendas` | Em andamento | schema e persistência do agregado `Venda`, com `ItemVenda` e `Pagamento` como membros. A montagem da comanda e a conclusão da venda são o próximo passo |
+| `vendas` | Em andamento | agregado `Venda`, com `ItemVenda` e `Pagamento` como membros, e a montagem da comanda: abrir a venda num caixa aberto, lançar e remover itens com o preço copiado do produto, desconto por item e por venda, total recalculado a cada operação. A conclusão com pagamento dividido entre formas é o próximo passo |
 | `estoque` | Planejado | pacote e fronteira declarados, sem código de negócio |
 | `relatorios` | Planejado | pacote e fronteira declarados, sem código de negócio |
 
@@ -90,9 +90,9 @@ agregado de venda, com a venda, seus itens e seus pagamentos.
 **Superfície HTTP.** Dois endpoints, ambos de autenticação: `POST /api/auth/login`, que devolve o
 token, e `GET /api/auth/eu`, que existe para haver um recurso protegido de verdade contra o qual
 verificar, por HTTP, que requisição sem token é recusada e que o tenant vem do claim e não do
-pedido. Os casos de uso de produto, cliente, caixa e pagamento vivem na camada de aplicação e são
-exercitados por teste de integração: a camada `web` de cada módulo nasce junto com o PWA que vai
-consumi-la, e não antes, para o contrato HTTP não ser desenhado às cegas.
+pedido. Os casos de uso de produto, cliente, caixa, pagamento e venda vivem na camada de aplicação
+e são exercitados por teste de integração: a camada `web` de cada módulo nasce junto com o PWA que
+vai consumi-la, e não antes, para o contrato HTTP não ser desenhado às cegas.
 
 ## Por onde começar a leitura
 
@@ -104,6 +104,8 @@ Atalhos para avaliar o código sem percorrer o repositório inteiro.
 | Isolamento entre contas provado nos dois sentidos | [IsolamentoEntreContasTest.java](src/test/java/br/com/caixasimples/contas/IsolamentoEntreContasTest.java) | Segurança testada, não presumida: grava na conta A e prova que a conta B não enxerga |
 | O mecanismo por trás desse isolamento | [MultiTenancyConfiguration.java](src/main/java/br/com/caixasimples/shared/internal/MultiTenancyConfiguration.java) | Filtro no Hibernate, não em cada consulta, e o que acontece quando não há tenant no contexto |
 | Raiz de agregado sem framework | [SessaoCaixa.java](src/main/java/br/com/caixasimples/caixa/domain/SessaoCaixa.java) | Regra de negócio e invariantes isoladas de Spring e de JPA |
+| Invariante viva, recalculada a cada operação | [Venda.java](src/main/java/br/com/caixasimples/vendas/domain/Venda.java) | O total nunca fica negativo e nunca diverge dos itens: cada operação que quebraria a regra é recusada antes de tocar no agregado |
+| Pergunta entre módulos sem expor o agregado | [VendaService.java](src/main/java/br/com/caixasimples/vendas/application/VendaService.java) | A venda copia o preço do cadastro e confere o caixa por chamadas à camada de aplicação dos módulos donos, recebendo records e nunca a raiz alheia |
 | Value object monetário | [Money.java](src/main/java/br/com/caixasimples/shared/Money.java) | Arredondamento explícito no ponto de uso, sem `double` e sem construtor que reescreve valor em silêncio |
 | Uma decisão explicada onde ela mora | [FusoDeReferencia.java](src/main/java/br/com/caixasimples/shared/FusoDeReferencia.java) | Por que o fuso é constante única e não coluna, e o que precisa acontecer para reabrir a decisão |
 | Strategy sem `switch` | [PaymentService.java](src/main/java/br/com/caixasimples/pagamentos/application/PaymentService.java) | Forma de pagamento nova é classe nova; duas estratégias para a mesma forma derrubam a aplicação na subida, em vez de uma sobrescrever a outra em silêncio |
@@ -133,13 +135,16 @@ está em [Estado atual](#estado-atual).
 ```
 
 Nem todo módulo tem as quatro: uma camada nasce quando há o que colocar nela. Hoje só `contas` tem
-`web/`, por ser o único com superfície HTTP; `cadastro` acomoda `Cliente` inteiro em `internal/`,
-porque um slice sem invariante não precisa de `domain/`; e `vendas` ainda não tem `application/`,
-porque a raiz do agregado só remonta o que está gravado e não tem caso de uso a orquestrar.
+`web/`, por ser o único com superfície HTTP, e `cadastro` acomoda `Cliente` inteiro em `internal/`,
+porque um slice sem invariante não precisa de `domain/`.
 
 Um módulo nunca importa de `internal/` de outro. Efeito colateral entre módulos é Domain Event;
 consulta é chamada direta à API pública do pacote. A regra que resume as duas: *eventos anunciam
-fatos, chamadas diretas fazem perguntas.*
+fatos, chamadas diretas fazem perguntas.* O Spring Modulith só expõe o pacote-base de cada módulo,
+então a camada `application/` é exposta nomeadamente onde outro módulo precisa perguntar algo, e
+`domain/` e `internal/` seguem ocultos: `vendas` copia o preço do produto e confere o estado do
+caixa recebendo records das camadas de aplicação de `cadastro` e `caixa`, nunca a raiz de agregado
+alheia.
 
 ### Padrões aplicados
 
@@ -191,11 +196,16 @@ os dois a usam.
 - **DDD onde existe invariante para proteger.** `SessaoCaixa`, `Produto` e `Venda` têm domínio
   rico. `Cliente`, que não tem invariante, é um vertical slice em um arquivo só. A régua: se
   acrescentar um campo exigir tocar em mais de três ou quatro arquivos, é cerimônia demais.
-- **Regra de negócio entra com o caso de uso, não com a tabela.** O agregado de venda tem schema,
-  entidades e repositório, mas a raiz ainda não tem caminho de escrita: um construtor público sem
-  as regras do total seria uma porta lateral. As regras chegam com a montagem da comanda e com a
-  conclusão da venda, e até lá os testes gravam pelo mesmo método que a entidade usa para remontar
-  o agregado a partir do banco.
+- **Regra de negócio entra com o caso de uso, não com a tabela.** O agregado de venda nasceu com
+  schema, entidades e repositório e sem caminho de escrita, porque um construtor público sem as
+  regras do total seria uma porta lateral. A montagem da comanda trouxe as regras do total; a
+  conclusão vai trazer as dos pagamentos. Até lá, o que ainda não tem regra continua sem método
+  público, e os testes que precisam de um estado específico gravam pelo mesmo método que a entidade
+  usa para remontar o agregado a partir do banco.
+- **O preço nunca vem de quem chama.** Lançar um item recebe o id do produto, e o caso de uso
+  consulta o preço vigente no cadastro na hora de gravar. Um preço vindo do pedido seria uma porta
+  para vender por qualquer valor; a cópia feita ali é o que impede uma venda passada de mudar quando
+  o produto é reajustado.
 
 ## Segurança e isolamento
 
@@ -236,7 +246,7 @@ monetários são `numeric(12,2)` e timestamps são `timestamptz` gravados em UTC
 
 | Agregado | Raiz | Membros | O que a raiz garante | Estado |
 |---|---|---|---|---|
-| **Venda** | `Venda` | `ItemVenda`, `Pagamento` | `valor_total` reflete a soma dos itens menos o desconto; numa venda concluída, a soma dos pagamentos confirmados é igual ao total | Schema e persistência implementados; as regras chegam com a montagem e a conclusão da venda |
+| **Venda** | `Venda` | `ItemVenda`, `Pagamento` | `valor_total` reflete a soma dos itens menos o desconto; numa venda concluída, a soma dos pagamentos confirmados é igual ao total | Montagem implementada, com a regra do total viva a cada operação; a regra dos pagamentos chega com a conclusão da venda |
 | **Caixa** | `SessaoCaixa` | `MovimentoCaixa` | `valor_fechamento_esperado` reflete o valor de abertura mais a soma assinada dos movimentos | Implementado |
 | **Produto** | `Produto` | `MovimentoEstoque` | `estoque_atual` reflete a soma dos movimentos, atualizado na mesma transação | Raiz implementada; o membro nasce com o módulo `estoque` |
 | Entidade única | `Conta`, `Usuario`, `Cliente` | nenhum | são agregados de uma entidade só | Implementado |
@@ -259,7 +269,16 @@ editar um agregado através de outro.
 - **`estoque_atual` é consolidado na raiz**, e não somado do histórico a cada leitura, para o alerta
   de estoque baixo não pagar esse preço.
 - **`preco_unitario` do item é cópia** do preço do produto no momento da venda, nunca leitura viva:
-  reajustar o produto depois não pode alterar o valor de uma venda passada.
+  reajustar o produto depois não pode alterar o valor de uma venda passada. Há teste que reajusta o
+  produto e prova que a venda gravada não muda.
+- **O arredondamento é por item, e o método que multiplica diz isso no nome.** Setecentos e
+  cinquenta gramas a 39,90 dão 29,925, que vira 29,93 na linha; o total é a soma de linhas já
+  arredondadas, para que o comprovante feche com o total impresso.
+- **Desconto nunca passa do valor.** Nem o do item sobre o bruto do item, nem o da venda sobre a soma
+  dos itens; a raiz recusa a operação, em vez de gravar um subtotal negativo ou limitar em silêncio.
+  Brinde é preço zero, não desconto acima do valor.
+- **Item lançado não se edita.** Quantidade e desconto entram junto com o item; corrigir é remover
+  e lançar de novo, e o mesmo produto pode aparecer em duas linhas da mesma venda.
 - **`Pagamento` é entidade própria**, e não colunas na venda, porque uma venda pode ser dividida
   entre formas: metade em dinheiro e metade no cartão são dois registros, cada um com o seu valor e
   o seu estado.
@@ -317,7 +336,7 @@ src
 │   │   ├── caixa/          domain, application, internal
 │   │   ├── contas/         application, web, internal
 │   │   ├── pagamentos/     domain, application, internal
-│   │   ├── vendas/         domain, internal
+│   │   ├── vendas/         domain, application, internal
 │   │   ├── shared/         Money, ContaId, TenantContext, FusoDeReferencia
 │   │   ├── estoque/        declarado, sem código de negócio
 │   │   └── relatorios/     declarado, sem código de negócio

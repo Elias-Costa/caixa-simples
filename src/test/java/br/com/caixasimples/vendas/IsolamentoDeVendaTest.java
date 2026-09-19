@@ -45,9 +45,10 @@ import org.springframework.beans.factory.annotation.Autowired;
  *
  * <p>A venda referencia sessão de caixa, operador e produto por chave estrangeira, então cada
  * cenário abre um caixa e cadastra um produto pelos casos de uso dos módulos donos, que é o
- * caminho que um controller tomaria. Como a raiz ainda não tem caminho de escrita, a venda em si
- * é montada por {@code Venda.reconstituir}, do mesmo modo que os testes do índice da V6 e da
- * delimitação do dia gravam a sessão de caixa.
+ * caminho que um controller tomaria. A venda em si é montada por {@code Venda.reconstituir}, para
+ * fixar o estado gravado, com itens e pagamentos escolhidos, sem passar pela montagem; é o mesmo
+ * que os testes do índice da V6 e da delimitação do dia fazem com a sessão de caixa. O caminho
+ * pela montagem está em {@code VendaServiceTest}.
  */
 class IsolamentoDeVendaTest extends TesteDeIntegracao {
 

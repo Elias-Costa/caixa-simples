@@ -2,12 +2,14 @@ package br.com.caixasimples.cadastro;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
+import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 
 import br.com.caixasimples.TesteDeIntegracao;
 import br.com.caixasimples.cadastro.application.ProdutoNaoEncontradoException;
 import br.com.caixasimples.cadastro.application.ProdutoService;
 import br.com.caixasimples.cadastro.application.ProdutoService.DadosDoProduto;
+import br.com.caixasimples.cadastro.application.ProdutoService.ProdutoParaVenda;
 import br.com.caixasimples.cadastro.domain.Produto;
 import br.com.caixasimples.cadastro.internal.ProdutoEntity;
 import br.com.caixasimples.cadastro.internal.ProdutoRepository;
@@ -214,13 +216,128 @@ class ProdutoServiceTest extends TesteDeIntegracao {
                 TenantContext.executarComo(contaB.contaId(), () ->
                         produtoService.inativar(produtoDaContaA)));
 
-        TenantContext.executarComo(contaB.contaId(), () ->
-                assertThat(produtoService.listarAtivos()).isEmpty());
+        assertThatExceptionOfType(ProdutoNaoEncontradoException.class).isThrownBy(() ->
+                TenantContext.executarComo(contaB.contaId(), () ->
+                        produtoService.consultarParaVenda(produtoDaContaA)));
+
+        TenantContext.executarComo(contaB.contaId(), () -> {
+            assertThat(produtoService.listarAtivos()).isEmpty();
+            assertThat(produtoService.buscarPorNomeOuCodigo("cafe")).isEmpty();
+            assertThat(produtoService.buscarPorNomeOuCodigo("CAF-1")).isEmpty();
+        });
 
         // E o produto da conta A continua intacto: a tentativa da conta B não encostou nele.
         TenantContext.executarComo(contaA.contaId(), () ->
                 assertThat(produtoService.listarAtivos())
                         .singleElement()
                         .satisfies(produto -> assertThat(produto.isAtivo()).isTrue()));
+    }
+
+    @Test
+    @DisplayName("busca por nome acha quem contém o termo, sem olhar caixa, só entre ativos (RF06)")
+    void buscaPorNomeContemOTermo() {
+        ContaCriada conta = criador.criar("Cafeteria da Praca", SENHA_DE_TESTE);
+
+        TenantContext.executarComo(conta.contaId(), () -> {
+            produtoService.cadastrar(TipoProduto.PRODUTO, produto("Cafe com leite", null));
+            produtoService.cadastrar(TipoProduto.PRODUTO, produto("Cafe coado", null));
+            produtoService.cadastrar(TipoProduto.PRODUTO, produto("Pao de queijo", null));
+            UUID inativo = produtoService.cadastrar(TipoProduto.PRODUTO,
+                    produto("Cafe gelado", null));
+            produtoService.inativar(inativo);
+        });
+
+        TenantContext.executarComo(conta.contaId(), () -> {
+            // O termo está no meio do nome e em caixa diferente; o inativo não aparece.
+            assertThat(produtoService.buscarPorNomeOuCodigo("LEITE"))
+                    .extracting(Produto::getNome)
+                    .containsExactly("Cafe com leite");
+
+            assertThat(produtoService.buscarPorNomeOuCodigo("cafe"))
+                    .as("em ordem alfabética, sem o inativo")
+                    .extracting(Produto::getNome)
+                    .containsExactly("Cafe coado", "Cafe com leite");
+
+            assertThat(produtoService.buscarPorNomeOuCodigo("xyz")).isEmpty();
+        });
+    }
+
+    @Test
+    @DisplayName("busca por código casa inteiro, sem olhar caixa, e vem antes dos nomes (RF06)")
+    void buscaPorCodigoCasaInteiroEVemPrimeiro() {
+        ContaCriada conta = criador.criar("Loja da Esquina", SENHA_DE_TESTE);
+
+        TenantContext.executarComo(conta.contaId(), () -> {
+            produtoService.cadastrar(TipoProduto.PRODUTO, produto("Agua 12 litros", "500"));
+            produtoService.cadastrar(TipoProduto.PRODUTO, produto("Refrigerante", "12"));
+            produtoService.cadastrar(TipoProduto.PRODUTO, produto("Suco", "120"));
+        });
+
+        TenantContext.executarComo(conta.contaId(), () -> {
+            // O código 12 bate inteiro e vem primeiro; 120 não bate por prefixo; e o nome que
+            // contém 12 vem depois, pelo caminho do nome.
+            assertThat(produtoService.buscarPorNomeOuCodigo("12"))
+                    .extracting(Produto::getNome)
+                    .containsExactly("Refrigerante", "Agua 12 litros");
+
+            assertThat(produtoService.buscarPorNomeOuCodigo("abc-1"))
+                    .as("código ignora maiúsculas, como o índice da migration")
+                    .isEmpty();
+        });
+
+        // Um produto que bate pelo código e pelo nome aparece uma vez só.
+        TenantContext.executarComo(conta.contaId(), () ->
+                produtoService.cadastrar(TipoProduto.PRODUTO, produto("Lote ABC-1", "abc-1")));
+
+        TenantContext.executarComo(conta.contaId(), () ->
+                assertThat(produtoService.buscarPorNomeOuCodigo("ABC-1"))
+                        .extracting(Produto::getNome)
+                        .containsExactly("Lote ABC-1"));
+    }
+
+    @Test
+    @DisplayName("busca com termo em branco é recusada: o catálogo inteiro é listarAtivos")
+    void buscaComTermoEmBrancoERecusada() {
+        ContaCriada conta = criador.criar("Barbearia Central", SENHA_DE_TESTE);
+
+        TenantContext.executarComo(conta.contaId(), () -> {
+            assertThatIllegalArgumentException()
+                    .isThrownBy(() -> produtoService.buscarPorNomeOuCodigo(""));
+            assertThatIllegalArgumentException()
+                    .isThrownBy(() -> produtoService.buscarPorNomeOuCodigo("   "));
+            assertThatIllegalArgumentException()
+                    .isThrownBy(() -> produtoService.buscarPorNomeOuCodigo(null));
+        });
+    }
+
+    @Test
+    @DisplayName("consultarParaVenda devolve o preço vigente e se o produto está ativo")
+    void consultarParaVendaDevolvePrecoEEstado() {
+        ContaCriada conta = criador.criar("Mercado do Bairro", SENHA_DE_TESTE);
+
+        UUID id = TenantContext.executarComo(conta.contaId(), () ->
+                produtoService.cadastrar(TipoProduto.PRODUTO, cafe()));
+
+        TenantContext.executarComo(conta.contaId(), () -> {
+            ProdutoParaVenda ativo = produtoService.consultarParaVenda(id);
+            assertThat(ativo.id()).isEqualTo(id);
+            assertThat(ativo.preco()).isEqualTo(Money.de("6.50"));
+            assertThat(ativo.ativo()).isTrue();
+        });
+
+        TenantContext.executarComo(conta.contaId(), () -> produtoService.inativar(id));
+
+        // Inativo volta como inativo, e não como erro: quem decide se ele entra na venda é o
+        // módulo de vendas.
+        TenantContext.executarComo(conta.contaId(), () ->
+                assertThat(produtoService.consultarParaVenda(id).ativo()).isFalse());
+
+        assertThatExceptionOfType(ProdutoNaoEncontradoException.class).isThrownBy(() ->
+                TenantContext.executarComo(conta.contaId(), () ->
+                        produtoService.consultarParaVenda(UUID.randomUUID())));
+    }
+
+    private static DadosDoProduto produto(String nome, String codigo) {
+        return new DadosDoProduto(nome, Money.de("5.00"), codigo, null, "un", null);
     }
 }

@@ -331,6 +331,51 @@ class SessaoCaixaServiceTest extends TesteDeIntegracao {
                 assertThat(sessoesDeCaixa.historicoDoDia(dia, null)).hasSize(1));
     }
 
+    @Test
+    @DisplayName("consultar devolve o resumo com o status, antes e depois do fechamento")
+    void consultarDevolveOResumoComOStatus() {
+        ContaCriada conta = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
+
+        UUID sessaoId = TenantContext.executarComo(conta.contaId(), () ->
+                sessoesDeCaixa.abrir(conta.usuarioId(), Money.de("50.00")));
+
+        TenantContext.executarComo(conta.contaId(), () -> {
+            ResumoDeSessao aberta = sessoesDeCaixa.consultar(sessaoId);
+            assertThat(aberta.id()).isEqualTo(sessaoId);
+            assertThat(aberta.usuarioId()).isEqualTo(conta.usuarioId());
+            assertThat(aberta.status()).isEqualTo(StatusSessaoCaixa.ABERTA);
+            assertThat(aberta.valorFechamentoEsperado()).isEqualTo(Money.de("50.00"));
+            assertThat(aberta.fechadaEm()).isNull();
+        });
+
+        TenantContext.executarComo(conta.contaId(), () ->
+                sessoesDeCaixa.fechar(sessaoId, Money.de("50.00")));
+
+        TenantContext.executarComo(conta.contaId(), () ->
+                assertThat(sessoesDeCaixa.consultar(sessaoId).status())
+                        .isEqualTo(StatusSessaoCaixa.FECHADA));
+
+        assertThatExceptionOfType(SessaoCaixaNaoEncontradaException.class).isThrownBy(() ->
+                TenantContext.executarComo(conta.contaId(), () ->
+                        sessoesDeCaixa.consultar(UUID.randomUUID())));
+    }
+
+    @Test
+    @DisplayName("consultar não devolve sessão de outra conta")
+    void consultarNaoAtravessaConta() {
+        ContaCriada contaA = criador.criar("Padaria A", SENHA_DE_TESTE);
+        ContaCriada contaB = criador.criar("Padaria B", SENHA_DE_TESTE);
+
+        UUID sessaoDaContaA = TenantContext.executarComo(contaA.contaId(), () ->
+                sessoesDeCaixa.abrir(contaA.usuarioId(), Money.ZERO));
+
+        // Consulta derivada nova, prova nova: a projeção por id também passa pelo @TenantId
+        // (RNF05). É este caminho que o módulo de vendas usa para conferir o caixa.
+        assertThatExceptionOfType(SessaoCaixaNaoEncontradaException.class).isThrownBy(() ->
+                TenantContext.executarComo(contaB.contaId(), () ->
+                        sessoesDeCaixa.consultar(sessaoDaContaA)));
+    }
+
     private static Instant instanteLocal(LocalDate dia, LocalTime hora) {
         return dia.atTime(hora).atZone(FusoDeReferencia.DO_BALCAO).toInstant();
     }

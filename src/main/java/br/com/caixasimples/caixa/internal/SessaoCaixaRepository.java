@@ -3,6 +3,7 @@ package br.com.caixasimples.caixa.internal;
 import br.com.caixasimples.caixa.StatusSessaoCaixa;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -14,8 +15,9 @@ import org.springframework.data.jpa.repository.JpaRepository;
  * mão, e não use query nativa: o filtro do Hibernate não alcança SQL nativo.
  *
  * <p><strong>Cada método derivado nasce junto do caso de uso que o usa, nunca antes.</strong>
- * Os três abaixo existem porque a abertura e o histórico precisam deles; enquanto o que o módulo
- * fazia cabia em {@code save}, {@code findById} e {@code findAll}, nenhum outro foi declarado.
+ * Os quatro abaixo existem porque a abertura, o histórico e a consulta de uma sessão precisam
+ * deles; enquanto o que o módulo fazia cabia em {@code save}, {@code findById} e {@code findAll},
+ * nenhum outro foi declarado.
  *
  * <p>{@code MovimentoCaixa} é membro do agregado e nunca terá repositório próprio: é carregado e
  * alterado pela raiz. A entidade dele nem sequer é visível fora deste pacote, então a regra não
@@ -58,4 +60,14 @@ public interface SessaoCaixaRepository extends JpaRepository<SessaoCaixaEntity, 
      */
     List<LinhaDoHistorico> findByUsuarioIdAndAbertaEmGreaterThanEqualAndAbertaEmLessThanOrderByAbertaEm(
             UUID usuarioId, Instant inicio, Instant fim);
+
+    /**
+     * Uma sessão, <strong>sem os movimentos</strong>, para quem só quer saber em que estado ela
+     * está.
+     *
+     * <p>Existe ao lado de {@link #findById(Object)} porque este traria o extrato inteiro do
+     * expediente pelo carregamento {@code EAGER}, e a pergunta que a venda faz ao iniciar, se o
+     * caixa está aberto, se responde com uma linha. Mesma projeção do histórico, pelo mesmo motivo.
+     */
+    Optional<LinhaDoHistorico> findLinhaById(UUID id);
 }

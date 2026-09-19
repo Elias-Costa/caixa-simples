@@ -3,6 +3,7 @@ package br.com.caixasimples.shared;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
+import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
 import java.math.BigDecimal;
 import org.junit.jupiter.api.DisplayName;
@@ -73,6 +74,22 @@ class MoneyTest {
         // aparecer. Recusar aqui obrigaria todo chamador a conferir antes de subtrair.
         assertThat(Money.de("10.00").subtrair(Money.de("30.00"))).isEqualTo(Money.de("-20.00"));
         assertThat(Money.de("10.00").subtrair(Money.de("30.00")).isNegativo()).isTrue();
+    }
+
+    @Test
+    @DisplayName("multiplicar por quantidade arredonda por item, e o nome do método diz isso")
+    void multiplicaPorQuantidadeArredondando() {
+        // O caso da venda por peso: 0,750 kg a R$ 39,90 dá R$ 29,925, que vira R$ 29,93 na linha
+        // do comprovante. Quantidade inteira não tem fração e passa sem efeito.
+        assertThat(Money.de("39.90").multiplicarArredondando(new BigDecimal("0.750")))
+                .isEqualTo(Money.de("29.93"));
+        assertThat(Money.de("4.50").multiplicarArredondando(new BigDecimal("2")))
+                .isEqualTo(Money.de("9.00"));
+        assertThat(Money.ZERO.multiplicarArredondando(new BigDecimal("3.333")))
+                .isEqualTo(Money.ZERO);
+
+        assertThatNullPointerException()
+                .isThrownBy(() -> Money.de("4.50").multiplicarArredondando(null));
     }
 
     @Test

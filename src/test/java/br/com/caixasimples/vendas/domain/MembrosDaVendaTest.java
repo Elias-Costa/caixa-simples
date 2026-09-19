@@ -22,9 +22,9 @@ import org.junit.jupiter.api.Test;
  *
  * <p>Teste de unidade puro, sem contexto Spring e sem banco, porque nada aqui conhece framework.
  *
- * <p>O que este arquivo <strong>não</strong> cobre, de propósito: a invariante do total e a regra
- * dos pagamentos. As duas ainda não existem em código, já que a raiz só remonta o que está gravado;
- * cada uma ganha teste junto do caso de uso que a traz.
+ * <p>O que este arquivo <strong>não</strong> cobre, de propósito: a invariante do total, que está
+ * em {@code VendaTest} junto da montagem, e a regra dos pagamentos, que ganha teste junto do caso
+ * de uso que a traz.
  */
 class MembrosDaVendaTest {
 
@@ -50,6 +50,28 @@ class MembrosDaVendaTest {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> item(new BigDecimal("-1"), Money.de("10.00"), Money.ZERO))
                 .withMessageContaining("quantidade");
+    }
+
+    @Test
+    @DisplayName("item recusa quarta casa na quantidade, mas zero à direita não conta")
+    void itemRecusaQuantidadeComMaisDeTresCasas() {
+        // O banco arredondaria 0,7505 para 0,751 em silêncio, e o total calculado deixaria de
+        // bater com o gravado. Já 2,0000 é 2, e passa.
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> item(new BigDecimal("0.7505"), Money.de("10.00"), Money.ZERO))
+                .withMessageContaining("casas decimais");
+
+        ItemVenda item = item(new BigDecimal("2.0000"), Money.de("10.00"), Money.ZERO);
+        assertThat(item.quantidade()).isEqualByComparingTo("2");
+    }
+
+    @Test
+    @DisplayName("bruto e subtotal são do item, arredondados nele")
+    void brutoESubtotalSaoDoItem() {
+        ItemVenda item = item(new BigDecimal("0.750"), Money.de("39.90"), Money.de("1.00"));
+
+        assertThat(item.valorBruto()).isEqualTo(Money.de("29.93"));
+        assertThat(item.subtotal()).isEqualTo(Money.de("28.93"));
     }
 
     @Test
