@@ -71,6 +71,10 @@ public class ProdutoEntity {
     @Column(name = "estoque_atual", nullable = false)
     private BigDecimal estoqueAtual;
 
+    /** Limiar do alerta de estoque baixo (RF20). Coluna da migration V10; zero por padrão. */
+    @Column(name = "estoque_minimo", nullable = false)
+    private BigDecimal estoqueMinimo;
+
     /**
      * Atributos que variam por tipo de negócio (RF02, RNF12), em {@code jsonb} com índice GIN.
      * Colunas fixas para o que é universal, JSONB para o que varia, e nunca EAV.
@@ -140,7 +144,8 @@ public class ProdutoEntity {
      * <p>Ficam de fora, cada um por um motivo: {@code id} e {@code criadoEm} são identidade;
      * {@code contaId} nunca vem de fora (RNF05), porque quem o preenche é o Hibernate; {@code tipo}
      * é imutável depois do cadastro; e {@code estoqueAtual} só se move junto de um movimento de
-     * estoque, por {@link #registrarMovimento}.
+     * estoque, por {@link #registrarMovimento}. {@code estoqueMinimo} entra: é configuração do
+     * alerta, não saldo, e muda sem movimento nenhum.
      */
     public void atualizarCom(Produto produto) {
         this.nome = produto.getNome();
@@ -148,6 +153,7 @@ public class ProdutoEntity {
         this.preco = produto.getPreco().valor();
         this.categoria = produto.getCategoria();
         this.unidade = produto.getUnidade();
+        this.estoqueMinimo = produto.getEstoqueMinimo();
         this.atributos = new LinkedHashMap<>(produto.getAtributos());
         this.ativo = produto.isAtivo();
     }
@@ -175,7 +181,7 @@ public class ProdutoEntity {
      */
     public Produto paraDominio() {
         return Produto.reconstituir(id, criadoEm, nome, Money.de(preco), tipo, codigo, categoria,
-                unidade, estoqueAtual, atributos, ativo);
+                unidade, estoqueAtual, estoqueMinimo, atributos, ativo);
     }
 
     public UUID getId() {

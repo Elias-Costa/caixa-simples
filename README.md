@@ -76,18 +76,19 @@ primeiro dia; seis já têm código de negócio dentro.
 |---|---|---|
 | `shared` | Implementado | `Money`, `ContaId`, `TenantContext`, `FusoDeReferencia` |
 | `contas` | Implementado | `Conta`, `Usuario`, `Credencial`, login por JWT, política de senha, provisionamento de conta, e a pergunta que os outros módulos fazem à conta em operação, como se o controle de estoque está ligado |
-| `cadastro` | Implementado | `Produto` com atributos `JSONB`, busca por nome ou código para o balcão, `Cliente` como vertical slice, catálogo sugerido por tipo de negócio, e o agregado inteiro: `MovimentoEstoque` como membro, com a baixa por venda gravando movimento e saldo na mesma transação |
+| `cadastro` | Implementado | `Produto` com atributos `JSONB`, busca por nome ou código para o balcão, `Cliente` como vertical slice, catálogo sugerido por tipo de negócio, e o agregado inteiro: `MovimentoEstoque` como membro, com a baixa por venda e o ajuste manual gravando movimento e saldo na mesma transação, o estoque mínimo de cada produto e a resposta de quais estão com estoque baixo |
 | `caixa` | Implementado | `SessaoCaixa`: abertura, sangria, suprimento, fechamento com conferência, histórico por operador e por dia, e o dinheiro em espécie de cada venda concluída entrando na gaveta por evento, uma vez só, mesmo que o evento chegue de novo |
 | `pagamentos` | Implementado | Strategy por forma de pagamento: dinheiro com troco calculado no domínio, Pix e cartão lançados à mão pelo operador. Sem provedor de Pix ainda |
 | `vendas` | Em andamento | agregado `Venda`, com `ItemVenda` e `Pagamento` como membros: abrir a comanda num caixa aberto, lançar e remover itens com o preço copiado do produto, desconto por item e por venda, total recalculado a cada operação, pagamento dividido entre formas com o troco vindo do módulo de pagamentos, e conclusão como passo explícito, que exige o caixa ainda aberto e publica o evento `VendaConcluida` pelo outbox. Faltam cancelamento com estorno e o vínculo de cliente |
-| `estoque` | Em andamento | o ouvinte da venda concluída: quando a conta ligou o controle de estoque, cada produto vendido vira uma baixa, pedida ao cadastro, dono do agregado; serviço no meio dos itens não gera nada, e o evento entregue de novo não baixa em dobro. Faltam ajuste manual, alerta de estoque baixo e o estorno do cancelamento |
+| `estoque` | Em andamento | o ouvinte da venda concluída: quando a conta ligou o controle de estoque, cada produto vendido vira uma baixa, pedida ao cadastro, dono do agregado; serviço no meio dos itens não gera nada, e o evento entregue de novo não baixa em dobro. E os casos de uso que uma pessoa aciona: ajuste manual com motivo obrigatório, perda, quebra ou contagem, com a diferença carregando o sinal; estoque mínimo por produto; e o alerta de estoque baixo como consulta, a lista dos produtos ativos no mínimo ou abaixo. A conta que não ligou o controle é recusada nos três. Falta o estorno do cancelamento |
 | `relatorios` | Planejado | pacote e fronteira declarados, sem código de negócio |
 
-**Schema.** Nove migrations Flyway, de `V1` a `V9`: conta, usuário e credencial; produto; cliente;
+**Schema.** Dez migrations Flyway, de `V1` a `V10`: conta, usuário e credencial; produto; cliente;
 catálogo de referência; o agregado de caixa, com a regra de uma sessão aberta por operador; o
 agregado de venda, com a venda, seus itens e seus pagamentos; o outbox de eventos de domínio do
 Spring Modulith, cujo DDL foi gerado a partir da entidade do framework em vez de escrito de
-memória; e o movimento de estoque, o membro que o agregado de produto esperava desde a segunda.
+memória; o movimento de estoque, o membro que o agregado de produto esperava desde a segunda; e o
+estoque mínimo de cada produto, o limiar do alerta de estoque baixo.
 
 **Superfície HTTP.** Dois endpoints, ambos de autenticação: `POST /api/auth/login`, que devolve o
 token, e `GET /api/auth/eu`, que existe para haver um recurso protegido de verdade contra o qual
@@ -109,7 +110,7 @@ Atalhos para avaliar o código sem percorrer o repositório inteiro.
 | Invariante viva, recalculada a cada operação | [Venda.java](src/main/java/br/com/caixasimples/vendas/domain/Venda.java) | O total nunca fica negativo, nunca diverge dos itens e nunca fica abaixo do já pago; a venda só conclui com os pagamentos confirmados iguais ao total. Cada operação que quebraria uma regra é recusada antes de tocar no agregado, e o estado remontado do banco passa pela mesma conferência |
 | Pergunta entre módulos sem expor o agregado | [VendaService.java](src/main/java/br/com/caixasimples/vendas/application/VendaService.java) | A venda copia o preço do cadastro por chamada à camada de aplicação dele, recebendo um record e nunca a raiz alheia; confere o caixa por uma interface que ela mesma declara; e, ao concluir, publica o evento em vez de chamar quem reage |
 | Efeito colateral entre módulos por evento | [VendaConcluidaListener.java](src/main/java/br/com/caixasimples/caixa/internal/VendaConcluidaListener.java) | O caixa reage à venda concluída sem que a venda o conheça: só o dinheiro em espécie entra na gaveta, a reentrega do outbox não duplica, e o tenant é definido antes de a transação abrir, com o porquê escrito no lugar |
-| Um módulo que decide e outro que executa | [BaixaDeEstoqueListener.java](src/main/java/br/com/caixasimples/estoque/internal/BaixaDeEstoqueListener.java) | O estoque ouve o mesmo evento e decide, pela conta, se há o que baixar; o agregado é do cadastro, então a baixa é pedida pela API pública dele, e a fronteira continua verificada por compilação |
+| Um módulo que decide e outro que executa | [BaixaDeEstoqueListener.java](src/main/java/br/com/caixasimples/estoque/internal/BaixaDeEstoqueListener.java) | O estoque ouve o mesmo evento e decide, pela conta, se há o que baixar; o agregado é do cadastro, então a baixa é pedida pela API pública dele, e a fronteira continua verificada por compilação. [EstoqueService.java](src/main/java/br/com/caixasimples/estoque/application/EstoqueService.java) repete o desenho para o que uma pessoa aciona: ajuste, mínimo e alerta |
 | Agregado que não carrega o próprio histórico | [ProdutoEntity.java](src/main/java/br/com/caixasimples/cadastro/internal/ProdutoEntity.java) | O saldo é coluna viva e o único método que a escreve exige o movimento junto; a coleção é preguiçosa de propósito, com o custo aceito escrito no lugar, porque o histórico de um produto cresce a cada venda e o produto é lido em toda venda |
 | Dependência num sentido só | [CaixaParaVenda.java](src/main/java/br/com/caixasimples/vendas/CaixaParaVenda.java) | A pergunta da venda ao caixa é uma interface declarada em vendas e implementada no caixa, porque o caixa já depende de vendas para ouvir o evento e a verificação de fronteiras recusa ciclo |
 | Schema gerado do framework, não adivinhado | [V8\_\_event_publication.sql](src/main/resources/db/migration/V8__event_publication.sql) | A tabela do outbox é mapeada por entidade do Modulith; a migration nasceu do DDL gerado dela, com a receita para repetir numa atualização e os dois ajustes tirados do schema oficial |
@@ -254,8 +255,13 @@ os dois a usam.
 - **O saldo de estoque pode ficar negativo.** A venda que levou mais do que o saldo registrava já
   aconteceu no balcão; recusar a baixa não a desfaria, só deixaria o estoque mentindo por omissão,
   com o evento preso no outbox. O saldo negativo é o fato a corrigir, por um ajuste de contagem, e
-  é o que o alerta de estoque baixo vai expor. O controle nasce desligado por conta, e ligar não
-  conta o que já está na prateleira.
+  é o que o alerta de estoque baixo expõe. O controle nasce desligado por conta, e ligar não
+  conta o que já está na prateleira: a contagem inicial é um ajuste manual.
+- **O limiar de estoque baixo é por produto, e nasce em zero.** Baixo depende do item: dois quilos
+  de queijo e duas garrafas de água não são o mesmo baixo. Sem número configurado, o alerta avisa
+  quando o item acabou, zero ou negativo; quem informa um mínimo maior é avisado antes. Nunca há
+  produto que não alerta, e por isso a coluna não é anulável. O alerta é uma consulta, a lista dos
+  produtos ativos no mínimo ou abaixo, e não um evento: ninguém o ouviria hoje.
 
 ## Segurança e isolamento
 
@@ -271,7 +277,9 @@ pontos:
   conta B recebe vazio. Usuário, credencial, produto, cliente, sessão de caixa e venda têm o seu, e
   os membros de agregado (movimento de caixa, item e pagamento da venda, movimento de estoque) têm
   um teste próprio, que prova que a coluna de conta deles vem do contexto e não da raiz por
-  junção. O teste falha se a anotação de tenant for removida.
+  junção. O teste falha se a anotação de tenant for removida. Os casos de uso do estoque têm o
+  seu nas duas direções: a lista de estoque baixo de uma conta não traz o produto de outra, e o
+  ajuste de uma conta não alcança o produto de outra.
 - **Os listeners de evento agem na conta do evento, não na de quem publicou.** Eles rodam em outra
   thread, sem o tenant da requisição, e uma reentrega pode partir do outbox horas depois; a conta
   vai dentro do evento, lida do contexto autenticado no ato da publicação, e há teste, para o
@@ -307,7 +315,7 @@ monetários são `numeric(12,2)` e timestamps são `timestamptz` gravados em UTC
 |---|---|---|---|---|
 | **Venda** | `Venda` | `ItemVenda`, `Pagamento` | `valor_total` reflete a soma dos itens menos o desconto; numa venda concluída, a soma dos pagamentos confirmados é igual ao total | Implementado até a conclusão: as duas regras vivas a cada operação, e conferidas de novo ao remontar o agregado do banco. O cancelamento ainda não existe |
 | **Caixa** | `SessaoCaixa` | `MovimentoCaixa` | `valor_fechamento_esperado` reflete o valor de abertura mais a soma assinada dos movimentos | Implementado |
-| **Produto** | `Produto` | `MovimentoEstoque` | `estoque_atual` reflete a soma dos movimentos, atualizado na mesma transação | Implementado para a saída por venda: o único método que escreve o saldo exige o movimento junto. Entrada e ajuste manual ainda não existem |
+| **Produto** | `Produto` | `MovimentoEstoque` | `estoque_atual` reflete a soma dos movimentos, atualizado na mesma transação | Implementado para a saída por venda e para o ajuste manual: o único método que escreve o saldo exige o movimento junto, e o ajuste sem motivo não passa pela raiz. A entrada, que é o estorno do cancelamento, ainda não existe |
 | Entidade única | `Conta`, `Usuario`, `Cliente` | nenhum | são agregados de uma entidade só | Implementado |
 
 Referência que cruza agregado é sempre por ID, nunca um `@ManyToOne` navegável. É o que impede
@@ -335,9 +343,15 @@ editar um agregado através de outro.
   gravados juntos. A pergunta de reentrega, se a mesma venda já baixou este produto, vai ao
   repositório por consulta derivada, e um índice único parcial é a rede embaixo.
 - **`MovimentoEstoque` segue o mesmo molde do movimento de caixa**: entrada, saída e ajuste numa
-  tabela só, quantidade sempre positiva na entrada e na saída, com o sinal no tipo. O ajuste
-  manual ainda não existe, e o schema deixa a convenção de sinal dele em aberto de propósito, para
-  a decisão ser tomada com o caso de uso na mão em vez de presa numa migration imutável.
+  tabela só, quantidade sempre positiva na entrada e na saída, com o sinal no tipo. O ajuste é a
+  exceção: serve aos dois sentidos, então o sinal vai na quantidade, e um `-2` no histórico se lê
+  sozinho como uma perda de dois. O schema deixou essa convenção em aberto até o ajuste existir,
+  para a decisão ser tomada com o caso de uso na mão em vez de presa numa migration imutável, e a
+  migration seguinte reemitiu os comentários das colunas com a convenção decidida.
+- **O estoque mínimo é caso de uso próprio, não campo do formulário de cadastro.** O limiar é
+  política de estoque, não descrição do item, e só faz sentido com o controle ligado; num salão o
+  formulário carregaria um campo morto. Por isso passa pelo módulo de estoque, que decide se a
+  conta participa, e o cadastro não muda de forma.
 - **`preco_unitario` do item é cópia** do preço do produto no momento da venda, nunca leitura viva:
   reajustar o produto depois não pode alterar o valor de uma venda passada. Há teste que reajusta o
   produto e prova que a venda gravada não muda.
@@ -425,10 +439,10 @@ src
 │   │   ├── pagamentos/     domain, application, internal
 │   │   ├── vendas/         domain, application, internal
 │   │   ├── shared/         Money, ContaId, TenantContext, FusoDeReferencia
-│   │   ├── estoque/        internal
+│   │   ├── estoque/        application, internal
 │   │   └── relatorios/     declarado, sem código de negócio
 │   └── resources
-│       └── db/migration/   V1 a V9, imutáveis depois de publicadas
+│       └── db/migration/   V1 a V10, imutáveis depois de publicadas
 └── test/java/br/com/caixasimples
     ├── ModularityTests     fitness function das fronteiras
     ├── TesteDeIntegracao   base com Testcontainers, herdada pelos testes de banco
@@ -438,9 +452,11 @@ src
 O módulo sem código de negócio não é uma pasta vazia por descuido: ele declara a fronteira desde o
 início, e o `ModularityTests` já a verifica. Foi assim que a primeira classe de `pagamentos`
 nasceu dentro de um limite que já existia, em vez de criar o limite depois do código; `estoque`
-acabou de nascer do mesmo jeito, com o ouvinte da venda concluída entrando num pacote cuja
-fronteira já era testada, e é assim que `relatorios` vai nascer. `estoque` só tem `internal/`
-porque, por ora, é um adapter de entrada e uma política: o agregado que ele move é do cadastro.
+nasceu do mesmo jeito, com o ouvinte da venda concluída entrando num pacote cuja fronteira já era
+testada, e é assim que `relatorios` vai nascer. `estoque` não tem `domain/` nem tabela própria,
+e não é omissão: ele é política, a conta participa ou não, e o agregado que ele move é do
+cadastro. O ouvinte em `internal/` e os casos de uso em `application/` decidem e pedem; quem
+executa é o dono do agregado.
 
 ## Autor
 

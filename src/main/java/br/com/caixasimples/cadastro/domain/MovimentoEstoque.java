@@ -10,9 +10,9 @@ import java.util.UUID;
  * Uma entrada, saída ou ajuste no estoque de um produto.
  *
  * <p><strong>Membro do agregado Produto</strong>, nunca raiz. Não tem repositório e não se altera
- * sozinho: nasce dentro de {@link Produto}, por {@link Produto#darBaixaPorVenda}, e o saldo da
- * raiz muda no mesmo ato. É um {@code record} porque não há nada para alterar depois: movimento
- * lançado não se edita, o que se faz é lançar o oposto.
+ * sozinho: nasce dentro de {@link Produto}, por {@link Produto#darBaixaPorVenda} ou por
+ * {@link Produto#ajustarEstoque}, e o saldo da raiz muda no mesmo ato. É um {@code record} porque
+ * não há nada para alterar depois: movimento lançado não se edita, o que se faz é lançar o oposto.
  *
  * <p><strong>A raiz não carrega o histórico.</strong> Ao contrário de {@code SessaoCaixa}, que
  * remonta seus movimentos a cada leitura, {@link Produto} guarda só o saldo consolidado e devolve
@@ -25,16 +25,18 @@ import java.util.UUID;
  *
  * <p>A {@link #quantidade} é <strong>positiva em ENTRADA e SAIDA</strong>, e quem carrega o sinal é
  * o {@link #tipo}, como no movimento de caixa. Uma saída de duas unidades grava dois, não menos
- * dois. O ajuste manual ainda não existe em código, e a convenção de sinal dele é decisão de
- * quando existir; aqui só se recusa o zero, que nunca é movimento.
+ * dois. <strong>Em AJUSTE o sinal está na quantidade</strong>: é a diferença que o ajuste manual
+ * aplicou ao saldo, negativa numa perda ou quebra, positiva numa contagem que achou mais do que
+ * o registrado. O mesmo tipo serve para os dois sentidos, então é a quantidade que diz qual foi.
+ * Zero nunca é movimento, em tipo nenhum.
  *
  * @param id         gerado na aplicação e nunca pelo banco, para que o registro tenha identidade
  *                   definitiva mesmo criado sem conexão (RNF01)
- * @param tipo       quem carrega o sinal do movimento
- * @param quantidade positiva em ENTRADA e SAIDA; nunca zero
+ * @param tipo       quem carrega o sinal do movimento em ENTRADA e SAIDA
+ * @param quantidade positiva em ENTRADA e SAIDA; com sinal em AJUSTE; nunca zero
  * @param motivo     obrigatório em AJUSTE (RF19) e nulo quando ausente; quem <em>exige</em> o
- *                   motivo é a raiz, quando o ajuste existir, porque aqui o campo apenas aceita o
- *                   que vier
+ *                   motivo é a raiz, em {@link Produto#ajustarEstoque}, porque aqui o campo apenas
+ *                   aceita o que vier
  * @param vendaId    preenchido quando o movimento vem de uma venda. É referência entre agregados,
  *                   então é um {@link UUID} e nunca um objeto navegável
  * @param criadoEm   momento do lançamento, em UTC
@@ -61,14 +63,7 @@ public record MovimentoEstoque(UUID id, TipoMovimentoEstoque tipo, BigDecimal qu
                     "quantidade de " + tipo + " nao pode ser negativa: " + quantidade
                             + ". Quem indica entrada ou saida e o tipo, nunca o sinal.");
         }
-        if (quantidade.stripTrailingZeros().scale() > CASAS_DA_QUANTIDADE) {
-            // O banco arredondaria a quarta casa em silêncio, e o saldo calculado na raiz deixaria
-            // de bater com a soma dos movimentos gravados. Mesma postura do item da venda. Zeros à
-            // direita não contam: 2,0000 é 2.
-            throw new IllegalArgumentException(
-                    "quantidade de movimento de estoque tem no maximo " + CASAS_DA_QUANTIDADE
-                            + " casas decimais: " + quantidade);
-        }
+        exigirCasasDaQuantidade(quantidade, "quantidade de movimento de estoque");
         motivo = textoOpcional(motivo);
     }
 
@@ -80,6 +75,29 @@ public record MovimentoEstoque(UUID id, TipoMovimentoEstoque tipo, BigDecimal qu
         Objects.requireNonNull(vendaId, "vendaId nao pode ser nulo");
         return new MovimentoEstoque(UUID.randomUUID(), TipoMovimentoEstoque.SAIDA, quantidade,
                 null, vendaId, Instant.now());
+    }
+
+    /**
+     * O ajuste manual (RF19): a diferença com sinal e o motivo que a raiz já exigiu. Sem venda,
+     * porque o ajuste é decisão de quem conta a prateleira, não consequência de um atendimento.
+     */
+    static MovimentoEstoque ajuste(BigDecimal diferenca, String motivo) {
+        return new MovimentoEstoque(UUID.randomUUID(), TipoMovimentoEstoque.AJUSTE, diferenca,
+                motivo, null, Instant.now());
+    }
+
+    /**
+     * Recusa mais de três casas decimais em qualquer quantidade de estoque: o banco arredondaria a
+     * quarta casa em silêncio, e o saldo calculado na raiz deixaria de bater com a soma dos
+     * movimentos gravados. Mesma postura do item da venda. Zeros à direita não contam: 2,0000 é
+     * 2. Compartilhada com a raiz porque o estoque mínimo é comparado com o saldo e obedece à
+     * mesma escala.
+     */
+    static void exigirCasasDaQuantidade(BigDecimal valor, String campo) {
+        if (valor.stripTrailingZeros().scale() > CASAS_DA_QUANTIDADE) {
+            throw new IllegalArgumentException(
+                    campo + " tem no maximo " + CASAS_DA_QUANTIDADE + " casas decimais: " + valor);
+        }
     }
 
     private static String textoOpcional(String valor) {

@@ -10,6 +10,7 @@ import br.com.caixasimples.TesteDeIntegracao;
 import br.com.caixasimples.cadastro.application.ProdutoNaoEncontradoException;
 import br.com.caixasimples.cadastro.application.ProdutoService;
 import br.com.caixasimples.cadastro.application.ProdutoService.DadosDoProduto;
+import br.com.caixasimples.cadastro.application.ProdutoService.EstoqueDoProduto;
 import br.com.caixasimples.cadastro.application.ProdutoService.ProdutoParaVenda;
 import br.com.caixasimples.cadastro.domain.Produto;
 import br.com.caixasimples.cadastro.internal.ProdutoEntity;
@@ -30,7 +31,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 /**
  * Os casos de uso do cadastro de produto contra o banco de verdade: cadastrar (RF01, RF02), editar
- * (RF04), inativar (RF05) e dar baixa por venda (RF18).
+ * (RF04), inativar (RF05), dar baixa por venda (RF18), ajustar à mão (RF19) e listar o estoque
+ * baixo (RF20).
  *
  * <p>A baixa aponta para uma venda de verdade, porque {@code movimento_estoque.venda_id} é chave
  * estrangeira; por isso os testes dela abrem um caixa e gravam uma venda vazia pelas fixtures.
@@ -466,6 +468,117 @@ class ProdutoServiceTest extends TesteDeIntegracao {
             assertThat(saldoDe(id)).isEqualByComparingTo("0");
             assertThat(produtoService.jaDeuBaixaPorVenda(id, vendaId)).isFalse();
         });
+    }
+
+    @Test
+    @DisplayName("o ajuste manual soma a diferença com sinal ao saldo, nos dois sentidos (RF19)")
+    void ajusteManualMoveOSaldoNosDoisSentidos() {
+        ContaCriada conta = criador.criar("Mercearia Aurora", SENHA_DE_TESTE);
+        UUID arrozId = TenantContext.executarComo(conta.contaId(), () ->
+                produtoService.cadastrar(TipoProduto.PRODUTO, produto("Arroz", null)));
+
+        TenantContext.executarComo(conta.contaId(), () -> {
+            produtoService.ajustarEstoque(arrozId, new BigDecimal("20"), "contagem inicial");
+            produtoService.ajustarEstoque(arrozId, new BigDecimal("-2.500"), "saco rasgado");
+        });
+
+        TenantContext.executarComo(conta.contaId(), () ->
+                assertThat(saldoDe(arrozId)).isEqualByComparingTo("17.500"));
+    }
+
+    @Test
+    @DisplayName("ajuste sem motivo é recusado, e a recusa não move o saldo (RF19)")
+    void ajusteSemMotivoERecusado() {
+        ContaCriada conta = criador.criar("Padaria Aurora", SENHA_DE_TESTE);
+        UUID paoId = TenantContext.executarComo(conta.contaId(), () ->
+                produtoService.cadastrar(TipoProduto.PRODUTO, produto("Pao frances", null)));
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+                        produtoService.ajustarEstoque(paoId, new BigDecimal("-1"), "  ")))
+                .withMessageContaining("motivo");
+
+        TenantContext.executarComo(conta.contaId(), () ->
+                assertThat(saldoDe(paoId)).isEqualByComparingTo("0"));
+    }
+
+    @Test
+    @DisplayName("ajuste e estoque mínimo em produto que não existe nesta conta saem com a exceção do cadastro")
+    void ajusteEMinimoEmProdutoInexistenteSaoRecusados() {
+        ContaCriada conta = criador.criar("Loja Aurora", SENHA_DE_TESTE);
+
+        assertThatExceptionOfType(ProdutoNaoEncontradoException.class).isThrownBy(() ->
+                TenantContext.executarComo(conta.contaId(), () ->
+                        produtoService.ajustarEstoque(UUID.randomUUID(), BigDecimal.ONE,
+                                "contagem")));
+        assertThatExceptionOfType(ProdutoNaoEncontradoException.class).isThrownBy(() ->
+                TenantContext.executarComo(conta.contaId(), () ->
+                        produtoService.definirEstoqueMinimo(UUID.randomUUID(), BigDecimal.ONE)));
+    }
+
+    @Test
+    @DisplayName("o estoque mínimo persiste sem mexer no saldo nem no resto do cadastro")
+    void estoqueMinimoPersiste() {
+        ContaCriada conta = criador.criar("Emporio Aurora", SENHA_DE_TESTE);
+        UUID cafeId = TenantContext.executarComo(conta.contaId(), () ->
+                produtoService.cadastrar(TipoProduto.PRODUTO, cafe()));
+
+        TenantContext.executarComo(conta.contaId(), () ->
+                produtoService.definirEstoqueMinimo(cafeId, new BigDecimal("3.500")));
+
+        TenantContext.executarComo(conta.contaId(), () -> {
+            Produto gravado = produtos.findById(cafeId).orElseThrow().paraDominio();
+            assertThat(gravado.getEstoqueMinimo()).isEqualByComparingTo("3.500");
+            assertThat(gravado.getEstoqueAtual()).isEqualByComparingTo("0");
+            assertThat(gravado.getNome()).isEqualTo("Cafe coado");
+            assertThat(gravado.getAtributos()).containsEntry("tempo_preparo", 3);
+        });
+    }
+
+    @Test
+    @DisplayName("a lista de estoque baixo traz quem está no mínimo ou abaixo, só produto ativo (RF20)")
+    void listaDeEstoqueBaixo() {
+        ContaCriada conta = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
+        UUID zeradoId = cadastrarProduto(conta, "Leite");
+        UUID negativoId = cadastrarProduto(conta, "Acucar");
+        UUID noLimiarId = cadastrarProduto(conta, "Cafe em graos");
+        UUID acimaId = cadastrarProduto(conta, "Chocolate");
+        UUID inativoId = cadastrarProduto(conta, "Adocante");
+        UUID corteId = TenantContext.executarComo(conta.contaId(), () ->
+                produtoService.cadastrar(TipoProduto.SERVICO, produto("Corte", null)));
+        UUID vendaId = vendaEm(conta, abrirCaixa(conta));
+
+        TenantContext.executarComo(conta.contaId(), () -> {
+            produtoService.darBaixaPorVenda(negativoId, new BigDecimal("2"), vendaId);
+            produtoService.ajustarEstoque(noLimiarId, new BigDecimal("5"), "contagem");
+            produtoService.definirEstoqueMinimo(noLimiarId, new BigDecimal("5"));
+            produtoService.ajustarEstoque(acimaId, new BigDecimal("6"), "contagem");
+            produtoService.definirEstoqueMinimo(acimaId, new BigDecimal("5"));
+            produtoService.inativar(inativoId);
+        });
+
+        TenantContext.executarComo(conta.contaId(), () ->
+                assertThat(produtoService.listarComEstoqueBaixo())
+                        .extracting(EstoqueDoProduto::id)
+                        .as("zerado, negativo e no limiar entram; acima, inativo e serviço não")
+                        .containsExactlyInAnyOrder(zeradoId, negativoId, noLimiarId)
+                        .doesNotContain(acimaId, inativoId, corteId));
+
+        TenantContext.executarComo(conta.contaId(), () -> {
+            EstoqueDoProduto negativo = produtoService.listarComEstoqueBaixo().stream()
+                    .filter(item -> item.id().equals(negativoId))
+                    .findFirst()
+                    .orElseThrow();
+            assertThat(negativo.nome()).isEqualTo("Acucar");
+            assertThat(negativo.unidade()).isEqualTo("un");
+            assertThat(negativo.estoqueAtual()).isEqualByComparingTo("-2");
+            assertThat(negativo.estoqueMinimo()).isEqualByComparingTo("0");
+        });
+    }
+
+    private UUID cadastrarProduto(ContaCriada conta, String nome) {
+        return TenantContext.executarComo(conta.contaId(), () ->
+                produtoService.cadastrar(TipoProduto.PRODUTO, produto(nome, null)));
     }
 
     /** O saldo como o domínio o vê: a única leitura pública de {@code estoque_atual} hoje. */

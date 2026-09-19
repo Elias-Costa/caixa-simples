@@ -20,7 +20,8 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Casos de uso do cadastro de produto e serviço: cadastrar (RF01, RF02), editar (RF04), inativar
  * (RF05), buscar por nome ou código durante a venda (RF06), responder o preço vigente a quem
- * monta a venda e dar baixa no estoque de um produto vendido (RF18).
+ * monta a venda, dar baixa no estoque de um produto vendido (RF18), ajustar o estoque à mão
+ * (RF19) e responder quais produtos estão com estoque baixo (RF20).
  *
  * <p>Cada caso de uso de escrita é sempre a mesma sequência: carrega a linha, deixa a raiz do
  * agregado decidir, grava o que ela decidiu. Nenhuma regra mora aqui. É {@link Produto} que sabe o
@@ -30,12 +31,14 @@ import org.springframework.transaction.annotation.Transactional;
  * {@link #consultarParaVenda} devolve um record próprio, e não {@link Produto}: quem está fora do
  * cadastro recebe o que precisa copiar, sem receber a raiz do agregado e seus mutadores.
  *
- * <p><strong>A baixa de estoque é um caso de uso público, e a exceção que ele abre é medida.</strong>
+ * <p><strong>Os casos de uso de estoque são públicos, e a exceção que eles abrem é medida.</strong>
  * A regra do projeto é que efeito colateral entre módulos viaja por evento; aqui é o módulo de
  * estoque que ouve a venda concluída e decide, com a conta ligada ou não, se há o que baixar.
  * Decidido, ele pede ao cadastro, porque o agregado é daqui e ninguém de fora toca a entidade.
- * O evento continua desacoplando a venda de quem reage a ela; o que este método faz é executar a
- * reação de outro módulo sobre o agregado que ele não pode abrir.
+ * O evento continua desacoplando a venda de quem reage a ela; o que a baixa faz é executar a
+ * reação de outro módulo sobre o agregado que ele não pode abrir. O ajuste manual, o estoque
+ * mínimo e a lista de estoque baixo seguem o mesmo desenho: o módulo de estoque decide se a
+ * conta participa, e este serviço executa sobre o agregado.
  *
  * <p><strong>Não existe caso de uso de reativação</strong>, nem de exclusão: o RF05 é soft delete,
  * e {@code DELETE} não aparece em lugar nenhum deste módulo.
@@ -246,6 +249,77 @@ public class ProdutoService {
         return produtos.existsByIdAndMovimentosVendaId(produtoId, vendaId);
     }
 
+    /**
+     * Ajuste manual do estoque (RF19): perda, quebra ou contagem, com motivo obrigatório. Grava o
+     * movimento de AJUSTE e o saldo novo na mesma transação, pelo mesmo caminho único da baixa por
+     * venda.
+     *
+     * <p>A diferença carrega o sinal: negativa subtrai, positiva soma. As regras, motivo
+     * obrigatório, diferença diferente de zero, só produto ativo, moram na raiz; aqui é carregar,
+     * deixar decidir e gravar.
+     *
+     * @param produtoId o produto, nesta conta
+     * @param diferenca o que soma ou subtrai do saldo, com sinal; nunca zero
+     * @param motivo    obrigatório (RF19)
+     * @throws ProdutoNaoEncontradoException se o id não existe nesta conta
+     * @throws IllegalStateException         se o item é SERVICO ou está inativo
+     * @throws IllegalArgumentException      se a diferença é zero ou falta o motivo
+     */
+    @Transactional
+    public void ajustarEstoque(UUID produtoId, BigDecimal diferenca, String motivo) {
+        ProdutoEntity linha = buscar(produtoId);
+        Produto produto = linha.paraDominio();
+
+        MovimentoEstoque movimento = produto.ajustarEstoque(diferenca, motivo);
+
+        linha.registrarMovimento(produto, movimento);
+        produtos.save(linha);
+    }
+
+    /**
+     * Define o limiar do alerta de estoque baixo de um produto (RF20). É caso de uso próprio, e
+     * não campo de {@link DadosDoProduto}, porque o limiar é política de estoque e não descrição
+     * do item: o formulário de cadastro não carrega um campo que só faz sentido com o controle de
+     * estoque ligado.
+     *
+     * @throws ProdutoNaoEncontradoException se o id não existe nesta conta
+     * @throws IllegalStateException         se o item é SERVICO ou está inativo
+     * @throws IllegalArgumentException      se o mínimo é negativo ou tem mais de três casas
+     */
+    @Transactional
+    public void definirEstoqueMinimo(UUID produtoId, BigDecimal minimo) {
+        ProdutoEntity linha = buscar(produtoId);
+        Produto produto = linha.paraDominio();
+
+        produto.definirEstoqueMinimo(minimo);
+
+        linha.atualizarCom(produto);
+        produtos.save(linha);
+    }
+
+    /**
+     * Os produtos ativos cujo saldo está no limiar do alerta ou abaixo dele (RF20), na ordem em
+     * que o banco os devolve.
+     *
+     * <p>Só entre os ativos e só PRODUTO: serviço não tem estoque, e item fora do catálogo não
+     * vai ser reposto. A comparação com o mínimo é feita em memória pelo domínio, porque consulta
+     * derivada não compara duas colunas e o projeto não escreve {@code @Query}; o catálogo de uma
+     * conta é pequeno, e é o mesmo custo já aceito na busca do balcão.
+     *
+     * <p>Não pergunta se a conta ligou o controle de estoque: essa decisão é do módulo de estoque,
+     * que é quem chama. Aqui é só a resposta.
+     */
+    @Transactional(readOnly = true)
+    public List<EstoqueDoProduto> listarComEstoqueBaixo() {
+        return produtos.findByAtivoTrueAndTipo(TipoProduto.PRODUTO).stream()
+                .map(ProdutoEntity::paraDominio)
+                .filter(Produto::estaComEstoqueBaixo)
+                .map(produto -> new EstoqueDoProduto(produto.getId(), produto.getNome(),
+                        produto.getCodigo(), produto.getUnidade(), produto.getEstoqueAtual(),
+                        produto.getEstoqueMinimo()))
+                .toList();
+    }
+
     private ProdutoEntity buscar(UUID id) {
         Objects.requireNonNull(id, "id do produto nao pode ser nulo");
         return produtos.findById(id).orElseThrow(() -> new ProdutoNaoEncontradoException(id));
@@ -263,6 +337,24 @@ public class ProdutoService {
      * @param ativo falso quando o produto foi inativado (RF05)
      */
     public record ProdutoParaVenda(UUID id, Money preco, boolean ativo) {
+    }
+
+    /**
+     * A resposta de {@link #listarComEstoqueBaixo}: o que uma tela de alerta mostra de cada item.
+     *
+     * <p>Record próprio pelo mesmo motivo de {@link ProdutoParaVenda}: atravessa a fronteira do
+     * módulo, e o módulo de estoque recebe os números para mostrar, não a raiz do agregado com
+     * seus mutadores.
+     *
+     * @param id            o produto
+     * @param nome          para a tela nomear o item
+     * @param codigo        pode ser nulo, como no cadastro
+     * @param unidade       pode ser nula; dá sentido ao saldo (2 kg, 2 un)
+     * @param estoqueAtual  o saldo consolidado, que pode ser negativo
+     * @param estoqueMinimo o limiar que o saldo atingiu
+     */
+    public record EstoqueDoProduto(UUID id, String nome, String codigo, String unidade,
+            BigDecimal estoqueAtual, BigDecimal estoqueMinimo) {
     }
 
     /**

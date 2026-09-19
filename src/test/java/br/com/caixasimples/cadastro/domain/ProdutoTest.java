@@ -23,7 +23,8 @@ import org.junit.jupiter.api.Test;
  * <p>A raiz não carrega o histórico de movimentos, então a invariante de que {@code estoqueAtual}
  * é a soma deles não se prova aqui, e sim em integração, onde saldo e movimento são gravados
  * juntos. O que se prova aqui é o que a raiz garante sozinha: só produto baixa, só quantidade
- * positiva baixa, e cada baixa devolve exatamente o movimento que a explica.
+ * positiva baixa, cada baixa ou ajuste devolve exatamente o movimento que o explica, ajuste sem
+ * motivo não passa, e o limiar do alerta de estoque baixo é comparado como a raiz decide.
  */
 class ProdutoTest {
 
@@ -299,5 +300,155 @@ class ProdutoTest {
         produto.darBaixaPorVenda(BigDecimal.ONE, UUID.randomUUID());
 
         assertThat(produto.getEstoqueAtual()).isEqualByComparingTo("-1");
+    }
+
+    @Test
+    @DisplayName("o ajuste soma a diferença com sinal e devolve o AJUSTE que a explica, sem venda")
+    void ajusteSomaADiferencaEDevolveOMovimento() {
+        Produto produto = valido(Money.de("6.50"));
+
+        MovimentoEstoque contagem = produto.ajustarEstoque(new BigDecimal("12.500"), "contagem");
+        MovimentoEstoque perda = produto.ajustarEstoque(new BigDecimal("-2"), "quebra");
+
+        assertThat(produto.getEstoqueAtual()).isEqualByComparingTo("10.500");
+        assertThat(contagem.tipo()).isEqualTo(TipoMovimentoEstoque.AJUSTE);
+        assertThat(contagem.quantidade()).isEqualByComparingTo("12.500");
+        assertThat(contagem.motivo()).isEqualTo("contagem");
+        assertThat(contagem.vendaId()).isNull();
+        assertThat(perda.quantidade()).as("a diferença carrega o sinal").isEqualByComparingTo("-2");
+        assertThat(perda.motivo()).isEqualTo("quebra");
+    }
+
+    @Test
+    @DisplayName("o ajuste corrige o saldo negativo de uma venda que levou mais do que havia")
+    void ajusteCorrigeSaldoNegativo() {
+        Produto produto = valido(Money.de("6.50"));
+        produto.darBaixaPorVenda(new BigDecimal("3"), UUID.randomUUID());
+
+        produto.ajustarEstoque(new BigDecimal("8"), "contagem apos a venda");
+
+        assertThat(produto.getEstoqueAtual()).isEqualByComparingTo("5");
+    }
+
+    @Test
+    @DisplayName("ajuste sem motivo é recusado, e a recusa não move o saldo (RF19)")
+    void ajusteExigeMotivo() {
+        Produto produto = valido(Money.de("6.50"));
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> produto.ajustarEstoque(new BigDecimal("-1"), null))
+                .withMessageContaining("motivo");
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> produto.ajustarEstoque(new BigDecimal("-1"), "   "))
+                .withMessageContaining("motivo");
+
+        assertThat(produto.getEstoqueAtual()).isEqualByComparingTo("0");
+    }
+
+    @Test
+    @DisplayName("ajuste de zero é recusado: nada entrou nem saiu")
+    void ajusteRecusaZeroENulo() {
+        Produto produto = valido(Money.de("6.50"));
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> produto.ajustarEstoque(BigDecimal.ZERO, "contagem"))
+                .withMessageContaining("zero");
+        assertThatNullPointerException()
+                .isThrownBy(() -> produto.ajustarEstoque(null, "contagem"));
+
+        assertThat(produto.getEstoqueAtual()).isEqualByComparingTo("0");
+    }
+
+    @Test
+    @DisplayName("serviço e produto inativo não têm estoque ajustado")
+    void ajusteRecusaServicoEInativo() {
+        Produto servico = new Produto("Corte", Money.de("40.00"), TipoProduto.SERVICO, null, null,
+                null, null);
+        Produto inativo = valido(Money.de("6.50"));
+        inativo.inativar();
+
+        assertThatIllegalStateException()
+                .isThrownBy(() -> servico.ajustarEstoque(BigDecimal.ONE, "contagem"))
+                .withMessageContaining("servico");
+        assertThatIllegalStateException()
+                .isThrownBy(() -> inativo.ajustarEstoque(BigDecimal.ONE, "contagem"))
+                .withMessageContaining("inativo");
+
+        assertThat(servico.getEstoqueAtual()).isEqualByComparingTo("0");
+        assertThat(inativo.getEstoqueAtual()).isEqualByComparingTo("0");
+    }
+
+    @Test
+    @DisplayName("estoque mínimo nasce em zero e aceita valor com até três casas")
+    void estoqueMinimoNasceEmZero() {
+        Produto produto = valido(Money.de("6.50"));
+        assertThat(produto.getEstoqueMinimo()).isEqualByComparingTo("0");
+
+        produto.definirEstoqueMinimo(new BigDecimal("1.500"));
+
+        assertThat(produto.getEstoqueMinimo()).isEqualByComparingTo("1.500");
+    }
+
+    @Test
+    @DisplayName("estoque mínimo recusa negativo, quarta casa, nulo, serviço e inativo")
+    void estoqueMinimoRecusaOQueNaoELimiar() {
+        Produto produto = valido(Money.de("6.50"));
+        Produto servico = new Produto("Corte", Money.de("40.00"), TipoProduto.SERVICO, null, null,
+                null, null);
+        Produto inativo = valido(Money.de("6.50"));
+        inativo.inativar();
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> produto.definirEstoqueMinimo(new BigDecimal("-1")))
+                .withMessageContaining("negativo");
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> produto.definirEstoqueMinimo(new BigDecimal("1.0005")))
+                .withMessageContaining("casas decimais");
+        assertThatNullPointerException()
+                .isThrownBy(() -> produto.definirEstoqueMinimo(null));
+        assertThatIllegalStateException()
+                .isThrownBy(() -> servico.definirEstoqueMinimo(BigDecimal.ONE))
+                .withMessageContaining("servico");
+        assertThatIllegalStateException()
+                .isThrownBy(() -> inativo.definirEstoqueMinimo(BigDecimal.ONE))
+                .withMessageContaining("inativo");
+
+        assertThat(produto.getEstoqueMinimo()).isEqualByComparingTo("0");
+    }
+
+    @Test
+    @DisplayName("está baixo quando o saldo é igual ou menor que o mínimo; com mínimo zero, quando acabou")
+    void estaComEstoqueBaixoNoLimiarOuAbaixo() {
+        Produto novo = valido(Money.de("6.50"));
+        assertThat(novo.estaComEstoqueBaixo())
+                .as("mínimo zero e saldo zero: acabou, e acabar é baixo")
+                .isTrue();
+
+        novo.ajustarEstoque(new BigDecimal("0.001"), "contagem");
+        assertThat(novo.estaComEstoqueBaixo()).as("qualquer saldo acima de zero").isFalse();
+
+        Produto negativo = valido(Money.de("6.50"));
+        negativo.darBaixaPorVenda(new BigDecimal("3"), UUID.randomUUID());
+        assertThat(negativo.estaComEstoqueBaixo()).as("saldo negativo com mínimo zero").isTrue();
+
+        Produto comMinimo = valido(Money.de("6.50"));
+        comMinimo.ajustarEstoque(new BigDecimal("10"), "contagem");
+        comMinimo.definirEstoqueMinimo(new BigDecimal("5"));
+        assertThat(comMinimo.estaComEstoqueBaixo()).as("10 acima de 5").isFalse();
+
+        comMinimo.ajustarEstoque(new BigDecimal("-5"), "perda");
+        assertThat(comMinimo.estaComEstoqueBaixo()).as("5 igual a 5: no limiar").isTrue();
+
+        comMinimo.ajustarEstoque(new BigDecimal("-1"), "perda");
+        assertThat(comMinimo.estaComEstoqueBaixo()).as("4 abaixo de 5").isTrue();
+    }
+
+    @Test
+    @DisplayName("serviço nunca está com estoque baixo, mesmo com saldo zero")
+    void servicoNuncaEstaBaixo() {
+        Produto servico = new Produto("Corte", Money.de("40.00"), TipoProduto.SERVICO, null, null,
+                null, null);
+
+        assertThat(servico.estaComEstoqueBaixo()).isFalse();
     }
 }

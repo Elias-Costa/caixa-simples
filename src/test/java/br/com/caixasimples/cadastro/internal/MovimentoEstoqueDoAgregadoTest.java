@@ -110,6 +110,58 @@ class MovimentoEstoqueDoAgregadoTest extends TesteDeIntegracao {
     }
 
     @Test
+    @DisplayName("ajuste e baixa dividem o mesmo histórico, e o saldo é a soma assinada: SAIDA negada, AJUSTE como está")
+    void saldoEASomaAssinadaComAjuste() {
+        ContaCriada conta = criador.criar("Mercearia Aurora", SENHA_DE_TESTE);
+        UUID produtoId = cadastrarProduto(conta, "Feijao");
+        UUID vendaId = vendaEm(conta, abrirCaixa(conta));
+
+        TenantContext.executarComo(conta.contaId(), () -> {
+            produtoService.ajustarEstoque(produtoId, new BigDecimal("10"), "contagem inicial");
+            produtoService.darBaixaPorVenda(produtoId, new BigDecimal("3"), vendaId);
+            produtoService.ajustarEstoque(produtoId, new BigDecimal("-1.500"), "pacote rasgado");
+        });
+
+        TenantContext.executarComo(conta.contaId(), () ->
+                transacao.executeWithoutResult(status -> {
+                    ProdutoEntity gravado = produtos.findById(produtoId).orElseThrow();
+                    List<MovimentoEstoque> historico = gravado.getMovimentos().stream()
+                            .map(MovimentoEstoqueEntity::paraDominio)
+                            .toList();
+
+                    assertThat(historico)
+                            .extracting(MovimentoEstoque::tipo, MovimentoEstoque::vendaId,
+                                    MovimentoEstoque::motivo)
+                            .containsExactly(
+                                    tuple(TipoMovimentoEstoque.AJUSTE, null, "contagem inicial"),
+                                    tuple(TipoMovimentoEstoque.SAIDA, vendaId, null),
+                                    tuple(TipoMovimentoEstoque.AJUSTE, null, "pacote rasgado"));
+                    assertThat(historico.get(0).quantidade()).isEqualByComparingTo("10");
+                    assertThat(historico.get(1).quantidade()).isEqualByComparingTo("3");
+                    assertThat(historico.get(2).quantidade())
+                            .as("o ajuste grava a diferença com sinal")
+                            .isEqualByComparingTo("-1.500");
+
+                    BigDecimal somaAssinada = BigDecimal.ZERO;
+                    for (MovimentoEstoque movimento : historico) {
+                        if (movimento.tipo() == TipoMovimentoEstoque.SAIDA) {
+                            somaAssinada = somaAssinada.subtract(movimento.quantidade());
+                        } else {
+                            somaAssinada = somaAssinada.add(movimento.quantidade());
+                        }
+                    }
+                    assertThat(gravado.paraDominio().getEstoqueAtual())
+                            .isEqualByComparingTo("5.500")
+                            .isEqualByComparingTo(somaAssinada);
+
+                    assertThat(gravado.getMovimentos())
+                            .extracting(MovimentoEstoqueEntity::getContaId)
+                            .as("o ajuste também herda a conta do contexto, não de parâmetro")
+                            .containsOnly(conta.contaId());
+                }));
+    }
+
+    @Test
     @DisplayName("conta B não alcança o movimento da conta A nem pela raiz nem pela pergunta de reentrega")
     void contaNaoEnxergaMovimentoDeOutraConta() {
         ContaCriada contaA = criador.criar("Bar do Teste", SENHA_DE_TESTE);

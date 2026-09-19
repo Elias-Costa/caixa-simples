@@ -1,5 +1,6 @@
 package br.com.caixasimples.cadastro.internal;
 
+import br.com.caixasimples.cadastro.TipoProduto;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -35,6 +36,18 @@ public interface ProdutoRepository extends JpaRepository<ProdutoEntity, UUID> {
     boolean existsByIdAndMovimentosVendaId(UUID id, UUID vendaId);
 
     List<ProdutoEntity> findByAtivoTrue();
+
+    /**
+     * Os produtos ativos de um tipo. É a base da lista de estoque baixo (RF20): só PRODUTO tem
+     * estoque, e item fora do catálogo não vai ser reposto.
+     *
+     * <p>A comparação do saldo com o mínimo <strong>não está aqui</strong>, de propósito. Consulta
+     * derivada compara coluna com parâmetro, não coluna com coluna, e o projeto não escreve
+     * {@code @Query}; a regra de estar baixo fica no domínio, em {@code Produto}, e o caso de uso
+     * a aplica em memória sobre esta lista. O custo é o mesmo já aceito na busca do balcão: o
+     * catálogo de uma conta é pequeno, e o filtro de tenant já reduz a varredura ao que é dela.
+     */
+    List<ProdutoEntity> findByAtivoTrueAndTipo(TipoProduto tipo);
 
     /**
      * O produto ativo com este código, ignorando maiúsculas (RF06).

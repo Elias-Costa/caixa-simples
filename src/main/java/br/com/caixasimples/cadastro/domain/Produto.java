@@ -15,8 +15,8 @@ import java.util.UUID;
  * {@link MovimentoEstoque} como membro.
  *
  * <p><strong>A raiz não carrega o histórico de movimentos</strong>, e isso é deliberado. Ela
- * guarda o saldo consolidado e, a cada baixa, devolve o movimento novo a quem a chamou, para que
- * os dois sejam gravados juntos. O histórico de um produto cresce a cada venda, sem limite, e o
+ * guarda o saldo consolidado e, a cada baixa ou ajuste, devolve o movimento novo a quem a chamou,
+ * para que os dois sejam gravados juntos. O histórico de um produto cresce a cada venda, sem limite, e o
  * produto é lido em toda venda; remontá-lo inteiro a cada leitura, como o caixa faz com um
  * expediente, seria pagar exatamente o custo que o saldo consolidado existe para evitar.
  *
@@ -47,21 +47,32 @@ public class Produto {
 
     /**
      * Saldo consolidado, nunca somado do histórico a cada leitura, que é o que mantém barato o
-     * alerta de estoque baixo (RF20). Só se move por {@link #darBaixaPorVenda}, que devolve o
-     * movimento correspondente para ser gravado na mesma transação; não há setter nem edição de
-     * cadastro que o toque.
+     * alerta de estoque baixo (RF20). Só se move por {@link #darBaixaPorVenda} e por
+     * {@link #ajustarEstoque}, que devolvem o movimento correspondente para ser gravado na mesma
+     * transação; não há setter nem edição de cadastro que o toque.
      *
      * <p><strong>Pode ficar negativo.</strong> A venda que baixou mais do que o saldo registrava
      * já aconteceu no balcão; recusar a baixa aqui não desfaria a venda, só deixaria o estoque
      * mentindo por omissão. O saldo negativo é o fato a corrigir, por um ajuste de contagem, e é o
-     * que o alerta de estoque baixo vai expor.
+     * que o alerta de estoque baixo expõe.
      *
      * <p>Existe também em SERVICO, que simplesmente nunca recebe movimento. Uma coluna sempre
      * preenchida evita nulo em todo leitor; o custo é que um serviço aparece com saldo zero, então
-     * o alerta filtra por {@link TipoProduto}, do mesmo modo que já vai filtrar pelas contas com
-     * estoque habilitado.
+     * o alerta filtra por {@link TipoProduto}, do mesmo modo que filtra pelas contas com estoque
+     * habilitado.
      */
     private BigDecimal estoqueAtual;
+
+    /**
+     * Limiar do alerta de estoque baixo (RF20): o produto está baixo quando o saldo é menor ou
+     * igual a ele. É por produto porque baixo depende do item: dois quilos de queijo e duas
+     * garrafas de água não são o mesmo baixo. Nasce em zero, o que faz o alerta avisar quando o
+     * item acabou mesmo sem ninguém ter configurado nada; quem informa um mínimo maior passa a ser
+     * avisado antes.
+     *
+     * <p>Sempre preenchido, inclusive em SERVICO, pelo mesmo motivo de {@link #estoqueAtual}.
+     */
+    private BigDecimal estoqueMinimo;
 
     private Map<String, Object> atributos;
     private boolean ativo;
@@ -90,12 +101,13 @@ public class Produto {
         this.unidade = textoOpcional(unidade);
         this.atributos = copiar(atributos);
         this.estoqueAtual = BigDecimal.ZERO;
+        this.estoqueMinimo = BigDecimal.ZERO;
         this.ativo = true;
     }
 
     private Produto(UUID id, Instant criadoEm, String nome, Money preco, TipoProduto tipo,
             String codigo, String categoria, String unidade, BigDecimal estoqueAtual,
-            Map<String, Object> atributos, boolean ativo) {
+            BigDecimal estoqueMinimo, Map<String, Object> atributos, boolean ativo) {
         this.id = id;
         this.criadoEm = criadoEm;
         this.nome = nome;
@@ -105,6 +117,7 @@ public class Produto {
         this.categoria = categoria;
         this.unidade = unidade;
         this.estoqueAtual = estoqueAtual;
+        this.estoqueMinimo = estoqueMinimo;
         this.atributos = copiar(atributos);
         this.ativo = ativo;
     }
@@ -118,9 +131,10 @@ public class Produto {
      */
     public static Produto reconstituir(UUID id, Instant criadoEm, String nome, Money preco,
             TipoProduto tipo, String codigo, String categoria, String unidade,
-            BigDecimal estoqueAtual, Map<String, Object> atributos, boolean ativo) {
+            BigDecimal estoqueAtual, BigDecimal estoqueMinimo, Map<String, Object> atributos,
+            boolean ativo) {
         return new Produto(id, criadoEm, nome, preco, tipo, codigo, categoria, unidade,
-                estoqueAtual, atributos, ativo);
+                estoqueAtual, estoqueMinimo, atributos, ativo);
     }
 
     /**
@@ -136,7 +150,10 @@ public class Produto {
      * {@link #inativar()} e recadastre; o histórico de vendas do item antigo continua de pé.
      *
      * <p>Não recebe {@code estoqueAtual} pelo mesmo tipo de motivo: saldo só se move por movimento
-     * de estoque, nunca por edição de cadastro.
+     * de estoque, nunca por edição de cadastro. Nem {@code estoqueMinimo}: o limiar do alerta é
+     * política de estoque, não descrição do item, e tem caso de uso próprio,
+     * {@link #definirEstoqueMinimo}, para o formulário de cadastro não carregar um campo que só
+     * faz sentido com o controle de estoque ligado.
      *
      * @throws IllegalStateException se o produto já foi inativado. Como não há reativação, editar
      *                               um registro que ninguém mais enxerga não teria efeito nenhum
@@ -215,6 +232,100 @@ public class Produto {
         return MovimentoEstoque.saidaPorVenda(quantidade, vendaId);
     }
 
+    /**
+     * Ajuste manual do estoque (RF19): perda, quebra ou contagem. O saldo recebe a diferença e o
+     * movimento de AJUSTE correspondente é devolvido, para que quem persiste grave os dois na
+     * mesma transação. É o outro caminho, além de {@link #darBaixaPorVenda}, que move
+     * {@code estoqueAtual}.
+     *
+     * <p><strong>A diferença carrega o sinal.</strong> Positiva soma, negativa subtrai: uma perda
+     * de duas unidades é {@code -2}, uma contagem que achou três a mais é {@code +3}. Perda e
+     * quebra são o caso natural dessa forma; na contagem, quem chama informa o contado menos o
+     * registrado, e o operador vê a diferença antes de confirmar. Ao contrário da baixa por venda,
+     * em que o sinal está no tipo, aqui está na quantidade, porque o mesmo tipo AJUSTE serve para
+     * os dois sentidos.
+     *
+     * <p><strong>O motivo é obrigatório</strong>, como na sangria e no suprimento do caixa: quem
+     * mexe no saldo à mão justifica. A exigência mora aqui, e não no movimento, porque o membro
+     * do agregado apenas registra o que a raiz decidiu.
+     *
+     * <p><strong>Recusa produto inativo</strong>, como {@link #alterar}: ajustar à mão o estoque
+     * de um item que ninguém mais enxerga não teria efeito nenhum. A baixa por venda não olha
+     * {@code ativo} porque a venda já aconteceu; o ajuste é uma decisão de agora.
+     *
+     * <p>O saldo pode ficar negativo aqui também: uma perda maior do que o registrado é o mesmo
+     * fato que a venda que baixou mais do que havia, e o acerto é outra contagem.
+     *
+     * @param diferenca o que soma ou subtrai do saldo, com sinal; nunca zero
+     * @param motivo    obrigatório (RF19)
+     * @return o movimento de AJUSTE que esta diferença gerou, para ser gravado junto do saldo
+     * @throws IllegalStateException    se o item é SERVICO, que não tem estoque, ou está inativo
+     * @throws IllegalArgumentException se a diferença é zero ou se o motivo está ausente ou em
+     *                                  branco
+     */
+    public MovimentoEstoque ajustarEstoque(BigDecimal diferenca, String motivo) {
+        Objects.requireNonNull(diferenca, "diferenca nao pode ser nula");
+        if (!controlaEstoque()) {
+            throw new IllegalStateException(
+                    "servico nao tem estoque para ajustar: " + id
+                            + ". So produto recebe movimento de estoque.");
+        }
+        if (!ativo) {
+            throw new IllegalStateException("produto inativo nao tem estoque ajustado: " + id);
+        }
+        if (motivo == null || motivo.isBlank()) {
+            throw new IllegalArgumentException("motivo e obrigatorio em ajuste de estoque (RF19)");
+        }
+        if (diferenca.signum() == 0) {
+            throw new IllegalArgumentException(
+                    "diferenca do ajuste nao pode ser zero: nada entrou nem saiu");
+        }
+        this.estoqueAtual = this.estoqueAtual.add(diferenca);
+        return MovimentoEstoque.ajuste(diferenca, motivo);
+    }
+
+    /**
+     * Define o limiar do alerta de estoque baixo (RF20); ver o comentário de
+     * {@link #estoqueMinimo}.
+     *
+     * <p>Recusa SERVICO e produto inativo pelos mesmos motivos de {@link #ajustarEstoque}: serviço
+     * não tem estoque para alertar, e item que saiu do catálogo não vai ser reposto.
+     *
+     * @param minimo zero ou mais, com no máximo três casas, como todo saldo de estoque
+     * @throws IllegalStateException    se o item é SERVICO ou está inativo
+     * @throws IllegalArgumentException se o mínimo é negativo ou tem mais de três casas
+     */
+    public void definirEstoqueMinimo(BigDecimal minimo) {
+        Objects.requireNonNull(minimo, "estoque minimo nao pode ser nulo");
+        if (!controlaEstoque()) {
+            throw new IllegalStateException(
+                    "servico nao tem estoque minimo: " + id + ". So produto tem estoque.");
+        }
+        if (!ativo) {
+            throw new IllegalStateException(
+                    "produto inativo nao tem estoque minimo definido: " + id);
+        }
+        if (minimo.signum() < 0) {
+            // Com o saldo podendo ficar negativo, um mínimo abaixo de zero esconderia justamente
+            // o produto que já vendeu mais do que tinha.
+            throw new IllegalArgumentException("estoque minimo nao pode ser negativo: " + minimo);
+        }
+        MovimentoEstoque.exigirCasasDaQuantidade(minimo, "estoque minimo");
+        this.estoqueMinimo = minimo;
+    }
+
+    /**
+     * Se este produto está no limiar do alerta de estoque baixo (RF20): saldo menor ou igual ao
+     * mínimo. Com o mínimo em zero, que é o padrão, responde sim quando o item acabou ou ficou
+     * negativo.
+     *
+     * <p>SERVICO nunca está baixo, porque não tem estoque. Não olha {@code ativo}: quem monta a
+     * lista do alerta já consulta só os ativos, porque item fora do catálogo não vai ser reposto.
+     */
+    public boolean estaComEstoqueBaixo() {
+        return controlaEstoque() && estoqueAtual.compareTo(estoqueMinimo) <= 0;
+    }
+
     private static Money exigirPreco(Money preco) {
         Objects.requireNonNull(preco, "preco nao pode ser nulo");
         if (preco.isNegativo()) {
@@ -283,6 +394,10 @@ public class Produto {
 
     public BigDecimal getEstoqueAtual() {
         return estoqueAtual;
+    }
+
+    public BigDecimal getEstoqueMinimo() {
+        return estoqueMinimo;
     }
 
     /** Cópia imutável: atributo só muda pela raiz, nunca por quem leu o mapa. */

@@ -59,12 +59,25 @@ class MovimentoEstoqueTest {
     }
 
     @Test
-    @DisplayName("ajuste aceita quantidade negativa: a convenção de sinal dele ainda não foi decidida")
-    void ajusteNaoPrendeOSinal() {
+    @DisplayName("ajuste aceita quantidade negativa e positiva: nele o sinal está na quantidade")
+    void ajusteCarregaOSinalNaQuantidade() {
         assertThat(movimento(TipoMovimentoEstoque.AJUSTE, "-3", "quebra").quantidade())
                 .isEqualByComparingTo("-3");
         assertThat(movimento(TipoMovimentoEstoque.AJUSTE, "3", "contagem").quantidade())
                 .isEqualByComparingTo("3");
+    }
+
+    @Test
+    @DisplayName("a fábrica do ajuste nasce com identidade, instante e motivo aparado, e sem venda")
+    void fabricaDoAjuste() {
+        MovimentoEstoque ajuste = MovimentoEstoque.ajuste(new BigDecimal("-2.500"), "  perda  ");
+
+        assertThat(ajuste.tipo()).isEqualTo(TipoMovimentoEstoque.AJUSTE);
+        assertThat(ajuste.quantidade()).isEqualByComparingTo("-2.500");
+        assertThat(ajuste.motivo()).isEqualTo("perda");
+        assertThat(ajuste.vendaId()).as("ajuste não vem de venda").isNull();
+        assertThat(ajuste.id()).isNotNull();
+        assertThat(ajuste.criadoEm()).isNotNull();
     }
 
     @Test
