@@ -2,19 +2,22 @@ package br.com.caixasimples.vendas.application;
 
 import br.com.caixasimples.cadastro.application.ProdutoService;
 import br.com.caixasimples.cadastro.application.ProdutoService.ProdutoParaVenda;
-import br.com.caixasimples.caixa.StatusSessaoCaixa;
-import br.com.caixasimples.caixa.application.SessaoCaixaService;
-import br.com.caixasimples.caixa.application.SessaoCaixaService.ResumoDeSessao;
 import br.com.caixasimples.pagamentos.application.PaymentService;
 import br.com.caixasimples.pagamentos.domain.ResultadoPagamento;
 import br.com.caixasimples.pagamentos.domain.SolicitacaoPagamento;
+import br.com.caixasimples.shared.ContaId;
 import br.com.caixasimples.shared.Money;
+import br.com.caixasimples.shared.TenantContext;
+import br.com.caixasimples.vendas.CaixaParaVenda;
+import br.com.caixasimples.vendas.VendaConcluida;
 import br.com.caixasimples.vendas.domain.Venda;
 import br.com.caixasimples.vendas.internal.VendaEntity;
 import br.com.caixasimples.vendas.internal.VendaRepository;
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,10 +33,13 @@ import org.springframework.transaction.annotation.Transactional;
  * que não está ABERTA não se monta nem se paga.
  *
  * <p><strong>Duas regras moram neste arquivo, e as duas por dependerem de outro módulo.</strong>
- * A primeira é que venda só começa em sessão de caixa ABERTA desta conta, e quem sabe o estado da
- * sessão é o caixa. A segunda é que produto inativado não entra em venda nova, e quem sabe se o
- * produto está ativo é o cadastro. As duas são perguntas feitas à API pública do módulo dono;
- * nenhuma delas produz efeito colateral lá.
+ * A primeira é que venda só começa, e só conclui, em sessão de caixa ABERTA desta conta, e quem
+ * sabe o estado da sessão é o caixa. A segunda é que produto inativado não entra em venda nova, e
+ * quem sabe se o produto está ativo é o cadastro. As duas são perguntas, e nenhuma produz efeito
+ * colateral no módulo que responde. A do cadastro é chamada direta à API pública dele. A do caixa
+ * passa por {@link CaixaParaVenda}, interface que <em>este</em> módulo declara e o caixa
+ * implementa: o caixa já depende de vendas para ouvir o evento de venda concluída, e a verificação
+ * de fronteiras recusa dois módulos dependendo um do outro.
  *
  * <p><strong>A terceira pergunta é ao módulo de pagamentos</strong>, e ela não é regra daqui: ao
  * registrar uma parcela, {@link #registrarPagamento} entrega o pedido ao {@code PaymentService},
@@ -48,9 +54,18 @@ import org.springframework.transaction.annotation.Transactional;
  * uma porta para vender por qualquer valor. É a cópia que faz uma venda passada não mudar quando o
  * produto é reajustado.
  *
- * <p><strong>{@link #concluir} é um passo à parte de registrar a última parcela</strong>, e não
- * faz nada fora do agregado: não lança no caixa nem baixa estoque. Os dois efeitos chegam por
- * evento de domínio, que ainda não existe; até lá, concluir muda o status e só.
+ * <p><strong>{@link #concluir} é um passo à parte de registrar a última parcela</strong>, e é o
+ * único ponto de onde sai algo deste módulo: depois de gravar a venda CONCLUIDA, publica
+ * {@link VendaConcluida}. Lançar o dinheiro no caixa e dar baixa no estoque são efeitos de quem
+ * ouve o evento; este serviço não chama nenhum dos dois. O evento carrega a conta, lida do
+ * contexto autenticado no ato, porque o listener roda em outra thread e uma reentrega pode vir do
+ * registro de publicação horas depois; sem a conta dentro dele, o caixa não acharia a sessão.
+ *
+ * <p><strong>Concluir exige o caixa em que a venda nasceu ainda ABERTO</strong>, pela mesma
+ * pergunta que {@link #iniciar} faz: é nesse caixa que o dinheiro entra, e uma sessão FECHADA já
+ * conferiu a gaveta e não aceita movimento. Uma venda cuja sessão fechou antes da conclusão fica
+ * ABERTA até ser cancelada, quando o cancelamento existir. Registrar parcela não faz essa
+ * pergunta, de propósito: a parcela não mexe na gaveta; a conclusão mexe.
  *
  * <p><strong>{@link #iniciar} não confere se o operador da venda é o operador da sessão.</strong>
  * O {@code @TenantId} já garante que a sessão é da própria conta (RNF05), e a autorização por
@@ -74,23 +89,25 @@ public class VendaService {
 
     private final VendaRepository vendas;
     private final ProdutoService produtos;
-    private final SessaoCaixaService caixas;
+    private final CaixaParaVenda caixa;
     private final PaymentService pagamentos;
+    private final ApplicationEventPublisher eventos;
 
-    VendaService(VendaRepository vendas, ProdutoService produtos, SessaoCaixaService caixas,
-            PaymentService pagamentos) {
+    VendaService(VendaRepository vendas, ProdutoService produtos, CaixaParaVenda caixa,
+            PaymentService pagamentos, ApplicationEventPublisher eventos) {
         this.vendas = vendas;
         this.produtos = produtos;
-        this.caixas = caixas;
+        this.caixa = caixa;
         this.pagamentos = pagamentos;
+        this.eventos = eventos;
     }
 
     /**
      * Abre uma comanda (RF07) numa sessão de caixa ABERTA desta conta.
      *
      * @return o id da venda criada, gerado na aplicação e nunca pelo banco (RNF01, RNF03)
-     * @throws br.com.caixasimples.caixa.application.SessaoCaixaNaoEncontradaException se a
-     *         sessão não existe nesta conta
+     * @throws RuntimeException      se a sessão não existe nesta conta; a exceção é a do módulo do
+     *                               caixa e atravessa {@link CaixaParaVenda} sem tradução
      * @throws IllegalStateException se a sessão não está ABERTA
      */
     @Transactional
@@ -98,11 +115,10 @@ public class VendaService {
         Objects.requireNonNull(sessaoCaixaId, "id da sessao de caixa nao pode ser nulo");
         Objects.requireNonNull(usuarioId, "usuarioId nao pode ser nulo");
 
-        ResumoDeSessao sessao = caixas.consultar(sessaoCaixaId);
-        if (sessao.status() != StatusSessaoCaixa.ABERTA) {
+        if (!caixa.estaAberto(sessaoCaixaId)) {
             throw new IllegalStateException(
-                    "sessao de caixa " + sessaoCaixaId + " esta " + sessao.status()
-                            + " e nao aceita venda nova. Abra um caixa antes de vender.");
+                    "sessao de caixa " + sessaoCaixaId + " nao esta ABERTA e nao aceita venda"
+                            + " nova. Abra um caixa antes de vender.");
         }
 
         Venda venda = new Venda(sessaoCaixaId, usuarioId);
@@ -209,21 +225,54 @@ public class VendaService {
 
     /**
      * Fecha a venda (RF09): a raiz confere que os pagamentos confirmados cobrem o total e vira o
-     * status para CONCLUIDA.
+     * status para CONCLUIDA; depois de gravada, o evento {@link VendaConcluida} é publicado.
+     *
+     * <p>O evento sai na mesma transação que grava a venda: o registro de publicação anota a
+     * publicação junto, e os listeners só rodam depois do commit. Se a transação não completar,
+     * nem a venda nem o evento existem.
      *
      * @throws VendaNaoEncontradaException se a venda não existe nesta conta
-     * @throws IllegalStateException       se a venda não está ABERTA, não tem item, ou os
-     *                                     pagamentos confirmados não cobrem exatamente o total
+     * @throws IllegalStateException       se a sessão de caixa da venda não está ABERTA, se a
+     *                                     venda não está ABERTA, não tem item, ou os pagamentos
+     *                                     confirmados não cobrem exatamente o total
      */
     @Transactional
     public void concluir(UUID vendaId) {
         VendaEntity linha = buscar(vendaId);
         Venda venda = linha.paraDominio();
 
+        if (!caixa.estaAberto(venda.getSessaoCaixaId())) {
+            throw new IllegalStateException(
+                    "sessao de caixa " + venda.getSessaoCaixaId() + " nao esta ABERTA e nao"
+                            + " recebe o dinheiro da venda " + vendaId + ". A venda so conclui"
+                            + " com o caixa em que nasceu ainda aberto.");
+        }
+
         venda.concluir();
 
         linha.atualizarCom(venda);
         vendas.save(linha);
+
+        eventos.publishEvent(eventoDe(venda));
+    }
+
+    /**
+     * O fato inteiro, no vocabulário que os outros módulos enxergam. A conta vem do contexto
+     * autenticado, nunca de parâmetro (RNF05).
+     */
+    private static VendaConcluida eventoDe(Venda venda) {
+        ContaId contaId = TenantContext.exigirAtual();
+
+        List<VendaConcluida.Item> itens = venda.getItens().stream()
+                .map(item -> new VendaConcluida.Item(item.produtoId(), item.quantidade()))
+                .toList();
+        List<VendaConcluida.Parcela> parcelas = venda.getPagamentos().stream()
+                .map(parcela -> new VendaConcluida.Parcela(parcela.forma(), parcela.valor(),
+                        parcela.status()))
+                .toList();
+
+        return new VendaConcluida(contaId, venda.getId(), venda.getSessaoCaixaId(),
+                venda.getUsuarioId(), itens, parcelas);
     }
 
     private VendaEntity buscar(UUID vendaId) {

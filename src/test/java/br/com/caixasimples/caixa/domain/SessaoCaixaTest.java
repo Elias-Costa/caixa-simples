@@ -180,6 +180,38 @@ class SessaoCaixaTest {
     }
 
     @Test
+    @DisplayName("a mesma venda não entra duas vezes na gaveta, e a raiz sabe dizer se já entrou")
+    void aMesmaVendaNaoEntraDuasVezes() {
+        SessaoCaixa sessao = new SessaoCaixa(OPERADOR, Money.de("50.00"));
+        UUID vendaId = UUID.randomUUID();
+        UUID outraVenda = UUID.randomUUID();
+
+        assertThat(sessao.jaRegistrouVenda(vendaId)).isFalse();
+
+        sessao.registrarVenda(Money.de("18.93"), vendaId);
+
+        assertThat(sessao.jaRegistrouVenda(vendaId)).isTrue();
+        assertThat(sessao.jaRegistrouVenda(outraVenda))
+                .as("a pergunta é por venda, não por sessão")
+                .isFalse();
+
+        // O evento de venda concluída é entregue ao menos uma vez; a segunda entrega é o listener
+        // que reconhece e pula. A raiz recusa para que nenhum chamador conte o dinheiro em dobro.
+        assertThatIllegalStateException()
+                .isThrownBy(() -> sessao.registrarVenda(Money.de("18.93"), vendaId))
+                .withMessageContaining("ja foi lancada");
+
+        assertThat(sessao.getValorFechamentoEsperado())
+                .as("a recusa não deixou rastro")
+                .isEqualTo(Money.de("68.93"));
+        assertThat(sessao.getMovimentos()).hasSize(1);
+
+        // Outra venda continua entrando normalmente.
+        sessao.registrarVenda(Money.de("1.07"), outraVenda);
+        assertThat(sessao.getValorFechamentoEsperado()).isEqualTo(Money.de("70.00"));
+    }
+
+    @Test
     @DisplayName("a lista de movimentos só se altera pela raiz")
     void movimentosNaoSaoAlteraveisPorFora() {
         SessaoCaixa sessao = new SessaoCaixa(OPERADOR, Money.de("100.00"));

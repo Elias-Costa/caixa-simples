@@ -349,8 +349,9 @@ public class Venda {
      * o status para CONCLUIDA. É a única transição de estado que existe em código.
      *
      * <p>Passo à parte de {@link #registrarPagamento} de propósito: a tela chama isto quando o
-     * operador finaliza, e é daqui que a venda concluída vai avisar o caixa e o estoque, quando o
-     * evento existir. A raiz não faz nada fora do agregado.
+     * operador finaliza, e é o caso de uso que, depois de gravar o resultado, publica o evento que
+     * avisa o caixa e o estoque. A raiz não faz nada fora do agregado, e não confere o estado do
+     * caixa: ela não o enxerga, e quem pergunta é o caso de uso.
      *
      * @throws IllegalStateException se a venda não está ABERTA, não tem item, ou a soma dos
      *                               pagamentos CONFIRMADO é diferente do total

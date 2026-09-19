@@ -77,15 +77,17 @@ primeiro dia; seis já têm código de negócio dentro.
 | `shared` | Implementado | `Money`, `ContaId`, `TenantContext`, `FusoDeReferencia` |
 | `contas` | Implementado | `Conta`, `Usuario`, `Credencial`, login por JWT, política de senha, provisionamento de conta |
 | `cadastro` | Implementado | `Produto` com atributos `JSONB`, busca por nome ou código para o balcão, `Cliente` como vertical slice, catálogo sugerido por tipo de negócio |
-| `caixa` | Implementado | `SessaoCaixa`: abertura, sangria, suprimento, fechamento com conferência, histórico por operador e por dia |
+| `caixa` | Implementado | `SessaoCaixa`: abertura, sangria, suprimento, fechamento com conferência, histórico por operador e por dia, e o dinheiro em espécie de cada venda concluída entrando na gaveta por evento, uma vez só, mesmo que o evento chegue de novo |
 | `pagamentos` | Implementado | Strategy por forma de pagamento: dinheiro com troco calculado no domínio, Pix e cartão lançados à mão pelo operador. Sem provedor de Pix ainda |
-| `vendas` | Em andamento | agregado `Venda`, com `ItemVenda` e `Pagamento` como membros: abrir a comanda num caixa aberto, lançar e remover itens com o preço copiado do produto, desconto por item e por venda, total recalculado a cada operação, pagamento dividido entre formas com o troco vindo do módulo de pagamentos, e conclusão como passo explícito. O evento de venda concluída, que avisa caixa e estoque, é o próximo passo |
+| `vendas` | Em andamento | agregado `Venda`, com `ItemVenda` e `Pagamento` como membros: abrir a comanda num caixa aberto, lançar e remover itens com o preço copiado do produto, desconto por item e por venda, total recalculado a cada operação, pagamento dividido entre formas com o troco vindo do módulo de pagamentos, e conclusão como passo explícito, que exige o caixa ainda aberto e publica o evento `VendaConcluida` pelo outbox. Faltam cancelamento com estorno e o vínculo de cliente |
 | `estoque` | Planejado | pacote e fronteira declarados, sem código de negócio |
 | `relatorios` | Planejado | pacote e fronteira declarados, sem código de negócio |
 
-**Schema.** Sete migrations Flyway, de `V1` a `V7`: conta, usuário e credencial; produto; cliente;
-catálogo de referência; o agregado de caixa, com a regra de uma sessão aberta por operador; e o
-agregado de venda, com a venda, seus itens e seus pagamentos.
+**Schema.** Oito migrations Flyway, de `V1` a `V8`: conta, usuário e credencial; produto; cliente;
+catálogo de referência; o agregado de caixa, com a regra de uma sessão aberta por operador; o
+agregado de venda, com a venda, seus itens e seus pagamentos; e o outbox de eventos de domínio do
+Spring Modulith, cujo DDL foi gerado a partir da entidade do framework em vez de escrito de
+memória.
 
 **Superfície HTTP.** Dois endpoints, ambos de autenticação: `POST /api/auth/login`, que devolve o
 token, e `GET /api/auth/eu`, que existe para haver um recurso protegido de verdade contra o qual
@@ -105,7 +107,10 @@ Atalhos para avaliar o código sem percorrer o repositório inteiro.
 | O mecanismo por trás desse isolamento | [MultiTenancyConfiguration.java](src/main/java/br/com/caixasimples/shared/internal/MultiTenancyConfiguration.java) | Filtro no Hibernate, não em cada consulta, e o que acontece quando não há tenant no contexto |
 | Raiz de agregado sem framework | [SessaoCaixa.java](src/main/java/br/com/caixasimples/caixa/domain/SessaoCaixa.java) | Regra de negócio e invariantes isoladas de Spring e de JPA |
 | Invariante viva, recalculada a cada operação | [Venda.java](src/main/java/br/com/caixasimples/vendas/domain/Venda.java) | O total nunca fica negativo, nunca diverge dos itens e nunca fica abaixo do já pago; a venda só conclui com os pagamentos confirmados iguais ao total. Cada operação que quebraria uma regra é recusada antes de tocar no agregado, e o estado remontado do banco passa pela mesma conferência |
-| Pergunta entre módulos sem expor o agregado | [VendaService.java](src/main/java/br/com/caixasimples/vendas/application/VendaService.java) | A venda copia o preço do cadastro e confere o caixa por chamadas à camada de aplicação dos módulos donos, recebendo records e nunca a raiz alheia |
+| Pergunta entre módulos sem expor o agregado | [VendaService.java](src/main/java/br/com/caixasimples/vendas/application/VendaService.java) | A venda copia o preço do cadastro por chamada à camada de aplicação dele, recebendo um record e nunca a raiz alheia; confere o caixa por uma interface que ela mesma declara; e, ao concluir, publica o evento em vez de chamar quem reage |
+| Efeito colateral entre módulos por evento | [VendaConcluidaListener.java](src/main/java/br/com/caixasimples/caixa/internal/VendaConcluidaListener.java) | O caixa reage à venda concluída sem que a venda o conheça: só o dinheiro em espécie entra na gaveta, a reentrega do outbox não duplica, e o tenant é definido antes de a transação abrir, com o porquê escrito no lugar |
+| Dependência num sentido só | [CaixaParaVenda.java](src/main/java/br/com/caixasimples/vendas/CaixaParaVenda.java) | A pergunta da venda ao caixa é uma interface declarada em vendas e implementada no caixa, porque o caixa já depende de vendas para ouvir o evento e a verificação de fronteiras recusa ciclo |
+| Schema gerado do framework, não adivinhado | [V8\_\_event_publication.sql](src/main/resources/db/migration/V8__event_publication.sql) | A tabela do outbox é mapeada por entidade do Modulith; a migration nasceu do DDL gerado dela, com a receita para repetir numa atualização e os dois ajustes tirados do schema oficial |
 | Value object monetário | [Money.java](src/main/java/br/com/caixasimples/shared/Money.java) | Arredondamento explícito no ponto de uso, sem `double` e sem construtor que reescreve valor em silêncio |
 | Uma decisão explicada onde ela mora | [FusoDeReferencia.java](src/main/java/br/com/caixasimples/shared/FusoDeReferencia.java) | Por que o fuso é constante única e não coluna, e o que precisa acontecer para reabrir a decisão |
 | Strategy sem `switch` | [PaymentService.java](src/main/java/br/com/caixasimples/pagamentos/application/PaymentService.java) | Forma de pagamento nova é classe nova; duas estratégias para a mesma forma derrubam a aplicação na subida, em vez de uma sobrescrever a outra em silêncio |
@@ -142,11 +147,22 @@ Um módulo nunca importa de `internal/` de outro. Efeito colateral entre módulo
 consulta é chamada direta à API pública do pacote. A regra que resume as duas: *eventos anunciam
 fatos, chamadas diretas fazem perguntas.* O Spring Modulith só expõe o pacote-base de cada módulo,
 então a camada `application/` é exposta nomeadamente onde outro módulo precisa perguntar algo, e
-`domain/` e `internal/` seguem ocultos: `vendas` copia o preço do produto e confere o estado do
-caixa recebendo records das camadas de aplicação de `cadastro` e `caixa`, nunca a raiz de agregado
-alheia. A exceção é `pagamentos`, que expõe também o `domain/`: ele não tem agregado, e o que mora
-lá é a interface do Strategy e os dois records imutáveis que são o contrato de pagar, o pedido e o
-resultado, sem os quais ninguém consegue chamar o serviço de pagamento.
+`domain/` e `internal/` seguem ocultos: `vendas` copia o preço do produto recebendo um record da
+camada de aplicação de `cadastro`, nunca a raiz de agregado alheia. A exceção é `pagamentos`, que
+expõe também o `domain/`: ele não tem agregado, e o que mora lá é a interface do Strategy e os dois
+records imutáveis que são o contrato de pagar, o pedido e o resultado, sem os quais ninguém
+consegue chamar o serviço de pagamento.
+
+A verificação de fronteiras também recusa **ciclo** entre módulos, e ouvir um evento é depender de
+quem o publica. Como o caixa ouve a venda concluída, a venda não pode chamar o caixa: a única
+pergunta que ela faz, se a sessão está aberta, passa por uma interface declarada em `vendas` e
+implementada em `caixa/internal`. A dependência entre os dois fica num sentido só, e o teste de
+arquitetura garante isso por compilação, não por revisão.
+
+Os listeners de evento moram em `internal/`, por serem adapters de entrada, e não usam a anotação
+composta que o Modulith oferece: ela abriria a transação antes de o tenant estar no contexto, e o
+Hibernate resolve o tenant na abertura da sessão. O molde do projeto define a conta a partir do
+evento e só então abre a transação, com a ordem escrita no próprio arquivo.
 
 ### Padrões aplicados
 
@@ -159,15 +175,21 @@ uso hoje:
   dinheiro, Pix e cartão têm uma classe cada, e a regra de cada forma mora no domínio, não no
   componente do Spring.
 - **Value object** para dinheiro, com o arredondamento visível em quem o chama.
+- **Domain Events com outbox** para a venda concluída avisar o caixa sem acoplar os dois: a
+  publicação é gravada na mesma transação que conclui a venda, o listener roda depois do commit,
+  em outra thread, e uma falha deixa a publicação incompleta em vez de perder o efeito. O evento
+  carrega o fato inteiro, itens e parcelas, e quem decide o que fazer com ele é quem ouve.
+- **Dependency inversion entre módulos** onde uma pergunta e um evento cruzariam em sentidos
+  opostos: a interface mora em quem pergunta, a implementação em quem responde.
 - **Vertical slice** onde não há invariante a proteger, em vez de agregado por simetria.
 - **Fitness function de arquitetura**, que transforma a regra de fronteira em teste.
 
 ### Padrões decididos, ainda não escritos
 
 Estes estão amarrados a requisitos e a passos que ainda não começaram. Aparecem aqui como desenho,
-não como código: **Adapter** para trocar de provedor de Pix sem tocar na regra de negócio, **Domain
-Events** para a venda concluída avisar caixa e estoque sem acoplar os três, e **Specification** para
-os filtros combináveis dos relatórios.
+não como código: **Adapter** para trocar de provedor de Pix sem tocar na regra de negócio, o
+segundo ouvinte de **Domain Events**, o estoque dando baixa na venda concluída, e **Specification**
+para os filtros combináveis dos relatórios.
 
 Nenhum deles foi criado por antecipação, e essa é a política do projeto: uma abstração se justifica
 com dois usos reais, não com um previsto. O Strategy de pagamento seguiu essa regra: a interface
@@ -179,14 +201,17 @@ os dois a usam.
 - **Multi-tenancy por coluna.** Toda entidade de negócio tem `contaId` anotado com `@TenantId`, e o
   Hibernate aplica o filtro sozinho. Três exceções deliberadas: `ModeloProduto` (dado de referência
   da plataforma), `Conta` (o `id` dela *é* o tenant) e `Credencial` (consultada no login, antes de
-  existir tenant).
+  existir tenant). A tabela do outbox de eventos é do framework, não do negócio, e por isso fica
+  fora da lista: a conta a que cada evento se refere viaja dentro dele.
 - **Chave primária é UUID gerado na aplicação**, nunca auto-incremento. É o que permite criar um
   registro offline com identidade definitiva e sincronizar depois sem renumerar nada, tornando o
   reenvio de uma operação naturalmente idempotente.
 - **O schema pertence ao Flyway.** O Hibernate roda com `ddl-auto: validate` e apenas confere se
   bate. Migration já publicada é imutável: correção é sempre versão nova, como a `V6` é para a `V5`,
   e como a `V7` acrescenta a `movimento_caixa` a chave estrangeira que a `V5` não podia criar,
-  porque a tabela de venda ainda não existia.
+  porque a tabela de venda ainda não existia. Vale até para tabela que não é do projeto: a do
+  outbox do Modulith, na `V8`, foi gerada a partir da entidade do framework, e a suíte prova que o
+  gerado bate, porque o contexto não subiria se não batesse.
 - **Repositório só para raiz de agregado.** Membro de agregado (item de venda, movimento de caixa)
   entra e sai pela raiz, o que impede alterar um item sem recalcular o total que a raiz garante.
 - **Soft delete**, nunca exclusão física, para preservar o histórico de vendas antigas.
@@ -206,8 +231,12 @@ os dois a usam.
   entidade usa para remontar o agregado a partir do banco.
 - **Concluir é um passo, não um efeito.** Registrar a parcela que fecha a conta não conclui a
   venda; quem finaliza chama a operação que diz isso. Um método de registrar pagamento que às vezes
-  mudasse o status seria comportamento escondido no nome, e o evento de venda concluída, quando
-  existir, nasce de um ponto só.
+  mudasse o status seria comportamento escondido no nome, e o evento de venda concluída nasce de
+  um ponto só. Concluir exige o caixa em que a venda nasceu ainda aberto, porque é nele que o
+  dinheiro entra; registrar parcela não exige, porque parcela não mexe na gaveta.
+- **No caixa entra só o dinheiro.** O esperado da sessão é o que deveria haver na gaveta, e é
+  contra ele que o operador confere o que contou. Pix e cartão nunca estiveram lá: uma venda paga
+  sem dinheiro não gera movimento nenhum, e uma venda dividida lança só a parte em espécie.
 - **O preço nunca vem de quem chama.** Lançar um item recebe o id do produto, e o caso de uso
   consulta o preço vigente no cadastro na hora de gravar. Um preço vindo do pedido seria uma porta
   para vender por qualquer valor; a cópia feita ali é o que impede uma venda passada de mudar quando
@@ -228,6 +257,11 @@ pontos:
   os membros de agregado (movimento de caixa, item e pagamento da venda) têm um teste próprio, que
   prova que a coluna de conta deles vem do contexto e não da raiz por junção. O teste falha se a
   anotação de tenant for removida.
+- **O listener de evento lança na conta do evento, não na de quem publicou.** Ele roda em outra
+  thread, sem o tenant da requisição, e uma reentrega pode partir do outbox horas depois; a conta
+  vai dentro do evento, lida do contexto autenticado no ato da publicação, e há teste que publica
+  como uma conta e prova que o movimento cai na conta do evento e que a outra não o vê. A tabela do
+  outbox não tem coluna de conta, porque é do framework e nenhum código de negócio a lê.
 
 A autenticação usa JWT emitido e validado pelo próprio Spring Security, sem biblioteca de JWT de
 terceiro, com API stateless e senha em BCrypt verificada contra bases de senhas vazadas. A política
@@ -271,7 +305,9 @@ editar um agregado através de outro.
   passarem juntas.
 - **`MovimentoCaixa` tem um campo `tipo`** único para venda, sangria e suprimento, o que mantém o
   fechamento de caixa como uma soma simples em vez de juntar três tabelas. O valor gravado é sempre
-  positivo, e quem carrega o sinal é o tipo.
+  positivo, e quem carrega o sinal é o tipo. O movimento de venda nasce do evento de venda
+  concluída, vale só a parte paga em dinheiro, e a mesma venda não entra duas vezes na mesma
+  sessão: a raiz recusa a duplicata, e o listener reconhece a reentrega antes de chegar nela.
 - **`estoque_atual` é consolidado na raiz**, e não somado do histórico a cada leitura, para o alerta
   de estoque baixo não pagar esse preço.
 - **`preco_unitario` do item é cópia** do preço do produto no momento da venda, nunca leitura viva:
@@ -324,6 +360,10 @@ Quatro tipos de teste sustentam o projeto:
 Nenhuma etapa fecha com teste vermelho. Regra do projeto: dado persistido novo exige teste de
 isolamento, e raiz de agregado tocada exige teste que tenta violar a invariante e espera falha.
 
+O evento de domínio é testado com o outbox de verdade: o teste publica, espera o listener terminar
+em outra thread e confere o movimento no caixa, a reentrega que não duplica e a publicação
+concluída no registro, remontada do JSON igual ao evento original.
+
 ## Stack
 
 | Camada | Escolha |
@@ -358,7 +398,7 @@ src
 │   │   ├── estoque/        declarado, sem código de negócio
 │   │   └── relatorios/     declarado, sem código de negócio
 │   └── resources
-│       └── db/migration/   V1 a V7, imutáveis depois de publicadas
+│       └── db/migration/   V1 a V8, imutáveis depois de publicadas
 └── test/java/br/com/caixasimples
     ├── ModularityTests     fitness function das fronteiras
     ├── TesteDeIntegracao   base com Testcontainers, herdada pelos testes de banco

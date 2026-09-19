@@ -51,18 +51,16 @@
 			<groupId>org.flywaydb</groupId>
 			<artifactId>flyway-database-postgresql</artifactId>
 		</dependency>
+		<!--
+			Traz o starter-core e o outbox de eventos de dominio (registro de publicacao em JPA).
+			Ele mapeia a tabela event_publication como entidade, e o schema deste projeto pertence
+			ao Flyway (ddl-auto: validate): a migration V8 foi gerada a partir dessa entidade, nao
+			escrita de memoria.
+		-->
 		<dependency>
 			<groupId>org.springframework.modulith</groupId>
-			<artifactId>spring-modulith-starter-core</artifactId>
+			<artifactId>spring-modulith-starter-jpa</artifactId>
 		</dependency>
-		<!--
-			spring-modulith-starter-jpa (outbox de eventos de dominio) entra na etapa 1.6, com o
-			primeiro evento. Ele mapeia `event_publication` como entidade JPA, e o schema deste
-			projeto pertence ao Flyway (`ddl-auto: validate`) — a migration correspondente precisa
-			ser gerada a partir da entidade real, nao adivinhada. Sem evento nenhum na Fase 0, a
-			tabela seria peso morto.
-		-->
-
 		<dependency>
 			<groupId>org.postgresql</groupId>
 			<artifactId>postgresql</artifactId>

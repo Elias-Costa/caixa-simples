@@ -19,7 +19,12 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Casos de uso da sessão de caixa: abrir (RF13), registrar sangria e suprimento (RF14), fechar com
  * conferência (RF15), consultar o histórico por operador e por dia (RF16) e responder em que
- * estado uma sessão está, que é a pergunta que a venda faz antes de começar.
+ * estado uma sessão está, que é a pergunta que a venda faz antes de começar e antes de concluir.
+ *
+ * <p>O dinheiro de uma venda concluída <strong>não entra por aqui</strong>: chega por evento de
+ * domínio, ouvido em {@code caixa.internal}, que carrega e grava a sessão do mesmo jeito que os
+ * casos de uso abaixo. Um método público de lançar venda neste serviço seria uma porta por onde
+ * outro módulo produziria efeito colateral por chamada direta.
  *
  * <p>Cada caso de uso de escrita é sempre a mesma sequência: carrega a linha, deixa a raiz do
  * agregado decidir, grava o que ela decidiu. Nenhuma regra de dinheiro mora aqui. É
@@ -176,10 +181,12 @@ public class SessaoCaixaService {
     /**
      * Uma sessão, pelo id, <strong>sem os movimentos</strong>.
      *
-     * <p>É a pergunta que o módulo de vendas faz antes de iniciar uma venda: esta sessão existe
-     * nesta conta, e está ABERTA? A resposta é o mesmo resumo do histórico, com o status dentro,
-     * e quem decide o que fazer com ele é quem perguntou. Não há um <em>exigir aberta</em> aqui,
-     * porque a regra de que venda só começa em caixa aberto é da venda, não do caixa.
+     * <p>É a pergunta que a venda faz antes de começar e antes de concluir: esta sessão existe
+     * nesta conta, e está ABERTA? Ela chega por {@code caixa.internal.CaixaParaVendaAdapter}, que
+     * implementa a interface declarada em vendas e traduz este resumo num sim ou não. A resposta é
+     * o mesmo resumo do histórico, com o status dentro, e quem decide o que fazer com ele é quem
+     * perguntou. Não há um <em>exigir aberta</em> aqui, porque a regra de que venda só começa e só
+     * conclui em caixa aberto é da venda, não do caixa.
      *
      * <p>Sai como projeção, e não pelo agregado, pelo motivo do histórico: carregar a sessão
      * inteira traria o extrato do expediente para responder uma pergunta de uma coluna.

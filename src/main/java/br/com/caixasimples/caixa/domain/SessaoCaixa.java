@@ -45,6 +45,8 @@ import java.util.UUID;
  *   <li>Sessão FECHADA não aceita movimento. É a linguagem do domínio escrita em código, já que o
  *       caixa é a sessão <em>entre</em> abertura e fechamento, e protege o {@link #fechar}: um
  *       lançamento posterior tornaria mentirosa a {@code diferenca} já gravada.</li>
+ *   <li>A mesma venda não entra duas vezes na gaveta. O dinheiro de uma venda chega por evento,
+ *       entregue ao menos uma vez, e o esperado não pode contar duas vezes o que entrou uma.</li>
  * </ul>
  *
  * <p><strong>Movimento de valor zero continua aceito</strong>, e a ausência dessa regra é
@@ -184,22 +186,44 @@ public class SessaoCaixa {
     }
 
     /**
-     * O dinheiro que entra por uma venda.
+     * O dinheiro em espécie que entra na gaveta por uma venda concluída.
      *
      * <p>Sem motivo, e a assinatura diz isso sem precisar de comentário no ponto de chamada: o RF14
      * exige justificativa de sangria e de suprimento, não de venda, porque a venda já se explica
      * pela {@code vendaId}.
      *
-     * <p><strong>Ainda não há chamador em produção.</strong> O método existe porque o movimento do
-     * tipo VENDA já faz parte do modelo, e a raiz precisava de um nome público para ele de modo que
-     * o lançamento genérico pudesse ficar privado. O chamador real nasce quando a conclusão da
-     * venda passar a lançar no caixa.
+     * <p><strong>O valor é só o que foi pago em dinheiro</strong>, e quem soma isso é o listener do
+     * evento de venda concluída, que é o único chamador. O que foi pago em Pix ou cartão nunca
+     * esteve na gaveta, e por isso não entra no esperado: se entrasse, a conferência do
+     * fechamento (RF15) acusaria falta em toda venda que não fosse em espécie.
+     *
+     * <p><strong>A mesma venda não entra duas vezes.</strong> O evento chega ao caixa por um outbox
+     * que garante a entrega ao menos uma vez, então uma reentrega é possível; é o listener que a
+     * reconhece e pula, por {@link #jaRegistrouVenda}. A recusa aqui é a invariante em si, para
+     * qualquer chamador: dinheiro contado em dobro no esperado é uma diferença de fechamento que
+     * nunca existiu.
      *
      * @param vendaId a venda que trouxe o dinheiro; referência entre agregados, sempre por id
-     * @throws IllegalStateException se a sessão já está FECHADA
+     * @throws IllegalStateException se a sessão já está FECHADA, ou se esta venda já foi lançada
+     *                               nesta sessão
      */
     public void registrarVenda(Money valor, UUID vendaId) {
+        Objects.requireNonNull(vendaId, "vendaId nao pode ser nulo");
+        if (jaRegistrouVenda(vendaId)) {
+            throw new IllegalStateException(
+                    "venda " + vendaId + " ja foi lancada na sessao de caixa " + id
+                            + " e nao entra de novo. O dinheiro de uma venda conta uma vez so.");
+        }
         registrar(TipoMovimentoCaixa.VENDA, valor, null, vendaId);
+    }
+
+    /**
+     * Se o dinheiro desta venda já entrou nesta sessão. É a pergunta que o listener faz antes de
+     * lançar, porque o evento pode chegar mais de uma vez.
+     */
+    public boolean jaRegistrouVenda(UUID vendaId) {
+        Objects.requireNonNull(vendaId, "vendaId nao pode ser nulo");
+        return movimentos.stream().anyMatch(movimento -> vendaId.equals(movimento.vendaId()));
     }
 
     /**

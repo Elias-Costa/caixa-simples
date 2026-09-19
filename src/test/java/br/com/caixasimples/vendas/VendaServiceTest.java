@@ -5,14 +5,18 @@ import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 import static org.assertj.core.api.Assertions.tuple;
+import static org.awaitility.Awaitility.await;
 
 import br.com.caixasimples.TesteDeIntegracao;
 import br.com.caixasimples.cadastro.TipoProduto;
 import br.com.caixasimples.cadastro.application.ProdutoNaoEncontradoException;
 import br.com.caixasimples.cadastro.application.ProdutoService;
 import br.com.caixasimples.cadastro.application.ProdutoService.DadosDoProduto;
+import br.com.caixasimples.caixa.TipoMovimentoCaixa;
 import br.com.caixasimples.caixa.application.SessaoCaixaNaoEncontradaException;
 import br.com.caixasimples.caixa.application.SessaoCaixaService;
+import br.com.caixasimples.caixa.domain.MovimentoCaixa;
+import br.com.caixasimples.caixa.internal.SessaoCaixaRepository;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
 import br.com.caixasimples.pagamentos.FormaPagamento;
@@ -24,14 +28,18 @@ import br.com.caixasimples.vendas.application.VendaNaoEncontradaException;
 import br.com.caixasimples.vendas.application.VendaService;
 import br.com.caixasimples.vendas.domain.ItemVenda;
 import br.com.caixasimples.vendas.domain.Pagamento;
+import br.com.caixasimples.vendas.VendaConcluida.Parcela;
 import br.com.caixasimples.vendas.domain.Venda;
 import br.com.caixasimples.vendas.internal.VendaRepository;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 
 /**
  * A venda contra o banco de verdade: iniciar a comanda, lançar e remover item (RF07), desconto
@@ -41,13 +49,16 @@ import org.springframework.beans.factory.annotation.Autowired;
  * <p>Existe separado de {@code VendaTest} porque prova outra coisa: lá a conta do agregado está
  * certa <em>em memória</em>; aqui ela <strong>atravessa o banco</strong>, que é o único jeito de
  * exercitar o {@code atualizarCom} da entidade, inclusive a remoção de linha por
- * {@code orphanRemoval} e o acréscimo das parcelas, as três perguntas feitas a outros módulos e o
- * isolamento entre contas em cada uma delas.
+ * {@code orphanRemoval} e o acréscimo das parcelas, as três perguntas feitas a outros módulos, o
+ * isolamento entre contas em cada uma delas e, na conclusão, o evento publicado e o dinheiro
+ * chegando ao caixa pelo outbox.
  *
  * <p>Fica no pacote {@code vendas} e enxerga só o que um controller enxergaria: o serviço, o
  * domínio e a raiz do agregado. Os casos de uso de {@code caixa} e {@code cadastro} entram no
- * papel que um controller teria, para preparar o cenário.
+ * papel que um controller teria, para preparar o cenário; o repositório do caixa entra só para
+ * ler o que o listener gravou.
  */
+@RecordApplicationEvents
 class VendaServiceTest extends TesteDeIntegracao {
 
     private static final String SENHA_DE_TESTE = "uma senha longa de teste";
@@ -60,6 +71,9 @@ class VendaServiceTest extends TesteDeIntegracao {
 
     @Autowired
     private SessaoCaixaService caixas;
+
+    @Autowired
+    private SessaoCaixaRepository sessoes;
 
     @Autowired
     private ProdutoService produtos;
@@ -105,7 +119,7 @@ class VendaServiceTest extends TesteDeIntegracao {
         assertThatIllegalStateException()
                 .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
                         vendaService.iniciar(sessaoId, conta.usuarioId())))
-                .withMessageContaining("FECHADA");
+                .withMessageContaining("nao esta ABERTA");
 
         TenantContext.executarComo(conta.contaId(), () ->
                 assertThat(vendas.findAll()).as("nada foi gravado").isEmpty());
@@ -332,7 +346,7 @@ class VendaServiceTest extends TesteDeIntegracao {
 
     @Test
     @DisplayName("conclui venda dividida entre dinheiro e Pix, com o troco calculado e as parcelas gravadas (RF09, RF10)")
-    void concluiVendaDivididaEntreDinheiroEPix() {
+    void concluiVendaDivididaEntreDinheiroEPix(ApplicationEvents eventos) {
         ContaCriada conta = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
         UUID sessaoId = abrirCaixa(conta);
         UUID cafeId = cadastrar(conta, "Cafe coado", Money.de("4.50"));
@@ -393,6 +407,76 @@ class VendaServiceTest extends TesteDeIntegracao {
                 .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
                         vendaService.concluir(vendaId)))
                 .withMessageContaining("CONCLUIDA");
+
+        // Saiu um evento só, com o fato inteiro e a conta de quem concluiu, lida do contexto.
+        assertThat(eventos.stream(VendaConcluida.class))
+                .singleElement()
+                .satisfies(evento -> {
+                    assertThat(evento.contaId()).isEqualTo(conta.contaId());
+                    assertThat(evento.vendaId()).isEqualTo(vendaId);
+                    assertThat(evento.sessaoCaixaId()).isEqualTo(sessaoId);
+                    assertThat(evento.usuarioId()).isEqualTo(conta.usuarioId());
+                    assertThat(evento.itens()).satisfiesExactly(
+                            item -> {
+                                assertThat(item.produtoId()).isEqualTo(cafeId);
+                                assertThat(item.quantidade()).isEqualByComparingTo("2");
+                            },
+                            item -> {
+                                assertThat(item.produtoId()).isEqualTo(queijoId);
+                                assertThat(item.quantidade()).isEqualByComparingTo("0.750");
+                            });
+                    assertThat(evento.parcelas())
+                            .extracting(Parcela::forma, Parcela::valor, Parcela::status)
+                            .containsExactly(
+                                    tuple(FormaPagamento.PIX, Money.de("20.00"),
+                                            StatusPagamento.CONFIRMADO),
+                                    tuple(FormaPagamento.DINHEIRO, Money.de("18.93"),
+                                            StatusPagamento.CONFIRMADO));
+                });
+
+        // E o caixa reagiu, em outra thread, pelo outbox: entrou na gaveta o dinheiro, 18,93, e
+        // não o total da venda; o Pix nunca esteve lá.
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
+                TenantContext.executarComo(conta.contaId(), () ->
+                        assertThat(sessoes.findById(sessaoId).orElseThrow().paraDominio()
+                                .getMovimentos())
+                                .extracting(MovimentoCaixa::tipo, MovimentoCaixa::valor,
+                                        MovimentoCaixa::vendaId)
+                                .containsExactly(tuple(TipoMovimentoCaixa.VENDA,
+                                        Money.de("18.93"), vendaId))));
+    }
+
+    @Test
+    @DisplayName("concluir exige o caixa em que a venda nasceu ainda ABERTO; fechado, a venda fica ABERTA")
+    void concluirExigeSessaoAberta(ApplicationEvents eventos) {
+        ContaCriada conta = criador.criar("Quitanda do Centro", SENHA_DE_TESTE);
+        UUID sessaoId = abrirCaixa(conta);
+        UUID cafeId = cadastrar(conta, "Cafe coado", Money.de("4.50"));
+
+        UUID vendaId = TenantContext.executarComo(conta.contaId(), () ->
+                vendaService.iniciar(sessaoId, conta.usuarioId()));
+        TenantContext.executarComo(conta.contaId(), () -> {
+            vendaService.adicionarItem(vendaId, cafeId, BigDecimal.ONE, Money.ZERO);
+            vendaService.registrarPagamento(vendaId,
+                    SolicitacaoPagamento.emDinheiro(Money.de("4.50"), Money.de("4.50")));
+        });
+
+        // O operador fecha o caixa com a comanda ainda aberta.
+        TenantContext.executarComo(conta.contaId(), () -> caixas.fechar(sessaoId, Money.ZERO));
+
+        // A conta está paga, mas o caixa que receberia o dinheiro já conferiu a gaveta.
+        assertThatIllegalStateException()
+                .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+                        vendaService.concluir(vendaId)))
+                .withMessageContaining("nao esta ABERTA");
+
+        TenantContext.executarComo(conta.contaId(), () ->
+                assertThat(vendas.findById(vendaId).orElseThrow().paraDominio().getStatus())
+                        .as("a venda fica ABERTA até o cancelamento")
+                        .isEqualTo(StatusVenda.ABERTA));
+        assertThat(eventos.stream(VendaConcluida.class))
+                .as("nada foi publicado")
+                .isEmpty();
     }
 
     @Test
