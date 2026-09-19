@@ -14,8 +14,9 @@ package br.com.caixasimples.vendas;
  * <p><strong>CANCELADA</strong> é o cancelamento de uma venda já registrada (RF12), com estorno
  * de estoque quando houver.
  *
- * <p>As transições entre os três ainda não existem em código: chegam com a conclusão e com o
- * cancelamento. Enquanto não chegam, nenhuma venda muda de estado.
+ * <p>A única transição que existe em código é de ABERTA para CONCLUIDA, feita por
+ * {@code Venda.concluir}, um passo à parte de registrar a parcela que fecha a conta. A saída para
+ * CANCELADA chega com o cancelamento; até lá nenhuma venda sai de CONCLUIDA.
  *
  * <p>Fica na raiz do módulo, como {@code caixa.StatusSessaoCaixa} e
  * {@code pagamentos.FormaPagamento}, porque é vocabulário que outros módulos vão precisar nomear.

@@ -1,6 +1,7 @@
 package br.com.caixasimples.vendas;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.assertj.core.api.Assertions.within;
 
@@ -190,6 +191,30 @@ class IsolamentoDeVendaTest extends TesteDeIntegracao {
             assertThat(lida.getItens()).extracting(ItemVenda::criadoEm).isSorted();
             assertThat(lida.getPagamentos()).extracting(Pagamento::criadoEm).isSorted();
         });
+    }
+
+    @Test
+    @DisplayName("venda com valorTotal diferente da soma dos itens não chega ao banco: a raiz recusa antes")
+    void estadoDivergenteNaoChegaAoBanco() {
+        ContaCriada conta = criador.criar("Quitanda Teste", SENHA_DE_TESTE);
+        Cenario cenario = prepararCenario(conta);
+
+        ItemVenda item = new ItemVenda(UUID.randomUUID(), cenario.produtoId(), BigDecimal.ONE,
+                Money.de("4.50"), Money.ZERO, Instant.now());
+
+        // A tentativa é a mesma sequência do ida-e-volta, com o total mentindo: 4,50 de item
+        // gravado como 99,00. Quem recusa é a raiz do agregado, ao remontar, e não o banco nem a
+        // entidade; o save nem chega a rodar.
+        assertThatIllegalStateException()
+                .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+                        vendas.save(VendaEntity.de(Venda.reconstituir(UUID.randomUUID(),
+                                cenario.sessaoCaixaId(), cenario.usuarioId(), null,
+                                StatusVenda.ABERTA, Money.de("99.00"), Money.ZERO, Instant.now(),
+                                List.of(item), List.of())))))
+                .withMessageContaining("viola a invariante do total");
+
+        TenantContext.executarComo(conta.contaId(), () ->
+                assertThat(vendas.findAll()).as("nada foi gravado").isEmpty());
     }
 
     @Test

@@ -79,7 +79,7 @@ primeiro dia; seis já têm código de negócio dentro.
 | `cadastro` | Implementado | `Produto` com atributos `JSONB`, busca por nome ou código para o balcão, `Cliente` como vertical slice, catálogo sugerido por tipo de negócio |
 | `caixa` | Implementado | `SessaoCaixa`: abertura, sangria, suprimento, fechamento com conferência, histórico por operador e por dia |
 | `pagamentos` | Implementado | Strategy por forma de pagamento: dinheiro com troco calculado no domínio, Pix e cartão lançados à mão pelo operador. Sem provedor de Pix ainda |
-| `vendas` | Em andamento | agregado `Venda`, com `ItemVenda` e `Pagamento` como membros, e a montagem da comanda: abrir a venda num caixa aberto, lançar e remover itens com o preço copiado do produto, desconto por item e por venda, total recalculado a cada operação. A conclusão com pagamento dividido entre formas é o próximo passo |
+| `vendas` | Em andamento | agregado `Venda`, com `ItemVenda` e `Pagamento` como membros: abrir a comanda num caixa aberto, lançar e remover itens com o preço copiado do produto, desconto por item e por venda, total recalculado a cada operação, pagamento dividido entre formas com o troco vindo do módulo de pagamentos, e conclusão como passo explícito. O evento de venda concluída, que avisa caixa e estoque, é o próximo passo |
 | `estoque` | Planejado | pacote e fronteira declarados, sem código de negócio |
 | `relatorios` | Planejado | pacote e fronteira declarados, sem código de negócio |
 
@@ -104,7 +104,7 @@ Atalhos para avaliar o código sem percorrer o repositório inteiro.
 | Isolamento entre contas provado nos dois sentidos | [IsolamentoEntreContasTest.java](src/test/java/br/com/caixasimples/contas/IsolamentoEntreContasTest.java) | Segurança testada, não presumida: grava na conta A e prova que a conta B não enxerga |
 | O mecanismo por trás desse isolamento | [MultiTenancyConfiguration.java](src/main/java/br/com/caixasimples/shared/internal/MultiTenancyConfiguration.java) | Filtro no Hibernate, não em cada consulta, e o que acontece quando não há tenant no contexto |
 | Raiz de agregado sem framework | [SessaoCaixa.java](src/main/java/br/com/caixasimples/caixa/domain/SessaoCaixa.java) | Regra de negócio e invariantes isoladas de Spring e de JPA |
-| Invariante viva, recalculada a cada operação | [Venda.java](src/main/java/br/com/caixasimples/vendas/domain/Venda.java) | O total nunca fica negativo e nunca diverge dos itens: cada operação que quebraria a regra é recusada antes de tocar no agregado |
+| Invariante viva, recalculada a cada operação | [Venda.java](src/main/java/br/com/caixasimples/vendas/domain/Venda.java) | O total nunca fica negativo, nunca diverge dos itens e nunca fica abaixo do já pago; a venda só conclui com os pagamentos confirmados iguais ao total. Cada operação que quebraria uma regra é recusada antes de tocar no agregado, e o estado remontado do banco passa pela mesma conferência |
 | Pergunta entre módulos sem expor o agregado | [VendaService.java](src/main/java/br/com/caixasimples/vendas/application/VendaService.java) | A venda copia o preço do cadastro e confere o caixa por chamadas à camada de aplicação dos módulos donos, recebendo records e nunca a raiz alheia |
 | Value object monetário | [Money.java](src/main/java/br/com/caixasimples/shared/Money.java) | Arredondamento explícito no ponto de uso, sem `double` e sem construtor que reescreve valor em silêncio |
 | Uma decisão explicada onde ela mora | [FusoDeReferencia.java](src/main/java/br/com/caixasimples/shared/FusoDeReferencia.java) | Por que o fuso é constante única e não coluna, e o que precisa acontecer para reabrir a decisão |
@@ -144,7 +144,9 @@ fatos, chamadas diretas fazem perguntas.* O Spring Modulith só expõe o pacote-
 então a camada `application/` é exposta nomeadamente onde outro módulo precisa perguntar algo, e
 `domain/` e `internal/` seguem ocultos: `vendas` copia o preço do produto e confere o estado do
 caixa recebendo records das camadas de aplicação de `cadastro` e `caixa`, nunca a raiz de agregado
-alheia.
+alheia. A exceção é `pagamentos`, que expõe também o `domain/`: ele não tem agregado, e o que mora
+lá é a interface do Strategy e os dois records imutáveis que são o contrato de pagar, o pedido e o
+resultado, sem os quais ninguém consegue chamar o serviço de pagamento.
 
 ### Padrões aplicados
 
@@ -199,9 +201,13 @@ os dois a usam.
 - **Regra de negócio entra com o caso de uso, não com a tabela.** O agregado de venda nasceu com
   schema, entidades e repositório e sem caminho de escrita, porque um construtor público sem as
   regras do total seria uma porta lateral. A montagem da comanda trouxe as regras do total; a
-  conclusão vai trazer as dos pagamentos. Até lá, o que ainda não tem regra continua sem método
-  público, e os testes que precisam de um estado específico gravam pelo mesmo método que a entidade
-  usa para remontar o agregado a partir do banco.
+  conclusão trouxe as dos pagamentos. O que ainda não tem regra, como o cancelamento, continua sem
+  método público, e os testes que precisam de um estado específico gravam pelo mesmo método que a
+  entidade usa para remontar o agregado a partir do banco.
+- **Concluir é um passo, não um efeito.** Registrar a parcela que fecha a conta não conclui a
+  venda; quem finaliza chama a operação que diz isso. Um método de registrar pagamento que às vezes
+  mudasse o status seria comportamento escondido no nome, e o evento de venda concluída, quando
+  existir, nasce de um ponto só.
 - **O preço nunca vem de quem chama.** Lançar um item recebe o id do produto, e o caso de uso
   consulta o preço vigente no cadastro na hora de gravar. Um preço vindo do pedido seria uma porta
   para vender por qualquer valor; a cópia feita ali é o que impede uma venda passada de mudar quando
@@ -246,7 +252,7 @@ monetários são `numeric(12,2)` e timestamps são `timestamptz` gravados em UTC
 
 | Agregado | Raiz | Membros | O que a raiz garante | Estado |
 |---|---|---|---|---|
-| **Venda** | `Venda` | `ItemVenda`, `Pagamento` | `valor_total` reflete a soma dos itens menos o desconto; numa venda concluída, a soma dos pagamentos confirmados é igual ao total | Montagem implementada, com a regra do total viva a cada operação; a regra dos pagamentos chega com a conclusão da venda |
+| **Venda** | `Venda` | `ItemVenda`, `Pagamento` | `valor_total` reflete a soma dos itens menos o desconto; numa venda concluída, a soma dos pagamentos confirmados é igual ao total | Implementado até a conclusão: as duas regras vivas a cada operação, e conferidas de novo ao remontar o agregado do banco. O cancelamento ainda não existe |
 | **Caixa** | `SessaoCaixa` | `MovimentoCaixa` | `valor_fechamento_esperado` reflete o valor de abertura mais a soma assinada dos movimentos | Implementado |
 | **Produto** | `Produto` | `MovimentoEstoque` | `estoque_atual` reflete a soma dos movimentos, atualizado na mesma transação | Raiz implementada; o membro nasce com o módulo `estoque` |
 | Entidade única | `Conta`, `Usuario`, `Cliente` | nenhum | são agregados de uma entidade só | Implementado |
@@ -282,6 +288,17 @@ editar um agregado através de outro.
 - **`Pagamento` é entidade própria**, e não colunas na venda, porque uma venda pode ser dividida
   entre formas: metade em dinheiro e metade no cartão são dois registros, cada um com o seu valor e
   o seu estado.
+- **Parcela nunca passa do que falta pagar, e o total nunca fica abaixo do já pago.** Lançar uma
+  parcela maior que o saldo é recusado como erro de digitação; remover item ou aplicar desconto
+  que deixasse o total menor que as parcelas lançadas também. Uma parcela pendente, à espera de um
+  provedor, reserva o lugar dela na conta; uma recusada não ocupa lugar. Parcela lançada não se
+  desfaz: o valor errado se corrige cancelando a venda.
+- **A venda só conclui com os pagamentos confirmados exatamente iguais ao total**, e nunca sem
+  item. O troco é calculado pelo módulo de pagamentos e devolvido a quem chamou, sem ser gravado.
+- **Estado divergente não vira agregado.** Ao remontar uma venda do banco, a raiz confere as duas
+  regras e recusa a linha cujo total não bate com os itens, ou concluída sem os pagamentos que a
+  fecham. Uma linha gravada por fora do código deixa de ser legível pelo domínio até ser corrigida,
+  em vez de circular com um total que ninguém confere.
 - **A venda nasce aberta.** É o estado da comanda em montagem e também o da venda que espera a
   confirmação de um pagamento que chega depois, como uma cobrança de Pix gerada por provedor. Os
   dois são o mesmo estado porque em ambos a venda existe e ainda não está paga.

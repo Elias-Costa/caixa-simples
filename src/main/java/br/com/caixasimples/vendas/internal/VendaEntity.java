@@ -138,8 +138,8 @@ public class VendaEntity {
     }
 
     /**
-     * Copia para a linha tudo o que a montagem pode ter mudado: o status, os dois totais e a lista
-     * de itens.
+     * Copia para a linha tudo o que a montagem, o pagamento e a conclusão podem ter mudado: o
+     * status, os dois totais e as duas listas.
      *
      * <p><strong>Os itens são sincronizados por id, nos dois sentidos.</strong> O que saiu do
      * domínio sai da coleção, e {@code orphanRemoval} apaga a linha; o que entrou vira linha nova;
@@ -148,9 +148,10 @@ public class VendaEntity {
      * substituir. Aqui a remoção existe porque a raiz tem {@code removerItem}; lá não há o que
      * remover.
      *
-     * <p><strong>Os pagamentos não são tocados</strong>, e a ausência acompanha o domínio: a raiz
-     * ainda não registra pagamento, então não há estado deles para copiar. Esta parte nasce junto
-     * do caso de uso que a traz.
+     * <p><strong>Os pagamentos só crescem.</strong> Parcela lançada não se desfaz, então não há
+     * remoção a espelhar: o que o domínio tem e a linha ainda não tem vira linha nova, e o resto
+     * fica onde está, exatamente como os movimentos da sessão de caixa. Se um dia o estorno apagar
+     * ou marcar parcela, é esta parte que muda.
      *
      * <p>É um método só, e não um por caso de uso, pelo motivo dado em {@code SessaoCaixaEntity}:
      * a linha copia o estado do domínio, que é a fonte da verdade, e escrever ABERTA por cima de
@@ -173,8 +174,21 @@ public class VendaEntity {
                 .filter(item -> !jaGravados.contains(item.id()))
                 .map(ItemVendaEntity::de)
                 .forEach(itens::add);
+
+        Set<UUID> parcelasGravadas = pagamentos.stream()
+                .map(PagamentoEntity::getId)
+                .collect(Collectors.toSet());
+        venda.getPagamentos().stream()
+                .filter(parcela -> !parcelasGravadas.contains(parcela.id()))
+                .map(PagamentoEntity::de)
+                .forEach(pagamentos::add);
     }
 
+    /**
+     * Remonta o agregado. Se a linha viola uma invariante da venda, o total divergente dos itens
+     * ou a venda CONCLUIDA sem os pagamentos que a fecham, {@code Venda.reconstituir} recusa e a
+     * leitura estoura: é o domínio, não a entidade, que decide o que é um estado válido.
+     */
     public Venda paraDominio() {
         List<ItemVenda> itensDoDominio = itens.stream()
                 .map(ItemVendaEntity::paraDominio)

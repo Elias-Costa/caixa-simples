@@ -11,12 +11,15 @@ import java.util.UUID;
  * Uma parcela do pagamento de uma venda, numa forma só.
  *
  * <p><strong>Membro do agregado Venda</strong>, nunca raiz. Não tem repositório e não se altera
- * sozinho: nasce dentro de {@link Venda} e some com ela. É entidade própria, e não um campo da
- * venda, porque uma venda pode ser dividida entre formas (RF09): metade em dinheiro e metade no
- * cartão são dois registros deste tipo, cada um com o seu valor.
+ * sozinho: nasce dentro de {@link Venda}, por {@link Venda#registrarPagamento}, e some com ela. É
+ * entidade própria, e não um campo da venda, porque uma venda pode ser dividida entre formas
+ * (RF09): metade em dinheiro e metade no cartão são dois registros deste tipo, cada um com o seu
+ * valor.
  *
- * <p>É um {@code record} porque parcela lançada não se edita. A confirmação de uma parcela
- * PENDENTE, quando existir, é uma troca de registro feita pela raiz, não uma mutação daqui.
+ * <p>É um {@code record} porque parcela lançada não se edita, e também não se desfaz: uma parcela
+ * lançada com o valor errado se corrige cancelando a venda, quando o cancelamento existir. A
+ * confirmação de uma parcela PENDENTE, quando existir, é uma troca de registro feita pela raiz,
+ * não uma mutação daqui.
  *
  * <p>Os dois enums vêm da raiz do módulo de pagamentos, que é a API pública dele. O módulo de
  * vendas nomeia a forma e o estado da parcela, mas quem sabe como cada forma é paga, com troco ou
@@ -48,5 +51,16 @@ public record Pagamento(UUID id, FormaPagamento forma, Money valor, StatusPagame
             throw new IllegalArgumentException(
                     "valor do pagamento nao pode ser negativo: " + valor);
         }
+    }
+
+    /**
+     * Parcela nova: identidade e momento nascem aqui, como em todo registro do sistema (RNF01).
+     *
+     * <p>Visibilidade de pacote, para que só a raiz crie parcela: é ela que confere o valor contra
+     * o que falta pagar. O status chega pronto, decidido pelo módulo de pagamentos, porque é a
+     * forma que sabe se a parcela nasce confirmada ou espera um provedor.
+     */
+    static Pagamento novo(FormaPagamento forma, Money valor, StatusPagamento status) {
+        return new Pagamento(UUID.randomUUID(), forma, valor, status, Instant.now());
     }
 }

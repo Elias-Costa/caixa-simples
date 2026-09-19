@@ -1,5 +1,7 @@
 package br.com.caixasimples.vendas.domain;
 
+import br.com.caixasimples.pagamentos.FormaPagamento;
+import br.com.caixasimples.pagamentos.StatusPagamento;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.vendas.StatusVenda;
 import java.math.BigDecimal;
@@ -23,7 +25,9 @@ import java.util.UUID;
  * <p>A primeira invariante vale <em>o tempo todo</em>, e não apenas na conclusão: o total é
  * reescrito a cada item que entra ou sai e a cada desconto aplicado, do mesmo jeito que o esperado
  * da sessão de caixa acompanha os movimentos. Perguntar quanto a comanda está devendo é ler um
- * campo, não somar a lista.
+ * campo, não somar a lista. A segunda é conferida por {@link #concluir}, que é a única transição
+ * para CONCLUIDA, e as duas são conferidas de novo por {@link #reconstituir}: um estado que as
+ * viole não entra no agregado, venha de onde vier.
  *
  * <p><strong>Não importa framework</strong>, nem {@code jakarta.persistence} nem
  * {@code org.springframework}. O mapeamento vive em {@code vendas.internal.VendaEntity}.
@@ -54,18 +58,47 @@ import java.util.UUID;
  *   <li>Só venda ABERTA aceita montagem. Uma venda CONCLUIDA já tem os pagamentos batendo com o
  *       total, e uma CANCELADA já produziu o estorno; mexer nos itens de qualquer das duas tornaria
  *       mentiroso o que já foi gravado.</li>
+ *   <li>Depois de uma parcela lançada, a comanda continua aberta a montagem, mas nenhuma operação
+ *       deixa o total abaixo do que já foi pago: remover item ou aplicar desconto que fizesse isso
+ *       é recusado. Adicionar item nunca reduz o total, então nunca é recusado por esse motivo.</li>
  * </ul>
  *
  * <p><strong>O preço unitário chega pronto</strong>, copiado do produto por quem monta a venda.
  * A raiz não conhece o cadastro e não teria como consultá-lo; o que ela garante é que o valor
  * recebido é o que fica gravado, mesmo que o produto seja reajustado depois.
  *
+ * <h2>O pagamento e a conclusão</h2>
+ *
+ * <p>Uma venda pode ser dividida entre formas (RF09): cada parcela entra por
+ * {@link #registrarPagamento}, e {@link #concluir} é um passo à parte, que confere a conta e vira
+ * a venda para CONCLUIDA. Registrar a parcela que fecha a conta <strong>não</strong> conclui a
+ * venda: um método com esse nome que às vezes mudasse o status seria comportamento escondido, e
+ * quem finaliza a venda chama a operação que diz isso.
+ *
+ * <ul>
+ *   <li>Parcela maior que o que falta pagar é recusada. O que falta é o total menos as parcelas já
+ *       lançadas que não estão RECUSADO: uma parcela PENDENTE, à espera de um provedor, reserva o
+ *       lugar dela; uma RECUSADO é desfecho encerrado e não ocupa lugar.</li>
+ *   <li>A venda só conclui com a soma das parcelas CONFIRMADO igual ao total. A menos e a mais são
+ *       recusados, e a mais nem chega a existir, pela regra anterior.</li>
+ *   <li>Venda sem item não conclui: venda de nada não é venda. Venda com item de preço zero e
+ *       total zero conclui sem parcela nenhuma, porque algo foi vendido e a conta fecha.</li>
+ * </ul>
+ *
+ * <p><strong>O status e o troco de cada parcela chegam prontos</strong>, decididos pelo módulo de
+ * pagamentos, que é quem sabe como cada forma é paga. A raiz registra o que ficou decidido e
+ * guarda a conta; o troco não é persistido e volta a quem chamou.
+ *
+ * <p><strong>Parcela lançada não se desfaz.</strong> Não existe operação que remova uma parcela:
+ * um valor lançado errado se corrige cancelando a venda, quando o cancelamento existir. Até lá,
+ * uma parcela errada prende a venda ABERTA, porque a conclusão exige igualdade.
+ *
  * <p><strong>Vincular cliente ainda não existe em código.</strong> A venda nasce sem cliente e o
  * vínculo chega como operação própria, porque numa comanda o cliente costuma ser identificado
  * depois do primeiro item, e às vezes só na hora de pagar.
  *
- * <p><strong>Conclusão e cancelamento tampouco existem ainda.</strong> Chegam com os casos de uso
- * que registram pagamento e estornam a venda; até lá nenhuma venda muda de estado.
+ * <p><strong>O cancelamento tampouco existe ainda.</strong> Chega com o caso de uso que estorna a
+ * venda; até lá nenhuma venda sai de CONCLUIDA.
  */
 public class Venda {
 
@@ -75,7 +108,7 @@ public class Venda {
     private final UUID clienteId;
     private final Instant criadoEm;
 
-    /** Muda com a conclusão e com o cancelamento, que ainda não existem em código. */
+    /** Só {@link #concluir} o muda, para CONCLUIDA. O cancelamento ainda não existe em código. */
     private StatusVenda status;
 
     /** Invariante viva, descrita no javadoc da classe. Nunca escrita de fora. */
@@ -129,20 +162,50 @@ public class Venda {
      *
      * <p>Existe para {@code VendaEntity}, e não é caminho de montagem: não passa pelas regras de
      * {@link #adicionarItem} nem de {@link #aplicarDesconto}. Pelo mesmo motivo de
-     * {@code SessaoCaixa.reconstituir}, não recalcula o total a partir dos itens: o que está
-     * gravado já passou pela montagem e pelos CHECK da migration, e recalcular aqui mascararia uma
-     * linha divergente em vez de deixar o defeito aparecer.
+     * {@code SessaoCaixa.reconstituir}, não recalcula o total a partir dos itens: recalcular
+     * mascararia uma linha divergente. O que ele faz é <strong>conferir e recusar</strong>: as duas
+     * invariantes da classe são checadas aqui, e um estado que as viole estoura em vez de virar
+     * agregado. É o único jeito de o defeito aparecer alto, e não como um total errado que ninguém
+     * confere.
+     *
+     * <p>Custo aceito: uma linha divergente no banco, gravada por script ou por defeito, deixa de
+     * ser legível pelo domínio até ser corrigida. Projeções de relatório, que leem colunas e não
+     * remontam o agregado, continuam funcionando.
      *
      * <p>As listas recebidas são copiadas, para que quem chamou não consiga alterar o agregado
      * por fora depois de montá-lo.
      *
      * @param clienteId nulo quando a venda não tem cliente identificado (RF03)
+     * @throws IllegalStateException se {@code valorTotal} não é a soma dos subtotais menos o
+     *                               desconto, ou se a venda está CONCLUIDA com a soma dos
+     *                               pagamentos CONFIRMADO diferente do total
      */
     public static Venda reconstituir(UUID id, UUID sessaoCaixaId, UUID usuarioId, UUID clienteId,
             StatusVenda status, Money valorTotal, Money valorDesconto, Instant criadoEm,
             List<ItemVenda> itens, List<Pagamento> pagamentos) {
-        return new Venda(id, sessaoCaixaId, usuarioId, clienteId, status, valorTotal,
+        Venda venda = new Venda(id, sessaoCaixaId, usuarioId, clienteId, status, valorTotal,
                 valorDesconto, criadoEm, itens, pagamentos);
+
+        Money totalPelosItens = venda.somaDosItens().subtrair(venda.valorDesconto);
+        if (!venda.valorTotal.equals(totalPelosItens)) {
+            throw new IllegalStateException(
+                    "venda " + id + " tem valorTotal " + venda.valorTotal + ", mas os itens somam "
+                            + venda.somaDosItens() + " menos desconto " + venda.valorDesconto
+                            + " = " + totalPelosItens + ". O estado gravado viola a invariante"
+                            + " do total e nao pode ser remontado.");
+        }
+        if (venda.status == StatusVenda.CONCLUIDA) {
+            Money confirmados = venda.somaDosConfirmados();
+            if (!confirmados.equals(venda.valorTotal)) {
+                throw new IllegalStateException(
+                        "venda " + id + " esta CONCLUIDA com " + confirmados + " em pagamentos"
+                                + " confirmados para um total de " + venda.valorTotal
+                                + ". O estado gravado viola a invariante da conclusao e nao"
+                                + " pode ser remontado.");
+            }
+        }
+
+        return venda;
     }
 
     /**
@@ -182,8 +245,9 @@ public class Venda {
      * Tira um item da comanda e mantém o total em dia. É também o caminho para corrigir um item,
      * já que item lançado não se edita: remove e lança de novo.
      *
-     * @throws IllegalArgumentException se o item não está nesta venda, ou se removê-lo deixaria o
-     *                                  desconto da venda maior que a soma dos itens restantes
+     * @throws IllegalArgumentException se o item não está nesta venda, se removê-lo deixaria o
+     *                                  desconto da venda maior que a soma dos itens restantes, ou
+     *                                  se deixaria o total abaixo do que já foi pago
      * @throws IllegalStateException    se a venda não está ABERTA
      */
     public void removerItem(UUID itemId) {
@@ -200,12 +264,14 @@ public class Venda {
         // restante ainda cobre o desconto já aplicado? Conferido antes de remover, para que uma
         // recusa não deixe rastro.
         Money somaSemOItem = somaDosItens().subtrair(item.subtotal());
-        if (somaSemOItem.subtrair(valorDesconto).isNegativo()) {
+        Money totalSemOItem = somaSemOItem.subtrair(valorDesconto);
+        if (totalSemOItem.isNegativo()) {
             throw new IllegalArgumentException(
                     "remover o item deixaria o desconto da venda, " + valorDesconto
                             + ", maior que a soma dos itens restantes, " + somaSemOItem
                             + ". Reduza o desconto antes de remover o item.");
         }
+        exigirTotalNaoAbaixoDoPago(totalSemOItem, "remover o item");
 
         itens.remove(item);
         recalcularTotal();
@@ -219,7 +285,8 @@ public class Venda {
      * o desconto, aplica-se zero.
      *
      * @param desconto zero vale, negativo não, e nunca maior que a soma dos itens
-     * @throws IllegalArgumentException se o desconto é negativo ou passa da soma dos itens
+     * @throws IllegalArgumentException se o desconto é negativo, passa da soma dos itens, ou
+     *                                  deixaria o total abaixo do que já foi pago
      * @throws IllegalStateException    se a venda não está ABERTA
      */
     public void aplicarDesconto(Money desconto) {
@@ -233,14 +300,85 @@ public class Venda {
         }
 
         Money somaDosItens = somaDosItens();
-        if (somaDosItens.subtrair(desconto).isNegativo()) {
+        Money totalComODesconto = somaDosItens.subtrair(desconto);
+        if (totalComODesconto.isNegativo()) {
             throw new IllegalArgumentException(
                     "desconto de " + desconto + " e maior que a soma dos itens, " + somaDosItens
                             + ". O total da venda nao fica negativo.");
         }
+        exigirTotalNaoAbaixoDoPago(totalComODesconto, "aplicar o desconto");
 
         this.valorDesconto = desconto;
         recalcularTotal();
+    }
+
+    /**
+     * Lança uma parcela do pagamento (RF09). Não muda o status: quem fecha a venda é
+     * {@link #concluir}, mesmo quando esta parcela completa a conta.
+     *
+     * <p>Forma, valor e status chegam prontos do módulo de pagamentos, que é quem sabe se a
+     * parcela nasce confirmada ou espera um provedor, e quanto volta de troco. Aqui só se confere
+     * que a parcela cabe no que falta pagar, e se anexa.
+     *
+     * @param status o estado em que a parcela nasceu; PENDENTE reserva lugar na conta, RECUSADO
+     *               não
+     * @throws IllegalArgumentException se o valor passa do que falta pagar
+     * @throws IllegalStateException    se a venda não está ABERTA
+     */
+    public void registrarPagamento(FormaPagamento forma, Money valor, StatusPagamento status) {
+        exigirAberta();
+        Objects.requireNonNull(forma, "forma de pagamento nao pode ser nula");
+        Objects.requireNonNull(valor, "valor do pagamento nao pode ser nulo");
+        Objects.requireNonNull(status, "status do pagamento nao pode ser nulo");
+
+        // Conferido antes de anexar, para que uma parcela recusada não deixe rastro. Igual ao
+        // saldo passa: é a parcela que fecha a conta.
+        Money saldo = saldoAPagar();
+        if (saldo.subtrair(valor).isNegativo()) {
+            throw new IllegalArgumentException(
+                    "parcela de " + valor + " e maior que o que falta pagar, " + saldo
+                            + ". O total da venda e " + valorTotal + " e ja ha "
+                            + somaDasParcelasLancadas() + " em parcelas lancadas.");
+        }
+
+        pagamentos.add(Pagamento.novo(forma, valor, status));
+    }
+
+    /**
+     * Fecha a venda (RF09): confere que os pagamentos confirmados cobrem exatamente o total e vira
+     * o status para CONCLUIDA. É a única transição de estado que existe em código.
+     *
+     * <p>Passo à parte de {@link #registrarPagamento} de propósito: a tela chama isto quando o
+     * operador finaliza, e é daqui que a venda concluída vai avisar o caixa e o estoque, quando o
+     * evento existir. A raiz não faz nada fora do agregado.
+     *
+     * @throws IllegalStateException se a venda não está ABERTA, não tem item, ou a soma dos
+     *                               pagamentos CONFIRMADO é diferente do total
+     */
+    public void concluir() {
+        if (status != StatusVenda.ABERTA) {
+            throw new IllegalStateException(
+                    "venda " + id + " esta " + status + " e nao conclui de novo."
+                            + " So venda ABERTA conclui.");
+        }
+        if (itens.isEmpty()) {
+            // Venda de nada não é venda, como item de quantidade zero não é item. Sem esta guarda,
+            // uma comanda aberta por engano viraria venda concluída vazia no histórico.
+            throw new IllegalStateException(
+                    "venda " + id + " nao tem item nenhum e nao conclui. Venda de nada nao e"
+                            + " venda.");
+        }
+
+        Money confirmados = somaDosConfirmados();
+        if (!confirmados.equals(valorTotal)) {
+            throw new IllegalStateException(
+                    "venda " + id + " tem " + confirmados + " em pagamentos confirmados para um"
+                            + " total de " + valorTotal + "; faltam "
+                            + valorTotal.subtrair(confirmados) + ". A venda so conclui quando os"
+                            + " pagamentos confirmados cobrem exatamente o total.");
+        }
+
+        this.status = StatusVenda.CONCLUIDA;
     }
 
     /**
@@ -254,6 +392,44 @@ public class Venda {
 
     private Money somaDosItens() {
         return itens.stream().map(ItemVenda::subtotal).reduce(Money.ZERO, Money::somar);
+    }
+
+    /**
+     * O que já ocupa lugar na conta: toda parcela que não está RECUSADO. A PENDENTE conta porque
+     * espera um provedor confirmar o que já foi pedido; a RECUSADO é desfecho encerrado.
+     */
+    private Money somaDasParcelasLancadas() {
+        return pagamentos.stream()
+                .filter(parcela -> parcela.status() != StatusPagamento.RECUSADO)
+                .map(Pagamento::valor)
+                .reduce(Money.ZERO, Money::somar);
+    }
+
+    /** O que conta para a conclusão: só o que já está confirmado. */
+    private Money somaDosConfirmados() {
+        return pagamentos.stream()
+                .filter(parcela -> parcela.status() == StatusPagamento.CONFIRMADO)
+                .map(Pagamento::valor)
+                .reduce(Money.ZERO, Money::somar);
+    }
+
+    private Money saldoAPagar() {
+        return valorTotal.subtrair(somaDasParcelasLancadas());
+    }
+
+    /**
+     * A regra do desconto, olhada pelo lado do pagamento: nenhuma operação de montagem deixa o
+     * total abaixo do que já foi pago, porque a conta deixaria de fechar e parcela lançada não se
+     * desfaz. Chamada com o total que a operação produziria, antes de a operação acontecer.
+     */
+    private void exigirTotalNaoAbaixoDoPago(Money totalResultante, String operacao) {
+        Money pago = somaDasParcelasLancadas();
+        if (totalResultante.subtrair(pago).isNegativo()) {
+            throw new IllegalArgumentException(
+                    operacao + " deixaria o total da venda em " + totalResultante
+                            + ", abaixo dos " + pago + " ja lancados em pagamento."
+                            + " Parcela lancada nao se desfaz.");
+        }
     }
 
     private void exigirAberta() {

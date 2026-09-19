@@ -15,11 +15,15 @@ import br.com.caixasimples.caixa.application.SessaoCaixaNaoEncontradaException;
 import br.com.caixasimples.caixa.application.SessaoCaixaService;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
+import br.com.caixasimples.pagamentos.FormaPagamento;
+import br.com.caixasimples.pagamentos.StatusPagamento;
+import br.com.caixasimples.pagamentos.domain.SolicitacaoPagamento;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.TenantContext;
 import br.com.caixasimples.vendas.application.VendaNaoEncontradaException;
 import br.com.caixasimples.vendas.application.VendaService;
 import br.com.caixasimples.vendas.domain.ItemVenda;
+import br.com.caixasimples.vendas.domain.Pagamento;
 import br.com.caixasimples.vendas.domain.Venda;
 import br.com.caixasimples.vendas.internal.VendaRepository;
 import java.math.BigDecimal;
@@ -30,14 +34,15 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 /**
- * A montagem da venda contra o banco de verdade: iniciar a comanda, lançar e remover item (RF07),
- * desconto sobre o total (RF08) e a cópia do preço do produto (RF06).
+ * A venda contra o banco de verdade: iniciar a comanda, lançar e remover item (RF07), desconto
+ * sobre o total (RF08), a cópia do preço do produto (RF06), o pagamento dividido entre formas com
+ * o Strategy de verdade (RF09, RF10) e a conclusão.
  *
  * <p>Existe separado de {@code VendaTest} porque prova outra coisa: lá a conta do agregado está
  * certa <em>em memória</em>; aqui ela <strong>atravessa o banco</strong>, que é o único jeito de
  * exercitar o {@code atualizarCom} da entidade, inclusive a remoção de linha por
- * {@code orphanRemoval}, as duas perguntas feitas a outros módulos e o isolamento entre contas
- * em cada uma delas.
+ * {@code orphanRemoval} e o acréscimo das parcelas, as três perguntas feitas a outros módulos e o
+ * isolamento entre contas em cada uma delas.
  *
  * <p>Fica no pacote {@code vendas} e enxerga só o que um controller enxergaria: o serviço, o
  * domínio e a raiz do agregado. Os casos de uso de {@code caixa} e {@code cadastro} entram no
@@ -323,6 +328,180 @@ class VendaServiceTest extends TesteDeIntegracao {
                 assertThat(vendas.findById(vendaDaContaA).orElseThrow().paraDominio().getItens())
                         .as("a venda da conta A continua intacta")
                         .isEmpty());
+    }
+
+    @Test
+    @DisplayName("conclui venda dividida entre dinheiro e Pix, com o troco calculado e as parcelas gravadas (RF09, RF10)")
+    void concluiVendaDivididaEntreDinheiroEPix() {
+        ContaCriada conta = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
+        UUID sessaoId = abrirCaixa(conta);
+        UUID cafeId = cadastrar(conta, "Cafe coado", Money.de("4.50"));
+        UUID queijoId = cadastrar(conta, "Queijo minas", Money.de("39.90"));
+
+        UUID vendaId = TenantContext.executarComo(conta.contaId(), () ->
+                vendaService.iniciar(sessaoId, conta.usuarioId()));
+        TenantContext.executarComo(conta.contaId(), () -> {
+            vendaService.adicionarItem(vendaId, cafeId, new BigDecimal("2"), Money.ZERO);
+            vendaService.adicionarItem(vendaId, queijoId, new BigDecimal("0.750"), Money.ZERO);
+        });
+        // 9,00 + 29,93 = 38,93.
+
+        Money trocoDoPix = TenantContext.executarComo(conta.contaId(), () ->
+                vendaService.registrarPagamento(vendaId,
+                        SolicitacaoPagamento.de(FormaPagamento.PIX, Money.de("20.00"))));
+        Money trocoDoDinheiro = TenantContext.executarComo(conta.contaId(), () ->
+                vendaService.registrarPagamento(vendaId,
+                        SolicitacaoPagamento.emDinheiro(Money.de("18.93"), Money.de("50.00"))));
+
+        // O troco vem do Strategy de verdade, o registrado pelo Spring, e não é persistido.
+        assertThat(trocoDoPix).isEqualTo(Money.ZERO);
+        assertThat(trocoDoDinheiro).isEqualTo(Money.de("31.07"));
+
+        TenantContext.executarComo(conta.contaId(), () -> {
+            Venda antesDeConcluir = vendas.findById(vendaId).orElseThrow().paraDominio();
+            assertThat(antesDeConcluir.getStatus())
+                    .as("a parcela que fecha a conta não conclui")
+                    .isEqualTo(StatusVenda.ABERTA);
+        });
+
+        TenantContext.executarComo(conta.contaId(), () -> vendaService.concluir(vendaId));
+
+        TenantContext.executarComo(conta.contaId(), () -> {
+            Venda gravada = vendas.findById(vendaId).orElseThrow().paraDominio();
+            assertThat(gravada.getStatus()).isEqualTo(StatusVenda.CONCLUIDA);
+            assertThat(gravada.getValorTotal()).isEqualTo(Money.de("38.93"));
+            assertThat(gravada.getPagamentos())
+                    .extracting(Pagamento::forma, Pagamento::valor, Pagamento::status)
+                    .containsExactly(
+                            tuple(FormaPagamento.PIX, Money.de("20.00"),
+                                    StatusPagamento.CONFIRMADO),
+                            tuple(FormaPagamento.DINHEIRO, Money.de("18.93"),
+                                    StatusPagamento.CONFIRMADO));
+        });
+
+        // O status atravessou o banco: a venda concluída não aceita mais montagem nem pagamento.
+        assertThatIllegalStateException()
+                .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+                        vendaService.adicionarItem(vendaId, cafeId, BigDecimal.ONE, Money.ZERO)))
+                .withMessageContaining("CONCLUIDA");
+        assertThatIllegalStateException()
+                .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+                        vendaService.registrarPagamento(vendaId,
+                                SolicitacaoPagamento.de(FormaPagamento.PIX, Money.de("1.00")))))
+                .withMessageContaining("CONCLUIDA");
+        assertThatIllegalStateException()
+                .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+                        vendaService.concluir(vendaId)))
+                .withMessageContaining("CONCLUIDA");
+    }
+
+    @Test
+    @DisplayName("parcela maior que o que falta pagar é recusada pelo serviço e nada é gravado")
+    void parcelaAcimaDoSaldoNaoEGravada() {
+        ContaCriada conta = criador.criar("Padaria Central", SENHA_DE_TESTE);
+        UUID sessaoId = abrirCaixa(conta);
+        UUID paoId = cadastrar(conta, "Pao de queijo", Money.de("30.00"));
+
+        UUID vendaId = TenantContext.executarComo(conta.contaId(), () ->
+                vendaService.iniciar(sessaoId, conta.usuarioId()));
+        TenantContext.executarComo(conta.contaId(), () -> {
+            vendaService.adicionarItem(vendaId, paoId, BigDecimal.ONE, Money.ZERO);
+            vendaService.registrarPagamento(vendaId,
+                    SolicitacaoPagamento.de(FormaPagamento.PIX, Money.de("20.00")));
+        });
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+                        vendaService.registrarPagamento(vendaId,
+                                SolicitacaoPagamento.de(FormaPagamento.CARTAO, Money.de("15.00")))))
+                .withMessageContaining("maior que o que falta pagar, 10.00");
+
+        TenantContext.executarComo(conta.contaId(), () ->
+                assertThat(vendas.findById(vendaId).orElseThrow().paraDominio().getPagamentos())
+                        .as("a parcela recusada não deixou rastro")
+                        .extracting(Pagamento::valor)
+                        .containsExactly(Money.de("20.00")));
+    }
+
+    @Test
+    @DisplayName("concluir com pagamento a menos é recusado e a venda continua ABERTA no banco")
+    void concluirComPagamentoAMenosERecusado() {
+        ContaCriada conta = criador.criar("Mercearia da Rua", SENHA_DE_TESTE);
+        UUID sessaoId = abrirCaixa(conta);
+        UUID cafeId = cadastrar(conta, "Cafe coado", Money.de("4.50"));
+
+        UUID vendaId = TenantContext.executarComo(conta.contaId(), () ->
+                vendaService.iniciar(sessaoId, conta.usuarioId()));
+        TenantContext.executarComo(conta.contaId(), () -> {
+            vendaService.adicionarItem(vendaId, cafeId, new BigDecimal("2"), Money.ZERO);
+            vendaService.registrarPagamento(vendaId,
+                    SolicitacaoPagamento.de(FormaPagamento.CARTAO, Money.de("5.00")));
+        });
+
+        assertThatIllegalStateException()
+                .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+                        vendaService.concluir(vendaId)))
+                .withMessageContaining("faltam 4.00");
+
+        TenantContext.executarComo(conta.contaId(), () ->
+                assertThat(vendas.findById(vendaId).orElseThrow().paraDominio().getStatus())
+                        .isEqualTo(StatusVenda.ABERTA));
+    }
+
+    @Test
+    @DisplayName("a regra da forma de pagamento atravessa o serviço: valor recebido em Pix é recusado")
+    void regraDaEstrategiaAtravessaOServico() {
+        ContaCriada conta = criador.criar("Empório do Bairro", SENHA_DE_TESTE);
+        UUID sessaoId = abrirCaixa(conta);
+        UUID cafeId = cadastrar(conta, "Cafe coado", Money.de("4.50"));
+
+        UUID vendaId = TenantContext.executarComo(conta.contaId(), () ->
+                vendaService.iniciar(sessaoId, conta.usuarioId()));
+        TenantContext.executarComo(conta.contaId(), () ->
+                vendaService.adicionarItem(vendaId, cafeId, BigDecimal.ONE, Money.ZERO));
+
+        // Quem recusa é a estratégia de Pix, encontrada pelo serviço de pagamentos; a venda não é
+        // tocada.
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+                        vendaService.registrarPagamento(vendaId, new SolicitacaoPagamento(
+                                FormaPagamento.PIX, Money.de("4.50"), Money.de("10.00")))))
+                .withMessageContaining("nao aceita valor recebido");
+
+        TenantContext.executarComo(conta.contaId(), () ->
+                assertThat(vendas.findById(vendaId).orElseThrow().paraDominio().getPagamentos())
+                        .isEmpty());
+    }
+
+    @Test
+    @DisplayName("conta B não registra pagamento nem conclui a venda da conta A (RNF05)")
+    void contaBNaoPagaNemConcluiVendaDaContaA() {
+        ContaCriada contaA = criador.criar("Loja A", SENHA_DE_TESTE);
+        ContaCriada contaB = criador.criar("Loja B", SENHA_DE_TESTE);
+        UUID sessaoDaContaA = abrirCaixa(contaA);
+        UUID produtoDaContaA = cadastrar(contaA, "Escova", Money.de("50.00"));
+
+        UUID vendaDaContaA = TenantContext.executarComo(contaA.contaId(), () ->
+                vendaService.iniciar(sessaoDaContaA, contaA.usuarioId()));
+        TenantContext.executarComo(contaA.contaId(), () ->
+                vendaService.adicionarItem(vendaDaContaA, produtoDaContaA, BigDecimal.ONE,
+                        Money.ZERO));
+
+        // O id de outra conta é indistinguível de um id que nunca existiu, e a recusa vem antes de
+        // qualquer regra de pagamento rodar.
+        assertThatExceptionOfType(VendaNaoEncontradaException.class).isThrownBy(() ->
+                TenantContext.executarComo(contaB.contaId(), () ->
+                        vendaService.registrarPagamento(vendaDaContaA,
+                                SolicitacaoPagamento.de(FormaPagamento.PIX, Money.de("50.00")))));
+        assertThatExceptionOfType(VendaNaoEncontradaException.class).isThrownBy(() ->
+                TenantContext.executarComo(contaB.contaId(), () ->
+                        vendaService.concluir(vendaDaContaA)));
+
+        TenantContext.executarComo(contaA.contaId(), () -> {
+            Venda intacta = vendas.findById(vendaDaContaA).orElseThrow().paraDominio();
+            assertThat(intacta.getPagamentos()).isEmpty();
+            assertThat(intacta.getStatus()).isEqualTo(StatusVenda.ABERTA);
+        });
     }
 
     private UUID abrirCaixa(ContaCriada conta) {
