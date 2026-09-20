@@ -1,10 +1,18 @@
 package br.com.caixasimples.vendas;
 
+import br.com.caixasimples.pagamentos.FormaPagamento;
+import br.com.caixasimples.pagamentos.StatusPagamento;
 import br.com.caixasimples.shared.ContaId;
+import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.TenantContext;
+import br.com.caixasimples.vendas.domain.ItemVenda;
+import br.com.caixasimples.vendas.domain.Pagamento;
 import br.com.caixasimples.vendas.domain.Venda;
 import br.com.caixasimples.vendas.internal.VendaEntity;
 import br.com.caixasimples.vendas.internal.VendaRepository;
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -39,5 +47,56 @@ public class CriadorDeVendaDeTeste {
 
         return TenantContext.executarComo(contaId, () ->
                 vendas.save(VendaEntity.de(venda)).getId());
+    }
+
+    /**
+     * Uma venda CONCLUIDA num instante escolhido, com um item só, de valor igual ao total, pago
+     * em dinheiro sem troco.
+     *
+     * <p>Existe para o teste de relatório fixar <strong>quando</strong> a venda concluiu, o que o
+     * caminho pelo caso de uso não permite: {@code Venda.concluir} grava o instante corrente. A
+     * venda é montada por {@code Venda.reconstituir}, como o teste de isolamento da venda faz.
+     *
+     * <p>O produto vem de quem chama, cadastrado pelo caso de uso do cadastro, porque
+     * {@code item_venda.produto_id} é chave estrangeira; a fixture continua sem depender daquele
+     * módulo.
+     */
+    public UUID criarConcluidaEm(ContaId contaId, UUID sessaoCaixaId, UUID usuarioId,
+            UUID produtoId, Money valor, Instant concluidoEm) {
+        return gravar(contaId, deUmItem(sessaoCaixaId, usuarioId, produtoId, valor,
+                StatusVenda.CONCLUIDA, concluidoEm));
+    }
+
+    /**
+     * Uma venda CANCELADA que antes tinha concluído no instante escolhido: o instante da conclusão
+     * fica gravado, como no cancelamento de verdade, e o status é o final.
+     *
+     * <p>É o caso que o relatório precisa excluir, e que só se distingue da concluída pelo status.
+     */
+    public UUID criarCanceladaQueConcluiuEm(ContaId contaId, UUID sessaoCaixaId, UUID usuarioId,
+            UUID produtoId, Money valor, Instant concluidoEm) {
+        return gravar(contaId, deUmItem(sessaoCaixaId, usuarioId, produtoId, valor,
+                StatusVenda.CANCELADA, concluidoEm));
+    }
+
+    private UUID gravar(ContaId contaId, Venda venda) {
+        return TenantContext.executarComo(contaId, () ->
+                vendas.save(VendaEntity.de(venda)).getId());
+    }
+
+    /**
+     * Um item de quantidade um ao preço do total e uma parcela em dinheiro do mesmo valor: o
+     * estado mais simples que passa pelas duas invariantes da venda concluída. A comanda abre no
+     * mesmo instante em que conclui, para o teste não ter dois instantes para pensar.
+     */
+    private static Venda deUmItem(UUID sessaoCaixaId, UUID usuarioId, UUID produtoId, Money valor,
+            StatusVenda status, Instant concluidoEm) {
+        ItemVenda item = new ItemVenda(UUID.randomUUID(), produtoId, BigDecimal.ONE, valor,
+                Money.ZERO, concluidoEm);
+        Pagamento parcela = new Pagamento(UUID.randomUUID(), FormaPagamento.DINHEIRO, valor,
+                StatusPagamento.CONFIRMADO, Money.ZERO, concluidoEm);
+
+        return Venda.reconstituir(UUID.randomUUID(), sessaoCaixaId, usuarioId, null, status,
+                valor, Money.ZERO, concluidoEm, concluidoEm, List.of(item), List.of(parcela));
     }
 }

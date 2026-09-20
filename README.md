@@ -70,7 +70,7 @@ cliente) sem redesenhar o núcleo.
 
 O núcleo transacional é construído módulo a módulo, e cada um fecha com a suíte verde antes do
 próximo começar. Os oito módulos estão declarados e têm suas fronteiras verificadas desde o
-primeiro dia; seis já têm código de negócio dentro.
+primeiro dia; sete já têm código de negócio dentro.
 
 | Módulo | Estado | O que existe hoje |
 |---|---|---|
@@ -81,7 +81,7 @@ primeiro dia; seis já têm código de negócio dentro.
 | `pagamentos` | Implementado | Strategy por forma de pagamento: dinheiro com troco calculado no domínio, Pix e cartão lançados à mão pelo operador. Sem provedor de Pix ainda |
 | `vendas` | Em andamento | agregado `Venda`, com `ItemVenda` e `Pagamento` como membros: abrir a comanda num caixa aberto, lançar e remover itens com o preço copiado do produto, desconto por item e por venda, total recalculado a cada operação, pagamento dividido entre formas com o troco vindo do módulo de pagamentos, conclusão como passo explícito, que exige o caixa ainda aberto e publica o evento `VendaConcluida` pelo outbox, e cancelamento, que desfaz a comanda aberta ou a venda concluída e, só no segundo caso, publica `VendaCancelada` para o caixa e o estoque desfazerem o que fizeram; e o comprovante não-fiscal de uma venda concluída, devolvido como dado para a tela imprimir ou compartilhar, com as linhas já calculadas, os descontos, as parcelas confirmadas e o troco, que passou a ficar gravado na parcela. Falta o vínculo de cliente |
 | `estoque` | Em andamento | o ouvinte da venda concluída: quando a conta ligou o controle de estoque, cada produto vendido vira uma baixa, pedida ao cadastro, dono do agregado; serviço no meio dos itens não gera nada, e o evento entregue de novo não baixa em dobro. E os casos de uso que uma pessoa aciona: ajuste manual com motivo obrigatório, perda, quebra ou contagem, com a diferença carregando o sinal; estoque mínimo por produto; e o alerta de estoque baixo como consulta, a lista dos produtos ativos no mínimo ou abaixo. A conta que não ligou o controle é recusada nos três. E o ouvinte da venda cancelada, imagem espelhada do primeiro: cada produto que a venda baixou volta, uma vez só, e o que nunca saiu não volta |
-| `relatorios` | Planejado | pacote e fronteira declarados, sem código de negócio |
+| `relatorios` | Em andamento | faturamento do dia e de um período, com o dia delimitado no fuso do balcão e pelo instante em que a venda concluiu, contando só as vendas concluídas. O módulo só lê: enxerga a tabela de venda por um mapeamento próprio, imutável, com as colunas que o relatório usa, e o repositório dele nem tem método de escrita. A soma é do banco. Faltam mais vendidos, fluxo de caixa e os filtros |
 
 **Schema.** Doze migrations Flyway, de `V1` a `V12`: conta, usuário e credencial; produto; cliente;
 catálogo de referência; o agregado de caixa, com a regra de uma sessão aberta por operador; o
@@ -122,6 +122,7 @@ Atalhos para avaliar o código sem percorrer o repositório inteiro.
 | Strategy sem `switch` | [PaymentService.java](src/main/java/br/com/caixasimples/pagamentos/application/PaymentService.java) | Forma de pagamento nova é classe nova; duas estratégias para a mesma forma derrubam a aplicação na subida, em vez de uma sobrescrever a outra em silêncio |
 | A regra do troco no domínio | [ResultadoPagamento.java](src/main/java/br/com/caixasimples/pagamentos/domain/ResultadoPagamento.java) | A conta mora numa fábrica nomeada de um tipo sem framework, e não no componente do Spring que a chama |
 | Membro de agregado invisível de fora | [VendaEntity.java](src/main/java/br/com/caixasimples/vendas/internal/VendaEntity.java) | As entidades de item e pagamento têm visibilidade de pacote, então a proibição de repositório para elas não depende de disciplina |
+| Um módulo que só lê, garantido por construção | [VendaParaRelatorio.java](src/main/java/br/com/caixasimples/relatorios/internal/VendaParaRelatorio.java) | A mesma tabela mapeada uma segunda vez, imutável e só com o que o relatório usa, para os relatórios lerem sem importar o pacote interno de vendas nem remontar o agregado; o repositório ao lado não tem método de escrita, e o porquê de o dia ser o da conclusão está em [FaturamentoService.java](src/main/java/br/com/caixasimples/relatorios/application/FaturamentoService.java) |
 | Atributos variáveis em `JSONB` | [V2\_\_produto.sql](src/main/resources/db/migration/V2__produto.sql) | Índice GIN `jsonb_path_ops` e índice único parcial que só vale entre registros ativos |
 | Vertical slice deliberado | [ClienteService.java](src/main/java/br/com/caixasimples/cadastro/internal/ClienteService.java) | Onde o projeto decide **não** aplicar DDD, porque não há invariante a proteger |
 
@@ -146,8 +147,9 @@ está em [Estado atual](#estado-atual).
 ```
 
 Nem todo módulo tem as quatro: uma camada nasce quando há o que colocar nela. Hoje só `contas` tem
-`web/`, por ser o único com superfície HTTP, e `cadastro` acomoda `Cliente` inteiro em `internal/`,
-porque um slice sem invariante não precisa de `domain/`.
+`web/`, por ser o único com superfície HTTP; `cadastro` acomoda `Cliente` inteiro em `internal/`,
+porque um slice sem invariante não precisa de `domain/`; e `relatorios` não tem `domain/` porque
+não tem regra a proteger: ele lê colunas e soma.
 
 Um módulo nunca importa de `internal/` de outro. Efeito colateral entre módulos é Domain Event;
 consulta é chamada direta à API pública do pacote. A regra que resume as duas: *eventos anunciam
@@ -199,6 +201,11 @@ uso hoje:
 - **Dependency inversion entre módulos** onde uma pergunta e um evento cruzariam em sentidos
   opostos: a interface mora em quem pergunta, a implementação em quem responde.
 - **Vertical slice** onde não há invariante a proteger, em vez de agregado por simetria.
+- **Modelo de leitura próprio no módulo que só lê.** Os relatórios não remontam agregado nem
+  importam a entidade de outro módulo: mapeiam a mesma tabela uma segunda vez, como entidade
+  imutável com só as colunas que a consulta usa, e o repositório herda do marcador do Spring Data
+  em vez do completo, sem `save` nem `delete`. O só-leitura fica garantido por construção, em três
+  pontos, e não por revisão. A soma é feita no banco, em JPQL, que o filtro de conta alcança.
 - **Fitness function de arquitetura**, que transforma a regra de fronteira em teste.
 
 ### Padrões decididos, ainda não escritos
@@ -299,7 +306,9 @@ pontos:
   seu nas duas direções: a lista de estoque baixo de uma conta não traz o produto de outra, e o
   ajuste de uma conta não alcança o produto de outra. O comprovante tem a mesma prova nas duas
   pontas: a venda de uma conta é inexistente para a outra, e a consulta em lote dos nomes dos
-  produtos, que ele faz ao cadastro, também.
+  produtos, que ele faz ao cadastro, também. O faturamento tem a prova que o plano pediu: duas
+  contas com vendas no mesmo dia recebem cada uma só o seu total, e uma terceira, sem venda,
+  recebe zero; a consulta agregada em JPQL passa pelo mesmo filtro que as outras.
 - **Os listeners de evento agem na conta do evento, não na de quem publicou.** Eles rodam em outra
   thread, sem o tenant da requisição, e uma reentrega pode partir do outbox horas depois; a conta
   vai dentro do evento, lida do contexto autenticado no ato da publicação, e há teste, para os
@@ -400,7 +409,15 @@ editar um agregado através de outro.
   dinheiro, e o banco recusa troco em Pix ou cartão.
 - **A venda guarda dois instantes:** quando a comanda abriu e quando os pagamentos fecharam a
   conta. O segundo é a data do comprovante, porque numa comanda os dois podem estar horas
-  distantes; nasce na conclusão, e o cancelamento não o apaga.
+  distantes; nasce na conclusão, e o cancelamento não o apaga. É também o que delimita o dia do
+  faturamento: a venda conta no dia em que o dinheiro entrou, e uma comanda aberta às 23h50 e paga
+  às 00h10 é do dia seguinte. A sessão de caixa, por sua vez, é do dia em que abriu, porque um
+  expediente pode atravessar a meia-noite e continua sendo um só.
+- **A tabela de venda tem um segundo mapeamento, somente leitura**, no módulo de relatórios:
+  imutável, com as colunas que o faturamento usa e nenhuma outra, sem construtor que a instancie.
+  O esquema é o contrato entre os dois mapeamentos, versionado nas migrations, e o Hibernate
+  valida os dois na subida: renomear uma coluna no módulo de vendas derruba a aplicação no
+  deploy, que é o modo certo de falhar, e não com relatório em branco.
 - **O comprovante é dado, não desenho.** O caso de uso devolve um record com as linhas já
   calculadas, o nome que o produto tem hoje, os descontos, as parcelas confirmadas e o troco;
   quem desenha, imprime e compartilha é a tela, que precisa fazer isso também sem conexão. Só
@@ -473,7 +490,7 @@ src
 │   │   ├── vendas/         domain, application, internal
 │   │   ├── shared/         Money, ContaId, TenantContext, FusoDeReferencia
 │   │   ├── estoque/        application, internal
-│   │   └── relatorios/     declarado, sem código de negócio
+│   │   └── relatorios/     application, internal
 │   └── resources
 │       └── db/migration/   V1 a V12, imutáveis depois de publicadas
 └── test/java/br/com/caixasimples
@@ -482,14 +499,15 @@ src
     └── ...                 testes por módulo, incluindo isolamento entre contas
 ```
 
-O módulo sem código de negócio não é uma pasta vazia por descuido: ele declara a fronteira desde o
-início, e o `ModularityTests` já a verifica. Foi assim que a primeira classe de `pagamentos`
-nasceu dentro de um limite que já existia, em vez de criar o limite depois do código; `estoque`
-nasceu do mesmo jeito, com o ouvinte da venda concluída entrando num pacote cuja fronteira já era
-testada, e é assim que `relatorios` vai nascer. `estoque` não tem `domain/` nem tabela própria,
-e não é omissão: ele é política, a conta participa ou não, e o agregado que ele move é do
-cadastro. Os ouvintes em `internal/` e os casos de uso em `application/` decidem e pedem; quem
-executa é o dono do agregado.
+Todo módulo declarou a fronteira antes de ter código, e o `ModularityTests` a verificava desde
+então. Foi assim que a primeira classe de `pagamentos` nasceu dentro de um limite que já existia,
+em vez de criar o limite depois do código; `estoque` nasceu do mesmo jeito, com o ouvinte da venda
+concluída entrando num pacote cuja fronteira já era testada; e `relatorios`, o último, nasceu com
+o faturamento dentro de uma fronteira que já dizia que ele só lê. `estoque` não tem `domain/` nem
+tabela própria, e não é omissão: ele é política, a conta participa ou não, e o agregado que ele
+move é do cadastro. Os ouvintes em `internal/` e os casos de uso em `application/` decidem e
+pedem; quem executa é o dono do agregado. `relatorios` também não tem `domain/` nem tabela: ele
+lê as tabelas dos outros por mapeamentos próprios, e ninguém depende dele.
 
 ## Autor
 
