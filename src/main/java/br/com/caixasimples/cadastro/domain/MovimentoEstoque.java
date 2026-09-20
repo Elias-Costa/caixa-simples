@@ -10,9 +10,11 @@ import java.util.UUID;
  * Uma entrada, saída ou ajuste no estoque de um produto.
  *
  * <p><strong>Membro do agregado Produto</strong>, nunca raiz. Não tem repositório e não se altera
- * sozinho: nasce dentro de {@link Produto}, por {@link Produto#darBaixaPorVenda} ou por
- * {@link Produto#ajustarEstoque}, e o saldo da raiz muda no mesmo ato. É um {@code record} porque
- * não há nada para alterar depois: movimento lançado não se edita, o que se faz é lançar o oposto.
+ * sozinho: nasce dentro de {@link Produto}, por {@link Produto#darBaixaPorVenda},
+ * {@link Produto#estornarPorCancelamento} ou {@link Produto#ajustarEstoque}, e o saldo da raiz
+ * muda no mesmo ato. É um {@code record} porque não há nada para alterar depois: movimento
+ * lançado não se edita, o que se faz é lançar o oposto, e a ENTRADA do cancelamento é exatamente
+ * o oposto da SAIDA da venda.
  *
  * <p><strong>A raiz não carrega o histórico.</strong> Ao contrário de {@code SessaoCaixa}, que
  * remonta seus movimentos a cada leitura, {@link Produto} guarda só o saldo consolidado e devolve
@@ -74,6 +76,17 @@ public record MovimentoEstoque(UUID id, TipoMovimentoEstoque tipo, BigDecimal qu
     static MovimentoEstoque saidaPorVenda(BigDecimal quantidade, UUID vendaId) {
         Objects.requireNonNull(vendaId, "vendaId nao pode ser nulo");
         return new MovimentoEstoque(UUID.randomUUID(), TipoMovimentoEstoque.SAIDA, quantidade,
+                null, vendaId, Instant.now());
+    }
+
+    /**
+     * O estorno de uma venda cancelada (RF12): a quantidade que a venda tinha levado volta, e o
+     * movimento aponta para a mesma venda da SAIDA que ele desfaz. Sem motivo, como a saída: a
+     * venda já o explica.
+     */
+    static MovimentoEstoque entradaPorCancelamento(BigDecimal quantidade, UUID vendaId) {
+        Objects.requireNonNull(vendaId, "vendaId nao pode ser nulo");
+        return new MovimentoEstoque(UUID.randomUUID(), TipoMovimentoEstoque.ENTRADA, quantidade,
                 null, vendaId, Instant.now());
     }
 

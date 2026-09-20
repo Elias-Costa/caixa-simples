@@ -1,6 +1,7 @@
 package br.com.caixasimples.cadastro.internal;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 import static org.assertj.core.api.Assertions.tuple;
 
 import br.com.caixasimples.TesteDeIntegracao;
@@ -176,17 +177,107 @@ class MovimentoEstoqueDoAgregadoTest extends TesteDeIntegracao {
         // pergunta derivada que a atravessa, e as duas já estão fechadas para a conta B.
         TenantContext.executarComo(contaB.contaId(), () -> {
             assertThat(produtos.findById(produtoDaContaA)).isEmpty();
-            assertThat(produtos.existsByIdAndMovimentosVendaId(produtoDaContaA, vendaDaContaA))
+            assertThat(produtos.existsByIdAndMovimentosVendaIdAndMovimentosTipo(produtoDaContaA,
+                    vendaDaContaA, TipoMovimentoEstoque.SAIDA))
                     .as("derived query atravessando tenant")
                     .isFalse();
             assertThat(produtoService.jaDeuBaixaPorVenda(produtoDaContaA, vendaDaContaA))
+                    .isFalse();
+            assertThat(produtoService.jaEstornouPorCancelamento(produtoDaContaA, vendaDaContaA))
                     .isFalse();
         });
 
         // E a conta A continua vendo o próprio dado: o filtro não pode ser esconder de todos.
         TenantContext.executarComo(contaA.contaId(), () ->
-                assertThat(produtos.existsByIdAndMovimentosVendaId(produtoDaContaA,
-                        vendaDaContaA)).isTrue());
+                assertThat(produtos.existsByIdAndMovimentosVendaIdAndMovimentosTipo(
+                        produtoDaContaA, vendaDaContaA, TipoMovimentoEstoque.SAIDA)).isTrue());
+    }
+
+    @Test
+    @DisplayName("o estorno grava a ENTRADA ao lado da SAIDA da mesma venda, e o saldo volta ao anterior (RF12)")
+    void estornoDevolveOQueABaixaTirou() {
+        ContaCriada conta = criador.criar("Padaria Teste", SENHA_DE_TESTE);
+        UUID produtoId = cadastrarProduto(conta, "Pao");
+        UUID vendaId = vendaEm(conta, abrirCaixa(conta));
+
+        TenantContext.executarComo(conta.contaId(), () -> {
+            produtoService.ajustarEstoque(produtoId, new BigDecimal("10"), "contagem inicial");
+            produtoService.darBaixaPorVenda(produtoId, new BigDecimal("3"), vendaId);
+            produtoService.estornarPorCancelamento(produtoId, new BigDecimal("3"), vendaId);
+        });
+
+        TenantContext.executarComo(conta.contaId(), () ->
+                transacao.executeWithoutResult(status -> {
+                    ProdutoEntity gravado = produtos.findById(produtoId).orElseThrow();
+                    List<MovimentoEstoque> historico = gravado.getMovimentos().stream()
+                            .map(MovimentoEstoqueEntity::paraDominio)
+                            .toList();
+
+                    // A SAIDA fica: movimento lançado não se edita, lança-se o oposto. O índice
+                    // único da V9 inclui o tipo justamente para as duas caberem lado a lado.
+                    assertThat(historico)
+                            .extracting(MovimentoEstoque::tipo, MovimentoEstoque::vendaId,
+                                    MovimentoEstoque::motivo)
+                            .containsExactly(
+                                    tuple(TipoMovimentoEstoque.AJUSTE, null, "contagem inicial"),
+                                    tuple(TipoMovimentoEstoque.SAIDA, vendaId, null),
+                                    tuple(TipoMovimentoEstoque.ENTRADA, vendaId, null));
+                    assertThat(historico.get(2).quantidade()).isEqualByComparingTo("3");
+                    assertThat(gravado.paraDominio().getEstoqueAtual())
+                            .as("saldo de volta ao que era antes da venda")
+                            .isEqualByComparingTo("10");
+                }));
+
+        TenantContext.executarComo(conta.contaId(), () -> {
+            assertThat(produtoService.jaDeuBaixaPorVenda(produtoId, vendaId))
+                    .as("a baixa aconteceu; o estorno não a apaga")
+                    .isTrue();
+            assertThat(produtoService.jaEstornouPorCancelamento(produtoId, vendaId)).isTrue();
+        });
+    }
+
+    @Test
+    @DisplayName("não se estorna o que não saiu, nem duas vezes; e a pergunta olha a venda e o tipo na mesma linha")
+    void estornoExigeABaixaEUmaVezSo() {
+        ContaCriada conta = criador.criar("Quitanda Teste", SENHA_DE_TESTE);
+        UUID produtoId = cadastrarProduto(conta, "Banana");
+        UUID sessaoId = abrirCaixa(conta);
+        UUID vendaA = vendaEm(conta, sessaoId);
+        UUID vendaB = vendaEm(conta, sessaoId);
+
+        TenantContext.executarComo(conta.contaId(), () -> {
+            produtoService.darBaixaPorVenda(produtoId, new BigDecimal("2"), vendaA);
+            produtoService.darBaixaPorVenda(produtoId, new BigDecimal("5"), vendaB);
+            produtoService.estornarPorCancelamento(produtoId, new BigDecimal("5"), vendaB);
+        });
+
+        TenantContext.executarComo(conta.contaId(), () -> {
+            // O produto tem SAIDA da venda A e ENTRADA da venda B. Se a consulta derivada abrisse
+            // um JOIN por filtro, "venda A com tipo ENTRADA" casaria com a linha da A e a linha da
+            // B ao mesmo tempo e responderia sim; ela responde não porque os dois filtros caem na
+            // mesma linha do histórico.
+            assertThat(produtoService.jaEstornouPorCancelamento(produtoId, vendaA))
+                    .as("a ENTRADA da venda B nao e estorno da venda A")
+                    .isFalse();
+            assertThat(produtoService.jaEstornouPorCancelamento(produtoId, vendaB)).isTrue();
+
+            assertThatIllegalStateException()
+                    .as("estornar em dobro")
+                    .isThrownBy(() -> produtoService.estornarPorCancelamento(produtoId,
+                            new BigDecimal("5"), vendaB))
+                    .withMessageContaining("ja foi estornada");
+
+            UUID vendaQueNaoBaixou = vendaEm(conta, sessaoId);
+            assertThatIllegalStateException()
+                    .as("estornar o que nunca saiu")
+                    .isThrownBy(() -> produtoService.estornarPorCancelamento(produtoId,
+                            BigDecimal.ONE, vendaQueNaoBaixou))
+                    .withMessageContaining("nao deu baixa");
+
+            assertThat(produtos.findById(produtoId).orElseThrow().paraDominio().getEstoqueAtual())
+                    .as("as recusas não moveram o saldo: -2 -5 +5")
+                    .isEqualByComparingTo("-2");
+        });
     }
 
     private UUID cadastrarProduto(ContaCriada conta, String nome) {

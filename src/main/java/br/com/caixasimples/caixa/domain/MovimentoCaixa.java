@@ -7,13 +7,14 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Uma entrada ou saída de dinheiro do caixa: venda, sangria ou suprimento.
+ * Uma entrada ou saída de dinheiro do caixa: venda, sangria, suprimento ou estorno.
  *
  * <p><strong>Membro do agregado Caixa</strong>, nunca raiz. Não tem repositório e não se altera
  * sozinho: nasce dentro de {@link SessaoCaixa}, por {@link SessaoCaixa#sangrar},
- * {@link SessaoCaixa#suprir} ou {@link SessaoCaixa#registrarVenda}, e some com ela. É um
- * {@code record} justamente porque não há nada para alterar depois: movimento de caixa lançado não
- * se edita, o que se faz é lançar o oposto.
+ * {@link SessaoCaixa#suprir}, {@link SessaoCaixa#registrarVenda} ou
+ * {@link SessaoCaixa#estornarVenda}, e some com ela. É um {@code record} justamente porque não há
+ * nada para alterar depois: movimento de caixa lançado não se edita, o que se faz é lançar o
+ * oposto, e o estorno de uma venda cancelada é exatamente isso.
  *
  * <p><strong>Não importa framework</strong>, pelo mesmo motivo do agregado Produto. O mapeamento
  * para o banco vive em {@code caixa.internal}, e assim a regra continua legível sem conhecer JPA.
@@ -29,8 +30,8 @@ import java.util.UUID;
  * @param motivo   obrigatório em SANGRIA e SUPRIMENTO (RF14) e nulo quando ausente; quem
  *                 <em>exige</em> o motivo é a raiz, em {@link SessaoCaixa#sangrar} e
  *                 {@link SessaoCaixa#suprir}, porque aqui o campo apenas aceita o que vier
- * @param vendaId  preenchido só quando o tipo é VENDA. É referência entre agregados, então é um
- *                 {@link UUID} e nunca um objeto navegável
+ * @param vendaId  preenchido quando o tipo é VENDA ou ESTORNO, os dois que vêm de uma venda. É
+ *                 referência entre agregados, então é um {@link UUID} e nunca um objeto navegável
  * @param criadoEm momento do lançamento, em UTC
  */
 public record MovimentoCaixa(UUID id, TipoMovimentoCaixa tipo, Money valor, String motivo,

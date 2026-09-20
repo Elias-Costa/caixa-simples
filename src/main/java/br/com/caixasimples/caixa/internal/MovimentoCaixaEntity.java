@@ -41,7 +41,8 @@ class MovimentoCaixaEntity {
 
     /**
      * Referência entre agregados, sempre por id. A {@code FOREIGN KEY} para {@code venda} existe
-     * desde a migration V7, e protege o dado no banco sem virar objeto navegável aqui.
+     * desde a migration V7, e protege o dado no banco sem virar objeto navegável aqui. Preenchida
+     * em VENDA e em ESTORNO; a migration V11 prende que um estorno nunca fica sem venda.
      */
     @Column(name = "venda_id")
     private UUID vendaId;

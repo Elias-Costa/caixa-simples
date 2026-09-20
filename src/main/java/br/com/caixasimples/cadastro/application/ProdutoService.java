@@ -1,5 +1,6 @@
 package br.com.caixasimples.cadastro.application;
 
+import br.com.caixasimples.cadastro.TipoMovimentoEstoque;
 import br.com.caixasimples.cadastro.TipoProduto;
 import br.com.caixasimples.cadastro.domain.MovimentoEstoque;
 import br.com.caixasimples.cadastro.domain.Produto;
@@ -20,8 +21,9 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Casos de uso do cadastro de produto e serviço: cadastrar (RF01, RF02), editar (RF04), inativar
  * (RF05), buscar por nome ou código durante a venda (RF06), responder o preço vigente a quem
- * monta a venda, dar baixa no estoque de um produto vendido (RF18), ajustar o estoque à mão
- * (RF19) e responder quais produtos estão com estoque baixo (RF20).
+ * monta a venda, dar baixa no estoque de um produto vendido (RF18) e devolvê-lo quando a venda é
+ * cancelada (RF12), ajustar o estoque à mão (RF19) e responder quais produtos estão com estoque
+ * baixo (RF20).
  *
  * <p>Cada caso de uso de escrita é sempre a mesma sequência: carrega a linha, deixa a raiz do
  * agregado decidir, grava o que ela decidiu. Nenhuma regra mora aqui. É {@link Produto} que sabe o
@@ -33,12 +35,13 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p><strong>Os casos de uso de estoque são públicos, e a exceção que eles abrem é medida.</strong>
  * A regra do projeto é que efeito colateral entre módulos viaja por evento; aqui é o módulo de
- * estoque que ouve a venda concluída e decide, com a conta ligada ou não, se há o que baixar.
- * Decidido, ele pede ao cadastro, porque o agregado é daqui e ninguém de fora toca a entidade.
- * O evento continua desacoplando a venda de quem reage a ela; o que a baixa faz é executar a
- * reação de outro módulo sobre o agregado que ele não pode abrir. O ajuste manual, o estoque
- * mínimo e a lista de estoque baixo seguem o mesmo desenho: o módulo de estoque decide se a
- * conta participa, e este serviço executa sobre o agregado.
+ * estoque que ouve a venda concluída, e a venda cancelada, e decide, com a conta ligada ou não,
+ * se há o que baixar ou devolver. Decidido, ele pede ao cadastro, porque o agregado é daqui e
+ * ninguém de fora toca a entidade. O evento continua desacoplando a venda de quem reage a ela; o
+ * que a baixa e o estorno fazem é executar a reação de outro módulo sobre o agregado que ele não
+ * pode abrir. O ajuste manual, o estoque mínimo e a lista de estoque baixo seguem o mesmo
+ * desenho: o módulo de estoque decide se a conta participa, e este serviço executa sobre o
+ * agregado.
  *
  * <p><strong>Não existe caso de uso de reativação</strong>, nem de exclusão: o RF05 é soft delete,
  * e {@code DELETE} não aparece em lugar nenhum deste módulo.
@@ -186,7 +189,7 @@ public class ProdutoService {
 
     /**
      * Baixa de estoque de um item vendido (RF18). Grava o movimento de SAIDA e o saldo novo do
-     * produto na mesma transação; é o único caminho pelo qual {@code estoque_atual} muda.
+     * produto na mesma transação, pelo caminho único que escreve {@code estoque_atual}.
      *
      * <p><strong>Em SERVICO não faz nada</strong>, e não é erro: vender um serviço é legítimo, só
      * não há estoque a baixar. Quem chama recebe os itens da venda sem saber o tipo de cada um, e
@@ -221,7 +224,7 @@ public class ProdutoService {
                     vendaId);
             return;
         }
-        if (produtos.existsByIdAndMovimentosVendaId(produtoId, vendaId)) {
+        if (temMovimentoDaVenda(produtoId, vendaId, TipoMovimentoEstoque.SAIDA)) {
             throw new IllegalStateException(
                     "venda " + vendaId + " ja deu baixa no produto " + produtoId
                             + " e nao baixa de novo. O estoque de uma venda sai uma vez so.");
@@ -236,17 +239,90 @@ public class ProdutoService {
     /**
      * Se esta venda já deu baixa neste produto. É a pergunta que o ouvinte do evento faz antes de
      * pedir a baixa, porque o evento pode chegar mais de uma vez e a reentrega tem de terminar sem
-     * erro.
+     * erro. É também o que o ouvinte do cancelamento pergunta antes de pedir o estorno: uma conta
+     * que ligou o controle de estoque depois da venda não tem baixa a devolver.
      *
      * <p>Responde falso para um produto que não existe nesta conta, em vez de lançar: a pergunta
      * é sobre o movimento, e a ausência do produto vai estourar logo em seguida, em
-     * {@link #darBaixaPorVenda}, com a exceção certa.
+     * {@link #darBaixaPorVenda}, com a exceção certa. Continua verdadeira depois do estorno: a
+     * baixa aconteceu, e o estorno é outro movimento.
      */
     @Transactional(readOnly = true)
     public boolean jaDeuBaixaPorVenda(UUID produtoId, UUID vendaId) {
+        return temMovimentoDaVenda(produtoId, vendaId, TipoMovimentoEstoque.SAIDA);
+    }
+
+    /**
+     * Estorno de estoque de um item cuja venda foi cancelada (RF12): o oposto exato de
+     * {@link #darBaixaPorVenda}. Grava o movimento de ENTRADA e o saldo novo do produto na mesma
+     * transação, pelo mesmo caminho único.
+     *
+     * <p><strong>Em SERVICO não faz nada</strong>, como na baixa: não há estoque a devolver, e
+     * quem chama recebe os itens da venda sem saber o tipo de cada um.
+     *
+     * <p><strong>Só se devolve o que saiu, e uma vez só.</strong> Uma venda que não deu baixa
+     * neste produto, porque a conta ligou o controle de estoque depois dela, não tem o que
+     * estornar, e a recusa é alta em vez de somar um estoque que nunca foi tirado. E o evento de
+     * cancelamento chega ao menos uma vez, então quem chama pergunta por
+     * {@link #jaEstornouPorCancelamento} antes e pula a reentrega; a recusa aqui é a invariante em
+     * si, para qualquer chamador. A raiz não carrega o histórico, então as duas perguntas vão ao
+     * repositório; a rede embaixo é o índice único da migration V9.
+     *
+     * <p>Não olha se o produto está ativo, pelo mesmo motivo da baixa: a venda aconteceu, e o
+     * estoque que volta, volta.
+     *
+     * @param produtoId  o produto da venda cancelada, nesta conta
+     * @param quantidade o que a venda tinha levado, e volta; positiva
+     * @param vendaId    a venda cancelada
+     * @throws ProdutoNaoEncontradoException se o id não existe nesta conta
+     * @throws IllegalStateException         se esta venda não deu baixa neste produto, ou se já
+     *                                       foi estornada nele
+     * @throws IllegalArgumentException      se a quantidade não é positiva
+     */
+    @Transactional
+    public void estornarPorCancelamento(UUID produtoId, BigDecimal quantidade, UUID vendaId) {
+        Objects.requireNonNull(vendaId, "vendaId nao pode ser nulo");
+
+        ProdutoEntity linha = buscar(produtoId);
+        Produto produto = linha.paraDominio();
+
+        if (!produto.controlaEstoque()) {
+            log.debug("produto {} e servico; cancelamento da venda {} nao gera movimento de"
+                    + " estoque", produtoId, vendaId);
+            return;
+        }
+        if (!temMovimentoDaVenda(produtoId, vendaId, TipoMovimentoEstoque.SAIDA)) {
+            throw new IllegalStateException(
+                    "venda " + vendaId + " nao deu baixa no produto " + produtoId
+                            + " e nao tem o que estornar. So se devolve o que saiu.");
+        }
+        if (temMovimentoDaVenda(produtoId, vendaId, TipoMovimentoEstoque.ENTRADA)) {
+            throw new IllegalStateException(
+                    "venda " + vendaId + " ja foi estornada no produto " + produtoId
+                            + " e nao estorna de novo. O estoque de uma venda volta uma vez so.");
+        }
+
+        MovimentoEstoque movimento = produto.estornarPorCancelamento(quantidade, vendaId);
+
+        linha.registrarMovimento(produto, movimento);
+        produtos.save(linha);
+    }
+
+    /**
+     * Se o cancelamento desta venda já devolveu o estoque deste produto. É a pergunta que o
+     * ouvinte do cancelamento faz antes de pedir o estorno, porque o evento pode chegar mais de
+     * uma vez e a reentrega tem de terminar sem erro. Falso para produto que não existe nesta
+     * conta, pelo mesmo motivo de {@link #jaDeuBaixaPorVenda}.
+     */
+    @Transactional(readOnly = true)
+    public boolean jaEstornouPorCancelamento(UUID produtoId, UUID vendaId) {
+        return temMovimentoDaVenda(produtoId, vendaId, TipoMovimentoEstoque.ENTRADA);
+    }
+
+    private boolean temMovimentoDaVenda(UUID produtoId, UUID vendaId, TipoMovimentoEstoque tipo) {
         Objects.requireNonNull(produtoId, "id do produto nao pode ser nulo");
         Objects.requireNonNull(vendaId, "vendaId nao pode ser nulo");
-        return produtos.existsByIdAndMovimentosVendaId(produtoId, vendaId);
+        return produtos.existsByIdAndMovimentosVendaIdAndMovimentosTipo(produtoId, vendaId, tipo);
     }
 
     /**

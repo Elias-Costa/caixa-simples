@@ -12,6 +12,7 @@ import br.com.caixasimples.cadastro.TipoProduto;
 import br.com.caixasimples.cadastro.application.ProdutoNaoEncontradoException;
 import br.com.caixasimples.cadastro.application.ProdutoService;
 import br.com.caixasimples.cadastro.application.ProdutoService.DadosDoProduto;
+import br.com.caixasimples.cadastro.internal.ProdutoRepository;
 import br.com.caixasimples.caixa.TipoMovimentoCaixa;
 import br.com.caixasimples.caixa.application.SessaoCaixaNaoEncontradaException;
 import br.com.caixasimples.caixa.application.SessaoCaixaService;
@@ -44,19 +45,19 @@ import org.springframework.test.context.event.RecordApplicationEvents;
 /**
  * A venda contra o banco de verdade: iniciar a comanda, lançar e remover item (RF07), desconto
  * sobre o total (RF08), a cópia do preço do produto (RF06), o pagamento dividido entre formas com
- * o Strategy de verdade (RF09, RF10) e a conclusão.
+ * o Strategy de verdade (RF09, RF10), a conclusão e o cancelamento (RF12).
  *
  * <p>Existe separado de {@code VendaTest} porque prova outra coisa: lá a conta do agregado está
  * certa <em>em memória</em>; aqui ela <strong>atravessa o banco</strong>, que é o único jeito de
  * exercitar o {@code atualizarCom} da entidade, inclusive a remoção de linha por
  * {@code orphanRemoval} e o acréscimo das parcelas, as três perguntas feitas a outros módulos, o
- * isolamento entre contas em cada uma delas e, na conclusão, o evento publicado e o dinheiro
- * chegando ao caixa pelo outbox.
+ * isolamento entre contas em cada uma delas e, na conclusão e no cancelamento, o evento
+ * publicado e o dinheiro e o estoque indo e voltando pelo outbox.
  *
  * <p>Fica no pacote {@code vendas} e enxerga só o que um controller enxergaria: o serviço, o
  * domínio e a raiz do agregado. Os casos de uso de {@code caixa} e {@code cadastro} entram no
- * papel que um controller teria, para preparar o cenário; o repositório do caixa entra só para
- * ler o que o listener gravou.
+ * papel que um controller teria, para preparar o cenário; os repositórios do caixa e do cadastro
+ * entram só para ler o que os ouvintes gravaram.
  */
 @RecordApplicationEvents
 class VendaServiceTest extends TesteDeIntegracao {
@@ -77,6 +78,9 @@ class VendaServiceTest extends TesteDeIntegracao {
 
     @Autowired
     private ProdutoService produtos;
+
+    @Autowired
+    private ProdutoRepository linhasDeProduto;
 
     @Autowired
     private CriadorDeContaDeTeste criador;
@@ -580,12 +584,179 @@ class VendaServiceTest extends TesteDeIntegracao {
         assertThatExceptionOfType(VendaNaoEncontradaException.class).isThrownBy(() ->
                 TenantContext.executarComo(contaB.contaId(), () ->
                         vendaService.concluir(vendaDaContaA)));
+        assertThatExceptionOfType(VendaNaoEncontradaException.class).isThrownBy(() ->
+                TenantContext.executarComo(contaB.contaId(), () ->
+                        vendaService.cancelar(vendaDaContaA)));
 
         TenantContext.executarComo(contaA.contaId(), () -> {
             Venda intacta = vendas.findById(vendaDaContaA).orElseThrow().paraDominio();
             assertThat(intacta.getPagamentos()).isEmpty();
             assertThat(intacta.getStatus()).isEqualTo(StatusVenda.ABERTA);
         });
+    }
+
+    @Test
+    @DisplayName("cancelar a venda concluída devolve o dinheiro ao caixa e os produtos ao estoque, pelo outbox (RF12)")
+    void cancelarDesfazOCaixaEOEstoque(ApplicationEvents eventos) {
+        ContaCriada conta = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
+        criador.habilitarEstoque(conta.contaId());
+        UUID sessaoId = abrirCaixa(conta);
+        UUID cafeId = cadastrar(conta, "Cafe coado", Money.de("4.50"));
+        UUID queijoId = cadastrar(conta, "Queijo minas", Money.de("39.90"));
+
+        UUID vendaId = TenantContext.executarComo(conta.contaId(), () ->
+                vendaService.iniciar(sessaoId, conta.usuarioId()));
+        TenantContext.executarComo(conta.contaId(), () -> {
+            vendaService.adicionarItem(vendaId, cafeId, new BigDecimal("2"), Money.ZERO);
+            vendaService.adicionarItem(vendaId, queijoId, new BigDecimal("0.750"), Money.ZERO);
+            // 9,00 + 29,93 = 38,93, pagos 20,00 em Pix e 18,93 em dinheiro.
+            vendaService.registrarPagamento(vendaId,
+                    SolicitacaoPagamento.de(FormaPagamento.PIX, Money.de("20.00")));
+            vendaService.registrarPagamento(vendaId,
+                    SolicitacaoPagamento.emDinheiro(Money.de("18.93"), Money.de("50.00")));
+            vendaService.concluir(vendaId);
+        });
+
+        // A conclusão chegou aos dois ouvintes: é o estado que o cancelamento vai desfazer.
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
+                TenantContext.executarComo(conta.contaId(), () -> {
+                    assertThat(esperadoDe(sessaoId)).isEqualTo(Money.de("18.93"));
+                    assertThat(saldoDe(cafeId)).isEqualByComparingTo("-2");
+                    assertThat(saldoDe(queijoId)).isEqualByComparingTo("-0.750");
+                }));
+
+        TenantContext.executarComo(conta.contaId(), () -> vendaService.cancelar(vendaId));
+
+        TenantContext.executarComo(conta.contaId(), () -> {
+            Venda gravada = vendas.findById(vendaId).orElseThrow().paraDominio();
+            assertThat(gravada.getStatus()).isEqualTo(StatusVenda.CANCELADA);
+            // Itens e parcelas ficam: a venda cancelada continua contando o que tinha sido
+            // vendido e como tinha sido pago.
+            assertThat(gravada.getItens()).hasSize(2);
+            assertThat(gravada.getPagamentos())
+                    .extracting(Pagamento::forma, Pagamento::valor, Pagamento::status)
+                    .containsExactly(
+                            tuple(FormaPagamento.PIX, Money.de("20.00"),
+                                    StatusPagamento.CONFIRMADO),
+                            tuple(FormaPagamento.DINHEIRO, Money.de("18.93"),
+                                    StatusPagamento.CONFIRMADO));
+        });
+
+        // Saiu um evento de cancelamento só, com o mesmo fato da conclusão.
+        assertThat(eventos.stream(VendaCancelada.class))
+                .singleElement()
+                .satisfies(evento -> {
+                    assertThat(evento.contaId()).isEqualTo(conta.contaId());
+                    assertThat(evento.vendaId()).isEqualTo(vendaId);
+                    assertThat(evento.sessaoCaixaId()).isEqualTo(sessaoId);
+                    assertThat(evento.usuarioId()).isEqualTo(conta.usuarioId());
+                    assertThat(evento.itens())
+                            .extracting(VendaCancelada.Item::produtoId)
+                            .containsExactly(cafeId, queijoId);
+                    assertThat(evento.parcelas())
+                            .extracting(VendaCancelada.Parcela::forma,
+                                    VendaCancelada.Parcela::valor)
+                            .containsExactly(
+                                    tuple(FormaPagamento.PIX, Money.de("20.00")),
+                                    tuple(FormaPagamento.DINHEIRO, Money.de("18.93")));
+                });
+
+        // O caixa refletiu: a VENDA fica, o ESTORNO a espelha, e o esperado volta ao anterior.
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
+                TenantContext.executarComo(conta.contaId(), () ->
+                        assertThat(sessoes.findById(sessaoId).orElseThrow().paraDominio()
+                                .getMovimentos())
+                                .extracting(MovimentoCaixa::tipo, MovimentoCaixa::valor,
+                                        MovimentoCaixa::vendaId)
+                                .containsExactly(
+                                        tuple(TipoMovimentoCaixa.VENDA, Money.de("18.93"),
+                                                vendaId),
+                                        tuple(TipoMovimentoCaixa.ESTORNO, Money.de("18.93"),
+                                                vendaId))));
+        // E o estoque voltou ao valor anterior à venda.
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
+                TenantContext.executarComo(conta.contaId(), () -> {
+                    assertThat(saldoDe(cafeId)).isEqualByComparingTo("0");
+                    assertThat(saldoDe(queijoId)).isEqualByComparingTo("0");
+                }));
+        TenantContext.executarComo(conta.contaId(), () ->
+                assertThat(esperadoDe(sessaoId)).isEqualTo(Money.ZERO));
+
+        // CANCELADA é final, e o status atravessou o banco.
+        assertThatIllegalStateException()
+                .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+                        vendaService.cancelar(vendaId)))
+                .withMessageContaining("ja esta CANCELADA");
+        assertThat(eventos.stream(VendaCancelada.class)).as("nada mais foi publicado").hasSize(1);
+    }
+
+    @Test
+    @DisplayName("cancelar venda CONCLUIDA exige o caixa em que ela nasceu ainda ABERTO; fechado, a venda fica CONCLUIDA")
+    void cancelarVendaConcluidaExigeSessaoAberta(ApplicationEvents eventos) {
+        ContaCriada conta = criador.criar("Quitanda do Centro", SENHA_DE_TESTE);
+        UUID sessaoId = abrirCaixa(conta);
+        UUID cafeId = cadastrar(conta, "Cafe coado", Money.de("4.50"));
+
+        UUID vendaId = TenantContext.executarComo(conta.contaId(), () ->
+                vendaService.iniciar(sessaoId, conta.usuarioId()));
+        TenantContext.executarComo(conta.contaId(), () -> {
+            vendaService.adicionarItem(vendaId, cafeId, BigDecimal.ONE, Money.ZERO);
+            vendaService.registrarPagamento(vendaId,
+                    SolicitacaoPagamento.emDinheiro(Money.de("4.50"), Money.de("4.50")));
+            vendaService.concluir(vendaId);
+        });
+        // Espera o dinheiro entrar antes de fechar, senão o fechamento disputaria com o ouvinte.
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
+                TenantContext.executarComo(conta.contaId(), () ->
+                        assertThat(esperadoDe(sessaoId)).isEqualTo(Money.de("4.50"))));
+
+        TenantContext.executarComo(conta.contaId(), () -> caixas.fechar(sessaoId, Money.de("4.50")));
+
+        // A gaveta já foi conferida; um estorno nela reescreveria a diferença apurada.
+        assertThatIllegalStateException()
+                .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+                        vendaService.cancelar(vendaId)))
+                .withMessageContaining("nao esta ABERTA");
+
+        TenantContext.executarComo(conta.contaId(), () ->
+                assertThat(vendas.findById(vendaId).orElseThrow().paraDominio().getStatus())
+                        .isEqualTo(StatusVenda.CONCLUIDA));
+        assertThat(eventos.stream(VendaCancelada.class)).as("nada foi publicado").isEmpty();
+    }
+
+    @Test
+    @DisplayName("cancelar venda ABERTA não pergunta pelo caixa nem publica: é a saída da comanda presa")
+    void cancelarVendaAbertaNaoPerguntaNemPublica(ApplicationEvents eventos) {
+        ContaCriada conta = criador.criar("Padaria Central", SENHA_DE_TESTE);
+        UUID sessaoId = abrirCaixa(conta);
+        UUID cafeId = cadastrar(conta, "Cafe coado", Money.de("4.50"));
+
+        UUID vendaId = TenantContext.executarComo(conta.contaId(), () ->
+                vendaService.iniciar(sessaoId, conta.usuarioId()));
+        TenantContext.executarComo(conta.contaId(), () -> {
+            vendaService.adicionarItem(vendaId, cafeId, BigDecimal.ONE, Money.ZERO);
+            vendaService.registrarPagamento(vendaId,
+                    SolicitacaoPagamento.emDinheiro(Money.de("4.50"), Money.de("4.50")));
+        });
+        // O operador fecha o caixa com a comanda paga e ainda aberta: ela não conclui mais.
+        TenantContext.executarComo(conta.contaId(), () -> caixas.fechar(sessaoId, Money.ZERO));
+
+        TenantContext.executarComo(conta.contaId(), () -> vendaService.cancelar(vendaId));
+
+        TenantContext.executarComo(conta.contaId(), () -> {
+            Venda gravada = vendas.findById(vendaId).orElseThrow().paraDominio();
+            assertThat(gravada.getStatus()).isEqualTo(StatusVenda.CANCELADA);
+            assertThat(gravada.getPagamentos())
+                    .as("a parcela fica registrada como foi")
+                    .extracting(Pagamento::status)
+                    .containsExactly(StatusPagamento.CONFIRMADO);
+            assertThat(sessoes.findById(sessaoId).orElseThrow().paraDominio().getMovimentos())
+                    .as("a gaveta nunca mexeu por esta venda")
+                    .isEmpty();
+        });
+        assertThat(eventos.stream(VendaCancelada.class))
+                .as("uma venda ABERTA nunca produziu efeito fora do módulo: nada a desfazer")
+                .isEmpty();
     }
 
     private UUID abrirCaixa(ContaCriada conta) {
@@ -597,5 +768,16 @@ class VendaServiceTest extends TesteDeIntegracao {
         return TenantContext.executarComo(conta.contaId(), () ->
                 produtos.cadastrar(TipoProduto.PRODUTO,
                         new DadosDoProduto(nome, preco, null, null, "un", null)));
+    }
+
+    /** O que o ouvinte do caixa gravou, lido pelo repositório dele. */
+    private Money esperadoDe(UUID sessaoId) {
+        return sessoes.findById(sessaoId).orElseThrow().paraDominio()
+                .getValorFechamentoEsperado();
+    }
+
+    /** O que o ouvinte do estoque gravou, lido pelo repositório do cadastro. */
+    private BigDecimal saldoDe(UUID produtoId) {
+        return linhasDeProduto.findById(produtoId).orElseThrow().paraDominio().getEstoqueAtual();
     }
 }

@@ -27,7 +27,8 @@ import java.util.UUID;
  * da sessão de caixa acompanha os movimentos. Perguntar quanto a comanda está devendo é ler um
  * campo, não somar a lista. A segunda é conferida por {@link #concluir}, que é a única transição
  * para CONCLUIDA, e as duas são conferidas de novo por {@link #reconstituir}: um estado que as
- * viole não entra no agregado, venha de onde vier.
+ * viole não entra no agregado, venha de onde vier. Uma venda CANCELADA não tem a segunda
+ * invariante: ela pode ter sido abandonada com a conta pela metade.
  *
  * <p><strong>Não importa framework</strong>, nem {@code jakarta.persistence} nem
  * {@code org.springframework}. O mapeamento vive em {@code vendas.internal.VendaEntity}.
@@ -90,15 +91,26 @@ import java.util.UUID;
  * guarda a conta; o troco não é persistido e volta a quem chamou.
  *
  * <p><strong>Parcela lançada não se desfaz.</strong> Não existe operação que remova uma parcela:
- * um valor lançado errado se corrige cancelando a venda, quando o cancelamento existir. Até lá,
- * uma parcela errada prende a venda ABERTA, porque a conclusão exige igualdade.
+ * um valor lançado errado se corrige cancelando a venda, que é o único jeito de uma venda com
+ * parcela errada deixar de estar ABERTA, porque a conclusão exige igualdade.
+ *
+ * <h2>O cancelamento</h2>
+ *
+ * <p>{@link #cancelar} é a única outra transição de estado, e serve às duas situações do balcão:
+ * abandonar uma comanda ABERTA, com ou sem parcela lançada, e desfazer uma venda CONCLUIDA
+ * (RF12). CANCELADA é estado final: não se cancela de novo, não se monta, não se paga, não se
+ * conclui. Nada mais é conferido aqui: o que o cancelamento desfaz fora do agregado, o dinheiro
+ * na gaveta e o estoque, é anunciado pelo caso de uso, e só quando a venda estava CONCLUIDA,
+ * porque só a conclusão tinha produzido efeito fora do módulo.
+ *
+ * <p><strong>As parcelas ficam como estão.</strong> Uma parcela CONFIRMADO de uma venda cancelada
+ * continua CONFIRMADO: ela foi paga de fato, e o status da venda é o fato novo. A devolução do
+ * valor ao cliente acontece no balcão; o sistema não registra estorno de Pix nem de cartão,
+ * porque as duas formas são lançadas à mão e não há provedor a quem pedir.
  *
  * <p><strong>Vincular cliente ainda não existe em código.</strong> A venda nasce sem cliente e o
  * vínculo chega como operação própria, porque numa comanda o cliente costuma ser identificado
  * depois do primeiro item, e às vezes só na hora de pagar.
- *
- * <p><strong>O cancelamento tampouco existe ainda.</strong> Chega com o caso de uso que estorna a
- * venda; até lá nenhuma venda sai de CONCLUIDA.
  */
 public class Venda {
 
@@ -108,7 +120,7 @@ public class Venda {
     private final UUID clienteId;
     private final Instant criadoEm;
 
-    /** Só {@link #concluir} o muda, para CONCLUIDA. O cancelamento ainda não existe em código. */
+    /** Só {@link #concluir} e {@link #cancelar} o mudam, e CANCELADA é final. */
     private StatusVenda status;
 
     /** Invariante viva, descrita no javadoc da classe. Nunca escrita de fora. */
@@ -346,7 +358,7 @@ public class Venda {
 
     /**
      * Fecha a venda (RF09): confere que os pagamentos confirmados cobrem exatamente o total e vira
-     * o status para CONCLUIDA. É a única transição de estado que existe em código.
+     * o status para CONCLUIDA. É a única transição para CONCLUIDA que existe em código.
      *
      * <p>Passo à parte de {@link #registrarPagamento} de propósito: a tela chama isto quando o
      * operador finaliza, e é o caso de uso que, depois de gravar o resultado, publica o evento que
@@ -380,6 +392,30 @@ public class Venda {
         }
 
         this.status = StatusVenda.CONCLUIDA;
+    }
+
+    /**
+     * Desfaz a venda (RF12): vira o status para CANCELADA, que é final. Vale para a comanda ABERTA
+     * que o operador abandona e para a venda CONCLUIDA que o cliente devolve; a raiz não distingue
+     * as duas, porque em ambas o que ela guarda é o mesmo: a venda deixa de valer.
+     *
+     * <p>Itens e parcelas ficam como estão, de propósito. Uma venda cancelada continua contando o
+     * que tinha sido vendido e como tinha sido pago; é isso que permite ao caixa e ao estoque
+     * desfazerem exatamente o que a conclusão fez. Quem anuncia o cancelamento para fora, e só
+     * quando havia o que desfazer, é o caso de uso.
+     *
+     * <p>Não pergunta pelo caixa: a raiz não o enxerga. A regra de que uma venda CONCLUIDA só
+     * cancela com a sessão em que nasceu ainda ABERTA mora no caso de uso, ao lado da regra
+     * equivalente da conclusão.
+     *
+     * @throws IllegalStateException se a venda já está CANCELADA
+     */
+    public void cancelar() {
+        if (status == StatusVenda.CANCELADA) {
+            throw new IllegalStateException(
+                    "venda " + id + " ja esta CANCELADA e nao cancela de novo.");
+        }
+        this.status = StatusVenda.CANCELADA;
     }
 
     /**

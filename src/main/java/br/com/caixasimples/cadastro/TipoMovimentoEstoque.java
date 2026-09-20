@@ -7,9 +7,10 @@ package br.com.caixasimples.cadastro;
  * lugar único.
  *
  * <p><strong>SAIDA</strong> é o que a venda concluída faz (RF18): subtrai. <strong>ENTRADA</strong>
- * soma, e é o que o estorno de um cancelamento vai fazer (RF12). <strong>AJUSTE</strong> é o
- * acerto manual com motivo obrigatório (RF19): perda, quebra, contagem. Dos três, SAIDA e AJUSTE
- * têm caso de uso; ENTRADA está no schema e no domínio à espera do estorno.
+ * é o que o cancelamento dessa venda faz (RF12): devolve a mesma quantidade, e soma. Os dois
+ * apontam para a venda, e a SAIDA e a ENTRADA de uma mesma venda convivem no histórico, porque
+ * movimento lançado não se edita, o que se faz é lançar o oposto. <strong>AJUSTE</strong> é o
+ * acerto manual com motivo obrigatório (RF19): perda, quebra, contagem.
  *
  * <p>O enum <strong>não carrega o sinal</strong> do movimento. ENTRADA e SAIDA gravam quantidade
  * positiva, e quem soma ou subtrai é a raiz {@code Produto}. AJUSTE é a exceção: serve para os

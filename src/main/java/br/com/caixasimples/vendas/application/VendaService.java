@@ -9,6 +9,8 @@ import br.com.caixasimples.shared.ContaId;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.TenantContext;
 import br.com.caixasimples.vendas.CaixaParaVenda;
+import br.com.caixasimples.vendas.StatusVenda;
+import br.com.caixasimples.vendas.VendaCancelada;
 import br.com.caixasimples.vendas.VendaConcluida;
 import br.com.caixasimples.vendas.domain.Venda;
 import br.com.caixasimples.vendas.internal.VendaEntity;
@@ -24,22 +26,23 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Casos de uso da venda: iniciar a comanda, lançar e remover item (RF07), aplicar desconto sobre
  * o total (RF08), com o preço unitário copiado do produto no ato (RF06), registrar as parcelas do
- * pagamento, divididas entre formas (RF09), e concluir.
+ * pagamento, divididas entre formas (RF09), concluir, e cancelar (RF12).
  *
  * <p>Cada caso de uso é sempre a mesma sequência: carrega a linha, deixa a raiz do agregado
  * decidir, grava o que ela decidiu. Nenhuma regra de dinheiro mora aqui. É {@link Venda} que sabe
  * que desconto não passa do valor, que o total nunca fica negativo, que parcela não passa do que
- * falta pagar, que a venda só conclui com os pagamentos confirmados iguais ao total, e que venda
- * que não está ABERTA não se monta nem se paga.
+ * falta pagar, que a venda só conclui com os pagamentos confirmados iguais ao total, que venda
+ * que não está ABERTA não se monta nem se paga, e que CANCELADA é final.
  *
  * <p><strong>Duas regras moram neste arquivo, e as duas por dependerem de outro módulo.</strong>
- * A primeira é que venda só começa, e só conclui, em sessão de caixa ABERTA desta conta, e quem
- * sabe o estado da sessão é o caixa. A segunda é que produto inativado não entra em venda nova, e
- * quem sabe se o produto está ativo é o cadastro. As duas são perguntas, e nenhuma produz efeito
- * colateral no módulo que responde. A do cadastro é chamada direta à API pública dele. A do caixa
- * passa por {@link CaixaParaVenda}, interface que <em>este</em> módulo declara e o caixa
- * implementa: o caixa já depende de vendas para ouvir o evento de venda concluída, e a verificação
- * de fronteiras recusa dois módulos dependendo um do outro.
+ * A primeira é que venda só começa, só conclui e, quando CONCLUIDA, só cancela em sessão de caixa
+ * ABERTA desta conta, e quem sabe o estado da sessão é o caixa. A segunda é que produto inativado
+ * não entra em venda nova, e quem sabe se o produto está ativo é o cadastro. As duas são
+ * perguntas, e nenhuma produz efeito colateral no módulo que responde. A do cadastro é chamada
+ * direta à API pública dele. A do caixa passa por {@link CaixaParaVenda}, interface que
+ * <em>este</em> módulo declara e o caixa implementa: o caixa já depende de vendas para ouvir os
+ * eventos de venda concluída e cancelada, e a verificação de fronteiras recusa dois módulos
+ * dependendo um do outro.
  *
  * <p><strong>A terceira pergunta é ao módulo de pagamentos</strong>, e ela não é regra daqui: ao
  * registrar uma parcela, {@link #registrarPagamento} entrega o pedido ao {@code PaymentService},
@@ -54,18 +57,30 @@ import org.springframework.transaction.annotation.Transactional;
  * uma porta para vender por qualquer valor. É a cópia que faz uma venda passada não mudar quando o
  * produto é reajustado.
  *
- * <p><strong>{@link #concluir} é um passo à parte de registrar a última parcela</strong>, e é o
- * único ponto de onde sai algo deste módulo: depois de gravar a venda CONCLUIDA, publica
- * {@link VendaConcluida}. Lançar o dinheiro no caixa e dar baixa no estoque são efeitos de quem
- * ouve o evento; este serviço não chama nenhum dos dois. O evento carrega a conta, lida do
- * contexto autenticado no ato, porque o listener roda em outra thread e uma reentrega pode vir do
- * registro de publicação horas depois; sem a conta dentro dele, o caixa não acharia a sessão.
+ * <p><strong>{@link #concluir} é um passo à parte de registrar a última parcela</strong>, e é um
+ * dos dois pontos de onde sai algo deste módulo: depois de gravar a venda CONCLUIDA, publica
+ * {@link VendaConcluida}. O outro é {@link #cancelar}, que publica {@link VendaCancelada} depois
+ * de gravar a venda CANCELADA, e só quando ela estava CONCLUIDA: uma comanda ABERTA abandonada
+ * nunca produziu efeito fora do módulo, e não há o que desfazer. Lançar e devolver o dinheiro no
+ * caixa, dar baixa e estornar o estoque são efeitos de quem ouve os eventos; este serviço não
+ * chama nenhum dos dois módulos. Os eventos carregam a conta, lida do contexto autenticado no
+ * ato, porque o listener roda em outra thread e uma reentrega pode vir do registro de publicação
+ * horas depois; sem a conta dentro dele, o caixa não acharia a sessão.
  *
  * <p><strong>Concluir exige o caixa em que a venda nasceu ainda ABERTO</strong>, pela mesma
  * pergunta que {@link #iniciar} faz: é nesse caixa que o dinheiro entra, e uma sessão FECHADA já
  * conferiu a gaveta e não aceita movimento. Uma venda cuja sessão fechou antes da conclusão fica
- * ABERTA até ser cancelada, quando o cancelamento existir. Registrar parcela não faz essa
- * pergunta, de propósito: a parcela não mexe na gaveta; a conclusão mexe.
+ * ABERTA até ser cancelada. Registrar parcela não faz essa pergunta, de propósito: a parcela não
+ * mexe na gaveta; a conclusão mexe.
+ *
+ * <p><strong>Cancelar uma venda CONCLUIDA exige o mesmo caixa ainda ABERTO</strong>, e pelo mesmo
+ * motivo, lido ao contrário: o estorno é dinheiro saindo da gaveta, e a gaveta de uma sessão
+ * FECHADA já foi conferida; um estorno nela reescreveria a diferença apurada. Venda de um
+ * expediente encerrado não cancela pelo sistema; devolução depois do fechamento não está em
+ * requisito nenhum. Cancelar uma venda ABERTA não faz a pergunta: ela nunca tocou a gaveta, e é
+ * justamente a saída para a comanda que ficou presa quando o caixa fechou antes da conclusão.
+ * Uma venda CONCLUIDA paga só em Pix ou cartão também exige o caixa aberto, mesmo sem ter
+ * dinheiro na gaveta a devolver: a regra é uma só, e vale por ser uma só.
  *
  * <p><strong>{@link #iniciar} não confere se o operador da venda é o operador da sessão.</strong>
  * O {@code @TenantId} já garante que a sessão é da própria conta (RNF05), e a autorização por
@@ -74,7 +89,9 @@ import org.springframework.transaction.annotation.Transactional;
  * esquecimento.
  *
  * <p><strong>Não há como desfazer uma parcela lançada.</strong> Uma parcela com o valor errado se
- * corrige cancelando a venda, quando o cancelamento existir. <strong>Não há cliente na venda
+ * corrige cancelando a venda e abrindo outra. <strong>O cancelamento não registra motivo, nem
+ * quem cancelou, nem quando:</strong> nenhum requisito pede, e restringir quem pode cancelar é
+ * assunto dos perfis de acesso, que ainda não existem. <strong>Não há cliente na venda
  * ainda.</strong> Vincular cliente (RF03) é operação própria, porque numa comanda ele costuma ser
  * identificado depois do primeiro item, e chega junto de uma consulta pública do cadastro que
  * confirme que o cliente é desta conta.
@@ -257,6 +274,44 @@ public class VendaService {
     }
 
     /**
+     * Desfaz a venda (RF12): a raiz vira o status para CANCELADA e, se a venda estava CONCLUIDA,
+     * o evento {@link VendaCancelada} é publicado depois de gravada, na mesma transação, para que
+     * o caixa devolva o dinheiro e o estoque devolva os itens.
+     *
+     * <p>A pergunta ao caixa vem antes de tocar no agregado, como em {@link #concluir}, e só é
+     * feita quando há gaveta envolvida, isto é, quando a venda estava CONCLUIDA. O status de antes
+     * é lido antes de chamar a raiz, porque depois dela toda venda cancelada é só CANCELADA, e é
+     * ele que decide se há fato a anunciar.
+     *
+     * @throws VendaNaoEncontradaException se a venda não existe nesta conta
+     * @throws IllegalStateException       se a venda está CONCLUIDA e a sessão de caixa em que
+     *                                     nasceu não está mais ABERTA, ou se a venda já está
+     *                                     CANCELADA
+     */
+    @Transactional
+    public void cancelar(UUID vendaId) {
+        VendaEntity linha = buscar(vendaId);
+        Venda venda = linha.paraDominio();
+
+        boolean estavaConcluida = venda.getStatus() == StatusVenda.CONCLUIDA;
+        if (estavaConcluida && !caixa.estaAberto(venda.getSessaoCaixaId())) {
+            throw new IllegalStateException(
+                    "sessao de caixa " + venda.getSessaoCaixaId() + " nao esta ABERTA e nao"
+                            + " devolve o dinheiro da venda " + vendaId + ". Uma venda concluida"
+                            + " so cancela com o caixa em que nasceu ainda aberto.");
+        }
+
+        venda.cancelar();
+
+        linha.atualizarCom(venda);
+        vendas.save(linha);
+
+        if (estavaConcluida) {
+            eventos.publishEvent(eventoDeCancelamento(venda));
+        }
+    }
+
+    /**
      * O fato inteiro, no vocabulário que os outros módulos enxergam. A conta vem do contexto
      * autenticado, nunca de parâmetro (RNF05).
      */
@@ -272,6 +327,25 @@ public class VendaService {
                 .toList();
 
         return new VendaConcluida(contaId, venda.getId(), venda.getSessaoCaixaId(),
+                venda.getUsuarioId(), itens, parcelas);
+    }
+
+    /**
+     * O mesmo fato de {@link #eventoDe}, no evento oposto: o que a venda tinha vendido e como
+     * tinha sido paga, para que cada ouvinte desfaça exatamente o que fez.
+     */
+    private static VendaCancelada eventoDeCancelamento(Venda venda) {
+        ContaId contaId = TenantContext.exigirAtual();
+
+        List<VendaCancelada.Item> itens = venda.getItens().stream()
+                .map(item -> new VendaCancelada.Item(item.produtoId(), item.quantidade()))
+                .toList();
+        List<VendaCancelada.Parcela> parcelas = venda.getPagamentos().stream()
+                .map(parcela -> new VendaCancelada.Parcela(parcela.forma(), parcela.valor(),
+                        parcela.status()))
+                .toList();
+
+        return new VendaCancelada(contaId, venda.getId(), venda.getSessaoCaixaId(),
                 venda.getUsuarioId(), itens, parcelas);
     }
 

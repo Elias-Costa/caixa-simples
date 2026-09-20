@@ -81,6 +81,29 @@ class MovimentoEstoqueTest {
     }
 
     @Test
+    @DisplayName("as fábricas da venda, saída e entrada, exigem a venda e nascem sem motivo")
+    void fabricasDaVenda() {
+        UUID vendaId = UUID.randomUUID();
+
+        MovimentoEstoque saida = MovimentoEstoque.saidaPorVenda(new BigDecimal("2"), vendaId);
+        MovimentoEstoque entrada = MovimentoEstoque.entradaPorCancelamento(new BigDecimal("2"),
+                vendaId);
+
+        assertThat(saida.tipo()).isEqualTo(TipoMovimentoEstoque.SAIDA);
+        assertThat(entrada.tipo()).isEqualTo(TipoMovimentoEstoque.ENTRADA);
+        assertThat(saida.vendaId()).isEqualTo(vendaId);
+        assertThat(entrada.vendaId()).isEqualTo(vendaId);
+        assertThat(saida.motivo()).isNull();
+        assertThat(entrada.motivo()).isNull();
+        assertThat(entrada.id()).isNotEqualTo(saida.id());
+
+        assertThatNullPointerException()
+                .isThrownBy(() -> MovimentoEstoque.saidaPorVenda(BigDecimal.ONE, null));
+        assertThatNullPointerException()
+                .isThrownBy(() -> MovimentoEstoque.entradaPorCancelamento(BigDecimal.ONE, null));
+    }
+
+    @Test
     @DisplayName("quarta casa decimal é recusada, mas zero à direita não conta")
     void recusaQuartaCasa() {
         assertThatIllegalArgumentException()

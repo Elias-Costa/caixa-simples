@@ -12,8 +12,8 @@ import org.springframework.stereotype.Service;
 
 /**
  * Casos de uso do estoque que uma pessoa aciona: o ajuste manual (RF19), o estoque mínimo de um
- * produto e a lista de estoque baixo (RF20). A baixa por venda não está aqui: ela é reação a um
- * evento, e mora no ouvinte em {@code internal}.
+ * produto e a lista de estoque baixo (RF20). A baixa por venda e o estorno por cancelamento não
+ * estão aqui: são reação a evento, e moram nos ouvintes em {@code internal}.
  *
  * <p><strong>Este módulo decide; o cadastro executa.</strong> O agregado Produto, com o saldo, o
  * mínimo e os movimentos, é do cadastro, e ninguém de fora abre a entidade dele. O que é do

@@ -18,8 +18,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * A montagem da comanda (RF07, RF08), o pagamento dividido entre formas e a conclusão (RF09), e
- * as duas invariantes da raiz, em memória.
+ * A montagem da comanda (RF07, RF08), o pagamento dividido entre formas e a conclusão (RF09), o
+ * cancelamento (RF12) e as duas invariantes da raiz, em memória.
  *
  * <p>Teste de unidade puro, sem contexto Spring e sem banco, porque a raiz não conhece framework.
  * O que atravessa o banco, inclusive a cópia do preço do produto e o Strategy de pagamento de
@@ -256,7 +256,7 @@ class VendaTest {
         for (StatusVenda status : List.of(StatusVenda.CONCLUIDA, StatusVenda.CANCELADA)) {
             ItemVenda item = ItemVenda.novo(CAFE, DOIS, Money.de("4.50"), Money.ZERO);
             // A CONCLUIDA precisa da parcela que a fecha, senão reconstituir a recusa. A CANCELADA
-            // não tem regra de pagamento ainda, e vai com a mesma parcela por simplicidade.
+            // não tem regra de pagamento, e vai com a mesma parcela por simplicidade.
             Pagamento parcela = Pagamento.novo(FormaPagamento.DINHEIRO, Money.de("9.00"),
                     StatusPagamento.CONFIRMADO);
             Venda venda = Venda.reconstituir(UUID.randomUUID(), SESSAO, OPERADOR, null, status,
@@ -526,6 +526,68 @@ class VendaTest {
                 StatusVenda.ABERTA, Money.de("9.00"), Money.ZERO, Instant.now(), List.of(item),
                 List.of(parcial));
         assertThat(aberta.getStatus()).isEqualTo(StatusVenda.ABERTA);
+
+        // CANCELADA com a conta pela metade também: é a comanda abandonada depois de uma parcela.
+        Venda cancelada = Venda.reconstituir(UUID.randomUUID(), SESSAO, OPERADOR, null,
+                StatusVenda.CANCELADA, Money.de("9.00"), Money.ZERO, Instant.now(), List.of(item),
+                List.of(parcial));
+        assertThat(cancelada.getStatus()).isEqualTo(StatusVenda.CANCELADA);
+    }
+
+    @Test
+    @DisplayName("cancelar desfaz a comanda ABERTA, com ou sem parcela, e a venda CONCLUIDA; itens e parcelas ficam (RF12)")
+    void cancelaAbertaEConcluida() {
+        Venda vazia = new Venda(SESSAO, OPERADOR);
+        vazia.cancelar();
+        assertThat(vazia.getStatus()).isEqualTo(StatusVenda.CANCELADA);
+
+        Venda pelaMetade = new Venda(SESSAO, OPERADOR);
+        pelaMetade.adicionarItem(CAFE, DOIS, Money.de("4.50"), Money.ZERO);
+        pelaMetade.registrarPagamento(FormaPagamento.PIX, Money.de("5.00"),
+                StatusPagamento.CONFIRMADO);
+        pelaMetade.cancelar();
+        assertThat(pelaMetade.getStatus()).isEqualTo(StatusVenda.CANCELADA);
+        assertThat(pelaMetade.getItens()).hasSize(1);
+        assertThat(pelaMetade.getPagamentos())
+                .extracting(Pagamento::status)
+                .containsExactly(StatusPagamento.CONFIRMADO);
+        assertThat(pelaMetade.getValorTotal()).isEqualTo(Money.de("9.00"));
+
+        Venda concluida = new Venda(SESSAO, OPERADOR);
+        concluida.adicionarItem(CAFE, DOIS, Money.de("4.50"), Money.ZERO);
+        concluida.registrarPagamento(FormaPagamento.DINHEIRO, Money.de("9.00"),
+                StatusPagamento.CONFIRMADO);
+        concluida.concluir();
+        concluida.cancelar();
+        assertThat(concluida.getStatus()).isEqualTo(StatusVenda.CANCELADA);
+        // O que tinha sido vendido e como tinha sido pago continua contado: é o que permite ao
+        // caixa e ao estoque desfazerem exatamente o que a conclusão fez.
+        assertThat(concluida.getItens()).hasSize(1);
+        assertThat(concluida.getPagamentos())
+                .extracting(Pagamento::forma, Pagamento::valor, Pagamento::status)
+                .containsExactly(tuple(FormaPagamento.DINHEIRO, Money.de("9.00"),
+                        StatusPagamento.CONFIRMADO));
+        assertThatInvarianteVale(concluida);
+    }
+
+    @Test
+    @DisplayName("CANCELADA é final: não cancela de novo, e o resto continua recusado")
+    void canceladaEFinal() {
+        Venda venda = new Venda(SESSAO, OPERADOR);
+        venda.adicionarItem(CAFE, DOIS, Money.de("4.50"), Money.ZERO);
+        venda.cancelar();
+
+        assertThatIllegalStateException()
+                .isThrownBy(venda::cancelar)
+                .withMessageContaining("ja esta CANCELADA");
+        assertThatIllegalStateException()
+                .isThrownBy(venda::concluir)
+                .withMessageContaining("CANCELADA");
+        assertThatIllegalStateException()
+                .isThrownBy(() -> venda.registrarPagamento(FormaPagamento.PIX, Money.de("9.00"),
+                        StatusPagamento.CONFIRMADO))
+                .withMessageContaining("CANCELADA");
+        assertThat(venda.getStatus()).isEqualTo(StatusVenda.CANCELADA);
     }
 
     /**

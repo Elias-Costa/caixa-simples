@@ -1,5 +1,6 @@
 package br.com.caixasimples.cadastro.internal;
 
+import br.com.caixasimples.cadastro.TipoMovimentoEstoque;
 import br.com.caixasimples.cadastro.TipoProduto;
 import java.util.List;
 import java.util.Optional;
@@ -20,20 +21,28 @@ import org.springframework.data.jpa.repository.JpaRepository;
  * <p>{@code MovimentoEstoque} é membro do agregado e não tem repositório próprio: é gravado pela
  * raiz, junto do saldo. A entidade dele nem sequer é visível fora deste pacote, então a regra não
  * depende apenas de disciplina. A única pergunta sobre o membro que se faz aqui,
- * {@link #existsByIdAndMovimentosVendaId}, passa pela raiz.
+ * {@link #existsByIdAndMovimentosVendaIdAndMovimentosTipo}, passa pela raiz.
  */
 public interface ProdutoRepository extends JpaRepository<ProdutoEntity, UUID> {
 
     /**
-     * Se este produto já tem movimento vindo desta venda. É a pergunta que o caso de uso de baixa
-     * faz antes de gravar, porque o evento de venda concluída pode chegar mais de uma vez e a
-     * raiz, que não carrega o histórico, não tem como responder sozinha.
+     * Se este produto já tem movimento deste tipo vindo desta venda: com SAIDA, se a venda já deu
+     * baixa; com ENTRADA, se o cancelamento já a estornou. São as perguntas que os casos de uso
+     * fazem antes de gravar, porque os eventos de venda concluída e de venda cancelada podem
+     * chegar mais de uma vez e a raiz, que não carrega o histórico, não tem como responder
+     * sozinha.
      *
-     * <p>Derivada, e não {@code @Query}, que o projeto não usa: o caminho {@code movimentos.vendaId}
-     * atravessa a coleção da raiz com um {@code JOIN}, sem carregar o histórico na memória. Sem
+     * <p>Derivada, e não {@code @Query}, que o projeto não usa: o caminho {@code movimentos}
+     * atravessa a coleção da raiz com um {@code JOIN}, sem carregar o histórico na memória. Os
+     * dois filtros sobre {@code movimentos} caem na <strong>mesma linha</strong> do histórico,
+     * porque o construtor de consulta reaproveita o {@code JOIN} pelo caminho da propriedade em
+     * vez de abrir um por filtro; é isso que faz a pergunta significar a venda desta linha com o
+     * tipo desta linha, e não uma venda qualquer com um tipo qualquer. O teste do membro do
+     * agregado prova essa leitura com uma SAIDA de uma venda e uma ENTRADA de outra. Sem
      * {@code conta_id} na assinatura, como todo o resto: o {@code @TenantId} filtra (RNF05).
      */
-    boolean existsByIdAndMovimentosVendaId(UUID id, UUID vendaId);
+    boolean existsByIdAndMovimentosVendaIdAndMovimentosTipo(UUID id, UUID vendaId,
+            TipoMovimentoEstoque tipo);
 
     List<ProdutoEntity> findByAtivoTrue();
 

@@ -11,12 +11,14 @@ package br.com.caixasimples.vendas;
  * <p><strong>CONCLUIDA</strong> é a venda paga: a soma dos pagamentos confirmados cobre o total
  * (RF09). É o único estado que produz efeito fora do módulo, no caixa e no estoque.
  *
- * <p><strong>CANCELADA</strong> é o cancelamento de uma venda já registrada (RF12), com estorno
- * de estoque quando houver.
+ * <p><strong>CANCELADA</strong> é a venda desfeita (RF12), e é estado final. Tanto a comanda
+ * ABERTA abandonada quanto a venda CONCLUIDA cancelada chegam aqui; a diferença é que só a segunda
+ * tinha produzido efeito fora do módulo, e só ela publica o evento que devolve o dinheiro ao caixa
+ * e os itens ao estoque.
  *
- * <p>A única transição que existe em código é de ABERTA para CONCLUIDA, feita por
- * {@code Venda.concluir}, um passo à parte de registrar a parcela que fecha a conta. A saída para
- * CANCELADA chega com o cancelamento; até lá nenhuma venda sai de CONCLUIDA.
+ * <p>As transições que existem em código: de ABERTA para CONCLUIDA, por {@code Venda.concluir},
+ * um passo à parte de registrar a parcela que fecha a conta; e de ABERTA ou CONCLUIDA para
+ * CANCELADA, por {@code Venda.cancelar}. Nenhuma venda sai de CANCELADA.
  *
  * <p>Fica na raiz do módulo, como {@code caixa.StatusSessaoCaixa} e
  * {@code pagamentos.FormaPagamento}, porque é vocabulário que outros módulos vão precisar nomear.

@@ -15,10 +15,11 @@ import java.util.UUID;
  * {@link MovimentoEstoque} como membro.
  *
  * <p><strong>A raiz não carrega o histórico de movimentos</strong>, e isso é deliberado. Ela
- * guarda o saldo consolidado e, a cada baixa ou ajuste, devolve o movimento novo a quem a chamou,
- * para que os dois sejam gravados juntos. O histórico de um produto cresce a cada venda, sem limite, e o
- * produto é lido em toda venda; remontá-lo inteiro a cada leitura, como o caixa faz com um
- * expediente, seria pagar exatamente o custo que o saldo consolidado existe para evitar.
+ * guarda o saldo consolidado e, a cada baixa, estorno ou ajuste, devolve o movimento novo a quem
+ * a chamou, para que os dois sejam gravados juntos. O histórico de um produto cresce a cada
+ * venda, sem limite, e o produto é lido em toda venda; remontá-lo inteiro a cada leitura, como o
+ * caixa faz com um expediente, seria pagar exatamente o custo que o saldo consolidado existe para
+ * evitar.
  *
  * <p><strong>Não importa framework</strong>, nem {@code jakarta.persistence} nem
  * {@code org.springframework}. O mapeamento para o banco vive em
@@ -47,9 +48,10 @@ public class Produto {
 
     /**
      * Saldo consolidado, nunca somado do histórico a cada leitura, que é o que mantém barato o
-     * alerta de estoque baixo (RF20). Só se move por {@link #darBaixaPorVenda} e por
-     * {@link #ajustarEstoque}, que devolvem o movimento correspondente para ser gravado na mesma
-     * transação; não há setter nem edição de cadastro que o toque.
+     * alerta de estoque baixo (RF20). Só se move por {@link #darBaixaPorVenda},
+     * {@link #estornarPorCancelamento} e {@link #ajustarEstoque}, que devolvem o movimento
+     * correspondente para ser gravado na mesma transação; não há setter nem edição de cadastro
+     * que o toque.
      *
      * <p><strong>Pode ficar negativo.</strong> A venda que baixou mais do que o saldo registrava
      * já aconteceu no balcão; recusar a baixa aqui não desfaria a venda, só deixaria o estoque
@@ -197,8 +199,8 @@ public class Produto {
 
     /**
      * Baixa de uma venda concluída (RF18): o saldo desce e o movimento correspondente é devolvido,
-     * para que quem persiste grave os dois na mesma transação. É o único caminho que move
-     * {@code estoqueAtual}.
+     * para que quem persiste grave os dois na mesma transação. É um dos três caminhos que movem
+     * {@code estoqueAtual}, ao lado de {@link #estornarPorCancelamento} e {@link #ajustarEstoque}.
      *
      * <p><strong>O saldo pode ficar negativo</strong>; ver o comentário do campo.
      *
@@ -233,10 +235,47 @@ public class Produto {
     }
 
     /**
+     * Estorno de uma venda cancelada (RF12): o oposto exato de {@link #darBaixaPorVenda}. O saldo
+     * sobe o que a venda tinha levado e o movimento de ENTRADA correspondente é devolvido, para
+     * que quem persiste grave os dois na mesma transação.
+     *
+     * <p><strong>Não olha {@code ativo}</strong>, como a baixa: o cancelamento é consequência de
+     * uma venda que já aconteceu, e o estoque que volta para a prateleira volta, esteja o item no
+     * catálogo ou não.
+     *
+     * <p><strong>Não sabe se a venda chegou a dar baixa, nem se já foi estornada.</strong> A raiz
+     * não carrega o histórico, então as duas perguntas são feitas ao repositório pelo caso de uso,
+     * que recusa o estorno sem baixa e o estorno em dobro antes de chegar aqui; a rede embaixo é o
+     * índice único da migration V9, que já inclui o tipo para a SAIDA e a ENTRADA da mesma venda
+     * caberem lado a lado.
+     *
+     * @param quantidade o que a venda tinha levado, e volta; positiva
+     * @param vendaId    a venda cancelada; referência entre agregados, sempre por id
+     * @return o movimento de ENTRADA que este estorno gerou, para ser gravado junto do saldo
+     * @throws IllegalStateException    se o item é SERVICO, que não tem estoque
+     * @throws IllegalArgumentException se a quantidade é nula, zero ou negativa
+     */
+    public MovimentoEstoque estornarPorCancelamento(BigDecimal quantidade, UUID vendaId) {
+        Objects.requireNonNull(quantidade, "quantidade nao pode ser nula");
+        Objects.requireNonNull(vendaId, "vendaId nao pode ser nulo");
+        if (!controlaEstoque()) {
+            throw new IllegalStateException(
+                    "servico nao tem estoque para estornar: " + id
+                            + ". So produto recebe movimento de estoque.");
+        }
+        if (quantidade.signum() <= 0) {
+            throw new IllegalArgumentException(
+                    "quantidade do estorno deve ser positiva: " + quantidade);
+        }
+        this.estoqueAtual = this.estoqueAtual.add(quantidade);
+        return MovimentoEstoque.entradaPorCancelamento(quantidade, vendaId);
+    }
+
+    /**
      * Ajuste manual do estoque (RF19): perda, quebra ou contagem. O saldo recebe a diferença e o
      * movimento de AJUSTE correspondente é devolvido, para que quem persiste grave os dois na
-     * mesma transação. É o outro caminho, além de {@link #darBaixaPorVenda}, que move
-     * {@code estoqueAtual}.
+     * mesma transação. É o terceiro caminho, além de {@link #darBaixaPorVenda} e de
+     * {@link #estornarPorCancelamento}, que move {@code estoqueAtual}.
      *
      * <p><strong>A diferença carrega o sinal.</strong> Positiva soma, negativa subtrai: uma perda
      * de duas unidades é {@code -2}, uma contagem que achou três a mais é {@code +3}. Perda e

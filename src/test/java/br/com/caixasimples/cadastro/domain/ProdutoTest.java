@@ -22,9 +22,10 @@ import org.junit.jupiter.api.Test;
  *
  * <p>A raiz não carrega o histórico de movimentos, então a invariante de que {@code estoqueAtual}
  * é a soma deles não se prova aqui, e sim em integração, onde saldo e movimento são gravados
- * juntos. O que se prova aqui é o que a raiz garante sozinha: só produto baixa, só quantidade
- * positiva baixa, cada baixa ou ajuste devolve exatamente o movimento que o explica, ajuste sem
- * motivo não passa, e o limiar do alerta de estoque baixo é comparado como a raiz decide.
+ * juntos. O que se prova aqui é o que a raiz garante sozinha: só produto baixa e estorna, só
+ * quantidade positiva baixa e estorna, cada baixa, estorno ou ajuste devolve exatamente o
+ * movimento que o explica, ajuste sem motivo não passa, e o limiar do alerta de estoque baixo é
+ * comparado como a raiz decide.
  */
 class ProdutoTest {
 
@@ -300,6 +301,62 @@ class ProdutoTest {
         produto.darBaixaPorVenda(BigDecimal.ONE, UUID.randomUUID());
 
         assertThat(produto.getEstoqueAtual()).isEqualByComparingTo("-1");
+    }
+
+    @Test
+    @DisplayName("o estorno sobe o saldo e devolve a ENTRADA que o explica, apontando para a venda (RF12)")
+    void estornoSobeOSaldoEDevolveOMovimento() {
+        Produto produto = valido(Money.de("6.50"));
+        UUID vendaId = UUID.randomUUID();
+        produto.darBaixaPorVenda(new BigDecimal("0.750"), vendaId);
+
+        MovimentoEstoque movimento = produto.estornarPorCancelamento(new BigDecimal("0.750"),
+                vendaId);
+
+        assertThat(produto.getEstoqueAtual())
+                .as("o estorno devolve exatamente o que a baixa tirou")
+                .isEqualByComparingTo("0");
+        assertThat(movimento.tipo()).isEqualTo(TipoMovimentoEstoque.ENTRADA);
+        assertThat(movimento.quantidade())
+                .as("a quantidade é positiva; quem diz que entra é o tipo")
+                .isEqualByComparingTo("0.750");
+        assertThat(movimento.vendaId()).isEqualTo(vendaId);
+        assertThat(movimento.motivo()).isNull();
+        assertThat(movimento.id()).isNotNull();
+        assertThat(movimento.criadoEm()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("estorno recusa serviço e quantidade não positiva, e não olha se o produto está ativo")
+    void estornoTemAsGuardasDaBaixa() {
+        Produto servico = new Produto("Corte", Money.de("40.00"), TipoProduto.SERVICO, null, null,
+                null, null);
+        assertThatIllegalStateException()
+                .isThrownBy(() -> servico.estornarPorCancelamento(BigDecimal.ONE,
+                        UUID.randomUUID()))
+                .withMessageContaining("servico");
+
+        Produto produto = valido(Money.de("6.50"));
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> produto.estornarPorCancelamento(BigDecimal.ZERO,
+                        UUID.randomUUID()))
+                .withMessageContaining("positiva");
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> produto.estornarPorCancelamento(new BigDecimal("-1"),
+                        UUID.randomUUID()))
+                .withMessageContaining("positiva");
+        assertThatNullPointerException()
+                .isThrownBy(() -> produto.estornarPorCancelamento(null, UUID.randomUUID()));
+        assertThatNullPointerException()
+                .isThrownBy(() -> produto.estornarPorCancelamento(BigDecimal.ONE, null));
+        assertThat(produto.getEstoqueAtual())
+                .as("nenhuma recusa pode ter movido o saldo")
+                .isEqualByComparingTo("0");
+
+        // O item saiu do catálogo depois da venda; o estoque que volta para a prateleira, volta.
+        produto.inativar();
+        produto.estornarPorCancelamento(BigDecimal.ONE, UUID.randomUUID());
+        assertThat(produto.getEstoqueAtual()).isEqualByComparingTo("1");
     }
 
     @Test

@@ -34,8 +34,8 @@ import java.util.UUID;
  * <h2>As regras de lançamento</h2>
  *
  * <p>Não existe método público e genérico de lançar movimento: quem lança passa por
- * {@link #sangrar}, {@link #suprir} ou {@link #registrarVenda}. De fora ninguém escolhe um tipo
- * arbitrário nem omite o motivo.
+ * {@link #sangrar}, {@link #suprir}, {@link #registrarVenda} ou {@link #estornarVenda}. De fora
+ * ninguém escolhe um tipo arbitrário nem omite o motivo.
  *
  * <ul>
  *   <li>Abertura com valor negativo é recusada; com zero, não. Abrir a gaveta sem troco é situação
@@ -47,7 +47,16 @@ import java.util.UUID;
  *       lançamento posterior tornaria mentirosa a {@code diferenca} já gravada.</li>
  *   <li>A mesma venda não entra duas vezes na gaveta. O dinheiro de uma venda chega por evento,
  *       entregue ao menos uma vez, e o esperado não pode contar duas vezes o que entrou uma.</li>
+ *   <li>O estorno de uma venda cancelada devolve exatamente o que a venda trouxe, e uma vez só:
+ *       não se estorna venda que não entrou nesta sessão, nem a mesma venda duas vezes.</li>
  * </ul>
+ *
+ * <p><strong>O estorno pode deixar o esperado negativo</strong>, ao contrário da sangria, e a
+ * diferença é deliberada. Sangria é decisão de agora, e recusar a que não cabe é impedir um erro.
+ * O estorno é reação a um cancelamento que já aconteceu no balcão; recusá-lo aqui não desfaria o
+ * cancelamento, só deixaria o caixa sem refletir o que houve, e prenderia a entrega do evento. Um
+ * esperado negativo depois de uma sangria seguida de estorno é o fato a corrigir, com um
+ * suprimento, do mesmo modo que o saldo de estoque negativo se corrige com um ajuste.
  *
  * <p><strong>Movimento de valor zero continua aceito</strong>, e a ausência dessa regra é
  * deliberada: a questão foi levantada junto com as três acima e a restrição não foi escolhida. O
@@ -219,11 +228,66 @@ public class SessaoCaixa {
 
     /**
      * Se o dinheiro desta venda já entrou nesta sessão. É a pergunta que o listener faz antes de
-     * lançar, porque o evento pode chegar mais de uma vez.
+     * lançar, porque o evento pode chegar mais de uma vez. Continua verdadeira depois de um
+     * estorno: o dinheiro entrou, e o estorno é outro movimento.
      */
     public boolean jaRegistrouVenda(UUID vendaId) {
         Objects.requireNonNull(vendaId, "vendaId nao pode ser nulo");
-        return movimentos.stream().anyMatch(movimento -> vendaId.equals(movimento.vendaId()));
+        return temMovimento(TipoMovimentoCaixa.VENDA, vendaId);
+    }
+
+    /**
+     * O dinheiro em espécie que sai da gaveta porque a venda foi cancelada (RF12): o oposto exato
+     * de {@link #registrarVenda}.
+     *
+     * <p><strong>O valor não é parâmetro, de propósito.</strong> O que sai é o que entrou, e quem
+     * sabe quanto entrou é esta sessão, que tem o movimento VENDA daquela venda. Um valor vindo de
+     * fora seria uma segunda conta para a mesma pergunta, com espaço para as duas divergirem. Por
+     * isso também não existe estorno de venda que não entrou aqui: não há o que espelhar, e a
+     * recusa é alta em vez de lançar zero.
+     *
+     * <p><strong>A mesma venda não sai duas vezes</strong>, pelo mesmo motivo de não entrar duas
+     * vezes: o evento de cancelamento chega ao menos uma vez, o listener reconhece a reentrega por
+     * {@link #jaEstornouVenda}, e a recusa aqui é a invariante para qualquer chamador.
+     *
+     * <p>Não olha se o esperado fica negativo; ver o javadoc da classe.
+     *
+     * @param vendaId a venda cancelada; referência entre agregados, sempre por id
+     * @throws IllegalStateException se a sessão já está FECHADA, se esta venda não entrou nesta
+     *                               sessão, ou se já foi estornada
+     */
+    public void estornarVenda(UUID vendaId) {
+        Objects.requireNonNull(vendaId, "vendaId nao pode ser nulo");
+
+        MovimentoCaixa entrada = movimentos.stream()
+                .filter(movimento -> movimento.tipo() == TipoMovimentoCaixa.VENDA)
+                .filter(movimento -> vendaId.equals(movimento.vendaId()))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException(
+                        "venda " + vendaId + " nao entrou na sessao de caixa " + id
+                                + " e nao tem o que estornar. So se devolve o que entrou."));
+        if (jaEstornouVenda(vendaId)) {
+            throw new IllegalStateException(
+                    "venda " + vendaId + " ja foi estornada na sessao de caixa " + id
+                            + " e nao sai de novo. O dinheiro de uma venda volta uma vez so.");
+        }
+
+        registrar(TipoMovimentoCaixa.ESTORNO, entrada.valor(), null, vendaId);
+    }
+
+    /**
+     * Se o dinheiro desta venda já saiu desta sessão por estorno. É a pergunta que o listener do
+     * cancelamento faz antes de estornar, porque o evento pode chegar mais de uma vez.
+     */
+    public boolean jaEstornouVenda(UUID vendaId) {
+        Objects.requireNonNull(vendaId, "vendaId nao pode ser nulo");
+        return temMovimento(TipoMovimentoCaixa.ESTORNO, vendaId);
+    }
+
+    private boolean temMovimento(TipoMovimentoCaixa tipo, UUID vendaId) {
+        return movimentos.stream()
+                .filter(movimento -> movimento.tipo() == tipo)
+                .anyMatch(movimento -> vendaId.equals(movimento.vendaId()));
     }
 
     /**
@@ -274,7 +338,7 @@ public class SessaoCaixa {
      *
      * <p><strong>É privado de propósito.</strong> Público, seria uma porta lateral por onde se
      * lançaria sangria sem motivo e com tipo arbitrário. Quem chega aqui já passou por
-     * {@link #sangrar}, {@link #suprir} ou {@link #registrarVenda}.
+     * {@link #sangrar}, {@link #suprir}, {@link #registrarVenda} ou {@link #estornarVenda}.
      */
     private void registrar(TipoMovimentoCaixa tipo, Money valor, String motivo, UUID vendaId) {
         if (status != StatusSessaoCaixa.ABERTA) {
@@ -294,7 +358,7 @@ public class SessaoCaixa {
         // Um campo de sinal dentro do enum faria a mesma conta em silêncio, com o valor errado.
         this.valorFechamentoEsperado = switch (tipo) {
             case VENDA, SUPRIMENTO -> valorFechamentoEsperado.somar(movimento.valor());
-            case SANGRIA -> valorFechamentoEsperado.subtrair(movimento.valor());
+            case SANGRIA, ESTORNO -> valorFechamentoEsperado.subtrair(movimento.valor());
         };
     }
 

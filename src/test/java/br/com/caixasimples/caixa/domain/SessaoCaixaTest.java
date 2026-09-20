@@ -131,7 +131,9 @@ class SessaoCaixaTest {
     @DisplayName("sessão FECHADA não aceita movimento nenhum")
     void sessaoFechadaNaoAceitaMovimento() {
         SessaoCaixa fechada = new SessaoCaixa(OPERADOR, Money.de("100.00"));
-        fechada.fechar(Money.de("100.00"));
+        UUID vendaDoExpediente = UUID.randomUUID();
+        fechada.registrarVenda(Money.de("10.00"), vendaDoExpediente);
+        fechada.fechar(Money.de("110.00"));
 
         assertThatIllegalStateException()
                 .isThrownBy(() -> fechada.sangrar(Money.de("10.00"), "Almoco"));
@@ -139,11 +141,15 @@ class SessaoCaixaTest {
                 .isThrownBy(() -> fechada.suprir(Money.de("10.00"), "Troco"));
         assertThatIllegalStateException()
                 .isThrownBy(() -> fechada.registrarVenda(Money.de("10.00"), UUID.randomUUID()));
+        assertThatIllegalStateException()
+                .as("nem o estorno de uma venda que entrou antes do fechamento")
+                .isThrownBy(() -> fechada.estornarVenda(vendaDoExpediente))
+                .withMessageContaining("nao aceita movimento");
 
-        assertThat(fechada.getMovimentos()).isEmpty();
+        assertThat(fechada.getMovimentos()).hasSize(1);
         assertThat(fechada.getValorFechamentoEsperado())
                 .as("o esperado conferido no fechamento não pode mudar depois dele")
-                .isEqualTo(Money.de("100.00"));
+                .isEqualTo(Money.de("110.00"));
     }
 
     @Test
@@ -209,6 +215,81 @@ class SessaoCaixaTest {
         // Outra venda continua entrando normalmente.
         sessao.registrarVenda(Money.de("1.07"), outraVenda);
         assertThat(sessao.getValorFechamentoEsperado()).isEqualTo(Money.de("70.00"));
+    }
+
+    @Test
+    @DisplayName("o estorno devolve exatamente o que a venda trouxe, sem receber o valor (RF12)")
+    void estornoEspelhaAVenda() {
+        SessaoCaixa sessao = new SessaoCaixa(OPERADOR, Money.de("50.00"));
+        UUID vendaId = UUID.randomUUID();
+        sessao.registrarVenda(Money.de("18.93"), vendaId);
+        sessao.registrarVenda(Money.de("7.00"), UUID.randomUUID());
+        assertThat(sessao.getValorFechamentoEsperado()).isEqualTo(Money.de("75.93"));
+        assertThat(sessao.jaEstornouVenda(vendaId)).isFalse();
+
+        sessao.estornarVenda(vendaId);
+
+        // Sai o que entrou por aquela venda, e só por ela; a outra continua na gaveta.
+        assertThat(sessao.getValorFechamentoEsperado()).isEqualTo(Money.de("57.00"));
+        assertThat(sessao.jaEstornouVenda(vendaId)).isTrue();
+        assertThat(sessao.jaRegistrouVenda(vendaId))
+                .as("o dinheiro entrou; o estorno é outro movimento, não apaga a entrada")
+                .isTrue();
+
+        MovimentoCaixa estorno = sessao.getMovimentos().get(2);
+        assertThat(estorno.tipo()).isEqualTo(TipoMovimentoCaixa.ESTORNO);
+        assertThat(estorno.valor())
+                .as("o valor gravado é positivo; quem sabe que ele sai é o tipo")
+                .isEqualTo(Money.de("18.93"));
+        assertThat(estorno.vendaId()).isEqualTo(vendaId);
+        assertThat(estorno.motivo()).as("a venda já explica o estorno").isNull();
+        assertThat(sessao.getMovimentos()).hasSize(3);
+    }
+
+    @Test
+    @DisplayName("não se estorna venda que não entrou, nem a mesma venda duas vezes")
+    void estornoExigeAVendaEUmaVezSo() {
+        SessaoCaixa sessao = new SessaoCaixa(OPERADOR, Money.de("50.00"));
+        UUID vendaId = UUID.randomUUID();
+        sessao.registrarVenda(Money.de("18.93"), vendaId);
+
+        // Uma venda paga só em Pix nunca entrou na gaveta: não há o que espelhar, e a recusa é
+        // alta em vez de um estorno de zero.
+        assertThatIllegalStateException()
+                .isThrownBy(() -> sessao.estornarVenda(UUID.randomUUID()))
+                .withMessageContaining("nao entrou");
+
+        sessao.estornarVenda(vendaId);
+
+        // O evento de cancelamento é entregue ao menos uma vez; a segunda entrega é o listener que
+        // reconhece e pula. A raiz recusa para que nenhum chamador devolva o dinheiro em dobro.
+        assertThatIllegalStateException()
+                .isThrownBy(() -> sessao.estornarVenda(vendaId))
+                .withMessageContaining("ja foi estornada");
+
+        assertThat(sessao.getValorFechamentoEsperado())
+                .as("as recusas não deixaram rastro")
+                .isEqualTo(Money.de("50.00"));
+        assertThat(sessao.getMovimentos()).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("o estorno pode deixar o esperado negativo; a sangria, não")
+    void estornoNaoOlhaOPiso() {
+        SessaoCaixa sessao = new SessaoCaixa(OPERADOR, Money.ZERO);
+        UUID vendaId = UUID.randomUUID();
+        sessao.registrarVenda(Money.de("30.00"), vendaId);
+        sessao.sangrar(Money.de("30.00"), "Deposito");
+        assertThat(sessao.getValorFechamentoEsperado()).isEqualTo(Money.ZERO);
+
+        // O cancelamento já aconteceu no balcão; recusar aqui não o desfaria, só deixaria o caixa
+        // sem refletir o fato. O esperado negativo é o que se corrige com um suprimento.
+        sessao.estornarVenda(vendaId);
+        assertThat(sessao.getValorFechamentoEsperado()).isEqualTo(Money.de("-30.00"));
+
+        assertThatIllegalArgumentException()
+                .as("sangria é decisão de agora, e continua recusando o que não está lá")
+                .isThrownBy(() -> sessao.sangrar(Money.de("0.01"), "Qualquer coisa"));
     }
 
     @Test
