@@ -79,17 +79,18 @@ primeiro dia; seis já têm código de negócio dentro.
 | `cadastro` | Implementado | `Produto` com atributos `JSONB`, busca por nome ou código para o balcão, `Cliente` como vertical slice, catálogo sugerido por tipo de negócio, e o agregado inteiro: `MovimentoEstoque` como membro, com a baixa por venda, o estorno por cancelamento e o ajuste manual gravando movimento e saldo na mesma transação, o estoque mínimo de cada produto e a resposta de quais estão com estoque baixo |
 | `caixa` | Implementado | `SessaoCaixa`: abertura, sangria, suprimento, fechamento com conferência, histórico por operador e por dia, e o dinheiro em espécie de cada venda concluída entrando na gaveta por evento, uma vez só, mesmo que o evento chegue de novo; e saindo dela, por outro evento, quando a venda é cancelada, num estorno que espelha exatamente o que entrou |
 | `pagamentos` | Implementado | Strategy por forma de pagamento: dinheiro com troco calculado no domínio, Pix e cartão lançados à mão pelo operador. Sem provedor de Pix ainda |
-| `vendas` | Em andamento | agregado `Venda`, com `ItemVenda` e `Pagamento` como membros: abrir a comanda num caixa aberto, lançar e remover itens com o preço copiado do produto, desconto por item e por venda, total recalculado a cada operação, pagamento dividido entre formas com o troco vindo do módulo de pagamentos, conclusão como passo explícito, que exige o caixa ainda aberto e publica o evento `VendaConcluida` pelo outbox, e cancelamento, que desfaz a comanda aberta ou a venda concluída e, só no segundo caso, publica `VendaCancelada` para o caixa e o estoque desfazerem o que fizeram. Falta o vínculo de cliente |
+| `vendas` | Em andamento | agregado `Venda`, com `ItemVenda` e `Pagamento` como membros: abrir a comanda num caixa aberto, lançar e remover itens com o preço copiado do produto, desconto por item e por venda, total recalculado a cada operação, pagamento dividido entre formas com o troco vindo do módulo de pagamentos, conclusão como passo explícito, que exige o caixa ainda aberto e publica o evento `VendaConcluida` pelo outbox, e cancelamento, que desfaz a comanda aberta ou a venda concluída e, só no segundo caso, publica `VendaCancelada` para o caixa e o estoque desfazerem o que fizeram; e o comprovante não-fiscal de uma venda concluída, devolvido como dado para a tela imprimir ou compartilhar, com as linhas já calculadas, os descontos, as parcelas confirmadas e o troco, que passou a ficar gravado na parcela. Falta o vínculo de cliente |
 | `estoque` | Em andamento | o ouvinte da venda concluída: quando a conta ligou o controle de estoque, cada produto vendido vira uma baixa, pedida ao cadastro, dono do agregado; serviço no meio dos itens não gera nada, e o evento entregue de novo não baixa em dobro. E os casos de uso que uma pessoa aciona: ajuste manual com motivo obrigatório, perda, quebra ou contagem, com a diferença carregando o sinal; estoque mínimo por produto; e o alerta de estoque baixo como consulta, a lista dos produtos ativos no mínimo ou abaixo. A conta que não ligou o controle é recusada nos três. E o ouvinte da venda cancelada, imagem espelhada do primeiro: cada produto que a venda baixou volta, uma vez só, e o que nunca saiu não volta |
 | `relatorios` | Planejado | pacote e fronteira declarados, sem código de negócio |
 
-**Schema.** Onze migrations Flyway, de `V1` a `V11`: conta, usuário e credencial; produto; cliente;
+**Schema.** Doze migrations Flyway, de `V1` a `V12`: conta, usuário e credencial; produto; cliente;
 catálogo de referência; o agregado de caixa, com a regra de uma sessão aberta por operador; o
 agregado de venda, com a venda, seus itens e seus pagamentos; o outbox de eventos de domínio do
 Spring Modulith, cujo DDL foi gerado a partir da entidade do framework em vez de escrito de
 memória; o movimento de estoque, o membro que o agregado de produto esperava desde a segunda; o
-estoque mínimo de cada produto, o limiar do alerta de estoque baixo; e o estorno no caixa, o
-quarto tipo de movimento, com as restrições da quinta recriadas para o receber.
+estoque mínimo de cada produto, o limiar do alerta de estoque baixo; o estorno no caixa, o
+quarto tipo de movimento, com as restrições da quinta recriadas para o receber; e o que o
+comprovante precisava e a venda não guardava, o troco de cada parcela e o instante da conclusão.
 
 **Superfície HTTP.** Dois endpoints, ambos de autenticação: `POST /api/auth/login`, que devolve o
 token, e `GET /api/auth/eu`, que existe para haver um recurso protegido de verdade contra o qual
@@ -110,6 +111,7 @@ Atalhos para avaliar o código sem percorrer o repositório inteiro.
 | Raiz de agregado sem framework | [SessaoCaixa.java](src/main/java/br/com/caixasimples/caixa/domain/SessaoCaixa.java) | Regra de negócio e invariantes isoladas de Spring e de JPA |
 | Invariante viva, recalculada a cada operação | [Venda.java](src/main/java/br/com/caixasimples/vendas/domain/Venda.java) | O total nunca fica negativo, nunca diverge dos itens e nunca fica abaixo do já pago; a venda só conclui com os pagamentos confirmados iguais ao total. Cada operação que quebraria uma regra é recusada antes de tocar no agregado, e o estado remontado do banco passa pela mesma conferência |
 | Pergunta entre módulos sem expor o agregado | [VendaService.java](src/main/java/br/com/caixasimples/vendas/application/VendaService.java) | A venda copia o preço do cadastro por chamada à camada de aplicação dele, recebendo um record e nunca a raiz alheia; confere o caixa por uma interface que ela mesma declara; e, ao concluir ou cancelar, publica o evento em vez de chamar quem reage |
+| Comprovante como dado, não como desenho | [Comprovante.java](src/main/java/br/com/caixasimples/vendas/application/Comprovante.java) | O servidor garante o dado certo, com as linhas arredondadas pelo domínio e as parcelas gravadas; quem desenha, imprime e compartilha é a tela, que precisa fazer isso também sem conexão. O porquê de não haver PDF nem HTML está escrito no lugar |
 | Efeito colateral entre módulos por evento | [VendaConcluidaListener.java](src/main/java/br/com/caixasimples/caixa/internal/VendaConcluidaListener.java) | O caixa reage à venda concluída sem que a venda o conheça: só o dinheiro em espécie entra na gaveta, a reentrega do outbox não duplica, e o tenant é definido antes de a transação abrir, com o porquê escrito no lugar. [VendaCanceladaListener.java](src/main/java/br/com/caixasimples/caixa/internal/VendaCanceladaListener.java) é o oposto exato: o estorno espelha o que entrou, e quem sabe quanto foi é a sessão, não o evento |
 | Um módulo que decide e outro que executa | [BaixaDeEstoqueListener.java](src/main/java/br/com/caixasimples/estoque/internal/BaixaDeEstoqueListener.java) | O estoque ouve o mesmo evento e decide, pela conta, se há o que baixar; o agregado é do cadastro, então a baixa é pedida pela API pública dele, e a fronteira continua verificada por compilação. [EstoqueService.java](src/main/java/br/com/caixasimples/estoque/application/EstoqueService.java) repete o desenho para o que uma pessoa aciona: ajuste, mínimo e alerta |
 | Agregado que não carrega o próprio histórico | [ProdutoEntity.java](src/main/java/br/com/caixasimples/cadastro/internal/ProdutoEntity.java) | O saldo é coluna viva e o único método que a escreve exige o movimento junto; a coleção é preguiçosa de propósito, com o custo aceito escrito no lugar, porque o histórico de um produto cresce a cada venda e o produto é lido em toda venda |
@@ -151,8 +153,9 @@ Um módulo nunca importa de `internal/` de outro. Efeito colateral entre módulo
 consulta é chamada direta à API pública do pacote. A regra que resume as duas: *eventos anunciam
 fatos, chamadas diretas fazem perguntas.* O Spring Modulith só expõe o pacote-base de cada módulo,
 então a camada `application/` é exposta nomeadamente onde outro módulo precisa perguntar algo, e
-`domain/` e `internal/` seguem ocultos: `vendas` copia o preço do produto recebendo um record da
-camada de aplicação de `cadastro`, nunca a raiz de agregado alheia. A exceção é `pagamentos`, que
+`domain/` e `internal/` seguem ocultos: `vendas` copia o preço do produto, e pede o nome dele para
+o comprovante, recebendo um record da camada de aplicação de `cadastro`, nunca a raiz de agregado
+alheia. A exceção é `pagamentos`, que
 expõe também o `domain/`: ele não tem agregado, e o que mora lá é a interface do Strategy e os dois
 records imutáveis que são o contrato de pagar, o pedido e o resultado, sem os quais ninguém
 consegue chamar o serviço de pagamento.
@@ -294,7 +297,9 @@ pontos:
   um teste próprio, que prova que a coluna de conta deles vem do contexto e não da raiz por
   junção. O teste falha se a anotação de tenant for removida. Os casos de uso do estoque têm o
   seu nas duas direções: a lista de estoque baixo de uma conta não traz o produto de outra, e o
-  ajuste de uma conta não alcança o produto de outra.
+  ajuste de uma conta não alcança o produto de outra. O comprovante tem a mesma prova nas duas
+  pontas: a venda de uma conta é inexistente para a outra, e a consulta em lote dos nomes dos
+  produtos, que ele faz ao cadastro, também.
 - **Os listeners de evento agem na conta do evento, não na de quem publicou.** Eles rodam em outra
   thread, sem o tenant da requisição, e uma reentrega pode partir do outbox horas depois; a conta
   vai dentro do evento, lida do contexto autenticado no ato da publicação, e há teste, para os
@@ -390,7 +395,16 @@ editar um agregado através de outro.
   provedor, reserva o lugar dela na conta; uma recusada não ocupa lugar. Parcela lançada não se
   desfaz: o valor errado se corrige cancelando a venda.
 - **A venda só conclui com os pagamentos confirmados exatamente iguais ao total**, e nunca sem
-  item. O troco é calculado pelo módulo de pagamentos e devolvido a quem chamou, sem ser gravado.
+  item. O troco é calculado pelo módulo de pagamentos, devolvido a quem chamou para a tela mostrar
+  no ato, e gravado na parcela, para o comprovante sair igual numa reimpressão. Zero fora de
+  dinheiro, e o banco recusa troco em Pix ou cartão.
+- **A venda guarda dois instantes:** quando a comanda abriu e quando os pagamentos fecharam a
+  conta. O segundo é a data do comprovante, porque numa comanda os dois podem estar horas
+  distantes; nasce na conclusão, e o cancelamento não o apaga.
+- **O comprovante é dado, não desenho.** O caso de uso devolve um record com as linhas já
+  calculadas, o nome que o produto tem hoje, os descontos, as parcelas confirmadas e o troco;
+  quem desenha, imprime e compartilha é a tela, que precisa fazer isso também sem conexão. Só
+  venda concluída tem comprovante, e ele não se parece com documento fiscal.
 - **Estado divergente não vira agregado.** Ao remontar uma venda do banco, a raiz confere as duas
   regras e recusa a linha cujo total não bate com os itens, ou concluída sem os pagamentos que a
   fecham. Uma linha gravada por fora do código deixa de ser legível pelo domínio até ser corrigida,
@@ -461,7 +475,7 @@ src
 │   │   ├── estoque/        application, internal
 │   │   └── relatorios/     declarado, sem código de negócio
 │   └── resources
-│       └── db/migration/   V1 a V11, imutáveis depois de publicadas
+│       └── db/migration/   V1 a V12, imutáveis depois de publicadas
 └── test/java/br/com/caixasimples
     ├── ModularityTests     fitness function das fronteiras
     ├── TesteDeIntegracao   base com Testcontainers, herdada pelos testes de banco

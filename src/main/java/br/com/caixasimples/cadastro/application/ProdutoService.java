@@ -9,10 +9,13 @@ import br.com.caixasimples.cadastro.internal.ProdutoRepository;
 import br.com.caixasimples.shared.Money;
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -21,9 +24,9 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Casos de uso do cadastro de produto e serviço: cadastrar (RF01, RF02), editar (RF04), inativar
  * (RF05), buscar por nome ou código durante a venda (RF06), responder o preço vigente a quem
- * monta a venda, dar baixa no estoque de um produto vendido (RF18) e devolvê-lo quando a venda é
- * cancelada (RF12), ajustar o estoque à mão (RF19) e responder quais produtos estão com estoque
- * baixo (RF20).
+ * monta a venda e o nome a quem imprime o comprovante (RF11), dar baixa no estoque de um produto
+ * vendido (RF18) e devolvê-lo quando a venda é cancelada (RF12), ajustar o estoque à mão (RF19) e
+ * responder quais produtos estão com estoque baixo (RF20).
  *
  * <p>Cada caso de uso de escrita é sempre a mesma sequência: carrega a linha, deixa a raiz do
  * agregado decidir, grava o que ela decidiu. Nenhuma regra mora aqui. É {@link Produto} que sabe o
@@ -185,6 +188,46 @@ public class ProdutoService {
     public ProdutoParaVenda consultarParaVenda(UUID id) {
         Produto produto = buscar(id).paraDominio();
         return new ProdutoParaVenda(produto.getId(), produto.getPreco(), produto.isAtivo());
+    }
+
+    /**
+     * O que o comprovante de uma venda (RF11) precisa saber dos produtos das linhas dela: o nome
+     * e a unidade, como estão hoje.
+     *
+     * <p>Em lote, porque um comprovante tem várias linhas e a pergunta é uma só. O item da venda
+     * guarda o preço copiado, mas não o nome: o preço é cópia porque muda a conta; o nome não.
+     * Custo aceito: um produto renomeado depois da venda sai com o nome novo numa reimpressão.
+     *
+     * <p>Produto inativo é devolvido como qualquer outro. O histórico de vendas continua apontando
+     * para ele (RF05), e o comprovante de uma venda passada precisa do nome mesmo que o item já
+     * tenha saído do catálogo.
+     *
+     * @param ids os produtos das linhas; repetido conta uma vez
+     * @throws ProdutoNaoEncontradoException se algum id não existe nesta conta
+     */
+    @Transactional(readOnly = true)
+    public List<ProdutoParaComprovante> consultarParaComprovante(Collection<UUID> ids) {
+        Objects.requireNonNull(ids, "ids dos produtos nao podem ser nulos");
+
+        List<ProdutoEntity> encontrados = produtos.findAllById(ids);
+
+        // findAllById devolve só o que existe nesta conta, sem dizer o que faltou. Um id que não
+        // voltou é um id que não existe ou é de outra conta, e a resposta é a mesma da consulta
+        // unitária: falha alta, e não uma linha sem nome no comprovante.
+        Set<UUID> devolvidos = encontrados.stream()
+                .map(ProdutoEntity::getId)
+                .collect(Collectors.toSet());
+        for (UUID id : ids) {
+            if (!devolvidos.contains(id)) {
+                throw new ProdutoNaoEncontradoException(id);
+            }
+        }
+
+        return encontrados.stream()
+                .map(ProdutoEntity::paraDominio)
+                .map(produto -> new ProdutoParaComprovante(produto.getId(), produto.getNome(),
+                        produto.getUnidade()))
+                .toList();
     }
 
     /**
@@ -413,6 +456,19 @@ public class ProdutoService {
      * @param ativo falso quando o produto foi inativado (RF05)
      */
     public record ProdutoParaVenda(UUID id, Money preco, boolean ativo) {
+    }
+
+    /**
+     * A resposta de {@link #consultarParaComprovante}, uma por produto pedido.
+     *
+     * <p>Record próprio pelo mesmo motivo de {@link ProdutoParaVenda}: atravessa a fronteira do
+     * módulo, e o comprovante precisa do nome e da unidade, não da raiz do agregado.
+     *
+     * @param id      o mesmo id consultado, para quem chamou casar a resposta com a linha
+     * @param nome    o nome de hoje, não o da época da venda
+     * @param unidade nula quando o produto não tem unidade cadastrada
+     */
+    public record ProdutoParaComprovante(UUID id, String nome, String unidade) {
     }
 
     /**

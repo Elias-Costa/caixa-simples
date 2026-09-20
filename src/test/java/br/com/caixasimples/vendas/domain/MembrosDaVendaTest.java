@@ -112,13 +112,45 @@ class MembrosDaVendaTest {
     @DisplayName("pagamento aceita valor zero e recusa valor negativo")
     void pagamentoGuardaOSinalDoValor() {
         Pagamento zero = new Pagamento(UUID.randomUUID(), FormaPagamento.DINHEIRO, Money.ZERO,
-                StatusPagamento.CONFIRMADO, Instant.now());
+                StatusPagamento.CONFIRMADO, Money.ZERO, Instant.now());
         assertThat(zero.valor()).isEqualTo(Money.ZERO);
 
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new Pagamento(UUID.randomUUID(), FormaPagamento.PIX,
-                        Money.de("-5.00"), StatusPagamento.CONFIRMADO, Instant.now()))
+                        Money.de("-5.00"), StatusPagamento.CONFIRMADO, Money.ZERO, Instant.now()))
                 .withMessageContaining("negativo");
+    }
+
+    @Test
+    @DisplayName("troco só existe em dinheiro, e nunca negativo (RF10)")
+    void pagamentoGuardaOTroco() {
+        Instant agora = Instant.now();
+
+        // Dinheiro com troco e dinheiro exato são os dois casos normais do balcão.
+        Pagamento comTroco = new Pagamento(UUID.randomUUID(), FormaPagamento.DINHEIRO,
+                Money.de("9.00"), StatusPagamento.CONFIRMADO, Money.de("1.00"), agora);
+        assertThat(comTroco.troco()).isEqualTo(Money.de("1.00"));
+        Pagamento exato = new Pagamento(UUID.randomUUID(), FormaPagamento.DINHEIRO,
+                Money.de("9.00"), StatusPagamento.CONFIRMADO, Money.ZERO, agora);
+        assertThat(exato.troco()).isEqualTo(Money.ZERO);
+
+        // Pix e cartão são pagos no valor exato: troco fora de dinheiro é linha gravada por fora
+        // do código, e a guarda espelha a restrição da coluna.
+        for (FormaPagamento forma : List.of(FormaPagamento.PIX, FormaPagamento.CARTAO)) {
+            Pagamento semTroco = new Pagamento(UUID.randomUUID(), forma, Money.de("9.00"),
+                    StatusPagamento.CONFIRMADO, Money.ZERO, agora);
+            assertThat(semTroco.troco()).isEqualTo(Money.ZERO);
+            assertThatIllegalArgumentException()
+                    .as("troco em " + forma)
+                    .isThrownBy(() -> new Pagamento(UUID.randomUUID(), forma, Money.de("9.00"),
+                            StatusPagamento.CONFIRMADO, Money.de("0.01"), agora))
+                    .withMessageContaining("so dinheiro devolve troco");
+        }
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new Pagamento(UUID.randomUUID(), FormaPagamento.DINHEIRO,
+                        Money.de("9.00"), StatusPagamento.CONFIRMADO, Money.de("-1.00"), agora))
+                .withMessageContaining("troco nao pode ser negativo");
     }
 
     @Test
@@ -128,18 +160,23 @@ class MembrosDaVendaTest {
 
         assertThatNullPointerException().isThrownBy(() ->
                 new Pagamento(null, FormaPagamento.PIX, Money.ZERO, StatusPagamento.CONFIRMADO,
-                        agora));
+                        Money.ZERO, agora));
         assertThatNullPointerException().isThrownBy(() ->
                 new Pagamento(UUID.randomUUID(), null, Money.ZERO, StatusPagamento.CONFIRMADO,
-                        agora));
+                        Money.ZERO, agora));
         assertThatNullPointerException().isThrownBy(() ->
                 new Pagamento(UUID.randomUUID(), FormaPagamento.PIX, null,
-                        StatusPagamento.CONFIRMADO, agora));
+                        StatusPagamento.CONFIRMADO, Money.ZERO, agora));
         assertThatNullPointerException().isThrownBy(() ->
-                new Pagamento(UUID.randomUUID(), FormaPagamento.PIX, Money.ZERO, null, agora));
+                new Pagamento(UUID.randomUUID(), FormaPagamento.PIX, Money.ZERO, null, Money.ZERO,
+                        agora));
+        assertThatNullPointerException()
+                .isThrownBy(() -> new Pagamento(UUID.randomUUID(), FormaPagamento.PIX, Money.ZERO,
+                        StatusPagamento.CONFIRMADO, null, agora))
+                .withMessageContaining("Money.ZERO");
         assertThatNullPointerException().isThrownBy(() ->
                 new Pagamento(UUID.randomUUID(), FormaPagamento.PIX, Money.ZERO,
-                        StatusPagamento.CONFIRMADO, null));
+                        StatusPagamento.CONFIRMADO, Money.ZERO, null));
     }
 
     @Test
@@ -150,8 +187,8 @@ class MembrosDaVendaTest {
         List<Pagamento> pagamentos = new ArrayList<>();
 
         Venda venda = Venda.reconstituir(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
-                null, StatusVenda.ABERTA, Money.de("10.00"), Money.ZERO, Instant.now(), itens,
-                pagamentos);
+                null, StatusVenda.ABERTA, Money.de("10.00"), Money.ZERO, Instant.now(), null,
+                itens, pagamentos);
 
         // Alterar a lista original depois de montar a venda não pode alcançar o agregado: senão
         // qualquer chamador teria uma porta lateral para inserir item sem passar pela raiz.
@@ -161,7 +198,8 @@ class MembrosDaVendaTest {
         assertThatThrownBy(() -> venda.getItens().clear())
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> venda.getPagamentos().add(new Pagamento(UUID.randomUUID(),
-                FormaPagamento.PIX, Money.ZERO, StatusPagamento.CONFIRMADO, Instant.now())))
+                FormaPagamento.PIX, Money.ZERO, StatusPagamento.CONFIRMADO, Money.ZERO,
+                Instant.now())))
                 .isInstanceOf(UnsupportedOperationException.class);
     }
 

@@ -5,12 +5,14 @@ import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 import static org.assertj.core.api.Assertions.assertThatNoException;
+import static org.assertj.core.api.Assertions.tuple;
 
 import br.com.caixasimples.TesteDeIntegracao;
 import br.com.caixasimples.cadastro.application.ProdutoNaoEncontradoException;
 import br.com.caixasimples.cadastro.application.ProdutoService;
 import br.com.caixasimples.cadastro.application.ProdutoService.DadosDoProduto;
 import br.com.caixasimples.cadastro.application.ProdutoService.EstoqueDoProduto;
+import br.com.caixasimples.cadastro.application.ProdutoService.ProdutoParaComprovante;
 import br.com.caixasimples.cadastro.application.ProdutoService.ProdutoParaVenda;
 import br.com.caixasimples.cadastro.domain.Produto;
 import br.com.caixasimples.cadastro.internal.ProdutoEntity;
@@ -22,6 +24,7 @@ import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.TenantContext;
 import br.com.caixasimples.vendas.CriadorDeVendaDeTeste;
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -237,6 +240,12 @@ class ProdutoServiceTest extends TesteDeIntegracao {
                 TenantContext.executarComo(contaB.contaId(), () ->
                         produtoService.consultarParaVenda(produtoDaContaA)));
 
+        // A consulta em lote passa por findAllById, que também é filtrado: o id da conta A não
+        // volta, e a falta dele é recusada como inexistente, não devolvida como lista menor.
+        assertThatExceptionOfType(ProdutoNaoEncontradoException.class).isThrownBy(() ->
+                TenantContext.executarComo(contaB.contaId(), () ->
+                        produtoService.consultarParaComprovante(List.of(produtoDaContaA))));
+
         TenantContext.executarComo(contaB.contaId(), () -> {
             assertThat(produtoService.listarAtivos()).isEmpty();
             assertThat(produtoService.buscarPorNomeOuCodigo("cafe")).isEmpty();
@@ -352,6 +361,40 @@ class ProdutoServiceTest extends TesteDeIntegracao {
         assertThatExceptionOfType(ProdutoNaoEncontradoException.class).isThrownBy(() ->
                 TenantContext.executarComo(conta.contaId(), () ->
                         produtoService.consultarParaVenda(UUID.randomUUID())));
+    }
+
+    @Test
+    @DisplayName("consultarParaComprovante devolve nome e unidade de vários produtos numa chamada, inclusive inativo")
+    void consultarParaComprovanteDevolveNomeEUnidadeEmLote() {
+        ContaCriada conta = criador.criar("Emporio da Serra", SENHA_DE_TESTE);
+
+        UUID cafeId = TenantContext.executarComo(conta.contaId(), () ->
+                produtoService.cadastrar(TipoProduto.PRODUTO, cafe()));
+        UUID corteId = TenantContext.executarComo(conta.contaId(), () ->
+                produtoService.cadastrar(TipoProduto.SERVICO, new DadosDoProduto("Corte simples",
+                        Money.de("30.00"), null, null, null, null)));
+        TenantContext.executarComo(conta.contaId(), () -> produtoService.inativar(corteId));
+
+        // Inativo volta como qualquer outro: o comprovante de uma venda passada precisa do nome
+        // mesmo que o item já tenha saído do catálogo. Id repetido conta uma vez.
+        TenantContext.executarComo(conta.contaId(), () ->
+                assertThat(produtoService.consultarParaComprovante(
+                        List.of(cafeId, corteId, cafeId)))
+                        .extracting(ProdutoParaComprovante::id, ProdutoParaComprovante::nome,
+                                ProdutoParaComprovante::unidade)
+                        .containsExactlyInAnyOrder(
+                                tuple(cafeId, "Cafe coado", "un"),
+                                tuple(corteId, "Corte simples", null)));
+
+        // Um id que não existe no meio do lote derruba a consulta inteira, como na unitária: uma
+        // linha sem nome no comprovante seria pior que a falha.
+        assertThatExceptionOfType(ProdutoNaoEncontradoException.class).isThrownBy(() ->
+                TenantContext.executarComo(conta.contaId(), () ->
+                        produtoService.consultarParaComprovante(
+                                List.of(cafeId, UUID.randomUUID()))));
+
+        TenantContext.executarComo(conta.contaId(), () ->
+                assertThat(produtoService.consultarParaComprovante(List.of())).isEmpty());
     }
 
 

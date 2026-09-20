@@ -49,6 +49,10 @@ class PagamentoEntity {
     @Column(nullable = false)
     private StatusPagamento status;
 
+    /** Zero fora de dinheiro e quando o cliente pagou o valor exato, nunca nulo. */
+    @Column(nullable = false)
+    private BigDecimal troco;
+
     @Column(name = "criado_em", nullable = false, updatable = false)
     private Instant criadoEm;
 
@@ -61,6 +65,7 @@ class PagamentoEntity {
         this.forma = pagamento.forma();
         this.valor = pagamento.valor().valor();
         this.status = pagamento.status();
+        this.troco = pagamento.troco().valor();
         this.criadoEm = pagamento.criadoEm();
     }
 
@@ -70,7 +75,7 @@ class PagamentoEntity {
 
     /** Não há {@code atualizarCom} aqui: parcela lançada não se edita. */
     Pagamento paraDominio() {
-        return new Pagamento(id, forma, Money.de(valor), status, criadoEm);
+        return new Pagamento(id, forma, Money.de(valor), status, Money.de(troco), criadoEm);
     }
 
     UUID getId() {

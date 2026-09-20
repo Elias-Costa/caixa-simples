@@ -133,13 +133,13 @@ class IsolamentoDeVendaTest extends TesteDeIntegracao {
         ItemVenda fracionado = new ItemVenda(UUID.randomUUID(), cenario.produtoId(),
                 new BigDecimal("0.750"), Money.de("39.90"), Money.de("1.00"), Instant.now());
         Pagamento emDinheiro = new Pagamento(UUID.randomUUID(), FormaPagamento.DINHEIRO,
-                Money.de("20.00"), StatusPagamento.CONFIRMADO, Instant.now());
+                Money.de("20.00"), StatusPagamento.CONFIRMADO, Money.de("2.00"), Instant.now());
         Pagamento emPix = new Pagamento(UUID.randomUUID(), FormaPagamento.PIX, Money.de("16.93"),
-                StatusPagamento.PENDENTE, Instant.now());
+                StatusPagamento.PENDENTE, Money.ZERO, Instant.now());
 
         Venda original = Venda.reconstituir(UUID.randomUUID(), cenario.sessaoCaixaId(),
                 conta.usuarioId(), null, StatusVenda.ABERTA, Money.de("36.93"), Money.de("1.00"),
-                Instant.now(), List.of(inteiro, fracionado), List.of(emDinheiro, emPix));
+                Instant.now(), null, List.of(inteiro, fracionado), List.of(emDinheiro, emPix));
 
         // Uma chamada de save grava a raiz, os dois itens e os dois pagamentos: o agregado é a
         // unidade transacional, e é o cascade de VendaEntity que faz isso valer.
@@ -154,6 +154,7 @@ class IsolamentoDeVendaTest extends TesteDeIntegracao {
             assertThat(lida.getUsuarioId()).isEqualTo(conta.usuarioId());
             assertThat(lida.getClienteId()).isNull();
             assertThat(lida.getStatus()).isEqualTo(StatusVenda.ABERTA);
+            assertThat(lida.getConcluidoEm()).as("ABERTA nao tem instante de conclusao").isNull();
             assertThat(lida.getValorTotal()).isEqualTo(Money.de("36.93"));
             assertThat(lida.getValorDesconto()).isEqualTo(Money.de("1.00"));
 
@@ -178,12 +179,12 @@ class IsolamentoDeVendaTest extends TesteDeIntegracao {
 
             assertThat(lida.getPagamentos())
                     .extracting(Pagamento::id, Pagamento::forma, Pagamento::valor,
-                            Pagamento::status)
+                            Pagamento::status, Pagamento::troco)
                     .containsExactlyInAnyOrder(
                             tuple(emDinheiro.id(), FormaPagamento.DINHEIRO, Money.de("20.00"),
-                                    StatusPagamento.CONFIRMADO),
+                                    StatusPagamento.CONFIRMADO, Money.de("2.00")),
                             tuple(emPix.id(), FormaPagamento.PIX, Money.de("16.93"),
-                                    StatusPagamento.PENDENTE));
+                                    StatusPagamento.PENDENTE, Money.ZERO));
 
             // O @OrderBy das duas coleções, afirmado sem depender de empate de relógio: duas
             // chamadas seguidas de Instant.now() podem cair no mesmo microssegundo, e uma
@@ -210,11 +211,40 @@ class IsolamentoDeVendaTest extends TesteDeIntegracao {
                         vendas.save(VendaEntity.de(Venda.reconstituir(UUID.randomUUID(),
                                 cenario.sessaoCaixaId(), cenario.usuarioId(), null,
                                 StatusVenda.ABERTA, Money.de("99.00"), Money.ZERO, Instant.now(),
-                                List.of(item), List.of())))))
+                                null, List.of(item), List.of())))))
                 .withMessageContaining("viola a invariante do total");
 
         TenantContext.executarComo(conta.contaId(), () ->
                 assertThat(vendas.findAll()).as("nada foi gravado").isEmpty());
+    }
+
+    @Test
+    @DisplayName("venda CONCLUIDA guarda o instante da conclusão e o devolve")
+    void vendaConcluidaAtravessaOBancoComOInstante() {
+        ContaCriada conta = criador.criar("Sorveteria Teste", SENHA_DE_TESTE);
+        Cenario cenario = prepararCenario(conta);
+
+        ItemVenda item = new ItemVenda(UUID.randomUUID(), cenario.produtoId(), BigDecimal.ONE,
+                Money.de("4.50"), Money.ZERO, Instant.now());
+        Pagamento parcela = new Pagamento(UUID.randomUUID(), FormaPagamento.DINHEIRO,
+                Money.de("4.50"), StatusPagamento.CONFIRMADO, Money.de("0.50"), Instant.now());
+        Instant concluidoEm = Instant.now();
+        Venda concluida = Venda.reconstituir(UUID.randomUUID(), cenario.sessaoCaixaId(),
+                cenario.usuarioId(), null, StatusVenda.CONCLUIDA, Money.de("4.50"), Money.ZERO,
+                Instant.now(), concluidoEm, List.of(item), List.of(parcela));
+
+        TenantContext.executarComo(conta.contaId(), () ->
+                vendas.save(VendaEntity.de(concluida)));
+
+        TenantContext.executarComo(conta.contaId(), () -> {
+            Venda lida = vendas.findById(concluida.getId()).orElseThrow().paraDominio();
+            assertThat(lida.getStatus()).isEqualTo(StatusVenda.CONCLUIDA);
+            // Mesma tolerância do criadoEm: o banco guarda microssegundos.
+            assertThat(lida.getConcluidoEm())
+                    .isCloseTo(concluidoEm, within(1, ChronoUnit.MICROS));
+            assertThat(lida.getPagamentos()).extracting(Pagamento::troco)
+                    .containsExactly(Money.de("0.50"));
+        });
     }
 
     @Test
@@ -251,7 +281,7 @@ class IsolamentoDeVendaTest extends TesteDeIntegracao {
         ItemVenda item = new ItemVenda(UUID.randomUUID(), cenario.produtoId(), BigDecimal.ONE,
                 Money.de("4.50"), Money.ZERO, Instant.now());
         return Venda.reconstituir(UUID.randomUUID(), cenario.sessaoCaixaId(), cenario.usuarioId(),
-                clienteId, StatusVenda.ABERTA, Money.de("4.50"), Money.ZERO, Instant.now(),
+                clienteId, StatusVenda.ABERTA, Money.de("4.50"), Money.ZERO, Instant.now(), null,
                 List.of(item), List.of());
     }
 

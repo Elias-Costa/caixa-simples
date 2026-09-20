@@ -258,9 +258,10 @@ class VendaTest {
             // A CONCLUIDA precisa da parcela que a fecha, senão reconstituir a recusa. A CANCELADA
             // não tem regra de pagamento, e vai com a mesma parcela por simplicidade.
             Pagamento parcela = Pagamento.novo(FormaPagamento.DINHEIRO, Money.de("9.00"),
-                    StatusPagamento.CONFIRMADO);
+                    StatusPagamento.CONFIRMADO, Money.ZERO);
             Venda venda = Venda.reconstituir(UUID.randomUUID(), SESSAO, OPERADOR, null, status,
-                    Money.de("9.00"), Money.ZERO, Instant.now(), List.of(item), List.of(parcela));
+                    Money.de("9.00"), Money.ZERO, Instant.now(), Instant.now(), List.of(item),
+                    List.of(parcela));
 
             assertThatIllegalStateException()
                     .as("adicionar em " + status)
@@ -278,7 +279,7 @@ class VendaTest {
             assertThatIllegalStateException()
                     .as("pagar em " + status)
                     .isThrownBy(() -> venda.registrarPagamento(FormaPagamento.PIX,
-                            Money.de("1.00"), StatusPagamento.CONFIRMADO))
+                            Money.de("1.00"), StatusPagamento.CONFIRMADO, Money.ZERO))
                     .withMessageContaining(status.name());
             assertThatIllegalStateException()
                     .as("concluir em " + status)
@@ -299,10 +300,10 @@ class VendaTest {
         venda.adicionarItem(CAFE, DOIS, Money.de("4.50"), Money.ZERO);
         venda.adicionarItem(QUEIJO, SETECENTOS_E_CINQUENTA_GRAMAS, Money.de("39.90"), Money.ZERO);
 
-        venda.registrarPagamento(FormaPagamento.PIX, Money.de("20.00"), StatusPagamento.CONFIRMADO);
+        venda.registrarPagamento(FormaPagamento.PIX, Money.de("20.00"), StatusPagamento.CONFIRMADO, Money.ZERO);
         // A parcela que fecha a conta não conclui: quem conclui é concluir.
         venda.registrarPagamento(FormaPagamento.DINHEIRO, Money.de("18.93"),
-                StatusPagamento.CONFIRMADO);
+                StatusPagamento.CONFIRMADO, Money.ZERO);
 
         assertThat(venda.getStatus()).isEqualTo(StatusVenda.ABERTA);
         assertThat(venda.getPagamentos())
@@ -317,11 +318,11 @@ class VendaTest {
         });
 
         assertThatNullPointerException().isThrownBy(() ->
-                venda.registrarPagamento(null, Money.de("1.00"), StatusPagamento.CONFIRMADO));
+                venda.registrarPagamento(null, Money.de("1.00"), StatusPagamento.CONFIRMADO, Money.ZERO));
         assertThatNullPointerException().isThrownBy(() ->
-                venda.registrarPagamento(FormaPagamento.PIX, null, StatusPagamento.CONFIRMADO));
+                venda.registrarPagamento(FormaPagamento.PIX, null, StatusPagamento.CONFIRMADO, Money.ZERO));
         assertThatNullPointerException().isThrownBy(() ->
-                venda.registrarPagamento(FormaPagamento.PIX, Money.de("1.00"), null));
+                venda.registrarPagamento(FormaPagamento.PIX, Money.de("1.00"), null, Money.ZERO));
     }
 
     @Test
@@ -329,25 +330,25 @@ class VendaTest {
     void parcelaAcimaDoSaldoERecusada() {
         Venda venda = new Venda(SESSAO, OPERADOR);
         venda.adicionarItem(CAFE, DOIS, Money.de("15.00"), Money.ZERO);
-        venda.registrarPagamento(FormaPagamento.PIX, Money.de("20.00"), StatusPagamento.CONFIRMADO);
+        venda.registrarPagamento(FormaPagamento.PIX, Money.de("20.00"), StatusPagamento.CONFIRMADO, Money.ZERO);
 
         // Total 30, 20 já lançados: 15 passa do que falta, que é 10.
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> venda.registrarPagamento(FormaPagamento.CARTAO,
-                        Money.de("15.00"), StatusPagamento.CONFIRMADO))
+                        Money.de("15.00"), StatusPagamento.CONFIRMADO, Money.ZERO))
                 .withMessageContaining("maior que o que falta pagar, 10.00");
 
         assertThat(venda.getPagamentos()).hasSize(1);
 
         // Exatamente o que falta passa: é a parcela que fecha a conta.
         venda.registrarPagamento(FormaPagamento.CARTAO, Money.de("10.00"),
-                StatusPagamento.CONFIRMADO);
+                StatusPagamento.CONFIRMADO, Money.ZERO);
         assertThat(venda.getPagamentos()).hasSize(2);
 
         // Com a conta fechada, qualquer parcela positiva passa do que falta, que é zero.
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> venda.registrarPagamento(FormaPagamento.DINHEIRO,
-                        Money.de("0.01"), StatusPagamento.CONFIRMADO))
+                        Money.de("0.01"), StatusPagamento.CONFIRMADO, Money.ZERO))
                 .withMessageContaining("maior que o que falta pagar, 0.00");
     }
 
@@ -359,17 +360,17 @@ class VendaTest {
 
         // Uma cobrança Pix que espera o provedor: o dinheiro por baixo não pode cobrir o total
         // inteiro, senão a confirmação chegaria a uma venda já paga.
-        venda.registrarPagamento(FormaPagamento.PIX, Money.de("20.00"), StatusPagamento.PENDENTE);
+        venda.registrarPagamento(FormaPagamento.PIX, Money.de("20.00"), StatusPagamento.PENDENTE, Money.ZERO);
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> venda.registrarPagamento(FormaPagamento.DINHEIRO,
-                        Money.de("30.00"), StatusPagamento.CONFIRMADO))
+                        Money.de("30.00"), StatusPagamento.CONFIRMADO, Money.ZERO))
                 .withMessageContaining("maior que o que falta pagar, 10.00");
 
         // Um cartão negado é desfecho encerrado: os 10 dele continuam a pagar.
         venda.registrarPagamento(FormaPagamento.CARTAO, Money.de("10.00"),
-                StatusPagamento.RECUSADO);
+                StatusPagamento.RECUSADO, Money.ZERO);
         venda.registrarPagamento(FormaPagamento.DINHEIRO, Money.de("10.00"),
-                StatusPagamento.CONFIRMADO);
+                StatusPagamento.CONFIRMADO, Money.ZERO);
         assertThat(venda.getPagamentos()).hasSize(3);
 
         // E nem PENDENTE nem RECUSADO contam para concluir: só 10 dos 30 estão confirmados.
@@ -390,9 +391,9 @@ class VendaTest {
         // 9,00 + 29,93 menos 3,93 = 35,00.
         assertThat(venda.getValorTotal()).isEqualTo(Money.de("35.00"));
 
-        venda.registrarPagamento(FormaPagamento.PIX, Money.de("20.00"), StatusPagamento.CONFIRMADO);
+        venda.registrarPagamento(FormaPagamento.PIX, Money.de("20.00"), StatusPagamento.CONFIRMADO, Money.ZERO);
         venda.registrarPagamento(FormaPagamento.DINHEIRO, Money.de("15.00"),
-                StatusPagamento.CONFIRMADO);
+                StatusPagamento.CONFIRMADO, Money.ZERO);
         venda.concluir();
 
         assertThat(venda.getStatus()).isEqualTo(StatusVenda.CONCLUIDA);
@@ -411,7 +412,7 @@ class VendaTest {
                 .withMessageContaining("0.00 em pagamentos confirmados")
                 .withMessageContaining("faltam 9.00");
 
-        venda.registrarPagamento(FormaPagamento.PIX, Money.de("5.00"), StatusPagamento.CONFIRMADO);
+        venda.registrarPagamento(FormaPagamento.PIX, Money.de("5.00"), StatusPagamento.CONFIRMADO, Money.ZERO);
         assertThatIllegalStateException()
                 .as("com parte paga")
                 .isThrownBy(venda::concluir)
@@ -446,7 +447,7 @@ class VendaTest {
         UUID itemDeQuinze = venda.adicionarItem(CAFE, BigDecimal.ONE, Money.de("15.00"),
                 Money.ZERO);
         venda.adicionarItem(QUEIJO, BigDecimal.ONE, Money.de("15.00"), Money.ZERO);
-        venda.registrarPagamento(FormaPagamento.PIX, Money.de("20.00"), StatusPagamento.CONFIRMADO);
+        venda.registrarPagamento(FormaPagamento.PIX, Money.de("20.00"), StatusPagamento.CONFIRMADO, Money.ZERO);
 
         // Adicionar nunca reduz o total, então nunca é recusado por este motivo.
         UUID itemDeQuatroECinquenta = venda.adicionarItem(CAFE, BigDecimal.ONE, Money.de("4.50"),
@@ -480,7 +481,7 @@ class VendaTest {
         // 9,00 gravado como 10,00: a linha mente, e a raiz recusa em vez de remontar.
         assertThatIllegalStateException()
                 .isThrownBy(() -> Venda.reconstituir(UUID.randomUUID(), SESSAO, OPERADOR, null,
-                        StatusVenda.ABERTA, Money.de("10.00"), Money.ZERO, Instant.now(),
+                        StatusVenda.ABERTA, Money.de("10.00"), Money.ZERO, Instant.now(), null,
                         List.of(item), List.of()))
                 .withMessageContaining("valorTotal 10.00")
                 .withMessageContaining("viola a invariante do total");
@@ -489,12 +490,12 @@ class VendaTest {
         assertThatIllegalStateException()
                 .isThrownBy(() -> Venda.reconstituir(UUID.randomUUID(), SESSAO, OPERADOR, null,
                         StatusVenda.ABERTA, Money.de("9.00"), Money.de("1.00"), Instant.now(),
-                        List.of(item), List.of()))
+                        null, List.of(item), List.of()))
                 .withMessageContaining("viola a invariante do total");
 
         // O estado coerente passa, inclusive com desconto.
         Venda coerente = Venda.reconstituir(UUID.randomUUID(), SESSAO, OPERADOR, null,
-                StatusVenda.ABERTA, Money.de("8.00"), Money.de("1.00"), Instant.now(),
+                StatusVenda.ABERTA, Money.de("8.00"), Money.de("1.00"), Instant.now(), null,
                 List.of(item), List.of());
         assertThat(coerente.getValorTotal()).isEqualTo(Money.de("8.00"));
     }
@@ -504,34 +505,107 @@ class VendaTest {
     void reconstituirRecusaConcluidaSemPagamentoQueFeche() {
         ItemVenda item = ItemVenda.novo(CAFE, DOIS, Money.de("4.50"), Money.ZERO);
         Pagamento parcial = Pagamento.novo(FormaPagamento.PIX, Money.de("5.00"),
-                StatusPagamento.CONFIRMADO);
+                StatusPagamento.CONFIRMADO, Money.ZERO);
         Pagamento pendente = Pagamento.novo(FormaPagamento.PIX, Money.de("9.00"),
-                StatusPagamento.PENDENTE);
+                StatusPagamento.PENDENTE, Money.ZERO);
 
         assertThatIllegalStateException()
                 .as("confirmados a menos")
                 .isThrownBy(() -> Venda.reconstituir(UUID.randomUUID(), SESSAO, OPERADOR, null,
                         StatusVenda.CONCLUIDA, Money.de("9.00"), Money.ZERO, Instant.now(),
-                        List.of(item), List.of(parcial)))
+                        Instant.now(), List.of(item), List.of(parcial)))
                 .withMessageContaining("viola a invariante da conclusao");
         assertThatIllegalStateException()
                 .as("PENDENTE não conta como confirmado")
                 .isThrownBy(() -> Venda.reconstituir(UUID.randomUUID(), SESSAO, OPERADOR, null,
                         StatusVenda.CONCLUIDA, Money.de("9.00"), Money.ZERO, Instant.now(),
-                        List.of(item), List.of(pendente)))
+                        Instant.now(), List.of(item), List.of(pendente)))
                 .withMessageContaining("viola a invariante da conclusao");
 
         // ABERTA com parcela parcial ou pendente é o estado normal de uma comanda em pagamento.
         Venda aberta = Venda.reconstituir(UUID.randomUUID(), SESSAO, OPERADOR, null,
-                StatusVenda.ABERTA, Money.de("9.00"), Money.ZERO, Instant.now(), List.of(item),
-                List.of(parcial));
+                StatusVenda.ABERTA, Money.de("9.00"), Money.ZERO, Instant.now(), null,
+                List.of(item), List.of(parcial));
         assertThat(aberta.getStatus()).isEqualTo(StatusVenda.ABERTA);
 
         // CANCELADA com a conta pela metade também: é a comanda abandonada depois de uma parcela.
         Venda cancelada = Venda.reconstituir(UUID.randomUUID(), SESSAO, OPERADOR, null,
-                StatusVenda.CANCELADA, Money.de("9.00"), Money.ZERO, Instant.now(), List.of(item),
-                List.of(parcial));
+                StatusVenda.CANCELADA, Money.de("9.00"), Money.ZERO, Instant.now(), null,
+                List.of(item), List.of(parcial));
         assertThat(cancelada.getStatus()).isEqualTo(StatusVenda.CANCELADA);
+    }
+
+    @Test
+    @DisplayName("reconstituir recusa venda CONCLUIDA sem o instante da conclusão; nas outras ele é livre")
+    void reconstituirRecusaConcluidaSemInstante() {
+        ItemVenda item = ItemVenda.novo(CAFE, DOIS, Money.de("4.50"), Money.ZERO);
+        Pagamento parcela = Pagamento.novo(FormaPagamento.PIX, Money.de("9.00"),
+                StatusPagamento.CONFIRMADO, Money.ZERO);
+
+        // A conta fecha, mas a linha não sabe quando: é estado que a raiz nunca produz.
+        assertThatIllegalStateException()
+                .isThrownBy(() -> Venda.reconstituir(UUID.randomUUID(), SESSAO, OPERADOR, null,
+                        StatusVenda.CONCLUIDA, Money.de("9.00"), Money.ZERO, Instant.now(), null,
+                        List.of(item), List.of(parcela)))
+                .withMessageContaining("sem o instante da conclusao");
+
+        Instant instante = Instant.now();
+        Venda concluida = Venda.reconstituir(UUID.randomUUID(), SESSAO, OPERADOR, null,
+                StatusVenda.CONCLUIDA, Money.de("9.00"), Money.ZERO, Instant.now(), instante,
+                List.of(item), List.of(parcela));
+        assertThat(concluida.getConcluidoEm()).isEqualTo(instante);
+
+        // CANCELADA vem das duas origens: da comanda abandonada, sem instante, e da venda
+        // concluída e depois devolvida, com ele.
+        Venda abandonada = Venda.reconstituir(UUID.randomUUID(), SESSAO, OPERADOR, null,
+                StatusVenda.CANCELADA, Money.de("9.00"), Money.ZERO, Instant.now(), null,
+                List.of(item), List.of());
+        assertThat(abandonada.getConcluidoEm()).isNull();
+        Venda devolvida = Venda.reconstituir(UUID.randomUUID(), SESSAO, OPERADOR, null,
+                StatusVenda.CANCELADA, Money.de("9.00"), Money.ZERO, Instant.now(), instante,
+                List.of(item), List.of(parcela));
+        assertThat(devolvida.getConcluidoEm()).isEqualTo(instante);
+    }
+
+    @Test
+    @DisplayName("concluir grava o instante da conclusão, que fica depois do cancelamento; a parcela guarda o troco")
+    void concluirGravaOInstanteEAParcelaGuardaOTroco() {
+        Venda venda = new Venda(SESSAO, OPERADOR);
+        venda.adicionarItem(CAFE, DOIS, Money.de("4.50"), Money.ZERO);
+        assertThat(venda.getConcluidoEm()).as("comanda aberta nao tem instante").isNull();
+
+        // O cliente entregou 10,00 por 9,00: o troco chega pronto do módulo de pagamentos e fica
+        // na parcela, para o comprovante sair igual numa reimpressão.
+        venda.registrarPagamento(FormaPagamento.DINHEIRO, Money.de("9.00"),
+                StatusPagamento.CONFIRMADO, Money.de("1.00"));
+        assertThat(venda.getConcluidoEm()).as("parcela nao conclui").isNull();
+        assertThat(venda.getPagamentos())
+                .extracting(Pagamento::forma, Pagamento::valor, Pagamento::troco)
+                .containsExactly(tuple(FormaPagamento.DINHEIRO, Money.de("9.00"),
+                        Money.de("1.00")));
+        // O troco não entra na conta: a venda está paga com 9,00, não com 10,00.
+        assertThat(venda.getValorTotal()).isEqualTo(Money.de("9.00"));
+
+        Instant antes = Instant.now();
+        venda.concluir();
+        Instant concluidoEm = venda.getConcluidoEm();
+        assertThat(concluidoEm).isNotNull();
+        assertThat(concluidoEm).isAfterOrEqualTo(antes);
+        assertThat(concluidoEm).isAfterOrEqualTo(venda.getCriadoEm());
+        assertThatInvarianteVale(venda);
+
+        venda.cancelar();
+        assertThat(venda.getConcluidoEm())
+                .as("a conclusao aconteceu, e o cancelamento nao apaga isso")
+                .isEqualTo(concluidoEm);
+
+        // Troco nulo é recusado antes de a parcela existir, como os outros nulos.
+        Venda outra = new Venda(SESSAO, OPERADOR);
+        outra.adicionarItem(CAFE, DOIS, Money.de("4.50"), Money.ZERO);
+        assertThatNullPointerException().isThrownBy(() ->
+                outra.registrarPagamento(FormaPagamento.DINHEIRO, Money.de("9.00"),
+                        StatusPagamento.CONFIRMADO, null));
+        assertThat(outra.getPagamentos()).isEmpty();
     }
 
     @Test
@@ -544,7 +618,7 @@ class VendaTest {
         Venda pelaMetade = new Venda(SESSAO, OPERADOR);
         pelaMetade.adicionarItem(CAFE, DOIS, Money.de("4.50"), Money.ZERO);
         pelaMetade.registrarPagamento(FormaPagamento.PIX, Money.de("5.00"),
-                StatusPagamento.CONFIRMADO);
+                StatusPagamento.CONFIRMADO, Money.ZERO);
         pelaMetade.cancelar();
         assertThat(pelaMetade.getStatus()).isEqualTo(StatusVenda.CANCELADA);
         assertThat(pelaMetade.getItens()).hasSize(1);
@@ -556,7 +630,7 @@ class VendaTest {
         Venda concluida = new Venda(SESSAO, OPERADOR);
         concluida.adicionarItem(CAFE, DOIS, Money.de("4.50"), Money.ZERO);
         concluida.registrarPagamento(FormaPagamento.DINHEIRO, Money.de("9.00"),
-                StatusPagamento.CONFIRMADO);
+                StatusPagamento.CONFIRMADO, Money.ZERO);
         concluida.concluir();
         concluida.cancelar();
         assertThat(concluida.getStatus()).isEqualTo(StatusVenda.CANCELADA);
@@ -585,7 +659,7 @@ class VendaTest {
                 .withMessageContaining("CANCELADA");
         assertThatIllegalStateException()
                 .isThrownBy(() -> venda.registrarPagamento(FormaPagamento.PIX, Money.de("9.00"),
-                        StatusPagamento.CONFIRMADO))
+                        StatusPagamento.CONFIRMADO, Money.ZERO))
                 .withMessageContaining("CANCELADA");
         assertThat(venda.getStatus()).isEqualTo(StatusVenda.CANCELADA);
     }
@@ -613,6 +687,9 @@ class VendaTest {
             assertThat(confirmados)
                     .as("numa venda CONCLUIDA, a soma dos CONFIRMADO e o total")
                     .isEqualTo(venda.getValorTotal());
+            assertThat(venda.getConcluidoEm())
+                    .as("venda CONCLUIDA sabe quando concluiu")
+                    .isNotNull();
         }
     }
 }

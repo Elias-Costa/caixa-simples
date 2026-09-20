@@ -25,6 +25,7 @@ import br.com.caixasimples.pagamentos.StatusPagamento;
 import br.com.caixasimples.pagamentos.domain.SolicitacaoPagamento;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.TenantContext;
+import br.com.caixasimples.vendas.application.Comprovante;
 import br.com.caixasimples.vendas.application.VendaNaoEncontradaException;
 import br.com.caixasimples.vendas.application.VendaService;
 import br.com.caixasimples.vendas.domain.ItemVenda;
@@ -371,7 +372,8 @@ class VendaServiceTest extends TesteDeIntegracao {
                 vendaService.registrarPagamento(vendaId,
                         SolicitacaoPagamento.emDinheiro(Money.de("18.93"), Money.de("50.00"))));
 
-        // O troco vem do Strategy de verdade, o registrado pelo Spring, e não é persistido.
+        // O troco vem do Strategy de verdade, o registrado pelo Spring: volta a quem chamou e
+        // fica gravado na parcela, para o comprovante.
         assertThat(trocoDoPix).isEqualTo(Money.ZERO);
         assertThat(trocoDoDinheiro).isEqualTo(Money.de("31.07"));
 
@@ -380,6 +382,7 @@ class VendaServiceTest extends TesteDeIntegracao {
             assertThat(antesDeConcluir.getStatus())
                     .as("a parcela que fecha a conta não conclui")
                     .isEqualTo(StatusVenda.ABERTA);
+            assertThat(antesDeConcluir.getConcluidoEm()).isNull();
         });
 
         TenantContext.executarComo(conta.contaId(), () -> vendaService.concluir(vendaId));
@@ -387,14 +390,19 @@ class VendaServiceTest extends TesteDeIntegracao {
         TenantContext.executarComo(conta.contaId(), () -> {
             Venda gravada = vendas.findById(vendaId).orElseThrow().paraDominio();
             assertThat(gravada.getStatus()).isEqualTo(StatusVenda.CONCLUIDA);
+            assertThat(gravada.getConcluidoEm())
+                    .as("a conclusao grava o seu instante")
+                    .isNotNull()
+                    .isAfterOrEqualTo(gravada.getCriadoEm());
             assertThat(gravada.getValorTotal()).isEqualTo(Money.de("38.93"));
             assertThat(gravada.getPagamentos())
-                    .extracting(Pagamento::forma, Pagamento::valor, Pagamento::status)
+                    .extracting(Pagamento::forma, Pagamento::valor, Pagamento::status,
+                            Pagamento::troco)
                     .containsExactly(
                             tuple(FormaPagamento.PIX, Money.de("20.00"),
-                                    StatusPagamento.CONFIRMADO),
+                                    StatusPagamento.CONFIRMADO, Money.ZERO),
                             tuple(FormaPagamento.DINHEIRO, Money.de("18.93"),
-                                    StatusPagamento.CONFIRMADO));
+                                    StatusPagamento.CONFIRMADO, Money.de("31.07")));
         });
 
         // O status atravessou o banco: a venda concluída não aceita mais montagem nem pagamento.
@@ -759,9 +767,165 @@ class VendaServiceTest extends TesteDeIntegracao {
                 .isEmpty();
     }
 
+    @Test
+    @DisplayName("comprovante de venda CONCLUIDA traz linhas com nome de hoje, descontos, parcelas confirmadas e troco (RF11)")
+    void comprovanteDeVendaConcluida() {
+        ContaCriada conta = criador.criar("Emporio da Serra", SENHA_DE_TESTE);
+        UUID sessaoId = abrirCaixa(conta);
+        UUID cafeId = cadastrar(conta, "Cafe coado", Money.de("4.50"));
+        UUID queijoId = TenantContext.executarComo(conta.contaId(), () ->
+                produtos.cadastrar(TipoProduto.PRODUTO, new DadosDoProduto("Queijo minas",
+                        Money.de("39.90"), null, null, "kg", null)));
+
+        UUID vendaId = TenantContext.executarComo(conta.contaId(), () ->
+                vendaService.iniciar(sessaoId, conta.usuarioId()));
+        TenantContext.executarComo(conta.contaId(), () -> {
+            // 2 x 4,50 = 9,00; 0,750 x 39,90 = 29,925, que vira 29,93 na linha, menos 1,93 =
+            // 28,00. Soma dos itens 37,00; desconto da venda 2,00; total 35,00.
+            vendaService.adicionarItem(vendaId, cafeId, new BigDecimal("2"), Money.ZERO);
+            vendaService.adicionarItem(vendaId, queijoId, new BigDecimal("0.750"),
+                    Money.de("1.93"));
+            vendaService.aplicarDesconto(vendaId, Money.de("2.00"));
+            vendaService.registrarPagamento(vendaId,
+                    SolicitacaoPagamento.de(FormaPagamento.PIX, Money.de("15.00")));
+            vendaService.registrarPagamento(vendaId,
+                    SolicitacaoPagamento.emDinheiro(Money.de("20.00"), Money.de("50.00")));
+            vendaService.concluir(vendaId);
+        });
+
+        Comprovante comprovante = TenantContext.executarComo(conta.contaId(), () ->
+                vendaService.comprovante(vendaId));
+        Venda gravada = TenantContext.executarComo(conta.contaId(), () ->
+                vendas.findById(vendaId).orElseThrow().paraDominio());
+
+        assertThat(comprovante.vendaId()).isEqualTo(vendaId);
+        assertThat(comprovante.usuarioId()).isEqualTo(conta.usuarioId());
+        assertThat(comprovante.concluidoEm()).isEqualTo(gravada.getConcluidoEm());
+
+        // As linhas saem na ordem em que entraram, com bruto e subtotal já arredondados por item.
+        // A quantidade volta do banco com três casas, então a comparação é numérica.
+        assertThat(comprovante.linhas()).satisfiesExactly(
+                cafe -> {
+                    assertThat(cafe.produtoId()).isEqualTo(cafeId);
+                    assertThat(cafe.nome()).isEqualTo("Cafe coado");
+                    assertThat(cafe.unidade()).isEqualTo("un");
+                    assertThat(cafe.quantidade()).isEqualByComparingTo("2");
+                    assertThat(cafe.precoUnitario()).isEqualTo(Money.de("4.50"));
+                    assertThat(cafe.valorBruto()).isEqualTo(Money.de("9.00"));
+                    assertThat(cafe.desconto()).isEqualTo(Money.ZERO);
+                    assertThat(cafe.subtotal()).isEqualTo(Money.de("9.00"));
+                },
+                queijo -> {
+                    assertThat(queijo.produtoId()).isEqualTo(queijoId);
+                    assertThat(queijo.nome()).isEqualTo("Queijo minas");
+                    assertThat(queijo.unidade()).isEqualTo("kg");
+                    assertThat(queijo.quantidade()).isEqualByComparingTo("0.750");
+                    assertThat(queijo.precoUnitario()).isEqualTo(Money.de("39.90"));
+                    assertThat(queijo.valorBruto()).isEqualTo(Money.de("29.93"));
+                    assertThat(queijo.desconto()).isEqualTo(Money.de("1.93"));
+                    assertThat(queijo.subtotal()).isEqualTo(Money.de("28.00"));
+                });
+        assertThat(comprovante.somaDosItens()).isEqualTo(Money.de("37.00"));
+        assertThat(comprovante.descontoDaVenda()).isEqualTo(Money.de("2.00"));
+        assertThat(comprovante.valorTotal()).isEqualTo(Money.de("35.00"));
+
+        assertThat(comprovante.parcelas())
+                .extracting(Comprovante.Parcela::forma, Comprovante.Parcela::valor,
+                        Comprovante.Parcela::troco)
+                .containsExactly(
+                        tuple(FormaPagamento.PIX, Money.de("15.00"), Money.ZERO),
+                        tuple(FormaPagamento.DINHEIRO, Money.de("20.00"), Money.de("30.00")));
+        assertThat(comprovante.troco()).isEqualTo(Money.de("30.00"));
+    }
+
+    @Test
+    @DisplayName("só venda CONCLUIDA tem comprovante: ABERTA e CANCELADA são recusadas")
+    void comprovanteExigeVendaConcluida() {
+        ContaCriada conta = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
+        UUID sessaoId = abrirCaixa(conta);
+        UUID cafeId = cadastrar(conta, "Cafe coado", Money.de("4.50"));
+
+        UUID aberta = TenantContext.executarComo(conta.contaId(), () ->
+                vendaService.iniciar(sessaoId, conta.usuarioId()));
+        TenantContext.executarComo(conta.contaId(), () ->
+                vendaService.adicionarItem(aberta, cafeId, BigDecimal.ONE, Money.ZERO));
+
+        // A comanda ainda muda: o que se imprimisse agora não seria prova de nada.
+        assertThatIllegalStateException()
+                .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+                        vendaService.comprovante(aberta)))
+                .withMessageContaining("ABERTA")
+                .withMessageContaining("nao tem comprovante");
+
+        // A comanda abandonada vira CANCELADA sem evento nenhum, e também não tem comprovante.
+        TenantContext.executarComo(conta.contaId(), () -> vendaService.cancelar(aberta));
+        assertThatIllegalStateException()
+                .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+                        vendaService.comprovante(aberta)))
+                .withMessageContaining("CANCELADA");
+    }
+
+    @Test
+    @DisplayName("comprovante não enxerga venda de outra conta (RNF05)")
+    void comprovanteNaoEnxergaVendaDeOutraConta() {
+        ContaCriada contaA = criador.criar("Loja A", SENHA_DE_TESTE);
+        ContaCriada contaB = criador.criar("Loja B", SENHA_DE_TESTE);
+        UUID vendaDaContaA = vendaConcluidaSimples(contaA);
+
+        // Para a conta B, a venda concluída da conta A é indistinguível de um id que nunca
+        // existiu: a recusa vem antes de qualquer pergunta ao cadastro.
+        assertThatExceptionOfType(VendaNaoEncontradaException.class)
+                .isThrownBy(() -> TenantContext.executarComo(contaB.contaId(), () ->
+                        vendaService.comprovante(vendaDaContaA)));
+
+        TenantContext.executarComo(contaA.contaId(), () ->
+                assertThat(vendaService.comprovante(vendaDaContaA).linhas()).hasSize(1));
+    }
+
+    @Test
+    @DisplayName("comprovante mostra o nome de hoje do produto, e sai mesmo com o produto inativado")
+    void comprovanteMostraONomeAtualDoProduto() {
+        ContaCriada conta = criador.criar("Mercearia do Vale", SENHA_DE_TESTE);
+        UUID vendaId = vendaConcluidaSimples(conta);
+        UUID cafeId = TenantContext.executarComo(conta.contaId(), () ->
+                vendaService.comprovante(vendaId).linhas().get(0).produtoId());
+
+        // O item guarda o preço copiado, mas não o nome: renomear e reajustar depois da venda
+        // muda o nome impresso e não muda o preço. É o custo aceito de não copiar o nome.
+        TenantContext.executarComo(conta.contaId(), () -> {
+            produtos.editar(cafeId, new DadosDoProduto("Cafe especial", Money.de("6.00"), null,
+                    null, "xic", null));
+            produtos.inativar(cafeId);
+        });
+
+        Comprovante reimpresso = TenantContext.executarComo(conta.contaId(), () ->
+                vendaService.comprovante(vendaId));
+        assertThat(reimpresso.linhas()).singleElement().satisfies(linha -> {
+            assertThat(linha.nome()).isEqualTo("Cafe especial");
+            assertThat(linha.unidade()).isEqualTo("xic");
+            assertThat(linha.precoUnitario()).isEqualTo(Money.de("4.50"));
+            assertThat(linha.subtotal()).isEqualTo(Money.de("4.50"));
+        });
+        assertThat(reimpresso.valorTotal()).isEqualTo(Money.de("4.50"));
+    }
+
     private UUID abrirCaixa(ContaCriada conta) {
         return TenantContext.executarComo(conta.contaId(), () ->
                 caixas.abrir(conta.usuarioId(), Money.ZERO));
+    }
+
+    /** Um café a 4,50, pago em dinheiro exato e concluído: o mínimo que tem comprovante. */
+    private UUID vendaConcluidaSimples(ContaCriada conta) {
+        UUID sessaoId = abrirCaixa(conta);
+        UUID cafeId = cadastrar(conta, "Cafe coado", Money.de("4.50"));
+        return TenantContext.executarComo(conta.contaId(), () -> {
+            UUID vendaId = vendaService.iniciar(sessaoId, conta.usuarioId());
+            vendaService.adicionarItem(vendaId, cafeId, BigDecimal.ONE, Money.ZERO);
+            vendaService.registrarPagamento(vendaId,
+                    SolicitacaoPagamento.emDinheiro(Money.de("4.50"), Money.de("4.50")));
+            vendaService.concluir(vendaId);
+            return vendaId;
+        });
     }
 
     private UUID cadastrar(ContaCriada conta, String nome, Money preco) {

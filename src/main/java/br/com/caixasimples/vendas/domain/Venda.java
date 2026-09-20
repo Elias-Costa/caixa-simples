@@ -88,7 +88,14 @@ import java.util.UUID;
  *
  * <p><strong>O status e o troco de cada parcela chegam prontos</strong>, decididos pelo módulo de
  * pagamentos, que é quem sabe como cada forma é paga. A raiz registra o que ficou decidido e
- * guarda a conta; o troco não é persistido e volta a quem chamou.
+ * guarda a conta. O troco fica gravado na parcela, porque o comprovante (RF11) o imprime e uma
+ * reimpressão tem de sair igual à primeira.
+ *
+ * <p><strong>A conclusão grava o seu instante.</strong> {@code criadoEm} é quando a comanda
+ * abriu; {@code concluidoEm} é quando os pagamentos fecharam a conta, e é a data que o
+ * comprovante mostra. Numa comanda os dois podem estar horas distantes. Nulo até a conclusão, e
+ * fica gravado depois do cancelamento de uma venda concluída, porque a conclusão aconteceu e o
+ * histórico continua contando isso.
  *
  * <p><strong>Parcela lançada não se desfaz.</strong> Não existe operação que remova uma parcela:
  * um valor lançado errado se corrige cancelando a venda, que é o único jeito de uma venda com
@@ -123,6 +130,9 @@ public class Venda {
     /** Só {@link #concluir} e {@link #cancelar} o mudam, e CANCELADA é final. */
     private StatusVenda status;
 
+    /** Nulo até {@link #concluir}; depois disso nunca muda, nem no cancelamento. */
+    private Instant concluidoEm;
+
     /** Invariante viva, descrita no javadoc da classe. Nunca escrita de fora. */
     private Money valorTotal;
 
@@ -148,6 +158,7 @@ public class Venda {
         this.clienteId = null;
         this.criadoEm = Instant.now();
         this.status = StatusVenda.ABERTA;
+        this.concluidoEm = null;
         this.valorTotal = Money.ZERO;
         this.valorDesconto = Money.ZERO;
         this.itens = new ArrayList<>();
@@ -155,8 +166,8 @@ public class Venda {
     }
 
     private Venda(UUID id, UUID sessaoCaixaId, UUID usuarioId, UUID clienteId, StatusVenda status,
-            Money valorTotal, Money valorDesconto, Instant criadoEm, List<ItemVenda> itens,
-            List<Pagamento> pagamentos) {
+            Money valorTotal, Money valorDesconto, Instant criadoEm, Instant concluidoEm,
+            List<ItemVenda> itens, List<Pagamento> pagamentos) {
         this.id = id;
         this.sessaoCaixaId = sessaoCaixaId;
         this.usuarioId = usuarioId;
@@ -165,6 +176,7 @@ public class Venda {
         this.valorTotal = valorTotal;
         this.valorDesconto = valorDesconto;
         this.criadoEm = criadoEm;
+        this.concluidoEm = concluidoEm;
         this.itens = new ArrayList<>(itens);
         this.pagamentos = new ArrayList<>(pagamentos);
     }
@@ -187,16 +199,20 @@ public class Venda {
      * <p>As listas recebidas são copiadas, para que quem chamou não consiga alterar o agregado
      * por fora depois de montá-lo.
      *
-     * @param clienteId nulo quando a venda não tem cliente identificado (RF03)
+     * @param clienteId   nulo quando a venda não tem cliente identificado (RF03)
+     * @param concluidoEm nulo enquanto a venda não foi concluída; obrigatório em CONCLUIDA, pela
+     *                    mesma postura das duas invariantes: uma venda concluída sem saber quando
+     *                    é estado que a raiz nunca produz, e não entra por aqui
      * @throws IllegalStateException se {@code valorTotal} não é a soma dos subtotais menos o
-     *                               desconto, ou se a venda está CONCLUIDA com a soma dos
-     *                               pagamentos CONFIRMADO diferente do total
+     *                               desconto, se a venda está CONCLUIDA com a soma dos
+     *                               pagamentos CONFIRMADO diferente do total, ou se está
+     *                               CONCLUIDA sem {@code concluidoEm}
      */
     public static Venda reconstituir(UUID id, UUID sessaoCaixaId, UUID usuarioId, UUID clienteId,
             StatusVenda status, Money valorTotal, Money valorDesconto, Instant criadoEm,
-            List<ItemVenda> itens, List<Pagamento> pagamentos) {
+            Instant concluidoEm, List<ItemVenda> itens, List<Pagamento> pagamentos) {
         Venda venda = new Venda(id, sessaoCaixaId, usuarioId, clienteId, status, valorTotal,
-                valorDesconto, criadoEm, itens, pagamentos);
+                valorDesconto, criadoEm, concluidoEm, itens, pagamentos);
 
         Money totalPelosItens = venda.somaDosItens().subtrair(venda.valorDesconto);
         if (!venda.valorTotal.equals(totalPelosItens)) {
@@ -214,6 +230,11 @@ public class Venda {
                                 + " confirmados para um total de " + venda.valorTotal
                                 + ". O estado gravado viola a invariante da conclusao e nao"
                                 + " pode ser remontado.");
+            }
+            if (venda.concluidoEm == null) {
+                throw new IllegalStateException(
+                        "venda " + id + " esta CONCLUIDA sem o instante da conclusao. O estado"
+                                + " gravado nao pode ser remontado.");
             }
         }
 
@@ -328,20 +349,25 @@ public class Venda {
      * Lança uma parcela do pagamento (RF09). Não muda o status: quem fecha a venda é
      * {@link #concluir}, mesmo quando esta parcela completa a conta.
      *
-     * <p>Forma, valor e status chegam prontos do módulo de pagamentos, que é quem sabe se a
+     * <p>Forma, valor, status e troco chegam prontos do módulo de pagamentos, que é quem sabe se a
      * parcela nasce confirmada ou espera um provedor, e quanto volta de troco. Aqui só se confere
-     * que a parcela cabe no que falta pagar, e se anexa.
+     * que a parcela cabe no que falta pagar, e se anexa. O troco não entra na conta da venda: é o
+     * que o cliente entregou a mais e já levou de volta.
      *
      * @param status o estado em que a parcela nasceu; PENDENTE reserva lugar na conta, RECUSADO
      *               não
-     * @throws IllegalArgumentException se o valor passa do que falta pagar
+     * @param troco  o que voltou para o cliente; {@code Money.ZERO} fora de dinheiro
+     * @throws IllegalArgumentException se o valor passa do que falta pagar, ou se o troco viola
+     *                                  as guardas de {@link Pagamento}
      * @throws IllegalStateException    se a venda não está ABERTA
      */
-    public void registrarPagamento(FormaPagamento forma, Money valor, StatusPagamento status) {
+    public void registrarPagamento(FormaPagamento forma, Money valor, StatusPagamento status,
+            Money troco) {
         exigirAberta();
         Objects.requireNonNull(forma, "forma de pagamento nao pode ser nula");
         Objects.requireNonNull(valor, "valor do pagamento nao pode ser nulo");
         Objects.requireNonNull(status, "status do pagamento nao pode ser nulo");
+        Objects.requireNonNull(troco, "troco nao pode ser nulo; use Money.ZERO quando nao ha");
 
         // Conferido antes de anexar, para que uma parcela recusada não deixe rastro. Igual ao
         // saldo passa: é a parcela que fecha a conta.
@@ -353,12 +379,13 @@ public class Venda {
                             + somaDasParcelasLancadas() + " em parcelas lancadas.");
         }
 
-        pagamentos.add(Pagamento.novo(forma, valor, status));
+        pagamentos.add(Pagamento.novo(forma, valor, status, troco));
     }
 
     /**
-     * Fecha a venda (RF09): confere que os pagamentos confirmados cobrem exatamente o total e vira
-     * o status para CONCLUIDA. É a única transição para CONCLUIDA que existe em código.
+     * Fecha a venda (RF09): confere que os pagamentos confirmados cobrem exatamente o total, vira
+     * o status para CONCLUIDA e grava o instante. É a única transição para CONCLUIDA que existe em
+     * código.
      *
      * <p>Passo à parte de {@link #registrarPagamento} de propósito: a tela chama isto quando o
      * operador finaliza, e é o caso de uso que, depois de gravar o resultado, publica o evento que
@@ -392,6 +419,7 @@ public class Venda {
         }
 
         this.status = StatusVenda.CONCLUIDA;
+        this.concluidoEm = Instant.now();
     }
 
     /**
@@ -507,8 +535,18 @@ public class Venda {
         return valorDesconto;
     }
 
+    /** Quando a comanda abriu. */
     public Instant getCriadoEm() {
         return criadoEm;
+    }
+
+    /**
+     * Quando os pagamentos fecharam a conta. Nulo enquanto a venda não foi concluída, inclusive
+     * numa CANCELADA que nunca chegou a concluir; preenchido para sempre depois de
+     * {@link #concluir}.
+     */
+    public Instant getConcluidoEm() {
+        return concluidoEm;
     }
 
     /** Cópia imutável: item só entra pela raiz, nunca por quem leu a lista. */

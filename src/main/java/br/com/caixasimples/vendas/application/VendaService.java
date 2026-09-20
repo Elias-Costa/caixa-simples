@@ -1,7 +1,9 @@
 package br.com.caixasimples.vendas.application;
 
 import br.com.caixasimples.cadastro.application.ProdutoService;
+import br.com.caixasimples.cadastro.application.ProdutoService.ProdutoParaComprovante;
 import br.com.caixasimples.cadastro.application.ProdutoService.ProdutoParaVenda;
+import br.com.caixasimples.pagamentos.StatusPagamento;
 import br.com.caixasimples.pagamentos.application.PaymentService;
 import br.com.caixasimples.pagamentos.domain.ResultadoPagamento;
 import br.com.caixasimples.pagamentos.domain.SolicitacaoPagamento;
@@ -12,13 +14,17 @@ import br.com.caixasimples.vendas.CaixaParaVenda;
 import br.com.caixasimples.vendas.StatusVenda;
 import br.com.caixasimples.vendas.VendaCancelada;
 import br.com.caixasimples.vendas.VendaConcluida;
+import br.com.caixasimples.vendas.domain.ItemVenda;
 import br.com.caixasimples.vendas.domain.Venda;
 import br.com.caixasimples.vendas.internal.VendaEntity;
 import br.com.caixasimples.vendas.internal.VendaRepository;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,7 +32,8 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Casos de uso da venda: iniciar a comanda, lançar e remover item (RF07), aplicar desconto sobre
  * o total (RF08), com o preço unitário copiado do produto no ato (RF06), registrar as parcelas do
- * pagamento, divididas entre formas (RF09), concluir, e cancelar (RF12).
+ * pagamento, divididas entre formas (RF09), concluir, cancelar (RF12) e montar o comprovante
+ * não-fiscal de uma venda concluída (RF11).
  *
  * <p>Cada caso de uso é sempre a mesma sequência: carrega a linha, deixa a raiz do agregado
  * decidir, grava o que ela decidiu. Nenhuma regra de dinheiro mora aqui. É {@link Venda} que sabe
@@ -39,7 +46,8 @@ import org.springframework.transaction.annotation.Transactional;
  * ABERTA desta conta, e quem sabe o estado da sessão é o caixa. A segunda é que produto inativado
  * não entra em venda nova, e quem sabe se o produto está ativo é o cadastro. As duas são
  * perguntas, e nenhuma produz efeito colateral no módulo que responde. A do cadastro é chamada
- * direta à API pública dele. A do caixa passa por {@link CaixaParaVenda}, interface que
+ * direta à API pública dele, e o comprovante faz ao mesmo cadastro uma segunda pergunta, o nome
+ * de cada produto vendido. A do caixa passa por {@link CaixaParaVenda}, interface que
  * <em>este</em> módulo declara e o caixa implementa: o caixa já depende de vendas para ouvir os
  * eventos de venda concluída e cancelada, e a verificação de fronteiras recusa dois módulos
  * dependendo um do outro.
@@ -49,8 +57,8 @@ import org.springframework.transaction.annotation.Transactional;
  * que encontra a estratégia da forma pedida, aplica a regra dela (o troco do dinheiro, a recusa
  * de valor recebido no Pix e no cartão) e responde o que fica registrado. É pergunta, e não efeito
  * colateral, porque o serviço de pagamentos não abre transação nem grava nada; quem grava a
- * parcela é o agregado Venda, dono dela. O troco não é persistido: volta a quem chamou, para a
- * tela mostrar.
+ * parcela é o agregado Venda, dono dela, e grava o troco junto, para o comprovante sair igual
+ * numa reimpressão. O troco também volta a quem chamou, para a tela mostrar no ato.
  *
  * <p><strong>O preço vem do cadastro, nunca de quem chama.</strong> {@link #adicionarItem} recebe
  * o id do produto e consulta o preço vigente na hora de lançar; um preço vindo do payload seria
@@ -218,7 +226,8 @@ public class VendaService {
      * parcela recusada pela raiz não deixa rastro, já que nada foi gravado.
      *
      * @param solicitacao forma, valor da parcela e, só em dinheiro, o valor recebido (RF10)
-     * @return o troco a devolver; zero nas formas que não devolvem dinheiro. Não é persistido
+     * @return o troco a devolver; zero nas formas que não devolvem dinheiro. Fica gravado na
+     *         parcela e é devolvido aqui também, para a tela mostrar no ato
      * @throws VendaNaoEncontradaException se a venda não existe nesta conta
      * @throws br.com.caixasimples.pagamentos.application.FormaDePagamentoNaoSuportadaException se
      *         nenhuma estratégia atende a forma pedida
@@ -233,7 +242,8 @@ public class VendaService {
         Venda venda = linha.paraDominio();
 
         ResultadoPagamento resultado = pagamentos.pagar(solicitacao);
-        venda.registrarPagamento(resultado.forma(), resultado.valor(), resultado.status());
+        venda.registrarPagamento(resultado.forma(), resultado.valor(), resultado.status(),
+                resultado.troco());
 
         linha.atualizarCom(venda);
         vendas.save(linha);
@@ -309,6 +319,66 @@ public class VendaService {
         if (estavaConcluida) {
             eventos.publishEvent(eventoDeCancelamento(venda));
         }
+    }
+
+    /**
+     * Monta o comprovante não-fiscal (RF11) de uma venda CONCLUIDA: itens com o nome de hoje,
+     * descontos, parcelas confirmadas e troco. É dado; quem imprime e compartilha é a tela.
+     *
+     * <p>Só venda CONCLUIDA tem comprovante. Uma comanda ABERTA ainda muda, e uma venda CANCELADA
+     * não vale: comprovante é prova de venda feita. Nenhum requisito pede comprovante de
+     * cancelamento.
+     *
+     * <p>O nome e a unidade de cada produto são perguntados ao cadastro na hora, numa chamada só
+     * para todas as linhas, porque o item guarda o preço copiado, mas não o nome. Um produto
+     * renomeado depois da venda sai com o nome novo; um produto inativado continua saindo, porque
+     * o histórico aponta para ele. Uma venda de outra conta falha como inexistente antes de
+     * qualquer pergunta ao cadastro.
+     *
+     * @throws VendaNaoEncontradaException se a venda não existe nesta conta
+     * @throws IllegalStateException       se a venda não está CONCLUIDA
+     */
+    @Transactional(readOnly = true)
+    public Comprovante comprovante(UUID vendaId) {
+        Venda venda = buscar(vendaId).paraDominio();
+
+        if (venda.getStatus() != StatusVenda.CONCLUIDA) {
+            throw new IllegalStateException(
+                    "venda " + vendaId + " esta " + venda.getStatus() + " e nao tem comprovante."
+                            + " So venda CONCLUIDA tem comprovante.");
+        }
+
+        Set<UUID> produtoIds = venda.getItens().stream()
+                .map(ItemVenda::produtoId)
+                .collect(Collectors.toSet());
+        Map<UUID, ProdutoParaComprovante> produtosPorId = produtos
+                .consultarParaComprovante(produtoIds).stream()
+                .collect(Collectors.toMap(ProdutoParaComprovante::id, produto -> produto));
+
+        List<Comprovante.Linha> linhas = venda.getItens().stream()
+                .map(item -> {
+                    ProdutoParaComprovante produto = produtosPorId.get(item.produtoId());
+                    return new Comprovante.Linha(item.produtoId(), produto.nome(),
+                            produto.unidade(), item.quantidade(), item.precoUnitario(),
+                            item.valorBruto(), item.desconto(), item.subtotal());
+                })
+                .toList();
+        Money somaDosItens = linhas.stream()
+                .map(Comprovante.Linha::subtotal)
+                .reduce(Money.ZERO, Money::somar);
+
+        List<Comprovante.Parcela> parcelas = venda.getPagamentos().stream()
+                .filter(parcela -> parcela.status() == StatusPagamento.CONFIRMADO)
+                .map(parcela -> new Comprovante.Parcela(parcela.forma(), parcela.valor(),
+                        parcela.troco()))
+                .toList();
+        Money troco = parcelas.stream()
+                .map(Comprovante.Parcela::troco)
+                .reduce(Money.ZERO, Money::somar);
+
+        return new Comprovante(venda.getId(), venda.getUsuarioId(), venda.getConcluidoEm(),
+                linhas, somaDosItens, venda.getValorDesconto(), venda.getValorTotal(), parcelas,
+                troco);
     }
 
     /**

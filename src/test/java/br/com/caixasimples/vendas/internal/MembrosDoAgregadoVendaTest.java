@@ -116,10 +116,10 @@ class MembrosDoAgregadoVendaTest extends TesteDeIntegracao {
             ItemVenda item = new ItemVenda(UUID.randomUUID(), produtoId, BigDecimal.ONE,
                     Money.de("30.00"), Money.ZERO, Instant.now());
             Pagamento pagamento = new Pagamento(UUID.randomUUID(), FormaPagamento.CARTAO,
-                    Money.de("30.00"), StatusPagamento.CONFIRMADO, Instant.now());
+                    Money.de("30.00"), StatusPagamento.CONFIRMADO, Money.ZERO, Instant.now());
 
             return Venda.reconstituir(UUID.randomUUID(), sessaoCaixaId, conta.usuarioId(), null,
-                    StatusVenda.ABERTA, Money.de("30.00"), Money.ZERO, Instant.now(),
+                    StatusVenda.ABERTA, Money.de("30.00"), Money.ZERO, Instant.now(), null,
                     List.of(item), List.of(pagamento));
         });
     }
