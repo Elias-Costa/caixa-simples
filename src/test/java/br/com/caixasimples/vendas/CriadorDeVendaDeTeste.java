@@ -63,8 +63,8 @@ public class CriadorDeVendaDeTeste {
      */
     public UUID criarConcluidaEm(ContaId contaId, UUID sessaoCaixaId, UUID usuarioId,
             UUID produtoId, Money valor, Instant concluidoEm) {
-        return gravar(contaId, deUmItem(sessaoCaixaId, usuarioId, produtoId, valor,
-                StatusVenda.CONCLUIDA, concluidoEm));
+        return criarConcluidaComItensEm(contaId, sessaoCaixaId, usuarioId,
+                List.of(ItemDeTeste.unitario(produtoId, valor)), concluidoEm);
     }
 
     /**
@@ -75,8 +75,40 @@ public class CriadorDeVendaDeTeste {
      */
     public UUID criarCanceladaQueConcluiuEm(ContaId contaId, UUID sessaoCaixaId, UUID usuarioId,
             UUID produtoId, Money valor, Instant concluidoEm) {
-        return gravar(contaId, deUmItem(sessaoCaixaId, usuarioId, produtoId, valor,
-                StatusVenda.CANCELADA, concluidoEm));
+        return criarCanceladaComItensQueConcluiuEm(contaId, sessaoCaixaId, usuarioId,
+                List.of(ItemDeTeste.unitario(produtoId, valor)), concluidoEm);
+    }
+
+    /**
+     * Uma venda CONCLUIDA num instante escolhido, com os itens informados, paga em dinheiro sem
+     * troco pelo total que eles somam.
+     *
+     * <p>Existe para o ranking dos mais vendidos, que precisa de vendas com mais de um produto e
+     * com quantidades, preços e descontos escolhidos pelo teste.
+     */
+    public UUID criarConcluidaComItensEm(ContaId contaId, UUID sessaoCaixaId, UUID usuarioId,
+            List<ItemDeTeste> itens, Instant concluidoEm) {
+        return gravar(contaId, montar(sessaoCaixaId, usuarioId, itens, StatusVenda.CONCLUIDA,
+                concluidoEm));
+    }
+
+    /**
+     * Uma venda CANCELADA que antes tinha concluído no instante escolhido, com os itens
+     * informados. Os itens e a parcela ficam, como no cancelamento de verdade.
+     */
+    public UUID criarCanceladaComItensQueConcluiuEm(ContaId contaId, UUID sessaoCaixaId,
+            UUID usuarioId, List<ItemDeTeste> itens, Instant concluidoEm) {
+        return gravar(contaId, montar(sessaoCaixaId, usuarioId, itens, StatusVenda.CANCELADA,
+                concluidoEm));
+    }
+
+    /**
+     * Uma comanda ABERTA com os itens informados e nenhum pagamento: o que ainda não foi vendido,
+     * e que nenhum relatório pode contar.
+     */
+    public UUID criarAbertaComItens(ContaId contaId, UUID sessaoCaixaId, UUID usuarioId,
+            List<ItemDeTeste> itens) {
+        return gravar(contaId, montar(sessaoCaixaId, usuarioId, itens, StatusVenda.ABERTA, null));
     }
 
     private UUID gravar(ContaId contaId, Venda venda) {
@@ -85,18 +117,47 @@ public class CriadorDeVendaDeTeste {
     }
 
     /**
-     * Um item de quantidade um ao preço do total e uma parcela em dinheiro do mesmo valor: o
-     * estado mais simples que passa pelas duas invariantes da venda concluída. A comanda abre no
-     * mesmo instante em que conclui, para o teste não ter dois instantes para pensar.
+     * Monta a venda no estado pedido pelas duas invariantes da venda: o total é a soma dos
+     * subtotais dos itens, e a venda que concluiu tem uma parcela em dinheiro desse total. A
+     * comanda abre no mesmo instante em que conclui, para o teste não ter dois instantes para
+     * pensar; a ABERTA, que não concluiu, abre agora.
      */
-    private static Venda deUmItem(UUID sessaoCaixaId, UUID usuarioId, UUID produtoId, Money valor,
+    private static Venda montar(UUID sessaoCaixaId, UUID usuarioId, List<ItemDeTeste> itensDeTeste,
             StatusVenda status, Instant concluidoEm) {
-        ItemVenda item = new ItemVenda(UUID.randomUUID(), produtoId, BigDecimal.ONE, valor,
-                Money.ZERO, concluidoEm);
-        Pagamento parcela = new Pagamento(UUID.randomUUID(), FormaPagamento.DINHEIRO, valor,
-                StatusPagamento.CONFIRMADO, Money.ZERO, concluidoEm);
+        Instant criadoEm = concluidoEm == null ? Instant.now() : concluidoEm;
+        List<ItemVenda> itens = itensDeTeste.stream()
+                .map(item -> new ItemVenda(UUID.randomUUID(), item.produtoId(), item.quantidade(),
+                        item.precoUnitario(), item.desconto(), criadoEm))
+                .toList();
+        Money total = Money.ZERO;
+        for (ItemVenda item : itens) {
+            total = total.somar(item.subtotal());
+        }
+
+        List<Pagamento> parcelas = status == StatusVenda.ABERTA
+                ? List.of()
+                : List.of(new Pagamento(UUID.randomUUID(), FormaPagamento.DINHEIRO, total,
+                        StatusPagamento.CONFIRMADO, Money.ZERO, criadoEm));
 
         return Venda.reconstituir(UUID.randomUUID(), sessaoCaixaId, usuarioId, null, status,
-                valor, Money.ZERO, concluidoEm, concluidoEm, List.of(item), List.of(parcela));
+                total, Money.ZERO, criadoEm, concluidoEm, itens, parcelas);
+    }
+
+    /**
+     * Um item como o teste o quer: produto, quantidade, preço e desconto, sem id nem instante,
+     * que a fixture põe.
+     *
+     * @param produtoId     um produto cadastrado pelo caso de uso do cadastro
+     * @param quantidade    positiva, com no máximo três casas
+     * @param precoUnitario o preço copiado para o item, que não precisa ser o do cadastro
+     * @param desconto      zero quando não há
+     */
+    public record ItemDeTeste(UUID produtoId, BigDecimal quantidade, Money precoUnitario,
+            Money desconto) {
+
+        /** Um item de quantidade um, ao preço informado e sem desconto. */
+        public static ItemDeTeste unitario(UUID produtoId, Money precoUnitario) {
+            return new ItemDeTeste(produtoId, BigDecimal.ONE, precoUnitario, Money.ZERO);
+        }
     }
 }

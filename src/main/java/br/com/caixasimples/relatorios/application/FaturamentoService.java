@@ -5,7 +5,6 @@ import br.com.caixasimples.relatorios.internal.VendaParaRelatorioRepository;
 import br.com.caixasimples.shared.FusoDeReferencia;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.vendas.StatusVenda;
-import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Objects;
 import org.springframework.stereotype.Service;
@@ -64,7 +63,8 @@ public class FaturamentoService {
      * incluídos</strong>: de {@code inicio} ao fim do dia {@code fim}.
      *
      * <p>Sem limite de tamanho do período: a consulta é uma agregação e devolve uma linha, seja de
-     * um dia ou de um ano.
+     * um dia ou de um ano. A validação do período e a conversão dos dois dias para o fuso do
+     * balcão são as mesmas dos outros relatórios, em {@link Periodo}.
      *
      * @param inicio o primeiro dia, obrigatório
      * @param fim    o último dia, obrigatório; pode ser o mesmo que o primeiro
@@ -72,16 +72,10 @@ public class FaturamentoService {
      */
     @Transactional(readOnly = true)
     public Faturamento doPeriodo(LocalDate inicio, LocalDate fim) {
-        Objects.requireNonNull(inicio, "inicio do periodo nao pode ser nulo");
-        Objects.requireNonNull(fim, "fim do periodo nao pode ser nulo");
-        if (fim.isBefore(inicio)) {
-            throw new IllegalArgumentException(
-                    "fim do periodo (" + fim + ") nao pode vir antes do inicio (" + inicio + ")");
-        }
+        Periodo periodo = new Periodo(inicio, fim);
 
-        Instant de = FusoDeReferencia.inicioDoDia(inicio);
-        Instant ate = FusoDeReferencia.inicioDoDiaSeguinte(fim);
-        TotaisDeVendas totais = vendas.totaisEntre(StatusVenda.CONCLUIDA, de, ate);
+        TotaisDeVendas totais = vendas.totaisEntre(StatusVenda.CONCLUIDA,
+                periodo.inicioInclusivo(), periodo.fimExclusivo());
 
         // A soma de zero linhas é nula em SQL; para quem lê o relatório, um dia sem venda é zero.
         Money total = totais.total() == null ? Money.ZERO : Money.de(totais.total());

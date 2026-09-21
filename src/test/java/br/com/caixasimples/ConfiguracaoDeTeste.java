@@ -1,5 +1,7 @@
 package br.com.caixasimples;
 
+import br.com.caixasimples.caixa.CriadorDeSessaoCaixaDeTeste;
+import br.com.caixasimples.caixa.internal.SessaoCaixaRepository;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste;
 import br.com.caixasimples.contas.internal.ContaRepository;
 import br.com.caixasimples.contas.internal.CredencialRepository;
@@ -41,5 +43,14 @@ public class ConfiguracaoDeTeste {
     @Bean
     CriadorDeVendaDeTeste criadorDeVendaDeTeste(VendaRepository vendas) {
         return new CriadorDeVendaDeTeste(vendas);
+    }
+
+    /**
+     * Mesma ideia, para o relatório que precisa de movimentos de caixa lançados em instantes
+     * escolhidos.
+     */
+    @Bean
+    CriadorDeSessaoCaixaDeTeste criadorDeSessaoCaixaDeTeste(SessaoCaixaRepository sessoes) {
+        return new CriadorDeSessaoCaixaDeTeste(sessoes);
     }
 }

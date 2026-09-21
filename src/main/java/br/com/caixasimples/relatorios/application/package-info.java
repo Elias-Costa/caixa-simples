@@ -7,6 +7,7 @@
  *
  * <p>Este módulo só lê. Ele pergunta ao banco, pelos mapeamentos somente leitura de
  * {@code relatorios.internal}, e responde com um record; não move agregado de ninguém, não publica
- * evento e não ouve nenhum.
+ * evento e não ouve nenhum. Os três relatórios, faturamento, mais vendidos e fluxo de caixa,
+ * recebem o mesmo período de dias do balcão e o tratam do mesmo jeito, em {@code Periodo}.
  */
 package br.com.caixasimples.relatorios.application;

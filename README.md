@@ -81,7 +81,7 @@ primeiro dia; sete já têm código de negócio dentro.
 | `pagamentos` | Implementado | Strategy por forma de pagamento: dinheiro com troco calculado no domínio, Pix e cartão lançados à mão pelo operador. Sem provedor de Pix ainda |
 | `vendas` | Em andamento | agregado `Venda`, com `ItemVenda` e `Pagamento` como membros: abrir a comanda num caixa aberto, lançar e remover itens com o preço copiado do produto, desconto por item e por venda, total recalculado a cada operação, pagamento dividido entre formas com o troco vindo do módulo de pagamentos, conclusão como passo explícito, que exige o caixa ainda aberto e publica o evento `VendaConcluida` pelo outbox, e cancelamento, que desfaz a comanda aberta ou a venda concluída e, só no segundo caso, publica `VendaCancelada` para o caixa e o estoque desfazerem o que fizeram; e o comprovante não-fiscal de uma venda concluída, devolvido como dado para a tela imprimir ou compartilhar, com as linhas já calculadas, os descontos, as parcelas confirmadas e o troco, que passou a ficar gravado na parcela. Falta o vínculo de cliente |
 | `estoque` | Em andamento | o ouvinte da venda concluída: quando a conta ligou o controle de estoque, cada produto vendido vira uma baixa, pedida ao cadastro, dono do agregado; serviço no meio dos itens não gera nada, e o evento entregue de novo não baixa em dobro. E os casos de uso que uma pessoa aciona: ajuste manual com motivo obrigatório, perda, quebra ou contagem, com a diferença carregando o sinal; estoque mínimo por produto; e o alerta de estoque baixo como consulta, a lista dos produtos ativos no mínimo ou abaixo. A conta que não ligou o controle é recusada nos três. E o ouvinte da venda cancelada, imagem espelhada do primeiro: cada produto que a venda baixou volta, uma vez só, e o que nunca saiu não volta |
-| `relatorios` | Em andamento | faturamento do dia e de um período, com o dia delimitado no fuso do balcão e pelo instante em que a venda concluiu, contando só as vendas concluídas. O módulo só lê: enxerga a tabela de venda por um mapeamento próprio, imutável, com as colunas que o relatório usa, e o repositório dele nem tem método de escrita. A soma é do banco. Faltam mais vendidos, fluxo de caixa e os filtros |
+| `relatorios` | Em andamento | faturamento do dia e de um período, produtos mais vendidos e fluxo de caixa de um período, com o dia delimitado no fuso do balcão. Faturamento e ranking contam as mesmas vendas, as concluídas, pelo instante em que concluíram; o ranking é por quantidade, com o valor, o nome e a unidade ao lado; o fluxo de caixa é o da gaveta, só dinheiro em espécie, com entradas, saídas e saldo pelo dia em que cada movimento foi lançado. O módulo só lê: enxerga as tabelas de venda, item, produto e movimento de caixa por mapeamentos próprios, imutáveis, com as colunas que cada relatório usa, e os repositórios nem têm método de escrita. As somas e as junções são do banco. Faltam os filtros por forma de pagamento e operador |
 
 **Schema.** Doze migrations Flyway, de `V1` a `V12`: conta, usuário e credencial; produto; cliente;
 catálogo de referência; o agregado de caixa, com a regra de uma sessão aberta por operador; o
@@ -123,6 +123,7 @@ Atalhos para avaliar o código sem percorrer o repositório inteiro.
 | A regra do troco no domínio | [ResultadoPagamento.java](src/main/java/br/com/caixasimples/pagamentos/domain/ResultadoPagamento.java) | A conta mora numa fábrica nomeada de um tipo sem framework, e não no componente do Spring que a chama |
 | Membro de agregado invisível de fora | [VendaEntity.java](src/main/java/br/com/caixasimples/vendas/internal/VendaEntity.java) | As entidades de item e pagamento têm visibilidade de pacote, então a proibição de repositório para elas não depende de disciplina |
 | Um módulo que só lê, garantido por construção | [VendaParaRelatorio.java](src/main/java/br/com/caixasimples/relatorios/internal/VendaParaRelatorio.java) | A mesma tabela mapeada uma segunda vez, imutável e só com o que o relatório usa, para os relatórios lerem sem importar o pacote interno de vendas nem remontar o agregado; o repositório ao lado não tem método de escrita, e o porquê de o dia ser o da conclusão está em [FaturamentoService.java](src/main/java/br/com/caixasimples/relatorios/application/FaturamentoService.java) |
+| Uma consulta que junta três mapeamentos e arredonda como o domínio | [ItemVendaParaRelatorioRepository.java](src/main/java/br/com/caixasimples/relatorios/internal/ItemVendaParaRelatorioRepository.java) | O ranking dos mais vendidos numa JPQL só, com junções por id escritas na consulta, sem associação navegável, e o valor por item arredondado no banco pela mesma regra do comprovante; o porquê de o ranking ser por quantidade e de o fluxo de caixa ser o da gaveta está em [MaisVendidosService.java](src/main/java/br/com/caixasimples/relatorios/application/MaisVendidosService.java) e [FluxoDeCaixaService.java](src/main/java/br/com/caixasimples/relatorios/application/FluxoDeCaixaService.java) |
 | Atributos variáveis em `JSONB` | [V2\_\_produto.sql](src/main/resources/db/migration/V2__produto.sql) | Índice GIN `jsonb_path_ops` e índice único parcial que só vale entre registros ativos |
 | Vertical slice deliberado | [ClienteService.java](src/main/java/br/com/caixasimples/cadastro/internal/ClienteService.java) | Onde o projeto decide **não** aplicar DDD, porque não há invariante a proteger |
 
@@ -205,7 +206,9 @@ uso hoje:
   importam a entidade de outro módulo: mapeiam a mesma tabela uma segunda vez, como entidade
   imutável com só as colunas que a consulta usa, e o repositório herda do marcador do Spring Data
   em vez do completo, sem `save` nem `delete`. O só-leitura fica garantido por construção, em três
-  pontos, e não por revisão. A soma é feita no banco, em JPQL, que o filtro de conta alcança.
+  pontos, e não por revisão. A soma é feita no banco, em JPQL, que o filtro de conta alcança; o
+  ranking junta três desses mapeamentos por id, na própria consulta, sem associação navegável, e
+  arredonda cada item no banco do mesmo jeito que o domínio arredonda no comprovante.
 - **Fitness function de arquitetura**, que transforma a regra de fronteira em teste.
 
 ### Padrões decididos, ainda não escritos
@@ -306,9 +309,10 @@ pontos:
   seu nas duas direções: a lista de estoque baixo de uma conta não traz o produto de outra, e o
   ajuste de uma conta não alcança o produto de outra. O comprovante tem a mesma prova nas duas
   pontas: a venda de uma conta é inexistente para a outra, e a consulta em lote dos nomes dos
-  produtos, que ele faz ao cadastro, também. O faturamento tem a prova que o plano pediu: duas
-  contas com vendas no mesmo dia recebem cada uma só o seu total, e uma terceira, sem venda,
-  recebe zero; a consulta agregada em JPQL passa pelo mesmo filtro que as outras.
+  produtos, que ele faz ao cadastro, também. Os três relatórios têm a prova que o plano pediu:
+  duas contas com dados equivalentes no mesmo dia recebem cada uma só o seu faturamento, o seu
+  ranking e o seu fluxo de caixa, e uma terceira, sem nada, recebe zero ou vazio; as consultas
+  agregadas em JPQL, inclusive a que junta três tabelas, passam pelo mesmo filtro que as outras.
 - **Os listeners de evento agem na conta do evento, não na de quem publicou.** Eles rodam em outra
   thread, sem o tenant da requisição, e uma reentrega pode partir do outbox horas depois; a conta
   vai dentro do evento, lida do contexto autenticado no ato da publicação, e há teste, para os
@@ -413,11 +417,20 @@ editar um agregado através de outro.
   faturamento: a venda conta no dia em que o dinheiro entrou, e uma comanda aberta às 23h50 e paga
   às 00h10 é do dia seguinte. A sessão de caixa, por sua vez, é do dia em que abriu, porque um
   expediente pode atravessar a meia-noite e continua sendo um só.
-- **A tabela de venda tem um segundo mapeamento, somente leitura**, no módulo de relatórios:
-  imutável, com as colunas que o faturamento usa e nenhuma outra, sem construtor que a instancie.
-  O esquema é o contrato entre os dois mapeamentos, versionado nas migrations, e o Hibernate
-  valida os dois na subida: renomear uma coluna no módulo de vendas derruba a aplicação no
-  deploy, que é o modo certo de falhar, e não com relatório em branco.
+- **As tabelas de venda, item de venda, produto e movimento de caixa têm um segundo mapeamento,
+  somente leitura**, no módulo de relatórios: imutável, com as colunas que o relatório usa e
+  nenhuma outra, sem construtor que a instancie. O esquema é o contrato entre os dois
+  mapeamentos, versionado nas migrations, e o Hibernate valida os dois na subida: renomear uma
+  coluna no módulo dono derruba a aplicação no deploy, que é o modo certo de falhar, e não com
+  relatório em branco. O mapeamento de produto nem tem repositório: existe para ser alvo de
+  junção, e traz o nome atual do produto para o ranking mesmo depois de ele ser inativado.
+- **O fluxo de caixa é o da gaveta, e o dia é o do movimento.** O caixa só registra dinheiro em
+  espécie, então entradas são vendas em dinheiro e reforços de troco, saídas são retiradas e
+  estornos de venda cancelada, e o saldo é a diferença; o troco inicial da sessão não é
+  movimento e fica de fora. O período é delimitado pelo instante em que cada movimento foi
+  lançado, e não pelo dia da sessão: um expediente que vira a meia-noite reparte os movimentos
+  entre os dois dias, enquanto o histórico do caixa o mantém inteiro no dia em que abriu. As duas
+  perguntas são diferentes, e as duas respostas convivem.
 - **O comprovante é dado, não desenho.** O caso de uso devolve um record com as linhas já
   calculadas, o nome que o produto tem hoje, os descontos, as parcelas confirmadas e o troco;
   quem desenha, imprime e compartilha é a tela, que precisa fazer isso também sem conexão. Só
@@ -507,7 +520,8 @@ o faturamento dentro de uma fronteira que já dizia que ele só lê. `estoque` n
 tabela própria, e não é omissão: ele é política, a conta participa ou não, e o agregado que ele
 move é do cadastro. Os ouvintes em `internal/` e os casos de uso em `application/` decidem e
 pedem; quem executa é o dono do agregado. `relatorios` também não tem `domain/` nem tabela: ele
-lê as tabelas dos outros por mapeamentos próprios, e ninguém depende dele.
+lê as tabelas dos outros por mapeamentos próprios, toma dos módulos donos só os enums do
+pacote-base, e ninguém depende dele.
 
 ## Autor
 
