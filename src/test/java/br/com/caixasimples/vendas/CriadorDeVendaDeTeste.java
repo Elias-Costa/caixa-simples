@@ -103,6 +103,24 @@ public class CriadorDeVendaDeTeste {
     }
 
     /**
+     * Uma venda CONCLUIDA num instante escolhido, com os itens e <strong>as parcelas</strong>
+     * informados: forma, valor e status de cada uma.
+     *
+     * <p>Existe para o faturamento por forma de pagamento, que precisa de venda dividida entre
+     * formas e de parcela RECUSADO ao lado das CONFIRMADO. A invariante da venda continua valendo:
+     * as parcelas CONFIRMADO têm de somar exatamente o total dos itens, senão a montagem estoura.
+     */
+    public UUID criarConcluidaComParcelasEm(ContaId contaId, UUID sessaoCaixaId, UUID usuarioId,
+            List<ItemDeTeste> itens, List<ParcelaDeTeste> parcelas, Instant concluidoEm) {
+        List<Pagamento> pagamentos = parcelas.stream()
+                .map(parcela -> new Pagamento(UUID.randomUUID(), parcela.forma(), parcela.valor(),
+                        parcela.status(), Money.ZERO, concluidoEm))
+                .toList();
+        return gravar(contaId, montar(sessaoCaixaId, usuarioId, itens, StatusVenda.CONCLUIDA,
+                concluidoEm, pagamentos));
+    }
+
+    /**
      * Uma comanda ABERTA com os itens informados e nenhum pagamento: o que ainda não foi vendido,
      * e que nenhum relatório pode contar.
      */
@@ -125,14 +143,8 @@ public class CriadorDeVendaDeTeste {
     private static Venda montar(UUID sessaoCaixaId, UUID usuarioId, List<ItemDeTeste> itensDeTeste,
             StatusVenda status, Instant concluidoEm) {
         Instant criadoEm = concluidoEm == null ? Instant.now() : concluidoEm;
-        List<ItemVenda> itens = itensDeTeste.stream()
-                .map(item -> new ItemVenda(UUID.randomUUID(), item.produtoId(), item.quantidade(),
-                        item.precoUnitario(), item.desconto(), criadoEm))
-                .toList();
-        Money total = Money.ZERO;
-        for (ItemVenda item : itens) {
-            total = total.somar(item.subtotal());
-        }
+        List<ItemVenda> itens = itensDe(itensDeTeste, criadoEm);
+        Money total = totalDos(itens);
 
         List<Pagamento> parcelas = status == StatusVenda.ABERTA
                 ? List.of()
@@ -141,6 +153,36 @@ public class CriadorDeVendaDeTeste {
 
         return Venda.reconstituir(UUID.randomUUID(), sessaoCaixaId, usuarioId, null, status,
                 total, Money.ZERO, criadoEm, concluidoEm, itens, parcelas);
+    }
+
+    /**
+     * Monta a venda com as parcelas dadas, sem inventar nenhuma. É quem chama que responde pela
+     * invariante da conclusão: {@code Venda.reconstituir} recusa CONCLUIDA cujas parcelas
+     * CONFIRMADO não somem o total.
+     */
+    private static Venda montar(UUID sessaoCaixaId, UUID usuarioId, List<ItemDeTeste> itensDeTeste,
+            StatusVenda status, Instant concluidoEm, List<Pagamento> parcelas) {
+        Instant criadoEm = concluidoEm == null ? Instant.now() : concluidoEm;
+        List<ItemVenda> itens = itensDe(itensDeTeste, criadoEm);
+
+        return Venda.reconstituir(UUID.randomUUID(), sessaoCaixaId, usuarioId, null, status,
+                totalDos(itens), Money.ZERO, criadoEm, concluidoEm, itens, parcelas);
+    }
+
+    private static List<ItemVenda> itensDe(List<ItemDeTeste> itensDeTeste, Instant criadoEm) {
+        return itensDeTeste.stream()
+                .map(item -> new ItemVenda(UUID.randomUUID(), item.produtoId(), item.quantidade(),
+                        item.precoUnitario(), item.desconto(), criadoEm))
+                .toList();
+    }
+
+    /** O total pela mesma conta do domínio: subtotal por item, arredondado, e depois a soma. */
+    private static Money totalDos(List<ItemVenda> itens) {
+        Money total = Money.ZERO;
+        for (ItemVenda item : itens) {
+            total = total.somar(item.subtotal());
+        }
+        return total;
     }
 
     /**
@@ -158,6 +200,27 @@ public class CriadorDeVendaDeTeste {
         /** Um item de quantidade um, ao preço informado e sem desconto. */
         public static ItemDeTeste unitario(UUID produtoId, Money precoUnitario) {
             return new ItemDeTeste(produtoId, BigDecimal.ONE, precoUnitario, Money.ZERO);
+        }
+    }
+
+    /**
+     * Uma parcela como o teste a quer: forma, valor e status, sem id, troco nem instante, que a
+     * fixture põe. O troco é sempre zero, porque nenhum relatório o lê.
+     *
+     * @param forma  a forma de pagamento desta parcela
+     * @param valor  o valor da parcela, não o total da venda
+     * @param status CONFIRMADO conta para a conclusão; RECUSADO e PENDENTE ficam gravados sem contar
+     */
+    public record ParcelaDeTeste(FormaPagamento forma, Money valor, StatusPagamento status) {
+
+        /** Uma parcela CONFIRMADO nesta forma e valor. */
+        public static ParcelaDeTeste confirmada(FormaPagamento forma, Money valor) {
+            return new ParcelaDeTeste(forma, valor, StatusPagamento.CONFIRMADO);
+        }
+
+        /** Uma parcela RECUSADO nesta forma e valor: gravada, mas dinheiro que nunca entrou. */
+        public static ParcelaDeTeste recusada(FormaPagamento forma, Money valor) {
+            return new ParcelaDeTeste(forma, valor, StatusPagamento.RECUSADO);
         }
     }
 }

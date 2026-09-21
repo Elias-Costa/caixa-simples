@@ -50,6 +50,12 @@ public interface ItemVendaParaRelatorioRepository extends Repository<ItemVendaPa
      * ser o mesmo a cada consulta. O {@link Limit} corta no banco, porque um ranking de dez não
      * precisa trazer o catálogo inteiro para descartar o resto em memória.
      *
+     * <p><strong>O operador é opcional</strong> (RF24): com {@code usuarioId} nulo a condição
+     * some, e o ranking é o da conta inteira. É o mesmo parâmetro, pelo mesmo motivo, de
+     * {@link VendaParaRelatorioRepository#totaisEntre}. Não há filtro por forma de pagamento
+     * aqui: um item não pertence a uma parcela, e o ranking não teria como repartir uma venda
+     * dividida entre as formas.
+     *
      * <p>O status é parâmetro, e não literal na consulta, para a regra de quais vendas contam
      * ficar escrita no caso de uso.
      */
@@ -64,9 +70,11 @@ public interface ItemVendaParaRelatorioRepository extends Repository<ItemVendaPa
             where v.status = :status
               and v.concluidoEm >= :inicio
               and v.concluidoEm < :fim
+              and (:usuarioId is null or v.usuarioId = :usuarioId)
             group by p.id, p.nome, p.unidade
             order by sum(i.quantidade) desc, p.nome asc, p.id asc
             """)
     List<ProdutoVendido> maisVendidosEntre(@Param("status") StatusVenda status,
-            @Param("inicio") Instant inicio, @Param("fim") Instant fim, Limit limite);
+            @Param("inicio") Instant inicio, @Param("fim") Instant fim,
+            @Param("usuarioId") UUID usuarioId, Limit limite);
 }

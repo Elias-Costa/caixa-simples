@@ -7,6 +7,7 @@ import br.com.caixasimples.vendas.StatusVenda;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
@@ -30,6 +31,9 @@ import org.springframework.transaction.annotation.Transactional;
  * nome atual: o histórico aponta para ele, e o relatório é sobre o que aconteceu, não sobre o
  * catálogo de hoje.
  *
+ * <p>A pedido, o ranking é o de um operador só (RF24): o que cada pessoa do balcão mais vendeu,
+ * pelas mesmas vendas e no mesmo período.
+ *
  * <p>O módulo só lê, e a conta vem sempre do contexto, nunca de parâmetro (RNF05).
  */
 @Service
@@ -43,7 +47,8 @@ public class MaisVendidosService {
 
     /**
      * Os produtos mais vendidos de um período de dias do balcão, <strong>com os dois extremos
-     * incluídos</strong>, do mais vendido para o menos, no máximo {@code limite} deles.
+     * incluídos</strong>, do mais vendido para o menos, no máximo {@code limite} deles, contando
+     * as vendas de todos os operadores.
      *
      * @param inicio o primeiro dia, obrigatório
      * @param fim    o último dia, obrigatório; pode ser o mesmo que o primeiro
@@ -54,6 +59,38 @@ public class MaisVendidosService {
      */
     @Transactional(readOnly = true)
     public MaisVendidos doPeriodo(LocalDate inicio, LocalDate fim, int limite) {
+        return consultar(inicio, fim, limite, null);
+    }
+
+    /**
+     * Os produtos mais vendidos de um período, como {@link #doPeriodo(LocalDate, LocalDate, int)},
+     * contando <strong>só as vendas de um operador</strong> (RF24).
+     *
+     * <p>Duas assinaturas, e não um parâmetro que aceita nulo, porque o operador é o único filtro
+     * do ranking além do período, e quem chama diz qual das duas perguntas está fazendo. Não há
+     * filtro por forma de pagamento: um item não pertence a uma parcela, e o ranking não teria
+     * como repartir uma venda dividida entre as formas.
+     *
+     * <p>Operador que não existe, ou que é de outra conta, dá lista vazia, e não erro: o filtro de
+     * conta do mapeamento não devolve venda de operador de fora, e este módulo não pergunta ao
+     * módulo de contas quem existe.
+     *
+     * @param inicio     o primeiro dia, obrigatório
+     * @param fim        o último dia, obrigatório; pode ser o mesmo que o primeiro
+     * @param limite     quantas posições no máximo, pelo menos uma
+     * @param operadorId o operador cujas vendas contam, obrigatório nesta assinatura
+     * @throws IllegalArgumentException se {@code fim} vem antes de {@code inicio}, ou se o limite
+     *                                  não é positivo
+     */
+    @Transactional(readOnly = true)
+    public MaisVendidos doPeriodo(LocalDate inicio, LocalDate fim, int limite, UUID operadorId) {
+        Objects.requireNonNull(operadorId,
+                "operadorId nao pode ser nulo; sem operador, use a assinatura sem ele");
+        return consultar(inicio, fim, limite, operadorId);
+    }
+
+    /** O ranking em si; {@code operadorId} nulo é a conta inteira, e só as duas públicas chamam. */
+    private MaisVendidos consultar(LocalDate inicio, LocalDate fim, int limite, UUID operadorId) {
         Periodo periodo = new Periodo(inicio, fim);
         if (limite < 1) {
             throw new IllegalArgumentException(
@@ -61,7 +98,7 @@ public class MaisVendidosService {
         }
 
         List<ProdutoVendido> linhas = itens.maisVendidosEntre(StatusVenda.CONCLUIDA,
-                periodo.inicioInclusivo(), periodo.fimExclusivo(), Limit.of(limite));
+                periodo.inicioInclusivo(), periodo.fimExclusivo(), operadorId, Limit.of(limite));
 
         List<Posicao> posicoes = linhas.stream()
                 .map(linha -> new Posicao(linha.produtoId(), linha.nome(), linha.unidade(),

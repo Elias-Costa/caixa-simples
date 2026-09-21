@@ -2,6 +2,7 @@ package br.com.caixasimples.relatorios;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
+import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
 import br.com.caixasimples.TesteDeIntegracao;
 import br.com.caixasimples.cadastro.TipoProduto;
@@ -37,8 +38,12 @@ import org.springframework.beans.factory.annotation.Autowired;
  * caixa e cadastra os produtos pelos casos de uso dos módulos donos, porque a venda e o item
  * apontam para eles por chave estrangeira.
  *
+ * <p>O filtro por operador (RF24) tem os seus cenários aqui, com dois operadores da mesma conta,
+ * cada um no seu caixa, vendendo os mesmos produtos em quantidades diferentes.
+ *
  * <p>Em nenhuma linha abaixo existe {@code WHERE conta_id}: é o tenant declarado no mapeamento de
- * leitura que filtra a consulta agregada, e o último teste é a prova disso (RNF05).
+ * leitura que filtra a consulta agregada, e os testes de isolamento são a prova disso (RNF05),
+ * inclusive com o filtro.
  */
 class MaisVendidosServiceTest extends TesteDeIntegracao {
 
@@ -240,6 +245,82 @@ class MaisVendidosServiceTest extends TesteDeIntegracao {
         assertThat(deC.posicoes()).isEmpty();
     }
 
+    @Test
+    @DisplayName("por operador, o ranking é o do que ele vendeu, e o da conta soma os dois (RF24)")
+    void rankingDeUmOperador() {
+        ContaCriada conta = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
+        Cenario doTitular = prepararCenario(conta);
+        Cenario daColega = prepararCenarioDeOutroOperador(conta, "Beatriz");
+        UUID cafe = doTitular.produto("Cafe coado", "4.50", "un");
+        UUID bolo = doTitular.produto("Bolo de laranja", "12.00", "fatia");
+
+        concluida(conta, doTitular, noBalcao(DIA, LocalTime.of(10, 0)),
+                new ItemDeTeste(cafe, new BigDecimal("3"), Money.de("4.50"), Money.ZERO),
+                new ItemDeTeste(bolo, new BigDecimal("1"), Money.de("12.00"), Money.ZERO));
+        concluida(conta, daColega, noBalcao(DIA, LocalTime.of(11, 0)),
+                new ItemDeTeste(cafe, new BigDecimal("1"), Money.de("4.50"), Money.ZERO),
+                new ItemDeTeste(bolo, new BigDecimal("5"), Money.de("12.00"), Money.ZERO));
+
+        MaisVendidos daConta = TenantContext.executarComo(conta.contaId(),
+                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ));
+        MaisVendidos doTitularSo = TenantContext.executarComo(conta.contaId(),
+                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, doTitular.usuarioId()));
+        MaisVendidos daColegaSo = TenantContext.executarComo(conta.contaId(),
+                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, daColega.usuarioId()));
+        MaisVendidos deNinguem = TenantContext.executarComo(conta.contaId(),
+                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, UUID.randomUUID()));
+
+        // A conta inteira: o bolo, com seis, passa o café, com quatro.
+        assertThat(daConta.posicoes()).extracting(Posicao::produtoId).containsExactly(bolo, cafe);
+        assertThat(daConta.posicoes().get(0).quantidade()).isEqualByComparingTo("6");
+        assertThat(daConta.posicoes().get(1).quantidade()).isEqualByComparingTo("4");
+        // O titular vendeu mais café; a colega, mais bolo.
+        assertThat(doTitularSo.posicoes()).extracting(Posicao::produtoId)
+                .containsExactly(cafe, bolo);
+        assertThat(doTitularSo.posicoes().get(0).quantidade()).isEqualByComparingTo("3");
+        assertThat(doTitularSo.posicoes().get(0).valor()).isEqualTo(Money.de("13.50"));
+        assertThat(daColegaSo.posicoes()).extracting(Posicao::produtoId)
+                .containsExactly(bolo, cafe);
+        assertThat(daColegaSo.posicoes().get(0).quantidade()).isEqualByComparingTo("5");
+        // Operador que não existe é lista vazia, não erro.
+        assertThat(deNinguem.posicoes()).isEmpty();
+
+        TenantContext.executarComo(conta.contaId(), () ->
+                assertThatNullPointerException()
+                        .isThrownBy(() -> maisVendidos.doPeriodo(DIA, DIA, DEZ, null))
+                        .withMessageContaining("assinatura sem ele"));
+    }
+
+    @Test
+    @DisplayName("o filtro por operador não atravessa contas (RNF05)")
+    void filtroPorOperadorNaoAtravessaContas() {
+        ContaCriada contaA = criador.criar("Loja A", SENHA_DE_TESTE);
+        ContaCriada contaB = criador.criar("Loja B", SENHA_DE_TESTE);
+        Cenario cenarioA = prepararCenario(contaA);
+        Cenario cenarioB = prepararCenario(contaB);
+        UUID cafeDeA = cenarioA.produto("Cafe coado", "4.50", "un");
+        UUID cafeDeB = cenarioB.produto("Cafe coado", "4.50", "un");
+
+        concluida(contaA, cenarioA, noBalcao(DIA, LocalTime.of(10, 0)),
+                new ItemDeTeste(cafeDeA, new BigDecimal("3"), Money.de("4.50"), Money.ZERO));
+        concluida(contaB, cenarioB, noBalcao(DIA, LocalTime.of(10, 0)),
+                new ItemDeTeste(cafeDeB, new BigDecimal("7"), Money.de("4.50"), Money.ZERO));
+
+        MaisVendidos deAPeloSeuOperador = TenantContext.executarComo(contaA.contaId(),
+                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, cenarioA.usuarioId()));
+        MaisVendidos deBPeloSeuOperador = TenantContext.executarComo(contaB.contaId(),
+                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, cenarioB.usuarioId()));
+        // B pede pelo operador de A: o id existe, mas não nesta conta.
+        MaisVendidos deBPeloOperadorDeA = TenantContext.executarComo(contaB.contaId(),
+                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, cenarioA.usuarioId()));
+
+        assertThat(deAPeloSeuOperador.posicoes()).extracting(Posicao::produtoId)
+                .containsExactly(cafeDeA);
+        assertThat(deBPeloSeuOperador.posicoes()).extracting(Posicao::produtoId)
+                .containsExactly(cafeDeB);
+        assertThat(deBPeloOperadorDeA.posicoes()).isEmpty();
+    }
+
     /** Um horário local do balcão como o instante gravado no banco, em UTC. */
     private static Instant noBalcao(LocalDate dia, LocalTime hora) {
         return dia.atTime(hora).atZone(FusoDeReferencia.DO_BALCAO).toInstant();
@@ -262,21 +343,34 @@ class MaisVendidosServiceTest extends TesteDeIntegracao {
     private Cenario prepararCenario(ContaCriada conta) {
         UUID sessaoCaixaId = TenantContext.executarComo(conta.contaId(),
                 () -> caixas.abrir(conta.usuarioId(), Money.ZERO));
-        return new Cenario(conta, sessaoCaixaId);
+        return new Cenario(conta, conta.usuarioId(), sessaoCaixaId);
+    }
+
+    /**
+     * Um segundo operador da mesma conta, com o seu próprio caixa aberto: o banco admite uma só
+     * sessão ABERTA por operador, e cada operador vende no seu caixa.
+     */
+    private Cenario prepararCenarioDeOutroOperador(ContaCriada conta, String nome) {
+        UUID operadorId = criador.criarOperadorEm(conta.contaId(), nome);
+        UUID sessaoCaixaId = TenantContext.executarComo(conta.contaId(),
+                () -> caixas.abrir(operadorId, Money.ZERO));
+        return new Cenario(conta, operadorId, sessaoCaixaId);
     }
 
     private final class Cenario {
 
         private final ContaCriada conta;
+        private final UUID usuarioId;
         private final UUID sessaoCaixaId;
 
-        private Cenario(ContaCriada conta, UUID sessaoCaixaId) {
+        private Cenario(ContaCriada conta, UUID usuarioId, UUID sessaoCaixaId) {
             this.conta = conta;
+            this.usuarioId = usuarioId;
             this.sessaoCaixaId = sessaoCaixaId;
         }
 
         UUID usuarioId() {
-            return conta.usuarioId();
+            return usuarioId;
         }
 
         UUID sessaoCaixaId() {

@@ -15,7 +15,7 @@ import org.hibernate.annotations.TenantId;
 
 /**
  * A tabela {@code venda} vista pelos relatórios: um segundo mapeamento da mesma tabela, com as
- * colunas que o faturamento lê e nada mais.
+ * colunas que o faturamento e os seus filtros leem e nada mais.
  *
  * <p><strong>Por que um mapeamento próprio, e não a entidade do módulo de vendas.</strong> A
  * entidade de lá mora no pacote interno daquele módulo, e a fronteira entre módulos proíbe
@@ -50,6 +50,13 @@ public class VendaParaRelatorio {
     @TenantId
     @Column(name = "conta_id", nullable = false, updatable = false)
     private UUID contaId;
+
+    /**
+     * O operador que fez a venda, para o filtro por operador (RF24). Só o id: o nome é do módulo
+     * de contas, e a tela que oferece o filtro já o tem.
+     */
+    @Column(name = "usuario_id", nullable = false, updatable = false)
+    private UUID usuarioId;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)

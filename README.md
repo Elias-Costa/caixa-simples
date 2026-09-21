@@ -81,7 +81,7 @@ primeiro dia; sete já têm código de negócio dentro.
 | `pagamentos` | Implementado | Strategy por forma de pagamento: dinheiro com troco calculado no domínio, Pix e cartão lançados à mão pelo operador. Sem provedor de Pix ainda |
 | `vendas` | Em andamento | agregado `Venda`, com `ItemVenda` e `Pagamento` como membros: abrir a comanda num caixa aberto, lançar e remover itens com o preço copiado do produto, desconto por item e por venda, total recalculado a cada operação, pagamento dividido entre formas com o troco vindo do módulo de pagamentos, conclusão como passo explícito, que exige o caixa ainda aberto e publica o evento `VendaConcluida` pelo outbox, e cancelamento, que desfaz a comanda aberta ou a venda concluída e, só no segundo caso, publica `VendaCancelada` para o caixa e o estoque desfazerem o que fizeram; e o comprovante não-fiscal de uma venda concluída, devolvido como dado para a tela imprimir ou compartilhar, com as linhas já calculadas, os descontos, as parcelas confirmadas e o troco, que passou a ficar gravado na parcela. Falta o vínculo de cliente |
 | `estoque` | Em andamento | o ouvinte da venda concluída: quando a conta ligou o controle de estoque, cada produto vendido vira uma baixa, pedida ao cadastro, dono do agregado; serviço no meio dos itens não gera nada, e o evento entregue de novo não baixa em dobro. E os casos de uso que uma pessoa aciona: ajuste manual com motivo obrigatório, perda, quebra ou contagem, com a diferença carregando o sinal; estoque mínimo por produto; e o alerta de estoque baixo como consulta, a lista dos produtos ativos no mínimo ou abaixo. A conta que não ligou o controle é recusada nos três. E o ouvinte da venda cancelada, imagem espelhada do primeiro: cada produto que a venda baixou volta, uma vez só, e o que nunca saiu não volta |
-| `relatorios` | Em andamento | faturamento do dia e de um período, produtos mais vendidos e fluxo de caixa de um período, com o dia delimitado no fuso do balcão. Faturamento e ranking contam as mesmas vendas, as concluídas, pelo instante em que concluíram; o ranking é por quantidade, com o valor, o nome e a unidade ao lado; o fluxo de caixa é o da gaveta, só dinheiro em espécie, com entradas, saídas e saldo pelo dia em que cada movimento foi lançado. O módulo só lê: enxerga as tabelas de venda, item, produto e movimento de caixa por mapeamentos próprios, imutáveis, com as colunas que cada relatório usa, e os repositórios nem têm método de escrita. As somas e as junções são do banco. Faltam os filtros por forma de pagamento e operador |
+| `relatorios` | Implementado | faturamento do dia e de um período, produtos mais vendidos e fluxo de caixa de um período, com o dia delimitado no fuso do balcão. Faturamento e ranking contam as mesmas vendas, as concluídas, pelo instante em que concluíram; o ranking é por quantidade, com o valor, o nome e a unidade ao lado; o fluxo de caixa é o da gaveta, só dinheiro em espécie, com entradas, saídas e saldo pelo dia em que cada movimento foi lançado. Filtros combináveis: o faturamento por forma de pagamento e por operador, juntos ou separados, e o ranking por operador; uma venda paga metade em dinheiro e metade em Pix se reparte entre as duas formas pelo valor de cada parcela, e as três formas somadas dão o faturamento inteiro. O módulo só lê: enxerga as tabelas de venda, item, produto, pagamento e movimento de caixa por mapeamentos próprios, imutáveis, com as colunas que cada relatório usa, e os repositórios nem têm método de escrita. As somas e as junções são do banco |
 
 **Schema.** Doze migrations Flyway, de `V1` a `V12`: conta, usuário e credencial; produto; cliente;
 catálogo de referência; o agregado de caixa, com a regra de uma sessão aberta por operador; o
@@ -122,7 +122,7 @@ Atalhos para avaliar o código sem percorrer o repositório inteiro.
 | Strategy sem `switch` | [PaymentService.java](src/main/java/br/com/caixasimples/pagamentos/application/PaymentService.java) | Forma de pagamento nova é classe nova; duas estratégias para a mesma forma derrubam a aplicação na subida, em vez de uma sobrescrever a outra em silêncio |
 | A regra do troco no domínio | [ResultadoPagamento.java](src/main/java/br/com/caixasimples/pagamentos/domain/ResultadoPagamento.java) | A conta mora numa fábrica nomeada de um tipo sem framework, e não no componente do Spring que a chama |
 | Membro de agregado invisível de fora | [VendaEntity.java](src/main/java/br/com/caixasimples/vendas/internal/VendaEntity.java) | As entidades de item e pagamento têm visibilidade de pacote, então a proibição de repositório para elas não depende de disciplina |
-| Um módulo que só lê, garantido por construção | [VendaParaRelatorio.java](src/main/java/br/com/caixasimples/relatorios/internal/VendaParaRelatorio.java) | A mesma tabela mapeada uma segunda vez, imutável e só com o que o relatório usa, para os relatórios lerem sem importar o pacote interno de vendas nem remontar o agregado; o repositório ao lado não tem método de escrita, e o porquê de o dia ser o da conclusão está em [FaturamentoService.java](src/main/java/br/com/caixasimples/relatorios/application/FaturamentoService.java) |
+| Um módulo que só lê, garantido por construção | [VendaParaRelatorio.java](src/main/java/br/com/caixasimples/relatorios/internal/VendaParaRelatorio.java) | A mesma tabela mapeada uma segunda vez, imutável e só com o que o relatório usa, para os relatórios lerem sem importar o pacote interno de vendas nem remontar o agregado; o repositório ao lado não tem método de escrita, é onde os filtros entram como parâmetro opcional da consulta, e explica por que o executor de Specification do Spring Data ficou de fora; o porquê de o dia ser o da conclusão e de a venda dividida se repartir por parcela está em [FaturamentoService.java](src/main/java/br/com/caixasimples/relatorios/application/FaturamentoService.java) |
 | Uma consulta que junta três mapeamentos e arredonda como o domínio | [ItemVendaParaRelatorioRepository.java](src/main/java/br/com/caixasimples/relatorios/internal/ItemVendaParaRelatorioRepository.java) | O ranking dos mais vendidos numa JPQL só, com junções por id escritas na consulta, sem associação navegável, e o valor por item arredondado no banco pela mesma regra do comprovante; o porquê de o ranking ser por quantidade e de o fluxo de caixa ser o da gaveta está em [MaisVendidosService.java](src/main/java/br/com/caixasimples/relatorios/application/MaisVendidosService.java) e [FluxoDeCaixaService.java](src/main/java/br/com/caixasimples/relatorios/application/FluxoDeCaixaService.java) |
 | Atributos variáveis em `JSONB` | [V2\_\_produto.sql](src/main/resources/db/migration/V2__produto.sql) | Índice GIN `jsonb_path_ops` e índice único parcial que só vale entre registros ativos |
 | Vertical slice deliberado | [ClienteService.java](src/main/java/br/com/caixasimples/cadastro/internal/ClienteService.java) | Onde o projeto decide **não** aplicar DDD, porque não há invariante a proteger |
@@ -208,19 +208,23 @@ uso hoje:
   em vez do completo, sem `save` nem `delete`. O só-leitura fica garantido por construção, em três
   pontos, e não por revisão. A soma é feita no banco, em JPQL, que o filtro de conta alcança; o
   ranking junta três desses mapeamentos por id, na própria consulta, sem associação navegável, e
-  arredonda cada item no banco do mesmo jeito que o domínio arredonda no comprovante.
+  arredonda cada item no banco do mesmo jeito que o domínio arredonda no comprovante. Os filtros
+  combináveis entram nessas mesmas consultas como condição que some quando o parâmetro é nulo,
+  e o filtro por forma de pagamento é uma consulta própria, que soma parcelas em vez de vendas.
 - **Fitness function de arquitetura**, que transforma a regra de fronteira em teste.
 
 ### Padrões decididos, ainda não escritos
 
-Estes estão amarrados a requisitos e a passos que ainda não começaram. Aparecem aqui como desenho,
-não como código: **Adapter** para trocar de provedor de Pix sem tocar na regra de negócio, e
-**Specification** para os filtros combináveis dos relatórios.
+Um só está amarrado a um requisito e a um passo que ainda não começou, e aparece aqui como
+desenho, não como código: **Adapter** para trocar de provedor de Pix sem tocar na regra de negócio.
 
-Nenhum deles foi criado por antecipação, e essa é a política do projeto: uma abstração se justifica
-com dois usos reais, não com um previsto. O Strategy de pagamento seguiu essa regra: a interface
+Não foi criado por antecipação, e essa é a política do projeto: uma abstração se justifica com
+dois usos reais, não com um previsto. O Strategy de pagamento seguiu essa regra: a interface
 nasceu junto da primeira implementação, e a fábrica que Pix e cartão compartilham só existe porque
-os dois a usam.
+os dois a usam. **Specification** esteve nesta lista, para os filtros combináveis dos relatórios,
+e saiu quando chegou a hora: o executor que o Spring Data oferece traz `update` e `delete` para
+dentro de um repositório que não pode escrever, e não agrega, enquanto as consultas dos relatórios
+são somas; os filtros entraram como parâmetro opcional nas consultas que já existiam.
 
 ## Decisões estruturais
 
@@ -313,6 +317,9 @@ pontos:
   duas contas com dados equivalentes no mesmo dia recebem cada uma só o seu faturamento, o seu
   ranking e o seu fluxo de caixa, e uma terceira, sem nada, recebe zero ou vazio; as consultas
   agregadas em JPQL, inclusive a que junta três tabelas, passam pelo mesmo filtro que as outras.
+  Os filtros por forma de pagamento e por operador têm a mesma prova: a conta que pede o
+  faturamento ou o ranking pelo operador de outra recebe zero ou vazio, porque o id existe, mas
+  não nela.
 - **Os listeners de evento agem na conta do evento, não na de quem publicou.** Eles rodam em outra
   thread, sem o tenant da requisição, e uma reentrega pode partir do outbox horas depois; a conta
   vai dentro do evento, lida do contexto autenticado no ato da publicação, e há teste, para os
@@ -417,13 +424,15 @@ editar um agregado através de outro.
   faturamento: a venda conta no dia em que o dinheiro entrou, e uma comanda aberta às 23h50 e paga
   às 00h10 é do dia seguinte. A sessão de caixa, por sua vez, é do dia em que abriu, porque um
   expediente pode atravessar a meia-noite e continua sendo um só.
-- **As tabelas de venda, item de venda, produto e movimento de caixa têm um segundo mapeamento,
-  somente leitura**, no módulo de relatórios: imutável, com as colunas que o relatório usa e
+- **As tabelas de venda, item de venda, produto, pagamento e movimento de caixa têm um segundo
+  mapeamento, somente leitura**, no módulo de relatórios: imutável, com as colunas que o relatório usa e
   nenhuma outra, sem construtor que a instancie. O esquema é o contrato entre os dois
   mapeamentos, versionado nas migrations, e o Hibernate valida os dois na subida: renomear uma
   coluna no módulo dono derruba a aplicação no deploy, que é o modo certo de falhar, e não com
-  relatório em branco. O mapeamento de produto nem tem repositório: existe para ser alvo de
-  junção, e traz o nome atual do produto para o ranking mesmo depois de ele ser inativado.
+  relatório em branco. Os mapeamentos de produto e de pagamento nem têm repositório: existem para
+  ser alvo de junção; o de produto traz o nome atual para o ranking mesmo depois de o produto ser
+  inativado, e o de pagamento é o que permite somar por forma o valor de cada parcela, e não o
+  total da venda que a usou.
 - **O fluxo de caixa é o da gaveta, e o dia é o do movimento.** O caixa só registra dinheiro em
   espécie, então entradas são vendas em dinheiro e reforços de troco, saídas são retiradas e
   estornos de venda cancelada, e o saldo é a diferença; o troco inicial da sessão não é
