@@ -35,7 +35,11 @@ class SecurityConfiguration {
                 .formLogin(form -> form.disable())
                 .authorizeHttpRequests(rotas -> rotas
                         .requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
-                        .anyRequest().authenticated())
+                        .requestMatchers("/api/**").authenticated()
+                        // Fora de /api só existe o aplicativo: o shell, os scripts, o manifest, o
+                        // service worker e os ícones, que são públicos por natureza. Todo dado
+                        // sai por /api, com token, então liberar o resto não expõe nada.
+                        .anyRequest().permitAll())
                 .oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()))
                 // A identidade depende da autenticação já resolvida, então vem depois do filtro
                 // que a resolve; a renovação depende da identidade, então vem depois dela.

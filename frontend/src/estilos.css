@@ -1,0 +1,269 @@
+/*
+ * Estilo do aplicativo, sem biblioteca de componentes: são poucas telas de formulário e lista,
+ * e o que importa nelas é caber num tablet de balcão e ser tocável. Alvo de toque mínimo de
+ * 48px em tudo que se aperta; desktop usa o mesmo código, só reorganiza a navegação.
+ */
+
+:root {
+  --cor-marca: #1f5f4a;
+  --cor-marca-escura: #164536;
+  --cor-fundo: #f4f6f5;
+  --cor-superficie: #ffffff;
+  --cor-texto: #1c2422;
+  --cor-borda: #d5dcd9;
+  --cor-aviso-fundo: #fff4d6;
+  --cor-aviso-texto: #6b4b00;
+  --cor-erro: #b3261e;
+  --espaco: 16px;
+  --raio: 10px;
+  --toque: 48px;
+  --fonte: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--cor-fundo);
+  color: var(--cor-texto);
+  font-family: var(--fonte);
+  font-size: 17px;
+  line-height: 1.4;
+  -webkit-text-size-adjust: 100%;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* Botões e campos */
+
+.botao {
+  min-height: var(--toque);
+  padding: 0 calc(var(--espaco) * 1.25);
+  border: 0;
+  border-radius: var(--raio);
+  background: var(--cor-marca);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.botao:hover {
+  background: var(--cor-marca-escura);
+}
+
+.botao:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.botao--secundario {
+  background: transparent;
+  color: var(--cor-marca);
+  border: 1px solid var(--cor-borda);
+}
+
+.botao--secundario:hover {
+  background: var(--cor-fundo);
+}
+
+.botao--largo {
+  width: 100%;
+}
+
+.campo {
+  display: block;
+  margin-bottom: var(--espaco);
+}
+
+.campo__rotulo {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.campo__entrada {
+  width: 100%;
+  min-height: var(--toque);
+  padding: 0 12px;
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio);
+  background: var(--cor-superficie);
+  font: inherit;
+}
+
+.campo__entrada:focus {
+  outline: 2px solid var(--cor-marca);
+  outline-offset: 1px;
+}
+
+/* Login */
+
+.login {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: var(--espaco);
+}
+
+.login__cartao {
+  width: min(100%, 420px);
+  padding: calc(var(--espaco) * 1.5);
+  background: var(--cor-superficie);
+  border-radius: calc(var(--raio) * 1.5);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+.login__titulo {
+  margin: 0 0 var(--espaco);
+  color: var(--cor-marca);
+  font-size: 1.6rem;
+}
+
+.login__erro {
+  margin: 0 0 var(--espaco);
+  color: var(--cor-erro);
+}
+
+/* Shell: cabeçalho, navegação e conteúdo */
+
+/* Áreas nomeadas: a faixa de aviso só existe quando há o que avisar, e a linha dela some junto. */
+.aplicativo {
+  min-height: 100vh;
+  display: grid;
+  grid-template-areas:
+    'cabecalho'
+    'faixa'
+    'navegacao'
+    'conteudo';
+  grid-template-rows: auto auto auto 1fr;
+}
+
+.cabecalho {
+  grid-area: cabecalho;
+  display: flex;
+  align-items: center;
+  gap: var(--espaco);
+  padding: 12px var(--espaco);
+  background: var(--cor-marca);
+  color: #fff;
+}
+
+.cabecalho__quem {
+  flex: 1;
+  min-width: 0;
+}
+
+.cabecalho__negocio {
+  margin: 0;
+  font-size: 1.15rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cabecalho__operador {
+  margin: 0;
+  font-size: 0.9rem;
+  opacity: 0.85;
+}
+
+.cabecalho__aviso {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: var(--cor-aviso-fundo);
+  color: var(--cor-aviso-texto);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.cabecalho .botao--secundario {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.cabecalho .botao--secundario:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.faixa {
+  grid-area: faixa;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--espaco);
+  padding: 8px var(--espaco);
+  background: var(--cor-aviso-fundo);
+  color: var(--cor-aviso-texto);
+}
+
+.navegacao {
+  grid-area: navegacao;
+  display: flex;
+  gap: 8px;
+  padding: 10px var(--espaco);
+  overflow-x: auto;
+  background: var(--cor-superficie);
+  border-bottom: 1px solid var(--cor-borda);
+}
+
+.navegacao__item {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--toque);
+  padding: 0 14px;
+  border-radius: var(--raio);
+  color: var(--cor-texto);
+  text-decoration: none;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.navegacao__item:hover {
+  background: var(--cor-fundo);
+}
+
+.navegacao__item--ativo {
+  background: var(--cor-marca);
+  color: #fff;
+}
+
+.conteudo {
+  grid-area: conteudo;
+  padding: var(--espaco);
+}
+
+.titulo {
+  margin: 0 0 var(--espaco);
+  font-size: 1.4rem;
+}
+
+/* Desktop: a navegação vira coluna ao lado do conteúdo. */
+
+@media (min-width: 1024px) {
+  .aplicativo {
+    grid-template-areas:
+      'cabecalho cabecalho'
+      'faixa faixa'
+      'navegacao conteudo';
+    grid-template-columns: 240px 1fr;
+    grid-template-rows: auto auto 1fr;
+  }
+
+  .navegacao {
+    flex-direction: column;
+    overflow-x: visible;
+    border-bottom: 0;
+    border-right: 1px solid var(--cor-borda);
+  }
+
+  .conteudo {
+    padding: calc(var(--espaco) * 1.5);
+  }
+}

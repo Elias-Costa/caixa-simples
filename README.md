@@ -70,11 +70,13 @@ cliente) sem redesenhar o núcleo.
 
 O núcleo transacional é construído módulo a módulo, e cada um fecha com a suíte verde antes do
 próximo começar. Os oito módulos estão declarados e têm suas fronteiras verificadas desde o
-primeiro dia; sete já têm código de negócio dentro.
+primeiro dia; sete já têm código de negócio dentro. O aplicativo, um PWA em `frontend/`, tem o
+esqueleto pronto: login, sessão no dispositivo, shell por perfil e abertura sem rede; as telas de
+negócio entram uma a uma, cada uma junto do endpoint que consome.
 
 | Módulo | Estado | O que existe hoje |
 |---|---|---|
-| `shared` | Implementado | `Money`, `ContaId`, `FusoDeReferencia` e os dois contextos da requisição: `TenantContext`, a conta em operação, e `UsuarioContext`, quem está operando e com que perfil, com as duas perguntas de autorização que todo caso de uso restrito faz na primeira linha. E o tratamento transversal de erro da API: toda resposta de erro sai em Problem Details, a recusa por perfil vira 403, argumento que o domínio rejeita vira 400 e estado que o agregado rejeita vira 409 |
+| `shared` | Implementado | `Money`, `ContaId`, `FusoDeReferencia` e os dois contextos da requisição: `TenantContext`, a conta em operação, e `UsuarioContext`, quem está operando e com que perfil, com as duas perguntas de autorização que todo caso de uso restrito faz na primeira linha. E o tratamento transversal de erro da API: toda resposta de erro sai em Problem Details, a recusa por perfil vira 403, argumento que o domínio rejeita vira 400 e estado que o agregado rejeita vira 409. E a entrega do aplicativo: o shell do PWA sai daqui, com o fallback que devolve a mesma página para qualquer rota do cliente e nunca para a API |
 | `contas` | Implementado | `Conta`, `Usuario`, `Credencial`, login por JWT, política de senha, provisionamento de conta, a pergunta que os outros módulos fazem à conta em operação, como se o controle de estoque está ligado, e a gestão de usuários: o administrador cria operador ou administrador com login próprio, lista e inativa, com mais de um usuário só no plano mais alto e a conta nunca sem administrador. O filtro que resolve o token lê o usuário no banco a cada requisição, então inativar vale na requisição seguinte, e o perfil que vale é o do banco, não o do token. Quem está autenticado pergunta em `/api/auth/eu` e recebe o próprio nome, o negócio, o tipo dele e se o estoque está ligado: é o cabeçalho de toda tela |
 | `cadastro` | Implementado | `Produto` com atributos `JSONB`, busca por nome ou código para o balcão, `Cliente` como vertical slice, catálogo sugerido por tipo de negócio, e o agregado inteiro: `MovimentoEstoque` como membro, com a baixa por venda, o estorno por cancelamento e o ajuste manual gravando movimento e saldo na mesma transação, o estoque mínimo de cada produto e a resposta de quais estão com estoque baixo. Cadastrar, editar e inativar produto e aplicar o catálogo inicial são do administrador; consultar e buscar produto e cadastrar cliente são dos dois perfis, porque o cliente se cadastra no balcão |
 | `caixa` | Implementado | `SessaoCaixa`: abertura, sangria, suprimento, fechamento com conferência, histórico por operador e por dia, e o dinheiro em espécie de cada venda concluída entrando na gaveta por evento, uma vez só, mesmo que o evento chegue de novo; e saindo dela, por outro evento, quando a venda é cancelada, num estorno que espelha exatamente o que entrou. O caixa é de quem o abriu: o operador só lança, fecha e consulta a própria sessão e só pede o próprio histórico; o administrador toca qualquer sessão da conta, porque é ele quem fecha o caixa do atendente que foi embora |
@@ -109,6 +111,19 @@ aplicação e são exercitados por teste de integração, inclusive a autorizaç
 verificada dentro de cada caso de uso e não por rota: a camada `web` de cada módulo nasce junto
 com a tela do PWA que vai consumi-la, e não antes, para o contrato HTTP não ser desenhado às cegas.
 
+**Aplicativo.** Fora de `/api` o servidor entrega o PWA, público por natureza: a página, os
+scripts com hash no nome, o manifest, o service worker e os ícones, copiados do build do
+`frontend/` para dentro do jar, na mesma origem da API, sem CORS. Qualquer rota do cliente pedida
+direto ao servidor recebe a mesma página, e o roteador do cliente escolhe a tela; uma rota da API
+que não existe nunca recebe a página, e sim 401 sem token e 404 com token. Todo dado sai por
+`/api`, com token. O aplicativo tem hoje o login, a sessão guardada no dispositivo, o shell com o
+nome do negócio e de quem opera, a navegação por perfil e as páginas onde cada tela de negócio vai
+entrar. Um cliente HTTP só envia o token, troca-o pelo renovado que toda resposta devolve e traduz
+todo erro no mesmo objeto, lido do Problem Details. Com token guardado e ainda válido, o aplicativo
+abre sem rede no shell, com a identidade guardada, e pergunta ao servidor quem está operando assim
+que a rede volta; a versão nova avisa e espera o operador mandar atualizar, porque recarregar no
+meio de uma venda custaria a venda.
+
 ## Por onde começar a leitura
 
 Atalhos para avaliar o código sem percorrer o repositório inteiro.
@@ -121,6 +136,8 @@ Atalhos para avaliar o código sem percorrer o repositório inteiro.
 | Autorização explícita, sem anotação | [UsuarioContext.java](src/main/java/br/com/caixasimples/shared/UsuarioContext.java) | Quem chama vem do contexto, nunca de parâmetro, e cada caso de uso restrito pergunta na primeira linha se é o administrador ou o dono do caixa; o porquê de não haver `@PreAuthorize` nem tabela de rotas está escrito no lugar. [IdentidadeDoTokenFilter.java](src/main/java/br/com/caixasimples/contas/internal/IdentidadeDoTokenFilter.java) preenche os dois contextos e lê o usuário no banco a cada requisição, para inativar valer na hora |
 | Gestão de usuários com o plano no caminho | [UsuarioService.java](src/main/java/br/com/caixasimples/contas/application/UsuarioService.java) | Criar usuário grava duas linhas numa transação, passa pela política de senha e pela unicidade global de e-mail, e é recusado fora do plano que admite mais de um usuário; inativar nunca deixa a conta sem administrador |
 | Um contrato de erro só, para o framework e para a aplicação | [TratamentoDeErrosHttp.java](src/main/java/br/com/caixasimples/shared/web/TratamentoDeErrosHttp.java) | Estende o tratador do Spring MVC em vez de substituí-lo, então corpo ilegível e recusa por perfil saem na mesma forma; cada status tem o porquê escrito no lugar, e o 404 de cada módulo fica no módulo, sem hierarquia de exceção. O molde do controller, com validação do pedido e a exceção própria traduzida no lugar, é [AutenticacaoController.java](src/main/java/br/com/caixasimples/contas/web/AutenticacaoController.java) |
+| O servidor entregando o aplicativo | [PwaConfiguration.java](src/main/java/br/com/caixasimples/shared/web/PwaConfiguration.java) | Fallback de página única escrito à mão, com o porquê de cada caso: rota do cliente recebe o shell, arquivo que não existe e rota da API que não existe recebem 404, e os cabeçalhos de cache são explícitos porque o cache heurístico do navegador seguraria uma página antiga. Fora de `/api` tudo é público, e a razão está em [SecurityConfiguration.java](src/main/java/br/com/caixasimples/contas/internal/SecurityConfiguration.java) |
+| O cliente HTTP do aplicativo | [cliente.ts](frontend/src/api/cliente.ts) | Um lugar só envia o token, troca-o pelo renovado de toda resposta e traduz o Problem Details em um erro com status, detalhe e mensagem por campo; nenhuma tela precisa lembrar disso. A sessão no dispositivo, e o que acontece na abertura sem rede, está em [SessaoProvider.tsx](frontend/src/sessao/SessaoProvider.tsx); a navegação por perfil, que esconde o que a API recusaria mas não decide autorização, em [menu.ts](frontend/src/shell/menu.ts) |
 | Raiz de agregado sem framework | [SessaoCaixa.java](src/main/java/br/com/caixasimples/caixa/domain/SessaoCaixa.java) | Regra de negócio e invariantes isoladas de Spring e de JPA |
 | Invariante viva, recalculada a cada operação | [Venda.java](src/main/java/br/com/caixasimples/vendas/domain/Venda.java) | O total nunca fica negativo, nunca diverge dos itens e nunca fica abaixo do já pago; a venda só conclui com os pagamentos confirmados iguais ao total. Cada operação que quebraria uma regra é recusada antes de tocar no agregado, e o estado remontado do banco passa pela mesma conferência |
 | Pergunta entre módulos sem expor o agregado | [VendaService.java](src/main/java/br/com/caixasimples/vendas/application/VendaService.java) | A venda copia o preço do cadastro por chamada à camada de aplicação dele, recebendo um record e nunca a raiz alheia; confere o caixa por uma interface que ela mesma declara; e, ao concluir ou cancelar, publica o evento em vez de chamar quem reage |
@@ -161,8 +178,9 @@ está em [Estado atual](#estado-atual).
 ```
 
 Nem todo módulo tem as quatro: uma camada nasce quando há o que colocar nela. Hoje `contas` tem
-`web/`, por ser o único com superfície HTTP, e `shared` tem `web/` só com o tratamento de erro,
-que é transversal; `cadastro` acomoda `Cliente` inteiro em `internal/`,
+`web/`, por ser o único com superfície HTTP de negócio, e `shared` tem `web/` com o que é
+transversal, o tratamento de erro e a entrega do aplicativo; `cadastro` acomoda `Cliente` inteiro
+em `internal/`,
 porque um slice sem invariante não precisa de `domain/`; e `relatorios` não tem `domain/` porque
 não tem regra a proteger: ele lê colunas e soma.
 
@@ -375,7 +393,11 @@ o usuário para uma senha pior, anotada num papel no balcão.
 A validade do token conta a partir do último contato com o servidor e não do login: toda resposta
 autenticada devolve um token renovado. Na prática, é a janela de resistência que a operação offline
 exige. Não há revogação de token, e sim de usuário: inativar alguém derruba o token dele na
-requisição seguinte.
+requisição seguinte. No aplicativo, o token e a identidade de quem entrou ficam guardados no
+dispositivo, e é isso que permite abrir o aplicativo sem rede; o custo aceito, e escrito, é que
+quem pega o tablet destravado entra até o token expirar. O cliente nunca envia conta nem perfil em
+requisição nenhuma, e a navegação por perfil apenas esconde o que o servidor recusaria: a
+autorização continua sendo do caso de uso.
 
 Usuário novo nasce pela gestão de usuários da conta, feita pelo administrador: um `Usuario`, que
 carrega o perfil e o tenant, e uma `Credencial`, que carrega e-mail e senha, gravados na mesma
@@ -542,7 +564,7 @@ Como há dois ouvintes por evento, quem conta publicações concluídas filtra p
 | Segurança | Spring Security e OAuth2 Resource Server, sem biblioteca de JWT de terceiro |
 | Build | Maven, via wrapper versionado |
 | Testes | JUnit 5, AssertJ e Testcontainers |
-| Frontend | *planejado*: PWA em React, Vite e TypeScript, com service worker e IndexedDB |
+| Frontend | PWA em React 19, Vite 8 e TypeScript, com React Router, service worker gerado por Workbox e Vitest; empacotado no jar pelo Maven, com o Node fixado no `pom.xml` |
 | Infraestrutura | *planejada*: contêiner em AWS |
 
 A escolha de versão não é acidental. Spring Boot 3.x perde suporte OSS em junho de 2026, então um
@@ -559,15 +581,23 @@ src
 │   │   ├── contas/         application, web, internal
 │   │   ├── pagamentos/     domain, application, internal
 │   │   ├── vendas/         domain, application, internal
-│   │   ├── shared/         Money, ContaId, TenantContext, UsuarioContext, Perfil, FusoDeReferencia; web com o tratamento de erro
+│   │   ├── shared/         Money, ContaId, TenantContext, UsuarioContext, Perfil, FusoDeReferencia; web com o tratamento de erro e a entrega do aplicativo
 │   │   ├── estoque/        application, internal
 │   │   └── relatorios/     application, internal
 │   └── resources
 │       └── db/migration/   V1 a V12, imutáveis depois de publicadas
-└── test/java/br/com/caixasimples
-    ├── ModularityTests     fitness function das fronteiras
-    ├── TesteDeIntegracao   base com Testcontainers, herdada pelos testes de banco
-    └── ...                 testes por módulo, incluindo isolamento entre contas
+├── test/java/br/com/caixasimples
+│   ├── ModularityTests     fitness function das fronteiras
+│   ├── TesteDeIntegracao   base com Testcontainers, herdada pelos testes de banco
+│   └── ...                 testes por módulo, incluindo isolamento entre contas
+frontend
+├── src
+│   ├── api/                o cliente HTTP: token, renovação e o contrato de erro
+│   ├── sessao/             token e identidade no dispositivo, provedor de sessão
+│   ├── shell/              cabeçalho, navegação por perfil, guardas de rota
+│   └── telas/              login e o lugar de cada tela de negócio
+├── public/                 ícones e manifest
+└── vite.config.ts          build, service worker e o proxy de desenvolvimento para a API
 ```
 
 Todo módulo declarou a fronteira antes de ter código, e o `ModularityTests` a verificava desde
@@ -579,7 +609,10 @@ tabela própria, e não é omissão: ele é política, a conta participa ou não
 move é do cadastro. Os ouvintes em `internal/` e os casos de uso em `application/` decidem e
 pedem; quem executa é o dono do agregado. `relatorios` também não tem `domain/` nem tabela: ele
 lê as tabelas dos outros por mapeamentos próprios, toma dos módulos donos só os enums do
-pacote-base, e ninguém depende dele.
+pacote-base, e ninguém depende dele. O `frontend/` fica na raiz, e não dentro de `src/`, para
+quem lê o repositório ver que existe um aplicativo sem entrar na árvore Java; o Maven o compila
+e testa na fase de empacotamento e copia o resultado para dentro do jar, então a suíte Java roda
+sem Node instalado e o artefato de produção é um só.
 
 ## Autor
 
