@@ -6,6 +6,7 @@ import br.com.caixasimples.relatorios.internal.TotaisDeVendas;
 import br.com.caixasimples.relatorios.internal.VendaParaRelatorioRepository;
 import br.com.caixasimples.shared.FusoDeReferencia;
 import br.com.caixasimples.shared.Money;
+import br.com.caixasimples.shared.UsuarioContext;
 import br.com.caixasimples.vendas.StatusVenda;
 import java.time.LocalDate;
 import java.util.Objects;
@@ -44,6 +45,10 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>O módulo só lê: o repositório que responde nem tem método de escrita. E a conta vem sempre
  * do contexto, nunca de parâmetro (RNF05), então nenhum método recebe conta.
+ *
+ * <p><strong>É relatório do administrador (RF30)</strong>, inclusive quando filtrado por um
+ * operador: o operador não lê faturamento, nem o próprio. A pergunta é feita uma vez, no método
+ * em que todas as sobrecargas desembocam.
  *
  * <p>O pacote não é exposto aos outros módulos: quem chama daqui é a camada web deste mesmo
  * módulo, quando nascer. Ninguém depende de relatórios.
@@ -113,6 +118,7 @@ public class FaturamentoService {
      */
     @Transactional(readOnly = true)
     public Faturamento doPeriodo(LocalDate inicio, LocalDate fim, Filtros filtros) {
+        UsuarioContext.exigirAdmin();
         Periodo periodo = new Periodo(inicio, fim);
         Objects.requireNonNull(filtros, "filtros nao podem ser nulos; sem filtro, use Filtros.nenhum()");
 

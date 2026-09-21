@@ -55,23 +55,23 @@ class ProdutoAtributosTest extends TesteDeIntegracao {
         ContaCriada cafeteria = criador.criar("Cafeteria do Centro", SENHA_DE_TESTE);
         ContaCriada loja = criador.criar("Loja de Roupa", SENHA_DE_TESTE);
 
-        UUID cafe = TenantContext.executarComo(cafeteria.contaId(), () ->
+        UUID cafe = cafeteria.comoUsuario(() ->
                 produtos.save(ProdutoEntity.de(new Produto("Cappuccino", Money.de("9.00"),
                         TipoProduto.PRODUTO, null, "Bebidas", "un",
                         Map.of("tempo_preparo", 5)))).getId());
 
-        UUID camiseta = TenantContext.executarComo(loja.contaId(), () ->
+        UUID camiseta = loja.comoUsuario(() ->
                 produtos.save(ProdutoEntity.de(new Produto("Camiseta lisa", Money.de("49.90"),
                         TipoProduto.PRODUTO, null, "Vestuario", "un",
                         Map.of("tamanho", "M", "cor", "preta")))).getId());
 
         // Ida e volta pelo JPA: o mapa retorna com os mesmos pares, sem coluna nova para nenhum dos
         // dois tipos de negócio.
-        TenantContext.executarComo(cafeteria.contaId(), () ->
+        cafeteria.comoUsuario(() ->
                 assertThat(produtos.findById(cafe).orElseThrow().paraDominio().getAtributos())
                         .containsExactlyEntriesOf(Map.of("tempo_preparo", 5)));
 
-        TenantContext.executarComo(loja.contaId(), () ->
+        loja.comoUsuario(() ->
                 assertThat(produtos.findById(camiseta).orElseThrow().paraDominio().getAtributos())
                         .containsEntry("tamanho", "M")
                         .containsEntry("cor", "preta"));
@@ -82,7 +82,7 @@ class ProdutoAtributosTest extends TesteDeIntegracao {
     void filtraPorAtributo() {
         ContaCriada loja = criador.criar("Loja com Grades", SENHA_DE_TESTE);
 
-        UUID tamanhoM = TenantContext.executarComo(loja.contaId(), () -> {
+        UUID tamanhoM = loja.comoUsuario(() -> {
             produtos.save(ProdutoEntity.de(new Produto("Camiseta P", Money.de("49.90"),
                     TipoProduto.PRODUTO, null, "Vestuario", "un", Map.of("tamanho", "P"))));
             produtos.save(ProdutoEntity.de(new Produto("Bermuda G", Money.de("79.90"),

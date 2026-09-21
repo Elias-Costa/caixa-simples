@@ -100,7 +100,7 @@ class EstornoDeEstoqueListenerTest extends TesteDeIntegracao {
         await().atMost(ESPERA).untilAsserted(() ->
                 assertThat(publicacoesDoEstoque(evento)).hasSize(1));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             assertThat(saldoDe(shampooId)).isEqualByComparingTo("0");
             assertThat(produtoService.jaEstornouPorCancelamento(shampooId, vendaId)).isFalse();
         });
@@ -122,7 +122,7 @@ class EstornoDeEstoqueListenerTest extends TesteDeIntegracao {
                 new VendaConcluida.Item(entregaId, BigDecimal.ONE),
                 new VendaConcluida.Item(queijoId, new BigDecimal("0.750")))));
         await().atMost(ESPERA).untilAsserted(() ->
-                TenantContext.executarComo(conta.contaId(), () -> {
+                conta.comoUsuario(() -> {
                     assertThat(saldoDe(cafeId)).isEqualByComparingTo("-2");
                     assertThat(saldoDe(queijoId)).isEqualByComparingTo("-0.750");
                 }));
@@ -133,12 +133,12 @@ class EstornoDeEstoqueListenerTest extends TesteDeIntegracao {
                 new VendaCancelada.Item(queijoId, new BigDecimal("0.750")))));
 
         await().atMost(ESPERA).untilAsserted(() ->
-                TenantContext.executarComo(conta.contaId(), () -> {
+                conta.comoUsuario(() -> {
                     assertThat(saldoDe(cafeId)).isEqualByComparingTo("0");
                     assertThat(saldoDe(queijoId)).isEqualByComparingTo("0");
                 }));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             assertThat(produtoService.jaEstornouPorCancelamento(cafeId, vendaId)).isTrue();
             assertThat(produtoService.jaEstornouPorCancelamento(queijoId, vendaId)).isTrue();
             assertThat(produtoService.jaDeuBaixaPorVenda(cafeId, vendaId))
@@ -173,7 +173,7 @@ class EstornoDeEstoqueListenerTest extends TesteDeIntegracao {
                         .as("a entrega terminou sem erro: pular não é falhar")
                         .hasSize(1));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             assertThat(saldoDe(pomadaId))
                     .as("devolver o que nunca saiu inventaria estoque")
                     .isEqualByComparingTo("0");
@@ -194,14 +194,14 @@ class EstornoDeEstoqueListenerTest extends TesteDeIntegracao {
         publicar(conclusao(conta, vendaId, sessaoId,
                 List.of(new VendaConcluida.Item(arrozId, new BigDecimal("2")))));
         await().atMost(ESPERA).untilAsserted(() ->
-                TenantContext.executarComo(conta.contaId(), () ->
+                conta.comoUsuario(() ->
                         assertThat(saldoDe(arrozId)).isEqualByComparingTo("-2")));
 
         VendaCancelada cancelamento = cancelamento(conta, vendaId, sessaoId,
                 List.of(new VendaCancelada.Item(arrozId, new BigDecimal("2"))));
         publicar(cancelamento);
         await().atMost(ESPERA).untilAsserted(() ->
-                TenantContext.executarComo(conta.contaId(), () ->
+                conta.comoUsuario(() ->
                         assertThat(saldoDe(arrozId)).isEqualByComparingTo("0")));
 
         // A segunda publicação do mesmo fato é o que uma reentrega do registro faz. Ela também
@@ -212,7 +212,7 @@ class EstornoDeEstoqueListenerTest extends TesteDeIntegracao {
                         .as("as duas entregas terminaram, nenhuma delas com erro")
                         .hasSize(2));
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(saldoDe(arrozId))
                         .as("devolvido uma vez, não duas")
                         .isEqualByComparingTo("0"));
@@ -232,20 +232,20 @@ class EstornoDeEstoqueListenerTest extends TesteDeIntegracao {
         publicar(conclusao(contaA, vendaDaContaA, sessaoDaContaA,
                 List.of(new VendaConcluida.Item(escovaDaContaA, BigDecimal.ONE))));
         await().atMost(ESPERA).untilAsserted(() ->
-                TenantContext.executarComo(contaA.contaId(), () ->
+                contaA.comoUsuario(() ->
                         assertThat(saldoDe(escovaDaContaA)).isEqualByComparingTo("-1")));
 
         // Publicado como conta B de propósito: o ouvinte roda em outra thread, sem tenant, e tem
         // de usar a conta que está dentro do evento, não a de quem publicou.
-        TenantContext.executarComo(contaB.contaId(), () ->
+        contaB.comoUsuario(() ->
                 publicar(cancelamento(contaA, vendaDaContaA, sessaoDaContaA,
                         List.of(new VendaCancelada.Item(escovaDaContaA, BigDecimal.ONE)))));
 
         await().atMost(ESPERA).untilAsserted(() ->
-                TenantContext.executarComo(contaA.contaId(), () ->
+                contaA.comoUsuario(() ->
                         assertThat(saldoDe(escovaDaContaA)).isEqualByComparingTo("0")));
 
-        TenantContext.executarComo(contaB.contaId(), () -> {
+        contaB.comoUsuario(() -> {
             assertThat(produtos.findById(escovaDaContaA)).isEmpty();
             assertThat(produtoService.jaEstornouPorCancelamento(escovaDaContaA, vendaDaContaA))
                     .isFalse();
@@ -253,12 +253,12 @@ class EstornoDeEstoqueListenerTest extends TesteDeIntegracao {
     }
 
     private UUID abrirCaixa(ContaCriada conta) {
-        return TenantContext.executarComo(conta.contaId(), () ->
-                sessoesDeCaixa.abrir(conta.usuarioId(), Money.ZERO));
+        return conta.comoUsuario(() ->
+                sessoesDeCaixa.abrir(Money.ZERO));
     }
 
     private UUID cadastrar(ContaCriada conta, String nome, TipoProduto tipo) {
-        return TenantContext.executarComo(conta.contaId(), () ->
+        return conta.comoUsuario(() ->
                 produtoService.cadastrar(tipo,
                         new DadosDoProduto(nome, Money.de("5.00"), null, null, "un", null)));
     }

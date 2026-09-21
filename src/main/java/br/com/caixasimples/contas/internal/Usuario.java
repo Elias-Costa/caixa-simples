@@ -1,6 +1,6 @@
 package br.com.caixasimples.contas.internal;
 
-import br.com.caixasimples.contas.Perfil;
+import br.com.caixasimples.shared.Perfil;
 import br.com.caixasimples.shared.ContaId;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

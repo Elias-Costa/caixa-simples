@@ -74,14 +74,14 @@ primeiro dia; sete já têm código de negócio dentro.
 
 | Módulo | Estado | O que existe hoje |
 |---|---|---|
-| `shared` | Implementado | `Money`, `ContaId`, `TenantContext`, `FusoDeReferencia` |
-| `contas` | Implementado | `Conta`, `Usuario`, `Credencial`, login por JWT, política de senha, provisionamento de conta, e a pergunta que os outros módulos fazem à conta em operação, como se o controle de estoque está ligado |
-| `cadastro` | Implementado | `Produto` com atributos `JSONB`, busca por nome ou código para o balcão, `Cliente` como vertical slice, catálogo sugerido por tipo de negócio, e o agregado inteiro: `MovimentoEstoque` como membro, com a baixa por venda, o estorno por cancelamento e o ajuste manual gravando movimento e saldo na mesma transação, o estoque mínimo de cada produto e a resposta de quais estão com estoque baixo |
-| `caixa` | Implementado | `SessaoCaixa`: abertura, sangria, suprimento, fechamento com conferência, histórico por operador e por dia, e o dinheiro em espécie de cada venda concluída entrando na gaveta por evento, uma vez só, mesmo que o evento chegue de novo; e saindo dela, por outro evento, quando a venda é cancelada, num estorno que espelha exatamente o que entrou |
+| `shared` | Implementado | `Money`, `ContaId`, `FusoDeReferencia` e os dois contextos da requisição: `TenantContext`, a conta em operação, e `UsuarioContext`, quem está operando e com que perfil, com as duas perguntas de autorização que todo caso de uso restrito faz na primeira linha |
+| `contas` | Implementado | `Conta`, `Usuario`, `Credencial`, login por JWT, política de senha, provisionamento de conta, a pergunta que os outros módulos fazem à conta em operação, como se o controle de estoque está ligado, e a gestão de usuários: o administrador cria operador ou administrador com login próprio, lista e inativa, com mais de um usuário só no plano mais alto e a conta nunca sem administrador. O filtro que resolve o token lê o usuário no banco a cada requisição, então inativar vale na requisição seguinte, e o perfil que vale é o do banco, não o do token |
+| `cadastro` | Implementado | `Produto` com atributos `JSONB`, busca por nome ou código para o balcão, `Cliente` como vertical slice, catálogo sugerido por tipo de negócio, e o agregado inteiro: `MovimentoEstoque` como membro, com a baixa por venda, o estorno por cancelamento e o ajuste manual gravando movimento e saldo na mesma transação, o estoque mínimo de cada produto e a resposta de quais estão com estoque baixo. Cadastrar, editar e inativar produto e aplicar o catálogo inicial são do administrador; consultar e buscar produto e cadastrar cliente são dos dois perfis, porque o cliente se cadastra no balcão |
+| `caixa` | Implementado | `SessaoCaixa`: abertura, sangria, suprimento, fechamento com conferência, histórico por operador e por dia, e o dinheiro em espécie de cada venda concluída entrando na gaveta por evento, uma vez só, mesmo que o evento chegue de novo; e saindo dela, por outro evento, quando a venda é cancelada, num estorno que espelha exatamente o que entrou. O caixa é de quem o abriu: o operador só lança, fecha e consulta a própria sessão e só pede o próprio histórico; o administrador toca qualquer sessão da conta, porque é ele quem fecha o caixa do atendente que foi embora |
 | `pagamentos` | Implementado | Strategy por forma de pagamento: dinheiro com troco calculado no domínio, Pix e cartão lançados à mão pelo operador. Sem provedor de Pix ainda |
-| `vendas` | Em andamento | agregado `Venda`, com `ItemVenda` e `Pagamento` como membros: abrir a comanda num caixa aberto, lançar e remover itens com o preço copiado do produto, desconto por item e por venda, total recalculado a cada operação, pagamento dividido entre formas com o troco vindo do módulo de pagamentos, conclusão como passo explícito, que exige o caixa ainda aberto e publica o evento `VendaConcluida` pelo outbox, e cancelamento, que desfaz a comanda aberta ou a venda concluída e, só no segundo caso, publica `VendaCancelada` para o caixa e o estoque desfazerem o que fizeram; e o comprovante não-fiscal de uma venda concluída, devolvido como dado para a tela imprimir ou compartilhar, com as linhas já calculadas, os descontos, as parcelas confirmadas e o troco, que passou a ficar gravado na parcela. Falta o vínculo de cliente |
-| `estoque` | Em andamento | o ouvinte da venda concluída: quando a conta ligou o controle de estoque, cada produto vendido vira uma baixa, pedida ao cadastro, dono do agregado; serviço no meio dos itens não gera nada, e o evento entregue de novo não baixa em dobro. E os casos de uso que uma pessoa aciona: ajuste manual com motivo obrigatório, perda, quebra ou contagem, com a diferença carregando o sinal; estoque mínimo por produto; e o alerta de estoque baixo como consulta, a lista dos produtos ativos no mínimo ou abaixo. A conta que não ligou o controle é recusada nos três. E o ouvinte da venda cancelada, imagem espelhada do primeiro: cada produto que a venda baixou volta, uma vez só, e o que nunca saiu não volta |
-| `relatorios` | Implementado | faturamento do dia e de um período, produtos mais vendidos e fluxo de caixa de um período, com o dia delimitado no fuso do balcão. Faturamento e ranking contam as mesmas vendas, as concluídas, pelo instante em que concluíram; o ranking é por quantidade, com o valor, o nome e a unidade ao lado; o fluxo de caixa é o da gaveta, só dinheiro em espécie, com entradas, saídas e saldo pelo dia em que cada movimento foi lançado. Filtros combináveis: o faturamento por forma de pagamento e por operador, juntos ou separados, e o ranking por operador; uma venda paga metade em dinheiro e metade em Pix se reparte entre as duas formas pelo valor de cada parcela, e as três formas somadas dão o faturamento inteiro. O módulo só lê: enxerga as tabelas de venda, item, produto, pagamento e movimento de caixa por mapeamentos próprios, imutáveis, com as colunas que cada relatório usa, e os repositórios nem têm método de escrita. As somas e as junções são do banco |
+| `vendas` | Em andamento | agregado `Venda`, com `ItemVenda` e `Pagamento` como membros: abrir a comanda num caixa aberto, lançar e remover itens com o preço copiado do produto, desconto por item e por venda, total recalculado a cada operação, pagamento dividido entre formas com o troco vindo do módulo de pagamentos, conclusão como passo explícito, que exige o caixa ainda aberto e publica o evento `VendaConcluida` pelo outbox, e cancelamento, que desfaz a comanda aberta ou a venda concluída e, só no segundo caso, publica `VendaCancelada` para o caixa e o estoque desfazerem o que fizeram; e o comprovante não-fiscal de uma venda concluída, devolvido como dado para a tela imprimir ou compartilhar, com as linhas já calculadas, os descontos, as parcelas confirmadas e o troco, que passou a ficar gravado na parcela. A venda é de quem a iniciou: o operador só toca as próprias e só vende no próprio caixa, e o administrador toca qualquer uma. Falta o vínculo de cliente |
+| `estoque` | Em andamento | o ouvinte da venda concluída: quando a conta ligou o controle de estoque, cada produto vendido vira uma baixa, pedida ao cadastro, dono do agregado; serviço no meio dos itens não gera nada, e o evento entregue de novo não baixa em dobro. E os casos de uso que uma pessoa aciona: ajuste manual com motivo obrigatório, perda, quebra ou contagem, com a diferença carregando o sinal; estoque mínimo por produto; e o alerta de estoque baixo como consulta, a lista dos produtos ativos no mínimo ou abaixo. A conta que não ligou o controle é recusada nos três, e os três são do administrador. E o ouvinte da venda cancelada, imagem espelhada do primeiro: cada produto que a venda baixou volta, uma vez só, e o que nunca saiu não volta |
+| `relatorios` | Implementado | faturamento do dia e de um período, produtos mais vendidos e fluxo de caixa de um período, com o dia delimitado no fuso do balcão. Faturamento e ranking contam as mesmas vendas, as concluídas, pelo instante em que concluíram; o ranking é por quantidade, com o valor, o nome e a unidade ao lado; o fluxo de caixa é o da gaveta, só dinheiro em espécie, com entradas, saídas e saldo pelo dia em que cada movimento foi lançado. Filtros combináveis: o faturamento por forma de pagamento e por operador, juntos ou separados, e o ranking por operador; uma venda paga metade em dinheiro e metade em Pix se reparte entre as duas formas pelo valor de cada parcela, e as três formas somadas dão o faturamento inteiro. O módulo só lê: enxerga as tabelas de venda, item, produto, pagamento e movimento de caixa por mapeamentos próprios, imutáveis, com as colunas que cada relatório usa, e os repositórios nem têm método de escrita. As somas e as junções são do banco. Os três relatórios são do administrador, inclusive filtrados por operador |
 
 **Schema.** Doze migrations Flyway, de `V1` a `V12`: conta, usuário e credencial; produto; cliente;
 catálogo de referência; o agregado de caixa, com a regra de uma sessão aberta por operador; o
@@ -94,10 +94,13 @@ comprovante precisava e a venda não guardava, o troco de cada parcela e o insta
 
 **Superfície HTTP.** Dois endpoints, ambos de autenticação: `POST /api/auth/login`, que devolve o
 token, e `GET /api/auth/eu`, que existe para haver um recurso protegido de verdade contra o qual
-verificar, por HTTP, que requisição sem token é recusada e que o tenant vem do claim e não do
-pedido. Os casos de uso de produto, cliente, caixa, pagamento e venda vivem na camada de aplicação
-e são exercitados por teste de integração: a camada `web` de cada módulo nasce junto com o PWA que
-vai consumi-la, e não antes, para o contrato HTTP não ser desenhado às cegas.
+verificar, por HTTP, que requisição sem token é recusada, que o tenant vem do claim e não do
+pedido, e que o perfil é o do banco: um usuário inativado recebe 401 na requisição seguinte, com o
+token que já tinha. Os casos de uso de produto, cliente, caixa, pagamento, venda, estoque,
+relatório e usuário vivem na camada de aplicação e são exercitados por teste de integração,
+inclusive a autorização por perfil, que é verificada dentro de cada caso de uso e não por rota: a
+camada `web` de cada módulo nasce junto com o PWA que vai consumi-la, e não antes, para o contrato
+HTTP não ser desenhado às cegas, e é nela que a recusa por perfil vira 403.
 
 ## Por onde começar a leitura
 
@@ -108,6 +111,8 @@ Atalhos para avaliar o código sem percorrer o repositório inteiro.
 | Fronteira de módulo verificada por teste | [ModularityTests.java](src/test/java/br/com/caixasimples/ModularityTests.java) | A arquitetura falha o build quando é violada, em vez de depender de disciplina |
 | Isolamento entre contas provado nos dois sentidos | [IsolamentoEntreContasTest.java](src/test/java/br/com/caixasimples/contas/IsolamentoEntreContasTest.java) | Segurança testada, não presumida: grava na conta A e prova que a conta B não enxerga |
 | O mecanismo por trás desse isolamento | [MultiTenancyConfiguration.java](src/main/java/br/com/caixasimples/shared/internal/MultiTenancyConfiguration.java) | Filtro no Hibernate, não em cada consulta, e o que acontece quando não há tenant no contexto |
+| Autorização explícita, sem anotação | [UsuarioContext.java](src/main/java/br/com/caixasimples/shared/UsuarioContext.java) | Quem chama vem do contexto, nunca de parâmetro, e cada caso de uso restrito pergunta na primeira linha se é o administrador ou o dono do caixa; o porquê de não haver `@PreAuthorize` nem tabela de rotas está escrito no lugar. [IdentidadeDoTokenFilter.java](src/main/java/br/com/caixasimples/contas/internal/IdentidadeDoTokenFilter.java) preenche os dois contextos e lê o usuário no banco a cada requisição, para inativar valer na hora |
+| Gestão de usuários com o plano no caminho | [UsuarioService.java](src/main/java/br/com/caixasimples/contas/application/UsuarioService.java) | Criar usuário grava duas linhas numa transação, passa pela política de senha e pela unicidade global de e-mail, e é recusado fora do plano que admite mais de um usuário; inativar nunca deixa a conta sem administrador |
 | Raiz de agregado sem framework | [SessaoCaixa.java](src/main/java/br/com/caixasimples/caixa/domain/SessaoCaixa.java) | Regra de negócio e invariantes isoladas de Spring e de JPA |
 | Invariante viva, recalculada a cada operação | [Venda.java](src/main/java/br/com/caixasimples/vendas/domain/Venda.java) | O total nunca fica negativo, nunca diverge dos itens e nunca fica abaixo do já pago; a venda só conclui com os pagamentos confirmados iguais ao total. Cada operação que quebraria uma regra é recusada antes de tocar no agregado, e o estado remontado do banco passa pela mesma conferência |
 | Pergunta entre módulos sem expor o agregado | [VendaService.java](src/main/java/br/com/caixasimples/vendas/application/VendaService.java) | A venda copia o preço do cadastro por chamada à camada de aplicação dele, recebendo um record e nunca a raiz alheia; confere o caixa por uma interface que ela mesma declara; e, ao concluir ou cancelar, publica o evento em vez de chamar quem reage |
@@ -151,6 +156,13 @@ Nem todo módulo tem as quatro: uma camada nasce quando há o que colocar nela. 
 `web/`, por ser o único com superfície HTTP; `cadastro` acomoda `Cliente` inteiro em `internal/`,
 porque um slice sem invariante não precisa de `domain/`; e `relatorios` não tem `domain/` porque
 não tem regra a proteger: ele lê colunas e soma.
+
+A autorização por perfil mora na camada `application/`, como a primeira linha de cada caso de uso
+restrito, e lê quem chama de um contexto em `shared`, preenchido pelo mesmo filtro que resolve o
+tenant. Não é anotação nem tabela de rotas: quem lê o caso de uso vê quem pode chamá-lo, a regra
+do próprio caixa precisa saber quem chama de qualquer modo, e a camada `web/` ainda não existe
+para a maioria dos módulos. Nenhum caso de uso recebe perfil ou operador por parâmetro; um ouvinte
+de evento, que roda sem usuário, só chama caso de uso que não pergunta.
 
 Um módulo nunca importa de `internal/` de outro. Efeito colateral entre módulos é Domain Event;
 consulta é chamada direta à API pública do pacote. A regra que resume as duas: *eventos anunciam
@@ -233,6 +245,11 @@ são somas; os filtros entraram como parâmetro opcional nas consultas que já e
   da plataforma), `Conta` (o `id` dela *é* o tenant) e `Credencial` (consultada no login, antes de
   existir tenant). A tabela do outbox de eventos é do framework, não do negócio, e por isso fica
   fora da lista: a conta a que cada evento se refere viaja dentro dele.
+- **Quem chama também é contexto, nunca parâmetro.** Ao lado do tenant, a requisição carrega o
+  usuário e o perfil dele, lidos do banco a cada requisição e não do token, para que inativar
+  alguém valha na hora. A verificação é uma chamada explícita na primeira linha do caso de uso
+  restrito: o administrador faz tudo em qualquer caixa da conta; o operador só vende, cadastra
+  cliente e opera o próprio caixa. O caixa e a venda são de quem os abriu.
 - **Chave primária é UUID gerado na aplicação**, nunca auto-incremento. É o que permite criar um
   registro offline com identidade definitiva e sincronizar depois sem renumerar nada, tornando o
   reenvio de uma operação naturalmente idempotente.
@@ -297,8 +314,9 @@ são somas; os filtros entraram como parâmetro opcional nas consultas que já e
 
 ## Segurança e isolamento
 
-O isolamento entre contas é tratado como requisito de segurança, e o desenho reflete isso em três
-pontos:
+O isolamento entre contas é tratado como requisito de segurança, e o desenho reflete isso nos
+pontos abaixo. A autorização dentro da conta, por perfil, segue a mesma postura: verificada no caso
+de uso, provada por teste negativo, e nunca dependente de um valor que o cliente informe.
 
 - **O `contaId` nunca vem do corpo da requisição.** Ele sai do claim do token autenticado, então
   não existe parâmetro que um cliente possa forjar para alcançar dado de outra conta.
@@ -329,6 +347,16 @@ pontos:
 - **A pergunta sobre a conta não aceita conta.** A tabela de contas é a única sem filtro
   automático, porque o id dela é o tenant; em troca, o serviço que responde por ela lê a conta do
   contexto e nada mais, sem assinatura por onde perguntar sobre outra.
+- **O perfil não vem do token nem de parâmetro.** O filtro que resolve o token lê o usuário no
+  banco a cada requisição, pela chave, já sob o tenant: inativo recebe 401 antes de qualquer caso
+  de uso, e o perfil que entra no contexto, e no token renovado, é o do banco. Cada caso de uso
+  restrito tem teste de autorização negativa: o operador não cadastra produto, não mexe no
+  estoque, não lê relatório, nem o filtrado por ele mesmo, e não gere usuários; não lança, fecha
+  nem consulta o caixa do colega, não pede o histórico do colega nem o da conta inteira, não
+  inicia venda no caixa do colega e não toca a venda dele por nenhum caso de uso. O administrador
+  faz tudo isso, e há teste de que fecha o caixa do operador e cancela a venda dele. A gestão de
+  usuários tem a prova de isolamento nos dois sentidos, e a prova de que o token que um operador
+  já tinha deixa de entrar assim que ele é inativado.
 
 A autenticação usa JWT emitido e validado pelo próprio Spring Security, sem biblioteca de JWT de
 terceiro, com API stateless e senha em BCrypt verificada contra bases de senhas vazadas. A política
@@ -337,7 +365,15 @@ o usuário para uma senha pior, anotada num papel no balcão.
 
 A validade do token conta a partir do último contato com o servidor e não do login: toda resposta
 autenticada devolve um token renovado. Na prática, é a janela de resistência que a operação offline
-exige.
+exige. Não há revogação de token, e sim de usuário: inativar alguém derruba o token dele na
+requisição seguinte.
+
+Usuário novo nasce pela gestão de usuários da conta, feita pelo administrador: um `Usuario`, que
+carrega o perfil e o tenant, e uma `Credencial`, que carrega e-mail e senha, gravados na mesma
+transação. A senha inicial passa pela mesma política de qualquer senha, inclusive a verificação de
+vazamento, que recusa se não puder verificar; criar usuário é raro, quem cria é o dono e ele está
+conectado. Mais de um usuário por conta é recurso do plano mais alto, e a conta nunca fica sem um
+administrador ativo.
 
 Nenhum segredo mora no repositório. Chave de assinatura e credenciais vêm de variável de ambiente, e
 a aplicação recusa subir sem a chave, em vez de cair num valor padrão que seria idêntico em toda
@@ -471,7 +507,11 @@ Quatro tipos de teste sustentam o projeto:
 | **Teste de caso de uso** | O comportamento observável de cada operação, incluindo os casos de borda decididos explicitamente |
 
 Nenhuma etapa fecha com teste vermelho. Regra do projeto: dado persistido novo exige teste de
-isolamento, e raiz de agregado tocada exige teste que tenta violar a invariante e espera falha.
+isolamento, raiz de agregado tocada exige teste que tenta violar a invariante e espera falha, e
+caso de uso restrito por perfil exige teste de autorização negativa, que chama como operador e
+espera a recusa. Todo teste que chama um caso de uso executa como alguém: a fixture de conta
+define o tenant e o usuário juntos, como o filtro do token faz numa requisição de verdade, e um
+caso de uso chamado sem usuário falha fechado.
 
 Os eventos de domínio são testados com o outbox de verdade: o teste publica, espera cada listener
 terminar em outra thread e confere o movimento no caixa e a baixa no estoque, e depois o estorno
@@ -510,7 +550,7 @@ src
 │   │   ├── contas/         application, web, internal
 │   │   ├── pagamentos/     domain, application, internal
 │   │   ├── vendas/         domain, application, internal
-│   │   ├── shared/         Money, ContaId, TenantContext, FusoDeReferencia
+│   │   ├── shared/         Money, ContaId, TenantContext, UsuarioContext, Perfil, FusoDeReferencia
 │   │   ├── estoque/        application, internal
 │   │   └── relatorios/     application, internal
 │   └── resources

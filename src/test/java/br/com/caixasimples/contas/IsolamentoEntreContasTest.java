@@ -47,7 +47,7 @@ class IsolamentoEntreContasTest extends TesteDeIntegracao {
         ContaCriada contaA = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
         ContaCriada contaB = criador.criar("Salao Vizinho", SENHA_DE_TESTE);
 
-        TenantContext.executarComo(contaB.contaId(), () -> {
+        contaB.comoUsuario(() -> {
             assertThat(usuarios.findById(contaA.usuarioId()))
                     .as("findById atravessando tenant")
                     .isEmpty();
@@ -62,7 +62,7 @@ class IsolamentoEntreContasTest extends TesteDeIntegracao {
         });
 
         // E a conta A continua vendo o próprio dado: o filtro não pode ser esconder de todos.
-        TenantContext.executarComo(contaA.contaId(), () -> {
+        contaA.comoUsuario(() -> {
             assertThat(usuarios.findById(contaA.usuarioId())).isPresent();
             assertThat(usuarios.findAll())
                     .extracting(Usuario::getId)
@@ -75,7 +75,7 @@ class IsolamentoEntreContasTest extends TesteDeIntegracao {
     void contaIdEPreenchidoPeloContextoDeTenant() {
         ContaCriada conta = criador.criar("Loja Teste", SENHA_DE_TESTE);
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(usuarios.findById(conta.usuarioId()))
                         .get()
                         .extracting(Usuario::getContaId)

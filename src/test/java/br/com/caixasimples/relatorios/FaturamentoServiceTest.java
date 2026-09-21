@@ -1,6 +1,7 @@
 package br.com.caixasimples.relatorios;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
@@ -11,10 +12,12 @@ import br.com.caixasimples.cadastro.application.ProdutoService.DadosDoProduto;
 import br.com.caixasimples.caixa.application.SessaoCaixaService;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
+import br.com.caixasimples.contas.CriadorDeContaDeTeste.UsuarioCriado;
 import br.com.caixasimples.pagamentos.FormaPagamento;
 import br.com.caixasimples.relatorios.application.FaturamentoService;
 import br.com.caixasimples.relatorios.application.FaturamentoService.Faturamento;
 import br.com.caixasimples.relatorios.application.FaturamentoService.Filtros;
+import br.com.caixasimples.shared.AcessoNegadoException;
 import br.com.caixasimples.shared.FusoDeReferencia;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.TenantContext;
@@ -91,9 +94,9 @@ class FaturamentoServiceTest extends TesteDeIntegracao {
                 cenario.usuarioId(), cenario.produtoId(), Money.de("50.00"),
                 noBalcao(DIA, LocalTime.NOON));
 
-        Faturamento doDia = TenantContext.executarComo(conta.contaId(),
+        Faturamento doDia = conta.comoUsuario(
                 () -> faturamento.doDia(DIA));
-        Faturamento doDiaSeguinte = TenantContext.executarComo(conta.contaId(),
+        Faturamento doDiaSeguinte = conta.comoUsuario(
                 () -> faturamento.doDia(DIA.plusDays(1)));
 
         assertThat(doDia.total()).isEqualTo(Money.de("30.00"));
@@ -119,11 +122,11 @@ class FaturamentoServiceTest extends TesteDeIntegracao {
         concluida(conta, cenario, "40.00", noBalcao(DIA.minusDays(1), LocalTime.of(23, 59, 59)));
         concluida(conta, cenario, "50.00", noBalcao(DIA.plusDays(3), LocalTime.MIDNIGHT));
 
-        Faturamento doPeriodo = TenantContext.executarComo(conta.contaId(),
+        Faturamento doPeriodo = conta.comoUsuario(
                 () -> faturamento.doPeriodo(DIA, DIA.plusDays(2)));
-        Faturamento doDia = TenantContext.executarComo(conta.contaId(),
+        Faturamento doDia = conta.comoUsuario(
                 () -> faturamento.doDia(DIA));
-        Faturamento doPeriodoDeUmDia = TenantContext.executarComo(conta.contaId(),
+        Faturamento doPeriodoDeUmDia = conta.comoUsuario(
                 () -> faturamento.doPeriodo(DIA, DIA));
 
         assertThat(doPeriodo.total()).isEqualTo(Money.de("60.00"));
@@ -137,17 +140,33 @@ class FaturamentoServiceTest extends TesteDeIntegracao {
     }
 
     @Test
+    @DisplayName("o operador não lê o faturamento, nem o próprio: é relatório do administrador (RF30)")
+    void operadorNaoLeOFaturamento() {
+        ContaCriada conta = criador.criar("Mercearia com Atendente", SENHA_DE_TESTE);
+        UsuarioCriado operador = criador.criarOperadorEm(conta.contaId(), "Atendente");
+
+        assertThatExceptionOfType(AcessoNegadoException.class)
+                .isThrownBy(() -> operador.comoUsuario(() -> faturamento.doDia(DIA)));
+        assertThatExceptionOfType(AcessoNegadoException.class)
+                .isThrownBy(() -> operador.comoUsuario(() -> faturamento.doPeriodo(DIA, DIA)));
+        assertThatExceptionOfType(AcessoNegadoException.class)
+                .as("o filtro pelo próprio operador não abre a porta")
+                .isThrownBy(() -> operador.comoUsuario(() ->
+                        faturamento.doDia(DIA, Filtros.porOperador(operador.usuarioId()))));
+    }
+
+    @Test
     @DisplayName("dia sem venda devolve zero, nunca nulo; período invertido é recusado")
     void diaSemVendaEPeriodoInvertido() {
         ContaCriada conta = criador.criar("Mercearia da Rua", SENHA_DE_TESTE);
 
-        Faturamento vazio = TenantContext.executarComo(conta.contaId(),
+        Faturamento vazio = conta.comoUsuario(
                 () -> faturamento.doDia(DIA));
 
         assertThat(vazio.total()).isEqualTo(Money.ZERO);
         assertThat(vazio.quantidadeDeVendas()).isZero();
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThatIllegalArgumentException()
                         .isThrownBy(() -> faturamento.doPeriodo(DIA, DIA.minusDays(1)))
                         .withMessageContaining("nao pode vir antes do inicio"));
@@ -166,11 +185,11 @@ class FaturamentoServiceTest extends TesteDeIntegracao {
         concluida(contaA, cenarioA, "20.00", noBalcao(DIA, LocalTime.of(11, 0)));
         concluida(contaB, cenarioB, "15.00", noBalcao(DIA, LocalTime.of(10, 0)));
 
-        Faturamento deA = TenantContext.executarComo(contaA.contaId(),
+        Faturamento deA = contaA.comoUsuario(
                 () -> faturamento.doDia(DIA));
-        Faturamento deB = TenantContext.executarComo(contaB.contaId(),
+        Faturamento deB = contaB.comoUsuario(
                 () -> faturamento.doDia(DIA));
-        Faturamento deC = TenantContext.executarComo(contaC.contaId(),
+        Faturamento deC = contaC.comoUsuario(
                 () -> faturamento.doDia(DIA));
 
         assertThat(deA.total()).isEqualTo(Money.de("30.00"));
@@ -213,7 +232,7 @@ class FaturamentoServiceTest extends TesteDeIntegracao {
         Faturamento emPix = doDia(conta, Filtros.porForma(FormaPagamento.PIX));
         Faturamento emCartao = doDia(conta, Filtros.porForma(FormaPagamento.CARTAO));
         Faturamento semFiltro = doDia(conta, Filtros.nenhum());
-        Faturamento emPixPeloPeriodo = TenantContext.executarComo(conta.contaId(),
+        Faturamento emPixPeloPeriodo = conta.comoUsuario(
                 () -> faturamento.doPeriodo(DIA, DIA, Filtros.porForma(FormaPagamento.PIX)));
 
         assertThat(emDinheiro.total()).isEqualTo(Money.de("25.00"));
@@ -281,7 +300,7 @@ class FaturamentoServiceTest extends TesteDeIntegracao {
     void filtrosNulosSaoRecusados() {
         ContaCriada conta = criador.criar("Mercearia da Rua", SENHA_DE_TESTE);
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             assertThatNullPointerException()
                     .isThrownBy(() -> faturamento.doPeriodo(DIA, DIA, null))
                     .withMessageContaining("Filtros.nenhum()");
@@ -333,7 +352,7 @@ class FaturamentoServiceTest extends TesteDeIntegracao {
     }
 
     private Faturamento doDia(ContaCriada conta, Filtros filtros) {
-        return TenantContext.executarComo(conta.contaId(), () -> faturamento.doDia(DIA, filtros));
+        return conta.comoUsuario(() -> faturamento.doDia(DIA, filtros));
     }
 
     private void concluida(ContaCriada conta, Cenario cenario, String valor, Instant concluidoEm) {
@@ -354,8 +373,8 @@ class FaturamentoServiceTest extends TesteDeIntegracao {
      * dois por chave estrangeira e o banco recusaria uma venda apontando para o nada.
      */
     private Cenario prepararCenario(ContaCriada conta) {
-        return TenantContext.executarComo(conta.contaId(), () -> {
-            UUID sessaoCaixaId = caixas.abrir(conta.usuarioId(), Money.ZERO);
+        return conta.comoUsuario(() -> {
+            UUID sessaoCaixaId = caixas.abrir(Money.ZERO);
             UUID produtoId = produtos.cadastrar(TipoProduto.PRODUTO, new DadosDoProduto(
                     "Cafe coado", Money.de("4.50"), null, null, "un", null));
             return new Cenario(conta.usuarioId(), sessaoCaixaId, produtoId);
@@ -368,10 +387,9 @@ class FaturamentoServiceTest extends TesteDeIntegracao {
      */
     private Cenario prepararCenarioDeOutroOperador(ContaCriada conta, Cenario doTitular,
             String nome) {
-        UUID operadorId = criador.criarOperadorEm(conta.contaId(), nome);
-        UUID sessaoCaixaId = TenantContext.executarComo(conta.contaId(),
-                () -> caixas.abrir(operadorId, Money.ZERO));
-        return new Cenario(operadorId, sessaoCaixaId, doTitular.produtoId());
+        UsuarioCriado operador = criador.criarOperadorEm(conta.contaId(), nome);
+        UUID sessaoCaixaId = operador.comoUsuario(() -> caixas.abrir(Money.ZERO));
+        return new Cenario(operador.usuarioId(), sessaoCaixaId, doTitular.produtoId());
     }
 
     private record Cenario(UUID usuarioId, UUID sessaoCaixaId, UUID produtoId) {

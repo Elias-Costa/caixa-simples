@@ -3,7 +3,9 @@
  * tenant, {@code Usuario}, autenticação e plano contratado.
  *
  * <p>Cobre o isolamento entre contas (RF28), os perfis de Administrador e Operador (RF29, RF30), a
- * troca de plano (RF31) e a autenticação (RNF06).
+ * troca de plano (RF31) e a autenticação (RNF06). O enum {@code Perfil} mora em {@code shared},
+ * porque todo caso de uso restrito o lê do contexto do usuário; quem atribui perfil e quem
+ * preenche esse contexto, a partir do token e do banco, é este módulo.
  *
  * <p>Este é o único módulo cuja raiz de agregado, {@code Conta}, não carrega {@code @TenantId}: o
  * {@code id} dela <em>é</em> o tenant, então não há o que filtrar.

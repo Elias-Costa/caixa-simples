@@ -71,17 +71,17 @@ class CatalogoInicialDoModeloTest extends TesteDeIntegracao {
         ContaCriada padaria = criador.criar("Padaria do Teste", SENHA_DE_TESTE);
         ContaCriada barbearia = criador.criar("Barbearia do Teste", SENHA_DE_TESTE);
 
-        TenantContext.executarComo(padaria.contaId(),
+        padaria.comoUsuario(
                 () -> catalogoInicial.aplicarPara(tipoDaPadaria));
-        TenantContext.executarComo(barbearia.contaId(),
+        barbearia.comoUsuario(
                 () -> catalogoInicial.aplicarPara(tipoDaBarbearia));
 
-        TenantContext.executarComo(padaria.contaId(), () ->
+        padaria.comoUsuario(() ->
                 assertThat(produtos.listarAtivos())
                         .extracting(Produto::getNome)
                         .containsExactly("Pao frances"));
 
-        TenantContext.executarComo(barbearia.contaId(), () ->
+        barbearia.comoUsuario(() ->
                 assertThat(produtos.listarAtivos())
                         .extracting(Produto::getNome)
                         .containsExactly("Corte de cabelo"));
@@ -95,9 +95,9 @@ class CatalogoInicialDoModeloTest extends TesteDeIntegracao {
                 TipoProduto.SERVICO, Map.of("garantia_dias", 90, "exige_agendamento", true)));
 
         ContaCriada conta = criador.criar("Oficina do Teste", SENHA_DE_TESTE);
-        TenantContext.executarComo(conta.contaId(), () -> catalogoInicial.aplicarPara(tipo));
+        conta.comoUsuario(() -> catalogoInicial.aplicarPara(tipo));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             Produto copiado = produtos.listarAtivos().getFirst();
 
             // Sem a coluna de tipo no modelo, isto viria como PRODUTO e um serviço carregaria
@@ -117,9 +117,9 @@ class CatalogoInicialDoModeloTest extends TesteDeIntegracao {
                 "un", TipoProduto.PRODUTO, Map.of("cor", "vermelha"))).getId();
 
         ContaCriada conta = criador.criar("Floricultura do Teste", SENHA_DE_TESTE);
-        TenantContext.executarComo(conta.contaId(), () -> catalogoInicial.aplicarPara(tipo));
+        conta.comoUsuario(() -> catalogoInicial.aplicarPara(tipo));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             Produto copiado = produtos.listarAtivos().getFirst();
             produtos.editar(copiado.getId(), new DadosDoProduto("Buque grande", Money.de("120.00"),
                     null, "Especiais", "un", Map.of("cor", "branca")));
@@ -145,9 +145,9 @@ class CatalogoInicialDoModeloTest extends TesteDeIntegracao {
         // Ao contrário de todo outro repositório do sistema, este devolve a mesma coisa sob
         // qualquer tenant, porque modelo_produto é dado da plataforma. Se um @TenantId aparecer em
         // ModeloProdutoEntity por engano, é aqui que quebra.
-        List<String> pelaContaA = TenantContext.executarComo(contaA.contaId(),
+        List<String> pelaContaA = contaA.comoUsuario(
                 () -> nomesDoTipo(tipo));
-        List<String> pelaContaB = TenantContext.executarComo(contaB.contaId(),
+        List<String> pelaContaB = contaB.comoUsuario(
                 () -> nomesDoTipo(tipo));
 
         assertThat(pelaContaA).containsExactly("Revista");

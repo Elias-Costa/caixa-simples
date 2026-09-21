@@ -66,9 +66,9 @@ class MembrosDoAgregadoVendaTest extends TesteDeIntegracao {
         ContaCriada conta = criador.criar("Mercearia Teste", SENHA_DE_TESTE);
         Venda venda = vendaCompleta(conta);
 
-        TenantContext.executarComo(conta.contaId(), () -> vendas.save(VendaEntity.de(venda)));
+        conta.comoUsuario(() -> vendas.save(VendaEntity.de(venda)));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             VendaEntity gravada = vendas.findById(venda.getId()).orElseThrow();
 
             assertThat(gravada.getItens())
@@ -93,13 +93,13 @@ class MembrosDoAgregadoVendaTest extends TesteDeIntegracao {
         ContaCriada contaB = criador.criar("Oficina Teste", SENHA_DE_TESTE);
         Venda vendaDaContaA = vendaCompleta(contaA);
 
-        TenantContext.executarComo(contaA.contaId(), () ->
+        contaA.comoUsuario(() ->
                 vendas.save(VendaEntity.de(vendaDaContaA)));
 
         // Como não existe repositório para os membros do agregado, a única porta para eles é a
         // raiz, e a raiz já está fechada para a conta B. Esse é o desenho: menos um caminho de
         // consulta é menos um lugar onde o filtro poderia faltar.
-        TenantContext.executarComo(contaB.contaId(), () ->
+        contaB.comoUsuario(() ->
                 assertThat(vendas.findById(vendaDaContaA.getId())).isEmpty());
     }
 
@@ -108,8 +108,8 @@ class MembrosDoAgregadoVendaTest extends TesteDeIntegracao {
      * conta, porque as chaves estrangeiras exigem que os dois existam.
      */
     private Venda vendaCompleta(ContaCriada conta) {
-        return TenantContext.executarComo(conta.contaId(), () -> {
-            UUID sessaoCaixaId = caixas.abrir(conta.usuarioId(), Money.ZERO);
+        return conta.comoUsuario(() -> {
+            UUID sessaoCaixaId = caixas.abrir(Money.ZERO);
             UUID produtoId = produtos.cadastrar(TipoProduto.SERVICO, new DadosDoProduto(
                     "Corte simples", Money.de("30.00"), null, null, null, null));
 

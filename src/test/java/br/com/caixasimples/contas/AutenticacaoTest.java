@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import br.com.caixasimples.TesteDeIntegracao;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
+import br.com.caixasimples.shared.Perfil;
 import tools.jackson.databind.ObjectMapper;
 import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
@@ -76,6 +77,18 @@ class AutenticacaoTest extends TesteDeIntegracao {
                 .andExpect(jsonPath("$.contaId").value(conta.contaId().valor().toString()))
                 .andExpect(jsonPath("$.usuarioId").value(conta.usuarioId().toString()))
                 .andExpect(jsonPath("$.perfil").value("ADMIN"));
+    }
+
+    @Test
+    @DisplayName("o perfil que a requisição enxerga é o do banco: um operador entra como OPERADOR")
+    void perfilVemDoBanco() throws Exception {
+        ContaCriada conta = criador.criar("Loja com Atendente", SENHA_VALIDA, Perfil.OPERADOR, true);
+        String token = extrairToken(conta);
+
+        http.perform(get("/api/auth/eu").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.usuarioId").value(conta.usuarioId().toString()))
+                .andExpect(jsonPath("$.perfil").value("OPERADOR"));
     }
 
     @Test

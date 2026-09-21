@@ -3,11 +3,11 @@ package br.com.caixasimples.contas.web;
 import br.com.caixasimples.contas.application.AutenticacaoService;
 import br.com.caixasimples.contas.internal.CredenciaisInvalidasException;
 import br.com.caixasimples.shared.TenantContext;
+import br.com.caixasimples.shared.UsuarioAutenticado;
+import br.com.caixasimples.shared.UsuarioContext;
 import jakarta.validation.constraints.NotBlank;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -40,15 +40,17 @@ class AutenticacaoController {
      * Quem está autenticado agora.
      *
      * <p>Existe para que haja um endpoint protegido de verdade: é por ele que se verifica, por
-     * HTTP, que requisição sem token é recusada e que o tenant do contexto vem do claim, não do
-     * pedido.
+     * HTTP, que requisição sem token é recusada, que o tenant do contexto vem do claim, não do
+     * pedido, e que o perfil é o do banco, não o do claim, de modo que um usuário inativado deixa
+     * de entrar na requisição seguinte.
      */
     @GetMapping("/eu")
-    RespostaDeIdentidade eu(@AuthenticationPrincipal Jwt token) {
+    RespostaDeIdentidade eu() {
+        UsuarioAutenticado usuario = UsuarioContext.exigirAtual();
         return new RespostaDeIdentidade(
-                UUID.fromString(token.getSubject()),
+                usuario.usuarioId(),
                 TenantContext.exigirAtual().valor(),
-                token.getClaimAsString("perfil"));
+                usuario.perfil().name());
     }
 
     /**

@@ -7,7 +7,7 @@ package br.com.caixasimples.cadastro;
  * duas tabelas nem duas entidades, porque um salão e uma cafeteria usam o mesmo cadastro, que é a
  * premissa do núcleo genérico.
  *
- * <p>Fica na raiz do módulo, como {@code contas.Plano} e {@code contas.Perfil}, porque é
+ * <p>Fica na raiz do módulo, como {@code contas.Plano} e {@code caixa.StatusSessaoCaixa}, porque é
  * vocabulário que outros módulos podem precisar nomear.
  */
 public enum TipoProduto {

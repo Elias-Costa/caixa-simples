@@ -82,10 +82,10 @@ class IsolamentoDeVendaTest extends TesteDeIntegracao {
         ContaCriada contaB = criador.criar("Salao Vizinho", SENHA_DE_TESTE);
         Cenario cenarioA = prepararCenario(contaA);
 
-        UUID vendaDaContaA = TenantContext.executarComo(contaA.contaId(), () ->
+        UUID vendaDaContaA = contaA.comoUsuario(() ->
                 vendas.save(VendaEntity.de(vendaSimples(cenarioA, null))).getId());
 
-        TenantContext.executarComo(contaB.contaId(), () -> {
+        contaB.comoUsuario(() -> {
             assertThat(vendas.findById(vendaDaContaA))
                     .as("findById atravessando tenant")
                     .isEmpty();
@@ -96,7 +96,7 @@ class IsolamentoDeVendaTest extends TesteDeIntegracao {
         });
 
         // E a conta A continua vendo o próprio dado: o filtro não pode se esconder de todos.
-        TenantContext.executarComo(contaA.contaId(), () -> {
+        contaA.comoUsuario(() -> {
             assertThat(vendas.findById(vendaDaContaA)).isPresent();
             assertThat(vendas.findAll())
                     .extracting(VendaEntity::getId)
@@ -112,10 +112,10 @@ class IsolamentoDeVendaTest extends TesteDeIntegracao {
 
         // Repare que nem reconstituir nem o save recebem a conta: não existe assinatura por onde
         // um chamador pudesse informá-la (RNF05).
-        UUID vendaId = TenantContext.executarComo(conta.contaId(), () ->
+        UUID vendaId = conta.comoUsuario(() ->
                 vendas.save(VendaEntity.de(vendaSimples(cenario, null))).getId());
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(vendas.findById(vendaId))
                         .get()
                         .extracting(VendaEntity::getContaId)
@@ -143,10 +143,10 @@ class IsolamentoDeVendaTest extends TesteDeIntegracao {
 
         // Uma chamada de save grava a raiz, os dois itens e os dois pagamentos: o agregado é a
         // unidade transacional, e é o cascade de VendaEntity que faz isso valer.
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 vendas.save(VendaEntity.de(original)));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             Venda lida = vendas.findById(original.getId()).orElseThrow().paraDominio();
 
             assertThat(lida.getId()).isEqualTo(original.getId());
@@ -207,14 +207,14 @@ class IsolamentoDeVendaTest extends TesteDeIntegracao {
         // gravado como 99,00. Quem recusa é a raiz do agregado, ao remontar, e não o banco nem a
         // entidade; o save nem chega a rodar.
         assertThatIllegalStateException()
-                .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+                .isThrownBy(() -> conta.comoUsuario(() ->
                         vendas.save(VendaEntity.de(Venda.reconstituir(UUID.randomUUID(),
                                 cenario.sessaoCaixaId(), cenario.usuarioId(), null,
                                 StatusVenda.ABERTA, Money.de("99.00"), Money.ZERO, Instant.now(),
                                 null, List.of(item), List.of())))))
                 .withMessageContaining("viola a invariante do total");
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(vendas.findAll()).as("nada foi gravado").isEmpty());
     }
 
@@ -233,10 +233,10 @@ class IsolamentoDeVendaTest extends TesteDeIntegracao {
                 cenario.usuarioId(), null, StatusVenda.CONCLUIDA, Money.de("4.50"), Money.ZERO,
                 Instant.now(), concluidoEm, List.of(item), List.of(parcela));
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 vendas.save(VendaEntity.de(concluida)));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             Venda lida = vendas.findById(concluida.getId()).orElseThrow().paraDominio();
             assertThat(lida.getStatus()).isEqualTo(StatusVenda.CONCLUIDA);
             // Mesma tolerância do criadoEm: o banco guarda microssegundos.
@@ -252,13 +252,13 @@ class IsolamentoDeVendaTest extends TesteDeIntegracao {
     void vendaComClienteAtravessaOBanco() {
         ContaCriada conta = criador.criar("Barbearia Teste", SENHA_DE_TESTE);
         Cenario cenario = prepararCenario(conta);
-        UUID clienteId = TenantContext.executarComo(conta.contaId(), () ->
+        UUID clienteId = conta.comoUsuario(() ->
                 clientes.cadastrar(new DadosDoCliente("Cliente Habitual", null)));
 
-        UUID vendaId = TenantContext.executarComo(conta.contaId(), () ->
+        UUID vendaId = conta.comoUsuario(() ->
                 vendas.save(VendaEntity.de(vendaSimples(cenario, clienteId))).getId());
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(vendas.findById(vendaId).orElseThrow().paraDominio().getClienteId())
                         .isEqualTo(clienteId));
     }
@@ -268,8 +268,8 @@ class IsolamentoDeVendaTest extends TesteDeIntegracao {
      * dois por chave estrangeira e o banco recusaria uma venda apontando para o nada.
      */
     private Cenario prepararCenario(ContaCriada conta) {
-        return TenantContext.executarComo(conta.contaId(), () -> {
-            UUID sessaoCaixaId = caixas.abrir(conta.usuarioId(), Money.ZERO);
+        return conta.comoUsuario(() -> {
+            UUID sessaoCaixaId = caixas.abrir(Money.ZERO);
             UUID produtoId = produtos.cadastrar(TipoProduto.PRODUTO, new DadosDoProduto(
                     "Cafe coado", Money.de("4.50"), null, null, "un", null));
             return new Cenario(conta.usuarioId(), sessaoCaixaId, produtoId);

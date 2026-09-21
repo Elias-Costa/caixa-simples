@@ -20,6 +20,8 @@ import br.com.caixasimples.cadastro.internal.ProdutoRepository;
 import br.com.caixasimples.caixa.application.SessaoCaixaService;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
+import br.com.caixasimples.contas.CriadorDeContaDeTeste.UsuarioCriado;
+import br.com.caixasimples.shared.AcessoNegadoException;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.TenantContext;
 import br.com.caixasimples.vendas.CriadorDeVendaDeTeste;
@@ -80,10 +82,10 @@ class ProdutoServiceTest extends TesteDeIntegracao {
     void cadastrarGravaEListaOProduto() {
         ContaCriada conta = criador.criar("Cafeteria do Centro", SENHA_DE_TESTE);
 
-        UUID id = TenantContext.executarComo(conta.contaId(), () ->
+        UUID id = conta.comoUsuario(() ->
                 produtoService.cadastrar(TipoProduto.PRODUTO, cafe()));
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(produtoService.listarAtivos())
                         .singleElement()
                         .satisfies(produto -> {
@@ -105,15 +107,15 @@ class ProdutoServiceTest extends TesteDeIntegracao {
     void editarPersisteOsCamposNovos() {
         ContaCriada conta = criador.criar("Loja da Esquina", SENHA_DE_TESTE);
 
-        UUID id = TenantContext.executarComo(conta.contaId(), () ->
+        UUID id = conta.comoUsuario(() ->
                 produtoService.cadastrar(TipoProduto.PRODUTO, cafe()));
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 produtoService.editar(id, new DadosDoProduto("Cafe coado grande", Money.de("8.00"),
                         "CAF-2", "Quentes", "copo",
                         Map.of("tempo_preparo", 5, "tamanho", "300ml"))));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             Produto lido = produtos.findById(id).orElseThrow().paraDominio();
 
             assertThat(lido.getNome()).isEqualTo("Cafe coado grande");
@@ -133,15 +135,15 @@ class ProdutoServiceTest extends TesteDeIntegracao {
     void editarPreservaOTipo() {
         ContaCriada conta = criador.criar("Salao da Praca", SENHA_DE_TESTE);
 
-        UUID id = TenantContext.executarComo(conta.contaId(), () ->
+        UUID id = conta.comoUsuario(() ->
                 produtoService.cadastrar(TipoProduto.SERVICO,
                         new DadosDoProduto("Corte", Money.de("40.00"), null, null, "hora", null)));
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 produtoService.editar(id, new DadosDoProduto("Corte masculino", Money.de("45.00"),
                         null, "Cabelo", "hora", null)));
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(produtos.findById(id).orElseThrow().paraDominio().getTipo())
                         .as("o tipo decide se o item participa de estoque; trocá-lo depois "
                                 + "deixaria movimento de estoque órfão")
@@ -153,12 +155,12 @@ class ProdutoServiceTest extends TesteDeIntegracao {
     void inativarPreservaORegistroESomeDaListagem() {
         ContaCriada conta = criador.criar("Mercearia da Rua", SENHA_DE_TESTE);
 
-        UUID id = TenantContext.executarComo(conta.contaId(), () ->
+        UUID id = conta.comoUsuario(() ->
                 produtoService.cadastrar(TipoProduto.PRODUTO, cafe()));
 
-        TenantContext.executarComo(conta.contaId(), () -> produtoService.inativar(id));
+        conta.comoUsuario(() -> produtoService.inativar(id));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             // Soft delete, nunca DELETE: a linha continua lá para o histórico de vendas.
             assertThat(produtos.findById(id))
                     .as("o registro não foi apagado")
@@ -177,11 +179,11 @@ class ProdutoServiceTest extends TesteDeIntegracao {
     void inativarEIdempotente() {
         ContaCriada conta = criador.criar("Quitanda do Bairro", SENHA_DE_TESTE);
 
-        UUID id = TenantContext.executarComo(conta.contaId(), () ->
+        UUID id = conta.comoUsuario(() ->
                 produtoService.cadastrar(TipoProduto.PRODUTO, cafe()));
 
         assertThatNoException().isThrownBy(() ->
-                TenantContext.executarComo(conta.contaId(), () -> {
+                conta.comoUsuario(() -> {
                     produtoService.inativar(id);
                     produtoService.inativar(id);
                 }));
@@ -192,13 +194,13 @@ class ProdutoServiceTest extends TesteDeIntegracao {
     void editarProdutoInativoERecusado() {
         ContaCriada conta = criador.criar("Oficina da Avenida", SENHA_DE_TESTE);
 
-        UUID id = TenantContext.executarComo(conta.contaId(), () ->
+        UUID id = conta.comoUsuario(() ->
                 produtoService.cadastrar(TipoProduto.PRODUTO, cafe()));
 
-        TenantContext.executarComo(conta.contaId(), () -> produtoService.inativar(id));
+        conta.comoUsuario(() -> produtoService.inativar(id));
 
         assertThatExceptionOfType(IllegalStateException.class).isThrownBy(() ->
-                TenantContext.executarComo(conta.contaId(), () ->
+                conta.comoUsuario(() ->
                         produtoService.editar(id, cafe())));
     }
 
@@ -209,11 +211,11 @@ class ProdutoServiceTest extends TesteDeIntegracao {
         UUID inexistente = UUID.randomUUID();
 
         assertThatExceptionOfType(ProdutoNaoEncontradoException.class).isThrownBy(() ->
-                TenantContext.executarComo(conta.contaId(), () ->
+                conta.comoUsuario(() ->
                         produtoService.editar(inexistente, cafe())));
 
         assertThatExceptionOfType(ProdutoNaoEncontradoException.class).isThrownBy(() ->
-                TenantContext.executarComo(conta.contaId(), () ->
+                conta.comoUsuario(() ->
                         produtoService.inativar(inexistente)));
     }
 
@@ -223,37 +225,37 @@ class ProdutoServiceTest extends TesteDeIntegracao {
         ContaCriada contaA = criador.criar("Negocio A", SENHA_DE_TESTE);
         ContaCriada contaB = criador.criar("Negocio B", SENHA_DE_TESTE);
 
-        UUID produtoDaContaA = TenantContext.executarComo(contaA.contaId(), () ->
+        UUID produtoDaContaA = contaA.comoUsuario(() ->
                 produtoService.cadastrar(TipoProduto.PRODUTO, cafe()));
 
         // O caso de uso não distingue um id que não existe de um id que é de outra conta, e nem
         // deve distinguir: o @TenantId filtra o findById antes de qualquer regra rodar.
         assertThatExceptionOfType(ProdutoNaoEncontradoException.class).isThrownBy(() ->
-                TenantContext.executarComo(contaB.contaId(), () ->
+                contaB.comoUsuario(() ->
                         produtoService.editar(produtoDaContaA, cafe())));
 
         assertThatExceptionOfType(ProdutoNaoEncontradoException.class).isThrownBy(() ->
-                TenantContext.executarComo(contaB.contaId(), () ->
+                contaB.comoUsuario(() ->
                         produtoService.inativar(produtoDaContaA)));
 
         assertThatExceptionOfType(ProdutoNaoEncontradoException.class).isThrownBy(() ->
-                TenantContext.executarComo(contaB.contaId(), () ->
+                contaB.comoUsuario(() ->
                         produtoService.consultarParaVenda(produtoDaContaA)));
 
         // A consulta em lote passa por findAllById, que também é filtrado: o id da conta A não
         // volta, e a falta dele é recusada como inexistente, não devolvida como lista menor.
         assertThatExceptionOfType(ProdutoNaoEncontradoException.class).isThrownBy(() ->
-                TenantContext.executarComo(contaB.contaId(), () ->
+                contaB.comoUsuario(() ->
                         produtoService.consultarParaComprovante(List.of(produtoDaContaA))));
 
-        TenantContext.executarComo(contaB.contaId(), () -> {
+        contaB.comoUsuario(() -> {
             assertThat(produtoService.listarAtivos()).isEmpty();
             assertThat(produtoService.buscarPorNomeOuCodigo("cafe")).isEmpty();
             assertThat(produtoService.buscarPorNomeOuCodigo("CAF-1")).isEmpty();
         });
 
         // E o produto da conta A continua intacto: a tentativa da conta B não encostou nele.
-        TenantContext.executarComo(contaA.contaId(), () ->
+        contaA.comoUsuario(() ->
                 assertThat(produtoService.listarAtivos())
                         .singleElement()
                         .satisfies(produto -> assertThat(produto.isAtivo()).isTrue()));
@@ -264,7 +266,7 @@ class ProdutoServiceTest extends TesteDeIntegracao {
     void buscaPorNomeContemOTermo() {
         ContaCriada conta = criador.criar("Cafeteria da Praca", SENHA_DE_TESTE);
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             produtoService.cadastrar(TipoProduto.PRODUTO, produto("Cafe com leite", null));
             produtoService.cadastrar(TipoProduto.PRODUTO, produto("Cafe coado", null));
             produtoService.cadastrar(TipoProduto.PRODUTO, produto("Pao de queijo", null));
@@ -273,7 +275,7 @@ class ProdutoServiceTest extends TesteDeIntegracao {
             produtoService.inativar(inativo);
         });
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             // O termo está no meio do nome e em caixa diferente; o inativo não aparece.
             assertThat(produtoService.buscarPorNomeOuCodigo("LEITE"))
                     .extracting(Produto::getNome)
@@ -293,13 +295,13 @@ class ProdutoServiceTest extends TesteDeIntegracao {
     void buscaPorCodigoCasaInteiroEVemPrimeiro() {
         ContaCriada conta = criador.criar("Loja da Esquina", SENHA_DE_TESTE);
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             produtoService.cadastrar(TipoProduto.PRODUTO, produto("Agua 12 litros", "500"));
             produtoService.cadastrar(TipoProduto.PRODUTO, produto("Refrigerante", "12"));
             produtoService.cadastrar(TipoProduto.PRODUTO, produto("Suco", "120"));
         });
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             // O código 12 bate inteiro e vem primeiro; 120 não bate por prefixo; e o nome que
             // contém 12 vem depois, pelo caminho do nome.
             assertThat(produtoService.buscarPorNomeOuCodigo("12"))
@@ -312,10 +314,10 @@ class ProdutoServiceTest extends TesteDeIntegracao {
         });
 
         // Um produto que bate pelo código e pelo nome aparece uma vez só.
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 produtoService.cadastrar(TipoProduto.PRODUTO, produto("Lote ABC-1", "abc-1")));
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(produtoService.buscarPorNomeOuCodigo("ABC-1"))
                         .extracting(Produto::getNome)
                         .containsExactly("Lote ABC-1"));
@@ -326,7 +328,7 @@ class ProdutoServiceTest extends TesteDeIntegracao {
     void buscaComTermoEmBrancoERecusada() {
         ContaCriada conta = criador.criar("Barbearia Central", SENHA_DE_TESTE);
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             assertThatIllegalArgumentException()
                     .isThrownBy(() -> produtoService.buscarPorNomeOuCodigo(""));
             assertThatIllegalArgumentException()
@@ -341,25 +343,25 @@ class ProdutoServiceTest extends TesteDeIntegracao {
     void consultarParaVendaDevolvePrecoEEstado() {
         ContaCriada conta = criador.criar("Mercado do Bairro", SENHA_DE_TESTE);
 
-        UUID id = TenantContext.executarComo(conta.contaId(), () ->
+        UUID id = conta.comoUsuario(() ->
                 produtoService.cadastrar(TipoProduto.PRODUTO, cafe()));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             ProdutoParaVenda ativo = produtoService.consultarParaVenda(id);
             assertThat(ativo.id()).isEqualTo(id);
             assertThat(ativo.preco()).isEqualTo(Money.de("6.50"));
             assertThat(ativo.ativo()).isTrue();
         });
 
-        TenantContext.executarComo(conta.contaId(), () -> produtoService.inativar(id));
+        conta.comoUsuario(() -> produtoService.inativar(id));
 
         // Inativo volta como inativo, e não como erro: quem decide se ele entra na venda é o
         // módulo de vendas.
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(produtoService.consultarParaVenda(id).ativo()).isFalse());
 
         assertThatExceptionOfType(ProdutoNaoEncontradoException.class).isThrownBy(() ->
-                TenantContext.executarComo(conta.contaId(), () ->
+                conta.comoUsuario(() ->
                         produtoService.consultarParaVenda(UUID.randomUUID())));
     }
 
@@ -368,16 +370,16 @@ class ProdutoServiceTest extends TesteDeIntegracao {
     void consultarParaComprovanteDevolveNomeEUnidadeEmLote() {
         ContaCriada conta = criador.criar("Emporio da Serra", SENHA_DE_TESTE);
 
-        UUID cafeId = TenantContext.executarComo(conta.contaId(), () ->
+        UUID cafeId = conta.comoUsuario(() ->
                 produtoService.cadastrar(TipoProduto.PRODUTO, cafe()));
-        UUID corteId = TenantContext.executarComo(conta.contaId(), () ->
+        UUID corteId = conta.comoUsuario(() ->
                 produtoService.cadastrar(TipoProduto.SERVICO, new DadosDoProduto("Corte simples",
                         Money.de("30.00"), null, null, null, null)));
-        TenantContext.executarComo(conta.contaId(), () -> produtoService.inativar(corteId));
+        conta.comoUsuario(() -> produtoService.inativar(corteId));
 
         // Inativo volta como qualquer outro: o comprovante de uma venda passada precisa do nome
         // mesmo que o item já tenha saído do catálogo. Id repetido conta uma vez.
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(produtoService.consultarParaComprovante(
                         List.of(cafeId, corteId, cafeId)))
                         .extracting(ProdutoParaComprovante::id, ProdutoParaComprovante::nome,
@@ -389,11 +391,11 @@ class ProdutoServiceTest extends TesteDeIntegracao {
         // Um id que não existe no meio do lote derruba a consulta inteira, como na unitária: uma
         // linha sem nome no comprovante seria pior que a falha.
         assertThatExceptionOfType(ProdutoNaoEncontradoException.class).isThrownBy(() ->
-                TenantContext.executarComo(conta.contaId(), () ->
+                conta.comoUsuario(() ->
                         produtoService.consultarParaComprovante(
                                 List.of(cafeId, UUID.randomUUID()))));
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(produtoService.consultarParaComprovante(List.of())).isEmpty());
     }
 
@@ -402,16 +404,16 @@ class ProdutoServiceTest extends TesteDeIntegracao {
     @DisplayName("a baixa por venda desce o saldo, e a mesma venda não baixa duas vezes")
     void baixaPorVendaDesceOSaldoUmaVezSo() {
         ContaCriada conta = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
-        UUID cafeId = TenantContext.executarComo(conta.contaId(), () ->
+        UUID cafeId = conta.comoUsuario(() ->
                 produtoService.cadastrar(TipoProduto.PRODUTO, cafe()));
         UUID vendaId = vendaEm(conta, abrirCaixa(conta));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             assertThat(produtoService.jaDeuBaixaPorVenda(cafeId, vendaId)).isFalse();
             produtoService.darBaixaPorVenda(cafeId, new BigDecimal("2"), vendaId);
         });
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             assertThat(saldoDe(cafeId)).isEqualByComparingTo("-2");
             assertThat(produtoService.jaDeuBaixaPorVenda(cafeId, vendaId)).isTrue();
         });
@@ -419,10 +421,10 @@ class ProdutoServiceTest extends TesteDeIntegracao {
         // A reentrega do evento pergunta antes e pula; quem chama sem perguntar é recusado, e o
         // saldo não se move.
         assertThatIllegalStateException()
-                .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+                .isThrownBy(() -> conta.comoUsuario(() ->
                         produtoService.darBaixaPorVenda(cafeId, new BigDecimal("2"), vendaId)))
                 .withMessageContaining("ja deu baixa");
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(saldoDe(cafeId)).isEqualByComparingTo("-2"));
     }
 
@@ -430,18 +432,18 @@ class ProdutoServiceTest extends TesteDeIntegracao {
     @DisplayName("vendas diferentes baixam o mesmo produto, e o saldo acompanha cada uma")
     void vendasDiferentesBaixamOMesmoProduto() {
         ContaCriada conta = criador.criar("Padaria Central", SENHA_DE_TESTE);
-        UUID queijoId = TenantContext.executarComo(conta.contaId(), () ->
+        UUID queijoId = conta.comoUsuario(() ->
                 produtoService.cadastrar(TipoProduto.PRODUTO, produto("Queijo minas", null)));
         UUID sessaoId = abrirCaixa(conta);
         UUID primeiraVenda = vendaEm(conta, sessaoId);
         UUID segundaVenda = vendaEm(conta, sessaoId);
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             produtoService.darBaixaPorVenda(queijoId, new BigDecimal("0.750"), primeiraVenda);
             produtoService.darBaixaPorVenda(queijoId, new BigDecimal("1.250"), segundaVenda);
         });
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(saldoDe(queijoId)).isEqualByComparingTo("-2.000"));
     }
 
@@ -449,14 +451,14 @@ class ProdutoServiceTest extends TesteDeIntegracao {
     @DisplayName("serviço vendido não gera movimento nem muda saldo, e não é erro")
     void servicoNaoGeraMovimento() {
         ContaCriada conta = criador.criar("Salao Vizinho", SENHA_DE_TESTE);
-        UUID corteId = TenantContext.executarComo(conta.contaId(), () ->
+        UUID corteId = conta.comoUsuario(() ->
                 produtoService.cadastrar(TipoProduto.SERVICO, produto("Corte", null)));
         UUID vendaId = vendaEm(conta, abrirCaixa(conta));
 
-        assertThatNoException().isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+        assertThatNoException().isThrownBy(() -> conta.comoUsuario(() ->
                 produtoService.darBaixaPorVenda(corteId, BigDecimal.ONE, vendaId)));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             assertThat(saldoDe(corteId)).isEqualByComparingTo("0");
             assertThat(produtoService.jaDeuBaixaPorVenda(corteId, vendaId)).isFalse();
         });
@@ -466,15 +468,15 @@ class ProdutoServiceTest extends TesteDeIntegracao {
     @DisplayName("produto inativado ainda recebe baixa: a venda aconteceu antes")
     void produtoInativoAindaRecebeBaixa() {
         ContaCriada conta = criador.criar("Loja da Esquina", SENHA_DE_TESTE);
-        UUID id = TenantContext.executarComo(conta.contaId(), () ->
+        UUID id = conta.comoUsuario(() ->
                 produtoService.cadastrar(TipoProduto.PRODUTO, cafe()));
         UUID vendaId = vendaEm(conta, abrirCaixa(conta));
-        TenantContext.executarComo(conta.contaId(), () -> produtoService.inativar(id));
+        conta.comoUsuario(() -> produtoService.inativar(id));
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 produtoService.darBaixaPorVenda(id, BigDecimal.ONE, vendaId));
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(saldoDe(id)).isEqualByComparingTo("-1"));
     }
 
@@ -485,11 +487,11 @@ class ProdutoServiceTest extends TesteDeIntegracao {
         UUID vendaId = vendaEm(conta, abrirCaixa(conta));
 
         assertThatExceptionOfType(ProdutoNaoEncontradoException.class).isThrownBy(() ->
-                TenantContext.executarComo(conta.contaId(), () ->
+                conta.comoUsuario(() ->
                         produtoService.darBaixaPorVenda(UUID.randomUUID(), BigDecimal.ONE,
                                 vendaId)));
         // A pergunta sobre um produto inexistente responde falso em vez de estourar.
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(produtoService.jaDeuBaixaPorVenda(UUID.randomUUID(), vendaId))
                         .isFalse());
     }
@@ -498,16 +500,16 @@ class ProdutoServiceTest extends TesteDeIntegracao {
     @DisplayName("quantidade da baixa tem de ser positiva, e a recusa não move o saldo")
     void baixaExigeQuantidadePositiva() {
         ContaCriada conta = criador.criar("Emporio do Bairro", SENHA_DE_TESTE);
-        UUID id = TenantContext.executarComo(conta.contaId(), () ->
+        UUID id = conta.comoUsuario(() ->
                 produtoService.cadastrar(TipoProduto.PRODUTO, cafe()));
         UUID vendaId = vendaEm(conta, abrirCaixa(conta));
 
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+                .isThrownBy(() -> conta.comoUsuario(() ->
                         produtoService.darBaixaPorVenda(id, BigDecimal.ZERO, vendaId)))
                 .withMessageContaining("positiva");
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             assertThat(saldoDe(id)).isEqualByComparingTo("0");
             assertThat(produtoService.jaDeuBaixaPorVenda(id, vendaId)).isFalse();
         });
@@ -517,15 +519,15 @@ class ProdutoServiceTest extends TesteDeIntegracao {
     @DisplayName("o ajuste manual soma a diferença com sinal ao saldo, nos dois sentidos (RF19)")
     void ajusteManualMoveOSaldoNosDoisSentidos() {
         ContaCriada conta = criador.criar("Mercearia Aurora", SENHA_DE_TESTE);
-        UUID arrozId = TenantContext.executarComo(conta.contaId(), () ->
+        UUID arrozId = conta.comoUsuario(() ->
                 produtoService.cadastrar(TipoProduto.PRODUTO, produto("Arroz", null)));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             produtoService.ajustarEstoque(arrozId, new BigDecimal("20"), "contagem inicial");
             produtoService.ajustarEstoque(arrozId, new BigDecimal("-2.500"), "saco rasgado");
         });
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(saldoDe(arrozId)).isEqualByComparingTo("17.500"));
     }
 
@@ -533,15 +535,15 @@ class ProdutoServiceTest extends TesteDeIntegracao {
     @DisplayName("ajuste sem motivo é recusado, e a recusa não move o saldo (RF19)")
     void ajusteSemMotivoERecusado() {
         ContaCriada conta = criador.criar("Padaria Aurora", SENHA_DE_TESTE);
-        UUID paoId = TenantContext.executarComo(conta.contaId(), () ->
+        UUID paoId = conta.comoUsuario(() ->
                 produtoService.cadastrar(TipoProduto.PRODUTO, produto("Pao frances", null)));
 
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+                .isThrownBy(() -> conta.comoUsuario(() ->
                         produtoService.ajustarEstoque(paoId, new BigDecimal("-1"), "  ")))
                 .withMessageContaining("motivo");
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(saldoDe(paoId)).isEqualByComparingTo("0"));
     }
 
@@ -551,11 +553,11 @@ class ProdutoServiceTest extends TesteDeIntegracao {
         ContaCriada conta = criador.criar("Loja Aurora", SENHA_DE_TESTE);
 
         assertThatExceptionOfType(ProdutoNaoEncontradoException.class).isThrownBy(() ->
-                TenantContext.executarComo(conta.contaId(), () ->
+                conta.comoUsuario(() ->
                         produtoService.ajustarEstoque(UUID.randomUUID(), BigDecimal.ONE,
                                 "contagem")));
         assertThatExceptionOfType(ProdutoNaoEncontradoException.class).isThrownBy(() ->
-                TenantContext.executarComo(conta.contaId(), () ->
+                conta.comoUsuario(() ->
                         produtoService.definirEstoqueMinimo(UUID.randomUUID(), BigDecimal.ONE)));
     }
 
@@ -563,13 +565,13 @@ class ProdutoServiceTest extends TesteDeIntegracao {
     @DisplayName("o estoque mínimo persiste sem mexer no saldo nem no resto do cadastro")
     void estoqueMinimoPersiste() {
         ContaCriada conta = criador.criar("Emporio Aurora", SENHA_DE_TESTE);
-        UUID cafeId = TenantContext.executarComo(conta.contaId(), () ->
+        UUID cafeId = conta.comoUsuario(() ->
                 produtoService.cadastrar(TipoProduto.PRODUTO, cafe()));
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 produtoService.definirEstoqueMinimo(cafeId, new BigDecimal("3.500")));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             Produto gravado = produtos.findById(cafeId).orElseThrow().paraDominio();
             assertThat(gravado.getEstoqueMinimo()).isEqualByComparingTo("3.500");
             assertThat(gravado.getEstoqueAtual()).isEqualByComparingTo("0");
@@ -587,11 +589,11 @@ class ProdutoServiceTest extends TesteDeIntegracao {
         UUID noLimiarId = cadastrarProduto(conta, "Cafe em graos");
         UUID acimaId = cadastrarProduto(conta, "Chocolate");
         UUID inativoId = cadastrarProduto(conta, "Adocante");
-        UUID corteId = TenantContext.executarComo(conta.contaId(), () ->
+        UUID corteId = conta.comoUsuario(() ->
                 produtoService.cadastrar(TipoProduto.SERVICO, produto("Corte", null)));
         UUID vendaId = vendaEm(conta, abrirCaixa(conta));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             produtoService.darBaixaPorVenda(negativoId, new BigDecimal("2"), vendaId);
             produtoService.ajustarEstoque(noLimiarId, new BigDecimal("5"), "contagem");
             produtoService.definirEstoqueMinimo(noLimiarId, new BigDecimal("5"));
@@ -600,14 +602,14 @@ class ProdutoServiceTest extends TesteDeIntegracao {
             produtoService.inativar(inativoId);
         });
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(produtoService.listarComEstoqueBaixo())
                         .extracting(EstoqueDoProduto::id)
                         .as("zerado, negativo e no limiar entram; acima, inativo e serviço não")
                         .containsExactlyInAnyOrder(zeradoId, negativoId, noLimiarId)
                         .doesNotContain(acimaId, inativoId, corteId));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             EstoqueDoProduto negativo = produtoService.listarComEstoqueBaixo().stream()
                     .filter(item -> item.id().equals(negativoId))
                     .findFirst()
@@ -619,8 +621,36 @@ class ProdutoServiceTest extends TesteDeIntegracao {
         });
     }
 
+    @Test
+    @DisplayName("o operador não cadastra, edita nem inativa produto, mas consulta e busca (RF30)")
+    void operadorSoConsulta() {
+        ContaCriada conta = criador.criar("Mercearia com Atendente", SENHA_DE_TESTE);
+        UsuarioCriado operador = criador.criarOperadorEm(conta.contaId(), "Atendente");
+        UUID id = cadastrarProduto(conta, "Arroz");
+
+        assertThatExceptionOfType(AcessoNegadoException.class)
+                .isThrownBy(() -> operador.comoUsuario(() ->
+                        produtoService.cadastrar(TipoProduto.PRODUTO, produto("Feijao", null))));
+        assertThatExceptionOfType(AcessoNegadoException.class)
+                .isThrownBy(() -> operador.comoUsuario(() ->
+                        produtoService.editar(id, produto("Arroz integral", null))));
+        assertThatExceptionOfType(AcessoNegadoException.class)
+                .isThrownBy(() -> operador.comoUsuario(() -> produtoService.inativar(id)));
+
+        // O balcão precisa achar o produto para vender: a leitura é dos dois perfis.
+        operador.comoUsuario(() -> {
+            assertThat(produtoService.listarAtivos())
+                    .extracting(Produto::getNome)
+                    .containsExactly("Arroz");
+            assertThat(produtoService.buscarPorNomeOuCodigo("arr"))
+                    .extracting(Produto::getId)
+                    .containsExactly(id);
+            assertThat(produtoService.consultarParaVenda(id).preco()).isEqualTo(Money.de("5.00"));
+        });
+    }
+
     private UUID cadastrarProduto(ContaCriada conta, String nome) {
-        return TenantContext.executarComo(conta.contaId(), () ->
+        return conta.comoUsuario(() ->
                 produtoService.cadastrar(TipoProduto.PRODUTO, produto(nome, null)));
     }
 
@@ -631,8 +661,8 @@ class ProdutoServiceTest extends TesteDeIntegracao {
 
     /** Um caixa aberto, uma vez por conta: um operador só tem uma sessão ABERTA por vez. */
     private UUID abrirCaixa(ContaCriada conta) {
-        return TenantContext.executarComo(conta.contaId(), () ->
-                sessoesDeCaixa.abrir(conta.usuarioId(), Money.ZERO));
+        return conta.comoUsuario(() ->
+                sessoesDeCaixa.abrir(Money.ZERO));
     }
 
     /** Uma venda vazia nesse caixa: só o alvo da chave estrangeira de {@code venda_id}. */

@@ -1,5 +1,6 @@
 package br.com.caixasimples.contas.internal;
 
+import br.com.caixasimples.shared.Perfil;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -17,4 +18,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface UsuarioRepository extends JpaRepository<Usuario, UUID> {
 
     List<Usuario> findByAtivoTrue();
+
+    /** Quantos administradores ativos a conta ainda tem: é o que impede inativar o último. */
+    long countByPerfilAndAtivoTrue(Perfil perfil);
 }

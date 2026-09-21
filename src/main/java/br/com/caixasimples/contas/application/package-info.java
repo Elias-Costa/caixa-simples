@@ -7,9 +7,10 @@
  * venda, chama {@code ContaService}. {@code internal} continua oculto, então a entidade da conta,
  * com seus mutadores, e o repositório sem filtro de tenant não vazam para fora do módulo.
  *
- * <p>Custo aceito, o mesmo do cadastro: {@code AutenticacaoService} fica visível junto, sem ter
- * consumidor externo. Vale o critério de fronteira de sempre: chamada direta faz pergunta, efeito
- * colateral entre módulos é evento.
+ * <p>Custo aceito, o mesmo do cadastro: {@code AutenticacaoService} e {@code UsuarioService} ficam
+ * visíveis junto, sem ter consumidor externo; o segundo é a gestão de usuários da conta, chamada
+ * só pela camada web deste módulo. Vale o critério de fronteira de sempre: chamada direta faz
+ * pergunta, efeito colateral entre módulos é evento.
  */
 @NamedInterface("application")
 package br.com.caixasimples.contas.application;

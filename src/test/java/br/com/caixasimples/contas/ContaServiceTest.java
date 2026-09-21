@@ -41,14 +41,14 @@ class ContaServiceTest extends TesteDeIntegracao {
         ContaCriada cafeteria = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
         ContaCriada salao = criador.criar("Salao Vizinho", SENHA_DE_TESTE);
 
-        assertThat(TenantContext.executarComo(cafeteria.contaId(), contaService::estoqueHabilitado))
+        assertThat(cafeteria.comoUsuario(contaService::estoqueHabilitado))
                 .isFalse();
 
         criador.habilitarEstoque(cafeteria.contaId());
 
-        assertThat(TenantContext.executarComo(cafeteria.contaId(), contaService::estoqueHabilitado))
+        assertThat(cafeteria.comoUsuario(contaService::estoqueHabilitado))
                 .isTrue();
-        assertThat(TenantContext.executarComo(salao.contaId(), contaService::estoqueHabilitado))
+        assertThat(salao.comoUsuario(contaService::estoqueHabilitado))
                 .as("ligar numa conta não liga na outra")
                 .isFalse();
     }

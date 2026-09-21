@@ -7,6 +7,7 @@ import br.com.caixasimples.cadastro.domain.Produto;
 import br.com.caixasimples.cadastro.internal.ProdutoEntity;
 import br.com.caixasimples.cadastro.internal.ProdutoRepository;
 import br.com.caixasimples.shared.Money;
+import br.com.caixasimples.shared.UsuarioContext;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -49,6 +50,13 @@ import org.springframework.transaction.annotation.Transactional;
  * <p><strong>Não existe caso de uso de reativação</strong>, nem de exclusão: o RF05 é soft delete,
  * e {@code DELETE} não aparece em lugar nenhum deste módulo.
  *
+ * <p><strong>Quem pode chamar o quê (RF30).</strong> Cadastrar, editar e inativar são do
+ * administrador, e perguntam isso na primeira linha. As consultas servem aos dois perfis, porque
+ * o operador precisa achar o produto para vender. Os casos de uso de estoque não perguntam:
+ * a baixa e o estorno são acionados por ouvinte de evento, sem pessoa por trás, e o ajuste, o
+ * mínimo e a lista de estoque baixo são executados a pedido do módulo de estoque, que é quem
+ * verifica o perfil antes de pedir, junto com a conta ter o controle ligado.
+ *
  * <p>O código duplicado não é checado antes de gravar. Quem garante a unicidade é o índice único
  * parcial da migration V2, provado em {@code CodigoDeProdutoTest}. Uma consulta prévia aqui
  * duplicaria a regra em dois lugares e ainda assim não dispensaria o índice, porque duas
@@ -75,9 +83,11 @@ public class ProdutoService {
      * comentário no ponto de chamada.
      *
      * @return o id do produto criado, gerado na aplicação e nunca pelo banco (RNF01, RNF03)
+     * @throws br.com.caixasimples.shared.AcessoNegadoException se quem chama não é ADMIN
      */
     @Transactional
     public UUID cadastrar(TipoProduto tipo, DadosDoProduto dados) {
+        UsuarioContext.exigirAdmin();
         Objects.requireNonNull(dados, "dados do produto nao podem ser nulos");
 
         Produto produto = new Produto(dados.nome(), dados.preco(), tipo, dados.codigo(),
@@ -90,11 +100,13 @@ public class ProdutoService {
      * Edição do cadastro (RF04). Substitui todos os campos editáveis pelo que veio em
      * {@code dados}, inclusive os atributos, que não são mesclados.
      *
+     * @throws br.com.caixasimples.shared.AcessoNegadoException se quem chama não é ADMIN
      * @throws ProdutoNaoEncontradoException se o id não existe nesta conta
      * @throws IllegalStateException         se o produto já foi inativado
      */
     @Transactional
     public void editar(UUID id, DadosDoProduto dados) {
+        UsuarioContext.exigirAdmin();
         Objects.requireNonNull(dados, "dados do produto nao podem ser nulos");
 
         ProdutoEntity linha = buscar(id);
@@ -113,10 +125,12 @@ public class ProdutoService {
      *
      * <p>É idempotente: inativar de novo o que já está inativo não estoura.
      *
+     * @throws br.com.caixasimples.shared.AcessoNegadoException se quem chama não é ADMIN
      * @throws ProdutoNaoEncontradoException se o id não existe nesta conta
      */
     @Transactional
     public void inativar(UUID id) {
+        UsuarioContext.exigirAdmin();
         ProdutoEntity linha = buscar(id);
         Produto produto = linha.paraDominio();
 

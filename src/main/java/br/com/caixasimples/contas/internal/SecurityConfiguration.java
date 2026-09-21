@@ -24,7 +24,7 @@ import org.springframework.security.web.authentication.www.BasicAuthenticationFi
 class SecurityConfiguration {
 
     @Bean
-    SecurityFilterChain filterChain(HttpSecurity http, TenantDoTokenFilter tenantDoToken,
+    SecurityFilterChain filterChain(HttpSecurity http, IdentidadeDoTokenFilter identidadeDoToken,
             RenovacaoDeTokenFilter renovacaoDeToken) throws Exception {
 
         return http
@@ -37,10 +37,10 @@ class SecurityConfiguration {
                         .requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()))
-                // Os dois dependem da autenticação já resolvida, então vêm depois do filtro que a
-                // resolve.
-                .addFilterAfter(tenantDoToken, BasicAuthenticationFilter.class)
-                .addFilterAfter(renovacaoDeToken, BasicAuthenticationFilter.class)
+                // A identidade depende da autenticação já resolvida, então vem depois do filtro
+                // que a resolve; a renovação depende da identidade, então vem depois dela.
+                .addFilterAfter(identidadeDoToken, BasicAuthenticationFilter.class)
+                .addFilterAfter(renovacaoDeToken, IdentidadeDoTokenFilter.class)
                 .build();
     }
 

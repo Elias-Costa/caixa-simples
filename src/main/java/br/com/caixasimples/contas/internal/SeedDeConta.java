@@ -1,6 +1,6 @@
 package br.com.caixasimples.contas.internal;
 
-import br.com.caixasimples.contas.Perfil;
+import br.com.caixasimples.shared.Perfil;
 import br.com.caixasimples.contas.Plano;
 import br.com.caixasimples.shared.ContaId;
 import br.com.caixasimples.shared.TenantContext;

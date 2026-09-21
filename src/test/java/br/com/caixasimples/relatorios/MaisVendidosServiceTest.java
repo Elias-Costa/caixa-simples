@@ -1,6 +1,7 @@
 package br.com.caixasimples.relatorios;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
@@ -11,9 +12,11 @@ import br.com.caixasimples.cadastro.application.ProdutoService.DadosDoProduto;
 import br.com.caixasimples.caixa.application.SessaoCaixaService;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
+import br.com.caixasimples.contas.CriadorDeContaDeTeste.UsuarioCriado;
 import br.com.caixasimples.relatorios.application.MaisVendidosService;
 import br.com.caixasimples.relatorios.application.MaisVendidosService.MaisVendidos;
 import br.com.caixasimples.relatorios.application.MaisVendidosService.Posicao;
+import br.com.caixasimples.shared.AcessoNegadoException;
 import br.com.caixasimples.shared.FusoDeReferencia;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.TenantContext;
@@ -91,9 +94,9 @@ class MaisVendidosServiceTest extends TesteDeIntegracao {
                 new ItemDeTeste(cafe, new BigDecimal("2"), Money.de("4.50"), Money.ZERO),
                 new ItemDeTeste(queijo, new BigDecimal("1.500"), Money.de("39.90"), Money.ZERO));
 
-        MaisVendidos todos = TenantContext.executarComo(conta.contaId(),
+        MaisVendidos todos = conta.comoUsuario(
                 () -> maisVendidos.doPeriodo(DIA, DIA, DEZ));
-        MaisVendidos soUm = TenantContext.executarComo(conta.contaId(),
+        MaisVendidos soUm = conta.comoUsuario(
                 () -> maisVendidos.doPeriodo(DIA, DIA, 1));
 
         assertThat(todos.inicio()).isEqualTo(DIA);
@@ -137,7 +140,7 @@ class MaisVendidosServiceTest extends TesteDeIntegracao {
         vendas.criarCanceladaComItensQueConcluiuEm(conta.contaId(), cenario.sessaoCaixaId(),
                 cenario.usuarioId(), List.of(paes(pao, "100")), noBalcao(DIA, LocalTime.NOON));
 
-        MaisVendidos doDia = TenantContext.executarComo(conta.contaId(),
+        MaisVendidos doDia = conta.comoUsuario(
                 () -> maisVendidos.doPeriodo(DIA, DIA, DEZ));
 
         assertThat(doDia.posicoes()).hasSize(1);
@@ -163,7 +166,7 @@ class MaisVendidosServiceTest extends TesteDeIntegracao {
         concluida(conta, cenario, noBalcao(DIA, LocalTime.of(11, 0)),
                 new ItemDeTeste(queijo, BigDecimal.ONE, Money.de("39.90"), Money.de("2.00")));
 
-        MaisVendidos doDia = TenantContext.executarComo(conta.contaId(),
+        MaisVendidos doDia = conta.comoUsuario(
                 () -> maisVendidos.doPeriodo(DIA, DIA, DEZ));
 
         assertThat(doDia.posicoes()).hasSize(1);
@@ -180,13 +183,13 @@ class MaisVendidosServiceTest extends TesteDeIntegracao {
         concluida(conta, cenario, noBalcao(DIA, LocalTime.of(9, 0)),
                 new ItemDeTeste(caneca, new BigDecimal("2"), Money.de("25.00"), Money.ZERO));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             produtos.editar(caneca, new DadosDoProduto("Caneca de ceramica", Money.de("30.00"),
                     null, null, "un", null));
             produtos.inativar(caneca);
         });
 
-        MaisVendidos doDia = TenantContext.executarComo(conta.contaId(),
+        MaisVendidos doDia = conta.comoUsuario(
                 () -> maisVendidos.doPeriodo(DIA, DIA, DEZ));
 
         assertThat(doDia.posicoes()).hasSize(1);
@@ -196,16 +199,30 @@ class MaisVendidosServiceTest extends TesteDeIntegracao {
     }
 
     @Test
+    @DisplayName("o operador não lê o ranking, nem o próprio: é relatório do administrador (RF30)")
+    void operadorNaoLeORanking() {
+        ContaCriada conta = criador.criar("Barbearia com Atendente", SENHA_DE_TESTE);
+        UsuarioCriado operador = criador.criarOperadorEm(conta.contaId(), "Atendente");
+
+        assertThatExceptionOfType(AcessoNegadoException.class)
+                .isThrownBy(() -> operador.comoUsuario(() -> maisVendidos.doPeriodo(DIA, DIA, DEZ)));
+        assertThatExceptionOfType(AcessoNegadoException.class)
+                .as("o filtro pelo próprio operador não abre a porta")
+                .isThrownBy(() -> operador.comoUsuario(() ->
+                        maisVendidos.doPeriodo(DIA, DIA, DEZ, operador.usuarioId())));
+    }
+
+    @Test
     @DisplayName("período sem venda devolve lista vazia; período invertido e limite zero são recusados")
     void periodoVazioEArgumentosInvalidos() {
         ContaCriada conta = criador.criar("Barbearia do Centro", SENHA_DE_TESTE);
 
-        MaisVendidos vazio = TenantContext.executarComo(conta.contaId(),
+        MaisVendidos vazio = conta.comoUsuario(
                 () -> maisVendidos.doPeriodo(DIA, DIA, DEZ));
 
         assertThat(vazio.posicoes()).isEmpty();
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             assertThatIllegalArgumentException()
                     .isThrownBy(() -> maisVendidos.doPeriodo(DIA, DIA.minusDays(1), DEZ))
                     .withMessageContaining("nao pode vir antes do inicio");
@@ -231,11 +248,11 @@ class MaisVendidosServiceTest extends TesteDeIntegracao {
         concluida(contaB, cenarioB, noBalcao(DIA, LocalTime.of(10, 0)),
                 new ItemDeTeste(cafeDeB, new BigDecimal("7"), Money.de("4.50"), Money.ZERO));
 
-        MaisVendidos deA = TenantContext.executarComo(contaA.contaId(),
+        MaisVendidos deA = contaA.comoUsuario(
                 () -> maisVendidos.doPeriodo(DIA, DIA, DEZ));
-        MaisVendidos deB = TenantContext.executarComo(contaB.contaId(),
+        MaisVendidos deB = contaB.comoUsuario(
                 () -> maisVendidos.doPeriodo(DIA, DIA, DEZ));
-        MaisVendidos deC = TenantContext.executarComo(contaC.contaId(),
+        MaisVendidos deC = contaC.comoUsuario(
                 () -> maisVendidos.doPeriodo(DIA, DIA, DEZ));
 
         assertThat(deA.posicoes()).extracting(Posicao::produtoId).containsExactly(cafeDeA);
@@ -261,13 +278,13 @@ class MaisVendidosServiceTest extends TesteDeIntegracao {
                 new ItemDeTeste(cafe, new BigDecimal("1"), Money.de("4.50"), Money.ZERO),
                 new ItemDeTeste(bolo, new BigDecimal("5"), Money.de("12.00"), Money.ZERO));
 
-        MaisVendidos daConta = TenantContext.executarComo(conta.contaId(),
+        MaisVendidos daConta = conta.comoUsuario(
                 () -> maisVendidos.doPeriodo(DIA, DIA, DEZ));
-        MaisVendidos doTitularSo = TenantContext.executarComo(conta.contaId(),
+        MaisVendidos doTitularSo = conta.comoUsuario(
                 () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, doTitular.usuarioId()));
-        MaisVendidos daColegaSo = TenantContext.executarComo(conta.contaId(),
+        MaisVendidos daColegaSo = conta.comoUsuario(
                 () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, daColega.usuarioId()));
-        MaisVendidos deNinguem = TenantContext.executarComo(conta.contaId(),
+        MaisVendidos deNinguem = conta.comoUsuario(
                 () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, UUID.randomUUID()));
 
         // A conta inteira: o bolo, com seis, passa o café, com quatro.
@@ -285,7 +302,7 @@ class MaisVendidosServiceTest extends TesteDeIntegracao {
         // Operador que não existe é lista vazia, não erro.
         assertThat(deNinguem.posicoes()).isEmpty();
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThatNullPointerException()
                         .isThrownBy(() -> maisVendidos.doPeriodo(DIA, DIA, DEZ, null))
                         .withMessageContaining("assinatura sem ele"));
@@ -306,12 +323,12 @@ class MaisVendidosServiceTest extends TesteDeIntegracao {
         concluida(contaB, cenarioB, noBalcao(DIA, LocalTime.of(10, 0)),
                 new ItemDeTeste(cafeDeB, new BigDecimal("7"), Money.de("4.50"), Money.ZERO));
 
-        MaisVendidos deAPeloSeuOperador = TenantContext.executarComo(contaA.contaId(),
+        MaisVendidos deAPeloSeuOperador = contaA.comoUsuario(
                 () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, cenarioA.usuarioId()));
-        MaisVendidos deBPeloSeuOperador = TenantContext.executarComo(contaB.contaId(),
+        MaisVendidos deBPeloSeuOperador = contaB.comoUsuario(
                 () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, cenarioB.usuarioId()));
         // B pede pelo operador de A: o id existe, mas não nesta conta.
-        MaisVendidos deBPeloOperadorDeA = TenantContext.executarComo(contaB.contaId(),
+        MaisVendidos deBPeloOperadorDeA = contaB.comoUsuario(
                 () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, cenarioA.usuarioId()));
 
         assertThat(deAPeloSeuOperador.posicoes()).extracting(Posicao::produtoId)
@@ -341,8 +358,8 @@ class MaisVendidosServiceTest extends TesteDeIntegracao {
      * estrangeira; os produtos são cadastrados um a um pelo cenário, pelo caso de uso do cadastro.
      */
     private Cenario prepararCenario(ContaCriada conta) {
-        UUID sessaoCaixaId = TenantContext.executarComo(conta.contaId(),
-                () -> caixas.abrir(conta.usuarioId(), Money.ZERO));
+        UUID sessaoCaixaId = conta.comoUsuario(
+                () -> caixas.abrir(Money.ZERO));
         return new Cenario(conta, conta.usuarioId(), sessaoCaixaId);
     }
 
@@ -351,10 +368,9 @@ class MaisVendidosServiceTest extends TesteDeIntegracao {
      * sessão ABERTA por operador, e cada operador vende no seu caixa.
      */
     private Cenario prepararCenarioDeOutroOperador(ContaCriada conta, String nome) {
-        UUID operadorId = criador.criarOperadorEm(conta.contaId(), nome);
-        UUID sessaoCaixaId = TenantContext.executarComo(conta.contaId(),
-                () -> caixas.abrir(operadorId, Money.ZERO));
-        return new Cenario(conta, operadorId, sessaoCaixaId);
+        UsuarioCriado operador = criador.criarOperadorEm(conta.contaId(), nome);
+        UUID sessaoCaixaId = operador.comoUsuario(() -> caixas.abrir(Money.ZERO));
+        return new Cenario(conta, operador.usuarioId(), sessaoCaixaId);
     }
 
     private final class Cenario {
@@ -378,7 +394,7 @@ class MaisVendidosServiceTest extends TesteDeIntegracao {
         }
 
         UUID produto(String nome, String preco, String unidade) {
-            return TenantContext.executarComo(conta.contaId(), () -> produtos.cadastrar(
+            return conta.comoUsuario(() -> produtos.cadastrar(
                     TipoProduto.PRODUTO, new DadosDoProduto(nome, Money.de(preco), null, null,
                             unidade, null)));
         }

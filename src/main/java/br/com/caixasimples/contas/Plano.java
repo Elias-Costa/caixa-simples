@@ -14,5 +14,17 @@ public enum Plano {
     CAIXA_SIMPLES,
 
     /** Tudo do plano anterior, mais emissão fiscal, estoque e multiusuário. */
-    COMPLETO
+    COMPLETO;
+
+    /**
+     * Se a conta pode ter mais de um usuário (RF29). Multiusuário é recurso do plano mais alto;
+     * nos outros dois o dono é o único usuário, e ele vende, abre o caixa e faz o resto.
+     *
+     * <p>É um sim ou não, e não um número, porque a diferença entre os planos é exatamente essa:
+     * um usuário ou vários. Um limite numérico por plano seria inventar tabela que o produto não
+     * definiu.
+     */
+    public boolean permiteMultiusuario() {
+        return this == COMPLETO;
+    }
 }

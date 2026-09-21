@@ -45,11 +45,11 @@ class IsolamentoDeProdutoTest extends TesteDeIntegracao {
         ContaCriada contaA = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
         ContaCriada contaB = criador.criar("Salao Vizinho", SENHA_DE_TESTE);
 
-        UUID produtoDaContaA = TenantContext.executarComo(contaA.contaId(), () ->
+        UUID produtoDaContaA = contaA.comoUsuario(() ->
                 produtos.save(ProdutoEntity.de(new Produto("Cafe coado", Money.de("6.50"),
                         TipoProduto.PRODUTO, null, "Bebidas", "un", Map.of()))).getId());
 
-        TenantContext.executarComo(contaB.contaId(), () -> {
+        contaB.comoUsuario(() -> {
             assertThat(produtos.findById(produtoDaContaA))
                     .as("findById atravessando tenant")
                     .isEmpty();
@@ -64,7 +64,7 @@ class IsolamentoDeProdutoTest extends TesteDeIntegracao {
         });
 
         // E a conta A continua vendo o próprio dado: o filtro não pode ser esconder de todos.
-        TenantContext.executarComo(contaA.contaId(), () -> {
+        contaA.comoUsuario(() -> {
             assertThat(produtos.findById(produtoDaContaA)).isPresent();
             assertThat(produtos.findAll())
                     .extracting(ProdutoEntity::getId)
@@ -79,11 +79,11 @@ class IsolamentoDeProdutoTest extends TesteDeIntegracao {
 
         // Repare que nem o construtor de Produto nem o save recebem a conta: não existe assinatura
         // por onde um chamador pudesse informá-la (RNF05).
-        UUID produtoId = TenantContext.executarComo(conta.contaId(), () ->
+        UUID produtoId = conta.comoUsuario(() ->
                 produtos.save(ProdutoEntity.de(new Produto("Camiseta", Money.de("59.90"),
                         TipoProduto.PRODUTO, null, null, null, Map.of()))).getId());
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(produtos.findById(produtoId))
                         .get()
                         .extracting(ProdutoEntity::getContaId)
@@ -98,10 +98,10 @@ class IsolamentoDeProdutoTest extends TesteDeIntegracao {
         Produto original = new Produto("Troca de oleo", Money.de("120.00"), TipoProduto.SERVICO,
                 "SRV-01", "Manutencao", "hora", Map.of("duracao_minutos", 45));
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 produtos.save(ProdutoEntity.de(original)));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             Produto lido = produtos.findById(original.getId()).orElseThrow().paraDominio();
 
             assertThat(lido.getId()).isEqualTo(original.getId());

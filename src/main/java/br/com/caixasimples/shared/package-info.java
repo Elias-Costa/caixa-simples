@@ -1,6 +1,7 @@
 /**
- * Tipos genuinamente transversais: {@code ContaId}, {@code Money}, exceções comuns e o contexto do
- * tenant. Módulo <strong>aberto</strong>, ou seja, os outros módulos podem acessar seus subpacotes.
+ * Tipos genuinamente transversais: {@code ContaId}, {@code Money}, exceções comuns e os dois
+ * contextos da requisição, o do tenant e o do usuário, com o {@code Perfil} que o segundo carrega.
+ * Módulo <strong>aberto</strong>, ou seja, os outros módulos podem acessar seus subpacotes.
  *
  * <p>Não é depósito de utilitário: só entra aqui o que mais de um Bounded Context precisa de
  * verdade.

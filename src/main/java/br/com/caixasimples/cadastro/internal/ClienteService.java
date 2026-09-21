@@ -28,6 +28,10 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>Não existe busca por nome nem vínculo com venda aqui: a busca durante a venda nasce com o
  * módulo de vendas, e a venda referencia o cliente apenas por UUID.
+ *
+ * <p><strong>Os dois perfis chamam.</strong> Ao contrário do cadastro de produto, que é do
+ * administrador, o cliente costuma ser cadastrado no balcão, na hora da venda, por quem está
+ * atendendo; por isso nenhum caso de uso daqui pergunta o perfil de quem chama.
  */
 @Service
 public class ClienteService {

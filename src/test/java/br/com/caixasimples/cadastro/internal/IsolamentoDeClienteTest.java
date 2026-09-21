@@ -48,10 +48,10 @@ class IsolamentoDeClienteTest extends TesteDeIntegracao {
         ContaCriada contaA = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
         ContaCriada contaB = criador.criar("Salao Vizinho", SENHA_DE_TESTE);
 
-        UUID clienteDaContaA = TenantContext.executarComo(contaA.contaId(), () ->
+        UUID clienteDaContaA = contaA.comoUsuario(() ->
                 clienteService.cadastrar(new DadosDoCliente("Dona Marta", "(75) 99999-0000")));
 
-        TenantContext.executarComo(contaB.contaId(), () -> {
+        contaB.comoUsuario(() -> {
             assertThat(clientes.findById(clienteDaContaA))
                     .as("findById atravessando tenant")
                     .isEmpty();
@@ -69,7 +69,7 @@ class IsolamentoDeClienteTest extends TesteDeIntegracao {
         });
 
         // E a conta A continua vendo o próprio dado: o filtro não pode ser esconder de todos.
-        TenantContext.executarComo(contaA.contaId(), () -> {
+        contaA.comoUsuario(() -> {
             assertThat(clientes.findById(clienteDaContaA)).isPresent();
             assertThat(clienteService.listarAtivos())
                     .singleElement()
@@ -87,10 +87,10 @@ class IsolamentoDeClienteTest extends TesteDeIntegracao {
         ContaCriada contaA = criador.criar("Loja A", SENHA_DE_TESTE);
         ContaCriada contaB = criador.criar("Loja B", SENHA_DE_TESTE);
 
-        UUID clienteDaContaA = TenantContext.executarComo(contaA.contaId(), () ->
+        UUID clienteDaContaA = contaA.comoUsuario(() ->
                 clienteService.cadastrar(new DadosDoCliente("Seu Jose", null)));
 
-        TenantContext.executarComo(contaB.contaId(), () -> {
+        contaB.comoUsuario(() -> {
             assertThatExceptionOfType(ClienteNaoEncontradoException.class)
                     .as("editar cliente de outra conta")
                     .isThrownBy(() -> clienteService.editar(clienteDaContaA,
@@ -104,7 +104,7 @@ class IsolamentoDeClienteTest extends TesteDeIntegracao {
         });
 
         // Nada do que a conta B tentou tocou a linha da conta A.
-        TenantContext.executarComo(contaA.contaId(), () ->
+        contaA.comoUsuario(() ->
                 assertThat(clienteService.listarAtivos())
                         .singleElement()
                         .satisfies(cliente -> assertThat(cliente.nome()).isEqualTo("Seu Jose")));
@@ -117,10 +117,10 @@ class IsolamentoDeClienteTest extends TesteDeIntegracao {
 
         // Repare que nem o caso de uso nem a entidade recebem a conta: não existe assinatura por
         // onde um chamador pudesse informá-la (RNF05).
-        UUID clienteId = TenantContext.executarComo(conta.contaId(), () ->
+        UUID clienteId = conta.comoUsuario(() ->
                 clienteService.cadastrar(new DadosDoCliente("Cliente da oficina", null)));
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(clientes.findById(clienteId))
                         .get()
                         .extracting(ClienteEntity::getContaId)

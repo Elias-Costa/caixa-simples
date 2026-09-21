@@ -50,12 +50,12 @@ class CodigoDeProdutoTest extends TesteDeIntegracao {
     void codigoNaoDistingueCaixa() {
         ContaCriada conta = criador.criar("Loja com Codigo", SENHA_DE_TESTE);
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 produtos.save(ProdutoEntity.de(comCodigo("Primeiro", "ABC-12"))));
 
         // O operador digita rápido no balcão; a venda não pode depender de maiúscula.
         assertThatExceptionOfType(DataIntegrityViolationException.class).isThrownBy(() ->
-                TenantContext.executarComo(conta.contaId(), () ->
+                conta.comoUsuario(() ->
                         produtos.save(ProdutoEntity.de(comCodigo("Segundo", "abc-12")))));
     }
 
@@ -65,11 +65,11 @@ class CodigoDeProdutoTest extends TesteDeIntegracao {
         ContaCriada contaA = criador.criar("Negocio A", SENHA_DE_TESTE);
         ContaCriada contaB = criador.criar("Negocio B", SENHA_DE_TESTE);
 
-        TenantContext.executarComo(contaA.contaId(), () ->
+        contaA.comoUsuario(() ->
                 produtos.save(ProdutoEntity.de(comCodigo("Item da A", "REF-1"))));
 
         assertThatNoException().isThrownBy(() ->
-                TenantContext.executarComo(contaB.contaId(), () ->
+                contaB.comoUsuario(() ->
                         produtos.save(ProdutoEntity.de(comCodigo("Item da B", "REF-1")))));
     }
 
@@ -81,7 +81,7 @@ class CodigoDeProdutoTest extends TesteDeIntegracao {
         // O soft delete mantém o registro para sempre; uma unicidade que valesse também entre os
         // inativos queimaria um código a cada item que sai de linha, o que é inviável em catálogo
         // pequeno.
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             Produto saiuDeLinha = comCodigo("Modelo antigo", "REF-9");
             saiuDeLinha.inativar();
             produtos.save(ProdutoEntity.de(saiuDeLinha));
@@ -93,7 +93,7 @@ class CodigoDeProdutoTest extends TesteDeIntegracao {
             return produtos.save(ProdutoEntity.de(comCodigo("Modelo novo", "REF-9")));
         });
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(produtos.findByAtivoTrue())
                         .as("só o modelo novo está ativo com o código REF-9")
                         .hasSize(1));
@@ -107,14 +107,14 @@ class CodigoDeProdutoTest extends TesteDeIntegracao {
         // No Postgres um índice único aceita vários nulos, então isso funciona sem caso especial, e
         // cobre também o produto vindo do catálogo inicial, que nasce sem código.
         assertThatNoException().isThrownBy(() ->
-                TenantContext.executarComo(conta.contaId(), () -> {
+                conta.comoUsuario(() -> {
                     produtos.save(ProdutoEntity.de(comCodigo("Corte", null)));
                     produtos.save(ProdutoEntity.de(comCodigo("Escova", null)));
                     // Texto em branco vira ausência, e não um código vazio disputando o índice.
                     return produtos.save(ProdutoEntity.de(comCodigo("Hidratacao", "   ")));
                 }));
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(produtos.findByAtivoTrue()).hasSize(3));
     }
 }

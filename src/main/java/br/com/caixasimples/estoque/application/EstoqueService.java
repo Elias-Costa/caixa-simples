@@ -5,6 +5,7 @@ import br.com.caixasimples.cadastro.application.ProdutoService;
 import br.com.caixasimples.cadastro.application.ProdutoService.EstoqueDoProduto;
 import br.com.caixasimples.contas.application.ContaService;
 import br.com.caixasimples.shared.TenantContext;
+import br.com.caixasimples.shared.UsuarioContext;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
@@ -30,6 +31,11 @@ import org.springframework.stereotype.Service;
  *
  * <p>A conta vem sempre do contexto, nunca de parâmetro (RNF05); é por isso que nenhum método
  * recebe conta, e é a mesma razão pela qual {@code ContaService} não a recebe.
+ *
+ * <p><strong>Os três são do administrador (RF30)</strong>, e cada um pergunta isso na primeira
+ * linha, antes mesmo de perguntar pelo controle: estoque é configuração do negócio, não tarefa
+ * do balcão. A pergunta mora aqui, e não nos casos de uso do cadastro que executam, pelo mesmo
+ * motivo da política do controle: este módulo decide quem participa.
  *
  * <p>O alerta de estoque baixo é uma <strong>consulta</strong>, não um evento: a tela pergunta e
  * mostra a lista. Não há quem ouça um evento de estoque baixo hoje; quando o envio por canal
@@ -59,12 +65,14 @@ public class EstoqueService {
      * @param produtoId o produto, nesta conta
      * @param diferenca o que soma ou subtrai do saldo, com sinal; nunca zero
      * @param motivo    obrigatório (RF19)
+     * @throws br.com.caixasimples.shared.AcessoNegadoException se quem chama não é ADMIN
      * @throws ControleDeEstoqueDesligadoException se a conta não ligou o controle de estoque
      * @throws ProdutoNaoEncontradoException       se o id não existe nesta conta
      * @throws IllegalStateException               se o item é SERVICO ou está inativo
      * @throws IllegalArgumentException            se a diferença é zero ou falta o motivo
      */
     public void ajustar(UUID produtoId, BigDecimal diferenca, String motivo) {
+        UsuarioContext.exigirAdmin();
         exigirControleLigado();
         produtos.ajustarEstoque(produtoId, diferenca, motivo);
     }
@@ -73,12 +81,14 @@ public class EstoqueService {
      * Define a partir de que saldo um produto entra na lista de estoque baixo (RF20). Zero, que é
      * o padrão de todo produto, avisa quando o item acabou; um mínimo maior avisa antes.
      *
+     * @throws br.com.caixasimples.shared.AcessoNegadoException se quem chama não é ADMIN
      * @throws ControleDeEstoqueDesligadoException se a conta não ligou o controle de estoque
      * @throws ProdutoNaoEncontradoException       se o id não existe nesta conta
      * @throws IllegalStateException               se o item é SERVICO ou está inativo
      * @throws IllegalArgumentException            se o mínimo é negativo ou tem mais de três casas
      */
     public void definirEstoqueMinimo(UUID produtoId, BigDecimal minimo) {
+        UsuarioContext.exigirAdmin();
         exigirControleLigado();
         produtos.definirEstoqueMinimo(produtoId, minimo);
     }
@@ -87,9 +97,11 @@ public class EstoqueService {
      * Os produtos ativos da conta cujo saldo chegou ao mínimo ou ficou abaixo dele (RF20). É o
      * alerta de estoque baixo: uma lista que a tela mostra, e vazia quando não há o que repor.
      *
+     * @throws br.com.caixasimples.shared.AcessoNegadoException se quem chama não é ADMIN
      * @throws ControleDeEstoqueDesligadoException se a conta não ligou o controle de estoque
      */
     public List<EstoqueDoProduto> produtosComEstoqueBaixo() {
+        UsuarioContext.exigirAdmin();
         exigirControleLigado();
         return produtos.listarComEstoqueBaixo();
     }

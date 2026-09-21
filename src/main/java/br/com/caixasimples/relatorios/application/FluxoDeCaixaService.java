@@ -4,6 +4,7 @@ import br.com.caixasimples.caixa.TipoMovimentoCaixa;
 import br.com.caixasimples.relatorios.internal.MovimentoCaixaParaRelatorioRepository;
 import br.com.caixasimples.relatorios.internal.TotalPorTipoDeMovimento;
 import br.com.caixasimples.shared.Money;
+import br.com.caixasimples.shared.UsuarioContext;
 import java.time.LocalDate;
 import java.util.EnumMap;
 import java.util.List;
@@ -36,6 +37,9 @@ import org.springframework.transaction.annotation.Transactional;
  * atravessa a meia-noite reparte os movimentos entre os dois dias.
  *
  * <p>O módulo só lê, e a conta vem sempre do contexto, nunca de parâmetro (RNF05).
+ *
+ * <p><strong>É relatório do administrador (RF30):</strong> o fluxo é o da conta inteira, e o
+ * operador não o lê.
  */
 @Service
 public class FluxoDeCaixaService {
@@ -52,10 +56,12 @@ public class FluxoDeCaixaService {
      *
      * @param inicio o primeiro dia, obrigatório
      * @param fim    o último dia, obrigatório; pode ser o mesmo que o primeiro
+     * @throws br.com.caixasimples.shared.AcessoNegadoException se quem chama não é ADMIN
      * @throws IllegalArgumentException se {@code fim} vem antes de {@code inicio}
      */
     @Transactional(readOnly = true)
     public FluxoDeCaixa doPeriodo(LocalDate inicio, LocalDate fim) {
+        UsuarioContext.exigirAdmin();
         Periodo periodo = new Periodo(inicio, fim);
 
         List<TotalPorTipoDeMovimento> linhas = movimentos.totaisPorTipoEntre(

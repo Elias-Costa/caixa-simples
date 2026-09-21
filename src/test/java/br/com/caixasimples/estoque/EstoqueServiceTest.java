@@ -13,8 +13,10 @@ import br.com.caixasimples.cadastro.application.ProdutoService.EstoqueDoProduto;
 import br.com.caixasimples.cadastro.internal.ProdutoRepository;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
+import br.com.caixasimples.contas.CriadorDeContaDeTeste.UsuarioCriado;
 import br.com.caixasimples.estoque.application.ControleDeEstoqueDesligadoException;
 import br.com.caixasimples.estoque.application.EstoqueService;
+import br.com.caixasimples.shared.AcessoNegadoException;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.TenantContext;
 import java.math.BigDecimal;
@@ -65,17 +67,17 @@ class EstoqueServiceTest extends TesteDeIntegracao {
         UUID shampooId = cadastrar(salao, "Shampoo");
 
         assertThatExceptionOfType(ControleDeEstoqueDesligadoException.class)
-                .isThrownBy(() -> TenantContext.executarComo(salao.contaId(), () ->
+                .isThrownBy(() -> salao.comoUsuario(() ->
                         estoqueService.ajustar(shampooId, new BigDecimal("5"), "contagem")))
                 .withMessageContaining("nao controla estoque");
         assertThatExceptionOfType(ControleDeEstoqueDesligadoException.class)
-                .isThrownBy(() -> TenantContext.executarComo(salao.contaId(), () ->
+                .isThrownBy(() -> salao.comoUsuario(() ->
                         estoqueService.definirEstoqueMinimo(shampooId, new BigDecimal("2"))));
         assertThatExceptionOfType(ControleDeEstoqueDesligadoException.class)
-                .isThrownBy(() -> TenantContext.executarComo(salao.contaId(),
+                .isThrownBy(() -> salao.comoUsuario(
                         estoqueService::produtosComEstoqueBaixo));
 
-        TenantContext.executarComo(salao.contaId(), () -> {
+        salao.comoUsuario(() -> {
             assertThat(saldoDe(shampooId)).isEqualByComparingTo("0");
             assertThat(minimoDe(shampooId)).isEqualByComparingTo("0");
         });
@@ -90,19 +92,19 @@ class EstoqueServiceTest extends TesteDeIntegracao {
         UUID cafeId = cadastrar(cafeteria, "Cafe em graos");
 
         // Sem movimento nenhum, os dois estão zerados, e zerado é baixo por padrão.
-        TenantContext.executarComo(cafeteria.contaId(), () ->
+        cafeteria.comoUsuario(() ->
                 assertThat(estoqueService.produtosComEstoqueBaixo())
                         .extracting(EstoqueDoProduto::id)
                         .containsExactlyInAnyOrder(leiteId, cafeId));
 
-        TenantContext.executarComo(cafeteria.contaId(), () -> {
+        cafeteria.comoUsuario(() -> {
             estoqueService.ajustar(leiteId, new BigDecimal("12"), "contagem inicial");
             estoqueService.ajustar(cafeId, new BigDecimal("4"), "contagem inicial");
             estoqueService.definirEstoqueMinimo(cafeId, new BigDecimal("5"));
         });
 
         // O leite repôs e saiu do alerta; o café tem 4 com mínimo 5, e continua.
-        TenantContext.executarComo(cafeteria.contaId(), () -> {
+        cafeteria.comoUsuario(() -> {
             assertThat(saldoDe(leiteId)).isEqualByComparingTo("12");
             assertThat(estoqueService.produtosComEstoqueBaixo())
                     .extracting(EstoqueDoProduto::id)
@@ -110,9 +112,9 @@ class EstoqueServiceTest extends TesteDeIntegracao {
         });
 
         // Uma perda leva o leite de volta ao alerta.
-        TenantContext.executarComo(cafeteria.contaId(), () ->
+        cafeteria.comoUsuario(() ->
                 estoqueService.ajustar(leiteId, new BigDecimal("-12"), "vencido"));
-        TenantContext.executarComo(cafeteria.contaId(), () ->
+        cafeteria.comoUsuario(() ->
                 assertThat(estoqueService.produtosComEstoqueBaixo())
                         .extracting(EstoqueDoProduto::id)
                         .containsExactlyInAnyOrder(leiteId, cafeId));
@@ -126,11 +128,11 @@ class EstoqueServiceTest extends TesteDeIntegracao {
         UUID paoId = cadastrar(cafeteria, "Pao frances");
 
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> TenantContext.executarComo(cafeteria.contaId(), () ->
+                .isThrownBy(() -> cafeteria.comoUsuario(() ->
                         estoqueService.ajustar(paoId, new BigDecimal("-3"), null)))
                 .withMessageContaining("motivo");
 
-        TenantContext.executarComo(cafeteria.contaId(), () ->
+        cafeteria.comoUsuario(() ->
                 assertThat(saldoDe(paoId)).isEqualByComparingTo("0"));
     }
 
@@ -144,31 +146,55 @@ class EstoqueServiceTest extends TesteDeIntegracao {
         UUID arrozDaContaA = cadastrar(contaA, "Arroz");
 
         // Zerado, o arroz está no alerta da conta A.
-        TenantContext.executarComo(contaA.contaId(), () ->
+        contaA.comoUsuario(() ->
                 assertThat(estoqueService.produtosComEstoqueBaixo())
                         .extracting(EstoqueDoProduto::id)
                         .containsExactly(arrozDaContaA));
 
-        TenantContext.executarComo(contaB.contaId(), () ->
+        contaB.comoUsuario(() ->
                 assertThat(estoqueService.produtosComEstoqueBaixo())
                         .as("a conta B não vê o alerta da conta A")
                         .isEmpty());
         assertThatExceptionOfType(ProdutoNaoEncontradoException.class)
                 .as("para a conta B, o produto da conta A não existe")
-                .isThrownBy(() -> TenantContext.executarComo(contaB.contaId(), () ->
+                .isThrownBy(() -> contaB.comoUsuario(() ->
                         estoqueService.ajustar(arrozDaContaA, new BigDecimal("50"), "contagem")));
         assertThatExceptionOfType(ProdutoNaoEncontradoException.class)
-                .isThrownBy(() -> TenantContext.executarComo(contaB.contaId(), () ->
+                .isThrownBy(() -> contaB.comoUsuario(() ->
                         estoqueService.definirEstoqueMinimo(arrozDaContaA, BigDecimal.ONE)));
 
-        TenantContext.executarComo(contaA.contaId(), () ->
+        contaA.comoUsuario(() ->
                 assertThat(saldoDe(arrozDaContaA))
                         .as("a tentativa da conta B não moveu o saldo da conta A")
                         .isEqualByComparingTo("0"));
     }
 
+    @Test
+    @DisplayName("o operador não ajusta, não define mínimo nem lê o alerta, mesmo com o controle ligado (RF30)")
+    void operadorNaoMexeNoEstoque() {
+        ContaCriada mercearia = criador.criar("Mercearia com Atendente", SENHA_DE_TESTE);
+        criador.habilitarEstoque(mercearia.contaId());
+        UsuarioCriado operador = criador.criarOperadorEm(mercearia.contaId(), "Atendente");
+        UUID arrozId = cadastrar(mercearia, "Arroz");
+
+        assertThatExceptionOfType(AcessoNegadoException.class)
+                .isThrownBy(() -> operador.comoUsuario(() ->
+                        estoqueService.ajustar(arrozId, new BigDecimal("5"), "contagem")));
+        assertThatExceptionOfType(AcessoNegadoException.class)
+                .isThrownBy(() -> operador.comoUsuario(() ->
+                        estoqueService.definirEstoqueMinimo(arrozId, new BigDecimal("2"))));
+        assertThatExceptionOfType(AcessoNegadoException.class)
+                .isThrownBy(() -> operador.comoUsuario(
+                        estoqueService::produtosComEstoqueBaixo));
+
+        mercearia.comoUsuario(() -> {
+            assertThat(saldoDe(arrozId)).isEqualByComparingTo("0");
+            assertThat(minimoDe(arrozId)).isEqualByComparingTo("0");
+        });
+    }
+
     private UUID cadastrar(ContaCriada conta, String nome) {
-        return TenantContext.executarComo(conta.contaId(), () ->
+        return conta.comoUsuario(() ->
                 produtoService.cadastrar(TipoProduto.PRODUTO,
                         new DadosDoProduto(nome, Money.de("5.00"), null, null, "un", null)));
     }

@@ -7,6 +7,7 @@ import br.com.caixasimples.caixa.internal.SessaoCaixaEntity;
 import br.com.caixasimples.caixa.internal.SessaoCaixaRepository;
 import br.com.caixasimples.shared.FusoDeReferencia;
 import br.com.caixasimples.shared.Money;
+import br.com.caixasimples.shared.UsuarioContext;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -38,14 +39,14 @@ import org.springframework.transaction.annotation.Transactional;
  * intervalo de instantes é trabalho de quem monta a consulta, não de um agregado que só conhece o
  * próprio expediente.
  *
- * <p><strong>{@link #fechar} não pergunta quem está fechando.</strong> O {@code @TenantId} já
- * garante que a sessão é da própria conta (RNF05), e a autorização por perfil ainda não existe no
- * sistema. Até que exista, nada impede um operador de fechar o caixa do colega. É custo aceito, e
- * está escrito aqui para não passar por esquecimento.
- *
- * <p>O {@code usuarioId} chega como parâmetro porque ainda não há camada {@code web/} neste módulo.
- * Quando ela nascer, o valor virá do claim do token autenticado e nunca do payload (RNF05), que é o
- * mesmo que já vale para o {@code contaId}, o qual não aparece em assinatura nenhuma deste arquivo.
+ * <p><strong>Quem chama vem do contexto, nunca de parâmetro.</strong> O operador da sessão é o
+ * usuário autenticado, lido de {@link UsuarioContext} na abertura, e o {@code contaId} não
+ * aparece em assinatura nenhuma deste arquivo (RNF05). É a regra do <strong>próprio
+ * caixa</strong>: o perfil Operador abre caixa só para si e só lança, fecha e consulta a sessão
+ * que ele abriu; o administrador faz tudo isso em qualquer sessão da conta, porque é ele quem
+ * fecha o caixa do atendente que foi embora. Cada caso de uso pergunta isso por
+ * {@code exigirDonoOuAdmin} logo depois de carregar a sessão, e o {@code @TenantId} continua
+ * garantindo, antes disso, que a sessão é da própria conta.
  */
 @Service
 public class SessaoCaixaService {
@@ -67,14 +68,18 @@ public class SessaoCaixaService {
      * esse caso de qualquer outra falha. O índice único parcial da migration V6 continua existindo
      * como rede, para duas requisições simultâneas que passem juntas por esta checagem.
      *
+     * <p>O caixa é sempre de quem está abrindo: não existe abrir caixa em nome de outro operador,
+     * nem para o administrador, porque a sessão é a gaveta de quem vai vender nela.
+     *
      * @param valorAbertura zero vale, negativo não; quem recusa é a raiz do agregado
      * @return o id da sessão criada, gerado na aplicação e nunca pelo banco (RNF01, RNF03)
+     * @throws br.com.caixasimples.shared.UsuarioNaoResolvidoException se não há usuário no contexto
      * @throws OperadorJaTemCaixaAbertoException se o operador já tem uma sessão ABERTA
      * @throws IllegalArgumentException          se {@code valorAbertura} é negativo
      */
     @Transactional
-    public UUID abrir(UUID usuarioId, Money valorAbertura) {
-        Objects.requireNonNull(usuarioId, "usuarioId nao pode ser nulo");
+    public UUID abrir(Money valorAbertura) {
+        UUID usuarioId = UsuarioContext.exigirAtual().usuarioId();
 
         if (sessoes.existsByUsuarioIdAndStatus(usuarioId, StatusSessaoCaixa.ABERTA)) {
             throw new OperadorJaTemCaixaAbertoException(usuarioId);
@@ -88,6 +93,8 @@ public class SessaoCaixaService {
      * Sangria (RF14): retirada de dinheiro do caixa, com motivo obrigatório.
      *
      * @throws SessaoCaixaNaoEncontradaException se o id não existe nesta conta
+     * @throws br.com.caixasimples.shared.AcessoNegadoException se a sessão é de outro operador e
+     *                                           quem chama não é ADMIN
      * @throws IllegalArgumentException          se falta motivo, ou se a retirada deixaria o
      *                                           esperado negativo
      * @throws IllegalStateException             se a sessão já está FECHADA
@@ -96,6 +103,7 @@ public class SessaoCaixaService {
     public void registrarSangria(UUID sessaoId, Money valor, String motivo) {
         SessaoCaixaEntity linha = buscar(sessaoId);
         SessaoCaixa sessao = linha.paraDominio();
+        UsuarioContext.exigirDonoOuAdmin(sessao.getUsuarioId());
 
         sessao.sangrar(valor, motivo);
 
@@ -107,6 +115,8 @@ public class SessaoCaixaService {
      * Suprimento (RF14): reforço de troco, com motivo obrigatório.
      *
      * @throws SessaoCaixaNaoEncontradaException se o id não existe nesta conta
+     * @throws br.com.caixasimples.shared.AcessoNegadoException se a sessão é de outro operador e
+     *                                           quem chama não é ADMIN
      * @throws IllegalArgumentException          se falta motivo
      * @throws IllegalStateException             se a sessão já está FECHADA
      */
@@ -114,6 +124,7 @@ public class SessaoCaixaService {
     public void registrarSuprimento(UUID sessaoId, Money valor, String motivo) {
         SessaoCaixaEntity linha = buscar(sessaoId);
         SessaoCaixa sessao = linha.paraDominio();
+        UsuarioContext.exigirDonoOuAdmin(sessao.getUsuarioId());
 
         sessao.suprir(valor, motivo);
 
@@ -132,6 +143,8 @@ public class SessaoCaixaService {
      * <p>Positivo é falta na gaveta, negativo é sobra.
      *
      * @throws SessaoCaixaNaoEncontradaException se o id não existe nesta conta
+     * @throws br.com.caixasimples.shared.AcessoNegadoException se a sessão é de outro operador e
+     *                                           quem chama não é ADMIN
      * @throws IllegalArgumentException          se {@code valorContado} é negativo
      * @throws IllegalStateException             se a sessão já está FECHADA
      */
@@ -139,6 +152,7 @@ public class SessaoCaixaService {
     public Money fechar(UUID sessaoId, Money valorContado) {
         SessaoCaixaEntity linha = buscar(sessaoId);
         SessaoCaixa sessao = linha.paraDominio();
+        UsuarioContext.exigirDonoOuAdmin(sessao.getUsuarioId());
 
         Money diferenca = sessao.fechar(valorContado);
 
@@ -161,11 +175,17 @@ public class SessaoCaixaService {
      * depois das 21h cairia no dia seguinte: meio expediente no dia errado, sem nada denunciando o
      * erro.
      *
+     * <p>O operador só pede o próprio histórico: o dia inteiro da conta, sem operador, é
+     * pergunta do administrador, e pedir o histórico do colega também.
+     *
      * @param dia             o dia local do balcão, obrigatório
      * @param operadorOuNulo  o operador, ou {@code null} para o dia inteiro da conta
+     * @throws br.com.caixasimples.shared.AcessoNegadoException se quem chama não é ADMIN e pede
+     *         outro operador ou a conta inteira
      */
     @Transactional(readOnly = true)
     public List<ResumoDeSessao> historicoDoDia(LocalDate dia, UUID operadorOuNulo) {
+        UsuarioContext.exigirDonoOuAdmin(operadorOuNulo);
         Instant inicio = FusoDeReferencia.inicioDoDia(dia);
         Instant fim = FusoDeReferencia.inicioDoDiaSeguinte(dia);
 
@@ -191,14 +211,22 @@ public class SessaoCaixaService {
      * <p>Sai como projeção, e não pelo agregado, pelo motivo do histórico: carregar a sessão
      * inteira traria o extrato do expediente para responder uma pergunta de uma coluna.
      *
+     * <p>A regra do próprio caixa vale também aqui, e é por isso que a venda não precisa conhecer
+     * o dono da sessão: quando o operador tenta iniciar, concluir ou cancelar uma venda no caixa
+     * do colega, a pergunta da venda passa por esta consulta e é recusada aqui.
+     *
      * @throws SessaoCaixaNaoEncontradaException se o id não existe nesta conta
+     * @throws br.com.caixasimples.shared.AcessoNegadoException se a sessão é de outro operador e
+     *         quem chama não é ADMIN
      */
     @Transactional(readOnly = true)
     public ResumoDeSessao consultar(UUID sessaoId) {
         Objects.requireNonNull(sessaoId, "id da sessao de caixa nao pode ser nulo");
-        return sessoes.findLinhaById(sessaoId)
+        ResumoDeSessao resumo = sessoes.findLinhaById(sessaoId)
                 .map(ResumoDeSessao::de)
                 .orElseThrow(() -> new SessaoCaixaNaoEncontradaException(sessaoId));
+        UsuarioContext.exigirDonoOuAdmin(resumo.usuarioId());
+        return resumo;
     }
 
     /**

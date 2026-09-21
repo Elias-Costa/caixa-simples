@@ -10,6 +10,7 @@ import br.com.caixasimples.pagamentos.domain.SolicitacaoPagamento;
 import br.com.caixasimples.shared.ContaId;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.TenantContext;
+import br.com.caixasimples.shared.UsuarioContext;
 import br.com.caixasimples.vendas.CaixaParaVenda;
 import br.com.caixasimples.vendas.StatusVenda;
 import br.com.caixasimples.vendas.VendaCancelada;
@@ -90,24 +91,23 @@ import org.springframework.transaction.annotation.Transactional;
  * Uma venda CONCLUIDA paga só em Pix ou cartão também exige o caixa aberto, mesmo sem ter
  * dinheiro na gaveta a devolver: a regra é uma só, e vale por ser uma só.
  *
- * <p><strong>{@link #iniciar} não confere se o operador da venda é o operador da sessão.</strong>
- * O {@code @TenantId} já garante que a sessão é da própria conta (RNF05), e a autorização por
- * perfil ainda não existe no sistema. Até que exista, um operador pode vender no caixa do colega.
- * É custo aceito, o mesmo do fechamento de caixa, e está escrito aqui para não passar por
- * esquecimento.
+ * <p><strong>Quem vende vem do contexto, nunca de parâmetro.</strong> O operador da venda é o
+ * usuário autenticado, lido de {@link UsuarioContext} em {@link #iniciar}, e o {@code contaId}
+ * não aparece em assinatura nenhuma deste arquivo (RNF05). A partir daí vale a regra do próprio
+ * caixa: o perfil Operador só toca as próprias vendas, e cada caso de uso pergunta isso por
+ * {@code exigirDonoOuAdmin} logo depois de carregar a venda; o administrador toca qualquer venda
+ * da conta. Que a sessão em que a venda nasce seja a do operador é regra do caixa, e vale na
+ * pergunta que este serviço lhe faz: o operador que tenta iniciar, concluir ou cancelar uma venda
+ * no caixa do colega é recusado pelo caixa ao responder se a sessão está aberta.
  *
  * <p><strong>Não há como desfazer uma parcela lançada.</strong> Uma parcela com o valor errado se
  * corrige cancelando a venda e abrindo outra. <strong>O cancelamento não registra motivo, nem
- * quem cancelou, nem quando:</strong> nenhum requisito pede, e restringir quem pode cancelar é
- * assunto dos perfis de acesso, que ainda não existem. <strong>Não há cliente na venda
+ * quem cancelou, nem quando:</strong> nenhum requisito pede; quem pode cancelar é quem pode
+ * tocar a venda, o operador dela ou o administrador. <strong>Não há cliente na venda
  * ainda.</strong> Vincular cliente (RF03) é operação própria, porque numa comanda ele costuma ser
  * identificado depois do primeiro item, e chega junto de uma consulta pública do cadastro que
  * confirme que o cliente é desta conta.
  *
- * <p>O {@code usuarioId} chega como parâmetro porque ainda não há camada {@code web/} neste
- * módulo. Quando ela nascer, o valor virá do claim do token autenticado e nunca do payload (RNF05),
- * que é o mesmo que já vale para o {@code contaId}, o qual não aparece em assinatura nenhuma deste
- * arquivo.
  */
 @Service
 public class VendaService {
@@ -131,14 +131,16 @@ public class VendaService {
      * Abre uma comanda (RF07) numa sessão de caixa ABERTA desta conta.
      *
      * @return o id da venda criada, gerado na aplicação e nunca pelo banco (RNF01, RNF03)
-     * @throws RuntimeException      se a sessão não existe nesta conta; a exceção é a do módulo do
-     *                               caixa e atravessa {@link CaixaParaVenda} sem tradução
+     * @throws br.com.caixasimples.shared.UsuarioNaoResolvidoException se não há usuário no contexto
+     * @throws RuntimeException      se a sessão não existe nesta conta, ou se é de outro operador
+     *                               e quem chama não é ADMIN; a exceção é a do módulo do caixa e
+     *                               atravessa {@link CaixaParaVenda} sem tradução
      * @throws IllegalStateException se a sessão não está ABERTA
      */
     @Transactional
-    public UUID iniciar(UUID sessaoCaixaId, UUID usuarioId) {
+    public UUID iniciar(UUID sessaoCaixaId) {
         Objects.requireNonNull(sessaoCaixaId, "id da sessao de caixa nao pode ser nulo");
-        Objects.requireNonNull(usuarioId, "usuarioId nao pode ser nulo");
+        UUID usuarioId = UsuarioContext.exigirAtual().usuarioId();
 
         if (!caixa.estaAberto(sessaoCaixaId)) {
             throw new IllegalStateException(
@@ -156,6 +158,8 @@ public class VendaService {
      * @param desconto desconto deste item (RF08); {@code Money.ZERO} quando não há
      * @return o id do item, para que quem lançou consiga removê-lo depois
      * @throws VendaNaoEncontradaException se a venda não existe nesta conta
+     * @throws br.com.caixasimples.shared.AcessoNegadoException se a venda é de outro operador e
+     *                                     quem chama não é ADMIN
      * @throws br.com.caixasimples.cadastro.application.ProdutoNaoEncontradoException se o
      *         produto não existe nesta conta
      * @throws IllegalStateException    se o produto está inativo, ou se a venda não está ABERTA
@@ -165,6 +169,7 @@ public class VendaService {
     public UUID adicionarItem(UUID vendaId, UUID produtoId, BigDecimal quantidade, Money desconto) {
         VendaEntity linha = buscar(vendaId);
         Venda venda = linha.paraDominio();
+        UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
 
         ProdutoParaVenda produto = produtos.consultarParaVenda(produtoId);
         if (!produto.ativo()) {
@@ -185,6 +190,8 @@ public class VendaService {
      * Tira um item da comanda. Corrigir um item é isto seguido de {@link #adicionarItem}.
      *
      * @throws VendaNaoEncontradaException se a venda não existe nesta conta
+     * @throws br.com.caixasimples.shared.AcessoNegadoException se a venda é de outro operador e
+     *                                     quem chama não é ADMIN
      * @throws IllegalArgumentException    se o item não está na venda, ou se removê-lo deixaria o
      *                                     desconto da venda maior que a soma restante
      * @throws IllegalStateException       se a venda não está ABERTA
@@ -193,6 +200,7 @@ public class VendaService {
     public void removerItem(UUID vendaId, UUID itemId) {
         VendaEntity linha = buscar(vendaId);
         Venda venda = linha.paraDominio();
+        UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
 
         venda.removerItem(itemId);
 
@@ -204,6 +212,8 @@ public class VendaService {
      * Desconto sobre o total da venda (RF08). Substitui o anterior; zero o remove.
      *
      * @throws VendaNaoEncontradaException se a venda não existe nesta conta
+     * @throws br.com.caixasimples.shared.AcessoNegadoException se a venda é de outro operador e
+     *                                     quem chama não é ADMIN
      * @throws IllegalArgumentException    se o desconto é negativo ou passa da soma dos itens
      * @throws IllegalStateException       se a venda não está ABERTA
      */
@@ -211,6 +221,7 @@ public class VendaService {
     public void aplicarDesconto(UUID vendaId, Money desconto) {
         VendaEntity linha = buscar(vendaId);
         Venda venda = linha.paraDominio();
+        UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
 
         venda.aplicarDesconto(desconto);
 
@@ -229,6 +240,8 @@ public class VendaService {
      * @return o troco a devolver; zero nas formas que não devolvem dinheiro. Fica gravado na
      *         parcela e é devolvido aqui também, para a tela mostrar no ato
      * @throws VendaNaoEncontradaException se a venda não existe nesta conta
+     * @throws br.com.caixasimples.shared.AcessoNegadoException se a venda é de outro operador e
+     *                                     quem chama não é ADMIN
      * @throws br.com.caixasimples.pagamentos.application.FormaDePagamentoNaoSuportadaException se
      *         nenhuma estratégia atende a forma pedida
      * @throws IllegalArgumentException se a solicitação não serve para a forma, como dinheiro
@@ -240,6 +253,7 @@ public class VendaService {
         Objects.requireNonNull(solicitacao, "solicitacao de pagamento nao pode ser nula");
         VendaEntity linha = buscar(vendaId);
         Venda venda = linha.paraDominio();
+        UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
 
         ResultadoPagamento resultado = pagamentos.pagar(solicitacao);
         venda.registrarPagamento(resultado.forma(), resultado.valor(), resultado.status(),
@@ -259,6 +273,8 @@ public class VendaService {
      * nem a venda nem o evento existem.
      *
      * @throws VendaNaoEncontradaException se a venda não existe nesta conta
+     * @throws br.com.caixasimples.shared.AcessoNegadoException se a venda é de outro operador e
+     *                                     quem chama não é ADMIN
      * @throws IllegalStateException       se a sessão de caixa da venda não está ABERTA, se a
      *                                     venda não está ABERTA, não tem item, ou os pagamentos
      *                                     confirmados não cobrem exatamente o total
@@ -267,6 +283,7 @@ public class VendaService {
     public void concluir(UUID vendaId) {
         VendaEntity linha = buscar(vendaId);
         Venda venda = linha.paraDominio();
+        UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
 
         if (!caixa.estaAberto(venda.getSessaoCaixaId())) {
             throw new IllegalStateException(
@@ -294,6 +311,8 @@ public class VendaService {
      * ele que decide se há fato a anunciar.
      *
      * @throws VendaNaoEncontradaException se a venda não existe nesta conta
+     * @throws br.com.caixasimples.shared.AcessoNegadoException se a venda é de outro operador e
+     *                                     quem chama não é ADMIN
      * @throws IllegalStateException       se a venda está CONCLUIDA e a sessão de caixa em que
      *                                     nasceu não está mais ABERTA, ou se a venda já está
      *                                     CANCELADA
@@ -302,6 +321,7 @@ public class VendaService {
     public void cancelar(UUID vendaId) {
         VendaEntity linha = buscar(vendaId);
         Venda venda = linha.paraDominio();
+        UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
 
         boolean estavaConcluida = venda.getStatus() == StatusVenda.CONCLUIDA;
         if (estavaConcluida && !caixa.estaAberto(venda.getSessaoCaixaId())) {
@@ -336,11 +356,14 @@ public class VendaService {
      * qualquer pergunta ao cadastro.
      *
      * @throws VendaNaoEncontradaException se a venda não existe nesta conta
+     * @throws br.com.caixasimples.shared.AcessoNegadoException se a venda é de outro operador e
+     *                                     quem chama não é ADMIN
      * @throws IllegalStateException       se a venda não está CONCLUIDA
      */
     @Transactional(readOnly = true)
     public Comprovante comprovante(UUID vendaId) {
         Venda venda = buscar(vendaId).paraDominio();
+        UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
 
         if (venda.getStatus() != StatusVenda.CONCLUIDA) {
             throw new IllegalStateException(

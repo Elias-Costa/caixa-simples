@@ -3,6 +3,7 @@ package br.com.caixasimples.relatorios;
 import static br.com.caixasimples.caixa.CriadorDeSessaoCaixaDeTeste.lancado;
 import static br.com.caixasimples.caixa.CriadorDeSessaoCaixaDeTeste.lancadoDaVenda;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 
 import br.com.caixasimples.TesteDeIntegracao;
@@ -12,8 +13,10 @@ import br.com.caixasimples.caixa.application.SessaoCaixaService;
 import br.com.caixasimples.caixa.domain.MovimentoCaixa;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
+import br.com.caixasimples.contas.CriadorDeContaDeTeste.UsuarioCriado;
 import br.com.caixasimples.relatorios.application.FluxoDeCaixaService;
 import br.com.caixasimples.relatorios.application.FluxoDeCaixaService.FluxoDeCaixa;
+import br.com.caixasimples.shared.AcessoNegadoException;
 import br.com.caixasimples.shared.FusoDeReferencia;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.TenantContext;
@@ -98,11 +101,11 @@ class FluxoDeCaixaServiceTest extends TesteDeIntegracao {
                 lancadoDaVenda(TipoMovimentoCaixa.VENDA, Money.de("100.00"), vendaDeOntem,
                         noBalcao(DIA.minusDays(1), LocalTime.of(23, 59, 59)))));
 
-        FluxoDeCaixa doDia = TenantContext.executarComo(conta.contaId(),
+        FluxoDeCaixa doDia = conta.comoUsuario(
                 () -> fluxo.doPeriodo(DIA, DIA));
-        FluxoDeCaixa doDiaSeguinte = TenantContext.executarComo(conta.contaId(),
+        FluxoDeCaixa doDiaSeguinte = conta.comoUsuario(
                 () -> fluxo.doPeriodo(DIA.plusDays(1), DIA.plusDays(1)));
-        FluxoDeCaixa dosTresDias = TenantContext.executarComo(conta.contaId(),
+        FluxoDeCaixa dosTresDias = conta.comoUsuario(
                 () -> fluxo.doPeriodo(DIA.minusDays(1), DIA.plusDays(1)));
 
         assertThat(doDia.inicio()).isEqualTo(DIA);
@@ -127,17 +130,27 @@ class FluxoDeCaixaServiceTest extends TesteDeIntegracao {
     }
 
     @Test
+    @DisplayName("o operador não lê o fluxo de caixa: é relatório do administrador (RF30)")
+    void operadorNaoLeOFluxo() {
+        ContaCriada conta = criador.criar("Mercearia com Atendente", SENHA_DE_TESTE);
+        UsuarioCriado operador = criador.criarOperadorEm(conta.contaId(), "Atendente");
+
+        assertThatExceptionOfType(AcessoNegadoException.class)
+                .isThrownBy(() -> operador.comoUsuario(() -> fluxo.doPeriodo(DIA, DIA)));
+    }
+
+    @Test
     @DisplayName("período sem movimento devolve tudo zero, nunca nulo; período invertido é recusado")
     void periodoSemMovimentoEPeriodoInvertido() {
         ContaCriada conta = criador.criar("Mercearia da Rua", SENHA_DE_TESTE);
 
-        FluxoDeCaixa vazio = TenantContext.executarComo(conta.contaId(),
+        FluxoDeCaixa vazio = conta.comoUsuario(
                 () -> fluxo.doPeriodo(DIA, DIA));
 
         assertThat(vazio).isEqualTo(new FluxoDeCaixa(DIA, DIA, Money.ZERO, Money.ZERO, Money.ZERO,
                 Money.ZERO, Money.ZERO, Money.ZERO, Money.ZERO));
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThatIllegalArgumentException()
                         .isThrownBy(() -> fluxo.doPeriodo(DIA, DIA.minusDays(1)))
                         .withMessageContaining("nao pode vir antes do inicio"));
@@ -159,11 +172,11 @@ class FluxoDeCaixaServiceTest extends TesteDeIntegracao {
                 lancado(TipoMovimentoCaixa.SUPRIMENTO, Money.de("15.00"), "troco",
                         noBalcao(DIA, LocalTime.of(8, 0)))));
 
-        FluxoDeCaixa deA = TenantContext.executarComo(contaA.contaId(),
+        FluxoDeCaixa deA = contaA.comoUsuario(
                 () -> fluxo.doPeriodo(DIA, DIA));
-        FluxoDeCaixa deB = TenantContext.executarComo(contaB.contaId(),
+        FluxoDeCaixa deB = contaB.comoUsuario(
                 () -> fluxo.doPeriodo(DIA, DIA));
-        FluxoDeCaixa deC = TenantContext.executarComo(contaC.contaId(),
+        FluxoDeCaixa deC = contaC.comoUsuario(
                 () -> fluxo.doPeriodo(DIA, DIA));
 
         assertThat(deA.entradas()).isEqualTo(Money.de("10.00"));
@@ -191,8 +204,8 @@ class FluxoDeCaixaServiceTest extends TesteDeIntegracao {
      * movimentos apontam terem uma sessão a que apontar.
      */
     private Cenario prepararCenario(ContaCriada conta) {
-        UUID sessaoCaixaId = TenantContext.executarComo(conta.contaId(),
-                () -> caixas.abrir(conta.usuarioId(), Money.ZERO));
+        UUID sessaoCaixaId = conta.comoUsuario(
+                () -> caixas.abrir(Money.ZERO));
         return new Cenario(conta, sessaoCaixaId);
     }
 

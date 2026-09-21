@@ -49,9 +49,9 @@ class MovimentoCaixaDoAgregadoTest extends TesteDeIntegracao {
         SessaoCaixa sessao = new SessaoCaixa(conta.usuarioId(), Money.de("80.00"));
         sessao.sangrar(Money.de("20.00"), "Deposito bancario");
 
-        TenantContext.executarComo(conta.contaId(), () -> sessoes.save(SessaoCaixaEntity.de(sessao)));
+        conta.comoUsuario(() -> sessoes.save(SessaoCaixaEntity.de(sessao)));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             SessaoCaixaEntity gravada = sessoes.findById(sessao.getId()).orElseThrow();
 
             assertThat(gravada.getMovimentos())
@@ -72,13 +72,13 @@ class MovimentoCaixaDoAgregadoTest extends TesteDeIntegracao {
         SessaoCaixa sessaoDaContaA = new SessaoCaixa(contaA.usuarioId(), Money.de("40.00"));
         sessaoDaContaA.suprir(Money.de("15.00"), "Troco inicial");
 
-        TenantContext.executarComo(contaA.contaId(), () ->
+        contaA.comoUsuario(() ->
                 sessoes.save(SessaoCaixaEntity.de(sessaoDaContaA)));
 
         // Como não existe repositório para o membro do agregado, a única porta para ele é a raiz, e
         // a raiz já está fechada para a conta B. Esse é o desenho: menos um caminho de consulta é
         // menos um lugar onde o filtro poderia faltar.
-        TenantContext.executarComo(contaB.contaId(), () ->
+        contaB.comoUsuario(() ->
                 assertThat(sessoes.findById(sessaoDaContaA.getId())).isEmpty());
     }
 }

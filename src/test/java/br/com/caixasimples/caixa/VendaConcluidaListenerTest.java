@@ -101,7 +101,7 @@ class VendaConcluidaListenerTest extends TesteDeIntegracao {
         publicar(evento);
 
         await().atMost(ESPERA).untilAsserted(() ->
-                TenantContext.executarComo(conta.contaId(), () -> {
+                conta.comoUsuario(() -> {
                     SessaoCaixa sessao = sessoes.findById(sessaoId).orElseThrow().paraDominio();
                     // 50,00 de abertura mais 10,00 e 8,93 em dinheiro; o Pix de 20,00 e as
                     // recusadas não estiveram na gaveta.
@@ -139,7 +139,7 @@ class VendaConcluidaListenerTest extends TesteDeIntegracao {
                         .extracting(EventPublication::getEvent)
                         .contains(evento));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             SessaoCaixa sessao = sessoes.findById(sessaoId).orElseThrow().paraDominio();
             assertThat(sessao.getMovimentos()).isEmpty();
             assertThat(sessao.getValorFechamentoEsperado()).isEqualTo(Money.ZERO);
@@ -161,7 +161,7 @@ class VendaConcluidaListenerTest extends TesteDeIntegracao {
 
         publicar(evento);
         await().atMost(ESPERA).untilAsserted(() ->
-                TenantContext.executarComo(conta.contaId(), () ->
+                conta.comoUsuario(() ->
                         assertThat(sessoes.findById(sessaoId).orElseThrow().paraDominio()
                                 .getMovimentos()).hasSize(1)));
 
@@ -178,7 +178,7 @@ class VendaConcluidaListenerTest extends TesteDeIntegracao {
                         .as("as duas entregas terminaram, nenhuma delas com erro")
                         .hasSize(2));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             SessaoCaixa sessao = sessoes.findById(sessaoId).orElseThrow().paraDominio();
             assertThat(sessao.getMovimentos()).hasSize(1);
             assertThat(sessao.getValorFechamentoEsperado()).isEqualTo(Money.de("30.00"));
@@ -202,15 +202,15 @@ class VendaConcluidaListenerTest extends TesteDeIntegracao {
 
         // Publicado como conta B de propósito: o listener roda em outra thread, sem tenant, e
         // tem de usar a conta que está dentro do evento, não a de quem publicou.
-        TenantContext.executarComo(contaB.contaId(), () -> publicar(evento));
+        contaB.comoUsuario(() -> publicar(evento));
 
         await().atMost(ESPERA).untilAsserted(() ->
-                TenantContext.executarComo(contaA.contaId(), () ->
+                contaA.comoUsuario(() ->
                         assertThat(sessoes.findById(sessaoDaContaA).orElseThrow().paraDominio()
                                 .getValorFechamentoEsperado())
                                 .isEqualTo(Money.de("12.00"))));
 
-        TenantContext.executarComo(contaB.contaId(), () -> {
+        contaB.comoUsuario(() -> {
             assertThat(sessoes.findById(sessaoDaContaA)).isEmpty();
             assertThat(sessoes.findAll()).isEmpty();
         });
@@ -248,8 +248,8 @@ class VendaConcluidaListenerTest extends TesteDeIntegracao {
     }
 
     private UUID abrirCaixa(ContaCriada conta, Money valorAbertura) {
-        return TenantContext.executarComo(conta.contaId(), () ->
-                sessoesDeCaixa.abrir(conta.usuarioId(), valorAbertura));
+        return conta.comoUsuario(() ->
+                sessoesDeCaixa.abrir(valorAbertura));
     }
 
     private void publicar(VendaConcluida evento) {

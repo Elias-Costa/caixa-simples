@@ -103,7 +103,7 @@ class BaixaDeEstoqueListenerTest extends TesteDeIntegracao {
         await().atMost(ESPERA).untilAsserted(() ->
                 assertThat(publicacoesDoEstoque(evento)).hasSize(1));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             assertThat(saldoDe(shampooId)).isEqualByComparingTo("0");
             assertThat(produtoService.jaDeuBaixaPorVenda(shampooId, vendaId)).isFalse();
         });
@@ -128,12 +128,12 @@ class BaixaDeEstoqueListenerTest extends TesteDeIntegracao {
         publicar(evento);
 
         await().atMost(ESPERA).untilAsserted(() ->
-                TenantContext.executarComo(conta.contaId(), () -> {
+                conta.comoUsuario(() -> {
                     assertThat(saldoDe(cafeId)).isEqualByComparingTo("-2");
                     assertThat(saldoDe(queijoId)).isEqualByComparingTo("-0.750");
                 }));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             assertThat(produtoService.jaDeuBaixaPorVenda(cafeId, vendaId)).isTrue();
             assertThat(produtoService.jaDeuBaixaPorVenda(queijoId, vendaId)).isTrue();
             assertThat(saldoDe(entregaId)).as("serviço não tem estoque").isEqualByComparingTo("0");
@@ -155,7 +155,7 @@ class BaixaDeEstoqueListenerTest extends TesteDeIntegracao {
 
         publicar(evento);
         await().atMost(ESPERA).untilAsserted(() ->
-                TenantContext.executarComo(conta.contaId(), () ->
+                conta.comoUsuario(() ->
                         assertThat(saldoDe(arrozId)).isEqualByComparingTo("-5")));
 
         // A segunda publicação do mesmo fato, depois de a primeira ter baixado, é o que uma
@@ -167,7 +167,7 @@ class BaixaDeEstoqueListenerTest extends TesteDeIntegracao {
                         .as("as duas entregas terminaram, nenhuma delas com erro")
                         .hasSize(2));
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(saldoDe(arrozId)).isEqualByComparingTo("-5"));
     }
 
@@ -188,13 +188,13 @@ class BaixaDeEstoqueListenerTest extends TesteDeIntegracao {
 
         // Publicado como conta B de propósito: o listener roda em outra thread, sem tenant, e
         // tem de usar a conta que está dentro do evento, não a de quem publicou.
-        TenantContext.executarComo(contaB.contaId(), () -> publicar(evento));
+        contaB.comoUsuario(() -> publicar(evento));
 
         await().atMost(ESPERA).untilAsserted(() ->
-                TenantContext.executarComo(contaA.contaId(), () ->
+                contaA.comoUsuario(() ->
                         assertThat(saldoDe(produtoDaContaA)).isEqualByComparingTo("-1")));
 
-        TenantContext.executarComo(contaB.contaId(), () -> {
+        contaB.comoUsuario(() -> {
             assertThat(produtos.findById(produtoDaContaA)).isEmpty();
             assertThat(produtoService.jaDeuBaixaPorVenda(produtoDaContaA, vendaDaContaA))
                     .isFalse();
@@ -210,9 +210,9 @@ class BaixaDeEstoqueListenerTest extends TesteDeIntegracao {
         UUID paoId = cadastrar(conta, "Pao frances", TipoProduto.PRODUTO);
         UUID encomendaId = cadastrar(conta, "Encomenda", TipoProduto.SERVICO);
 
-        UUID vendaId = TenantContext.executarComo(conta.contaId(), () ->
-                vendaService.iniciar(sessaoId, conta.usuarioId()));
-        TenantContext.executarComo(conta.contaId(), () -> {
+        UUID vendaId = conta.comoUsuario(() ->
+                vendaService.iniciar(sessaoId));
+        conta.comoUsuario(() -> {
             vendaService.adicionarItem(vendaId, paoId, new BigDecimal("12"), Money.ZERO);
             vendaService.adicionarItem(vendaId, encomendaId, BigDecimal.ONE, Money.ZERO);
             // 12 x 5,00 + 1 x 5,00 = 65,00.
@@ -222,22 +222,22 @@ class BaixaDeEstoqueListenerTest extends TesteDeIntegracao {
         });
 
         await().atMost(ESPERA).untilAsserted(() ->
-                TenantContext.executarComo(conta.contaId(), () ->
+                conta.comoUsuario(() ->
                         assertThat(saldoDe(paoId)).isEqualByComparingTo("-12")));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             assertThat(saldoDe(encomendaId)).isEqualByComparingTo("0");
             assertThat(produtoService.jaDeuBaixaPorVenda(paoId, vendaId)).isTrue();
         });
     }
 
     private UUID abrirCaixa(ContaCriada conta) {
-        return TenantContext.executarComo(conta.contaId(), () ->
-                sessoesDeCaixa.abrir(conta.usuarioId(), Money.ZERO));
+        return conta.comoUsuario(() ->
+                sessoesDeCaixa.abrir(Money.ZERO));
     }
 
     private UUID cadastrar(ContaCriada conta, String nome, TipoProduto tipo) {
-        return TenantContext.executarComo(conta.contaId(), () ->
+        return conta.comoUsuario(() ->
                 produtoService.cadastrar(tipo,
                         new DadosDoProduto(nome, Money.de("5.00"), null, null, "un", null)));
     }

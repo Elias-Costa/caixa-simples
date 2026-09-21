@@ -1,6 +1,7 @@
 package br.com.caixasimples.cadastro;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.tuple;
 
@@ -11,6 +12,8 @@ import br.com.caixasimples.cadastro.application.ProdutoService.DadosDoProduto;
 import br.com.caixasimples.cadastro.domain.Produto;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
+import br.com.caixasimples.contas.CriadorDeContaDeTeste.UsuarioCriado;
+import br.com.caixasimples.shared.AcessoNegadoException;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.TenantContext;
 import java.util.Map;
@@ -47,16 +50,30 @@ class CatalogoInicialServiceTest extends TesteDeIntegracao {
     }
 
     @Test
+    @DisplayName("o operador não aplica o catálogo inicial: o primeiro acesso é do dono (RF30)")
+    void operadorNaoAplicaOCatalogo() {
+        ContaCriada conta = criador.criar("Cafeteria com Atendente", SENHA_DE_TESTE);
+        UsuarioCriado operador = criador.criarOperadorEm(conta.contaId(), "Atendente");
+
+        assertThatExceptionOfType(AcessoNegadoException.class)
+                .isThrownBy(() -> operador.comoUsuario(() ->
+                        catalogoInicial.aplicarPara("cafeteria")));
+
+        conta.comoUsuario(() ->
+                assertThat(produtos.listarAtivos()).as("nada foi copiado").isEmpty());
+    }
+
+    @Test
     @DisplayName("conta de cafeteria recebe o catálogo de fábrica, com preço zero em todo item")
     void cafeteriaRecebeOCatalogoDeFabrica() {
         ContaCriada conta = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
 
-        int copiados = TenantContext.executarComo(conta.contaId(),
+        int copiados = conta.comoUsuario(
                 () -> catalogoInicial.aplicarPara("cafeteria"));
 
         assertThat(copiados).isPositive();
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             assertThat(produtos.listarAtivos())
                     .hasSize(copiados)
                     .extracting(Produto::getNome)
@@ -79,7 +96,7 @@ class CatalogoInicialServiceTest extends TesteDeIntegracao {
     void tipoDeNegocioCasaIgnorandoCaixa() {
         ContaCriada conta = criador.criar("Cafeteria em Caixa Alta", SENHA_DE_TESTE);
 
-        int copiados = TenantContext.executarComo(conta.contaId(),
+        int copiados = conta.comoUsuario(
                 () -> catalogoInicial.aplicarPara("  CAFETERIA  "));
 
         // O campo aceita texto livre, e quem cadastrou a conta pode ter digitado com inicial
@@ -92,7 +109,7 @@ class CatalogoInicialServiceTest extends TesteDeIntegracao {
     void tipoSemModeloComecaEmBranco() {
         ContaCriada conta = criador.criar("Negocio Sem Catalogo", SENHA_DE_TESTE);
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             // Sem tipo correspondente, o cadastro simplesmente começa em branco. Não é erro, e não
             // existe exceção para isso.
             assertThat(catalogoInicial.aplicarPara("tipo que ninguem cadastrou")).isZero();
@@ -109,10 +126,10 @@ class CatalogoInicialServiceTest extends TesteDeIntegracao {
         ContaCriada contaA = criador.criar("Cafeteria A", SENHA_DE_TESTE);
         ContaCriada contaB = criador.criar("Cafeteria B", SENHA_DE_TESTE);
 
-        TenantContext.executarComo(contaA.contaId(), () -> catalogoInicial.aplicarPara("cafeteria"));
-        TenantContext.executarComo(contaB.contaId(), () -> catalogoInicial.aplicarPara("cafeteria"));
+        contaA.comoUsuario(() -> catalogoInicial.aplicarPara("cafeteria"));
+        contaB.comoUsuario(() -> catalogoInicial.aplicarPara("cafeteria"));
 
-        TenantContext.executarComo(contaA.contaId(), () -> {
+        contaA.comoUsuario(() -> {
             Produto expresso = produtos.listarAtivos().stream()
                     .filter(item -> item.getNome().equals("Cafe expresso"))
                     .findFirst()
@@ -125,7 +142,7 @@ class CatalogoInicialServiceTest extends TesteDeIntegracao {
         // Isolamento entre contas pela porta do catálogo inicial: as duas contas copiaram a mesma
         // linha de modelo_produto, e ainda assim uma editou sem tocar na outra. É o que a cópia,
         // em vez de referência viva, compra (RNF05).
-        TenantContext.executarComo(contaB.contaId(), () ->
+        contaB.comoUsuario(() ->
                 assertThat(produtos.listarAtivos())
                         .extracting(Produto::getNome)
                         .contains("Cafe expresso")

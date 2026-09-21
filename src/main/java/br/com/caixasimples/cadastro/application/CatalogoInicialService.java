@@ -4,6 +4,7 @@ import br.com.caixasimples.cadastro.application.ProdutoService.DadosDoProduto;
 import br.com.caixasimples.cadastro.internal.ModeloProdutoEntity;
 import br.com.caixasimples.cadastro.internal.ModeloProdutoRepository;
 import br.com.caixasimples.shared.Money;
+import br.com.caixasimples.shared.UsuarioContext;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -51,10 +52,16 @@ public class CatalogoInicialService {
      * @param tipoNegocio o {@code tipo_negocio} da conta; casa ignorando maiúscula e minúscula.
      *                    Nulo, em branco ou sem modelo correspondente não é erro: devolve zero e o
      *                    cadastro começa em branco
+     * <p>É do administrador (RF30): é o dono quem escolhe o tipo de negócio no primeiro acesso. A
+     * pergunta é feita aqui, antes de ler os modelos, para que a recusa não dependa de haver o que
+     * copiar; cada item copiado pergunta de novo ao passar pelo cadastro.
+     *
      * @return quantos itens foram copiados
+     * @throws br.com.caixasimples.shared.AcessoNegadoException se quem chama não é ADMIN
      */
     @Transactional
     public int aplicarPara(String tipoNegocio) {
+        UsuarioContext.exigirAdmin();
         if (tipoNegocio == null || tipoNegocio.isBlank()) {
             return 0;
         }

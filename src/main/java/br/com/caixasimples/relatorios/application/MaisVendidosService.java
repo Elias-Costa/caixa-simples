@@ -3,6 +3,7 @@ package br.com.caixasimples.relatorios.application;
 import br.com.caixasimples.relatorios.internal.ItemVendaParaRelatorioRepository;
 import br.com.caixasimples.relatorios.internal.ProdutoVendido;
 import br.com.caixasimples.shared.Money;
+import br.com.caixasimples.shared.UsuarioContext;
 import br.com.caixasimples.vendas.StatusVenda;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -35,6 +36,10 @@ import org.springframework.transaction.annotation.Transactional;
  * pelas mesmas vendas e no mesmo período.
  *
  * <p>O módulo só lê, e a conta vem sempre do contexto, nunca de parâmetro (RNF05).
+ *
+ * <p><strong>É relatório do administrador (RF30)</strong>, inclusive quando filtrado por um
+ * operador: o operador não lê o ranking, nem o próprio. A pergunta é feita uma vez, no método
+ * privado em que as duas sobrecargas desembocam.
  */
 @Service
 public class MaisVendidosService {
@@ -91,6 +96,7 @@ public class MaisVendidosService {
 
     /** O ranking em si; {@code operadorId} nulo é a conta inteira, e só as duas públicas chamam. */
     private MaisVendidos consultar(LocalDate inicio, LocalDate fim, int limite, UUID operadorId) {
+        UsuarioContext.exigirAdmin();
         Periodo periodo = new Periodo(inicio, fim);
         if (limite < 1) {
             throw new IllegalArgumentException(

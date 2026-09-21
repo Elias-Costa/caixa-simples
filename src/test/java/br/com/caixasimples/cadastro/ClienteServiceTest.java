@@ -11,6 +11,7 @@ import br.com.caixasimples.cadastro.internal.ClienteService.ClienteNaoEncontrado
 import br.com.caixasimples.cadastro.internal.ClienteService.DadosDoCliente;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
+import br.com.caixasimples.contas.CriadorDeContaDeTeste.UsuarioCriado;
 import br.com.caixasimples.shared.TenantContext;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -42,14 +43,32 @@ class ClienteServiceTest extends TesteDeIntegracao {
     }
 
     @Test
+    @DisplayName("o operador cadastra e edita cliente no balcão: cliente não é cadastro do dono")
+    void operadorCadastraCliente() {
+        ContaCriada conta = criador.criar("Cafeteria com Atendente", SENHA_DE_TESTE);
+        UsuarioCriado operador = criador.criarOperadorEm(conta.contaId(), "Atendente");
+
+        UUID id = operador.comoUsuario(() ->
+                clienteService.cadastrar(new DadosDoCliente("Seu Jorge", null)));
+        operador.comoUsuario(() ->
+                clienteService.editar(id, new DadosDoCliente("Seu Jorge", "jorge@exemplo.test")));
+
+        conta.comoUsuario(() ->
+                assertThat(clienteService.listarAtivos())
+                        .singleElement()
+                        .extracting(Cliente::contato)
+                        .isEqualTo("jorge@exemplo.test"));
+    }
+
+    @Test
     @DisplayName("cadastrar grava o cliente e ele aparece na listagem ativa")
     void cadastrarGravaEListaOCliente() {
         ContaCriada conta = criador.criar("Cafeteria do Centro", SENHA_DE_TESTE);
 
-        UUID id = TenantContext.executarComo(conta.contaId(), () ->
+        UUID id = conta.comoUsuario(() ->
                 clienteService.cadastrar(new DadosDoCliente("Dona Marta", "marta@exemplo.test")));
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(clienteService.listarAtivos())
                         .singleElement()
                         .satisfies(cliente -> {
@@ -64,12 +83,12 @@ class ClienteServiceTest extends TesteDeIntegracao {
     void contatoEOpcional() {
         ContaCriada conta = criador.criar("Balcao Apressado", SENHA_DE_TESTE);
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             clienteService.cadastrar(new DadosDoCliente("Cliente sem contato", null));
             clienteService.cadastrar(new DadosDoCliente("Cliente com contato em branco", "   "));
         });
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(clienteService.listarAtivos())
                         .hasSize(2)
                         .allSatisfy(cliente -> assertThat(cliente.contato()).isNull()));
@@ -80,13 +99,13 @@ class ClienteServiceTest extends TesteDeIntegracao {
     void editarSubstituiOsCampos() {
         ContaCriada conta = criador.criar("Loja da Esquina", SENHA_DE_TESTE);
 
-        UUID id = TenantContext.executarComo(conta.contaId(), () ->
+        UUID id = conta.comoUsuario(() ->
                 clienteService.cadastrar(new DadosDoCliente("Nome errado", "(75) 90000-0000")));
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 clienteService.editar(id, new DadosDoCliente("Nome certo", "(75) 98888-1111")));
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(clienteService.listarAtivos())
                         .singleElement()
                         .isEqualTo(new Cliente(id, "Nome certo", "(75) 98888-1111")));
@@ -97,17 +116,17 @@ class ClienteServiceTest extends TesteDeIntegracao {
     void inativarEReativar() {
         ContaCriada conta = criador.criar("Salao da Praca", SENHA_DE_TESTE);
 
-        UUID id = TenantContext.executarComo(conta.contaId(), () ->
+        UUID id = conta.comoUsuario(() ->
                 clienteService.cadastrar(new DadosDoCliente("Cliente antigo", null)));
 
-        TenantContext.executarComo(conta.contaId(), () -> clienteService.inativar(id));
+        conta.comoUsuario(() -> clienteService.inativar(id));
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(clienteService.listarAtivos()).isEmpty());
 
-        TenantContext.executarComo(conta.contaId(), () -> clienteService.reativar(id));
+        conta.comoUsuario(() -> clienteService.reativar(id));
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(clienteService.listarAtivos())
                         .singleElement()
                         .extracting(Cliente::id)
@@ -119,11 +138,11 @@ class ClienteServiceTest extends TesteDeIntegracao {
     void inativarEReativarSaoIdempotentes() {
         ContaCriada conta = criador.criar("Mercadinho do Bairro", SENHA_DE_TESTE);
 
-        UUID id = TenantContext.executarComo(conta.contaId(), () ->
+        UUID id = conta.comoUsuario(() ->
                 clienteService.cadastrar(new DadosDoCliente("Cliente repetido", null)));
 
         // Dois cliques no balcão, ou a requisição que o cliente offline reenvia ao voltar a rede.
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThatNoException().isThrownBy(() -> {
                     clienteService.inativar(id);
                     clienteService.inativar(id);
@@ -131,7 +150,7 @@ class ClienteServiceTest extends TesteDeIntegracao {
                     clienteService.reativar(id);
                 }));
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(clienteService.listarAtivos()).singleElement()
                         .extracting(Cliente::id)
                         .isEqualTo(id));
@@ -142,12 +161,12 @@ class ClienteServiceTest extends TesteDeIntegracao {
     void editarClienteInativoERecusado() {
         ContaCriada conta = criador.criar("Oficina da Avenida", SENHA_DE_TESTE);
 
-        UUID id = TenantContext.executarComo(conta.contaId(), () ->
+        UUID id = conta.comoUsuario(() ->
                 clienteService.cadastrar(new DadosDoCliente("Cliente que saiu", null)));
 
-        TenantContext.executarComo(conta.contaId(), () -> clienteService.inativar(id));
+        conta.comoUsuario(() -> clienteService.inativar(id));
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThatExceptionOfType(IllegalStateException.class)
                         .isThrownBy(() -> clienteService.editar(id,
                                 new DadosDoCliente("Nome novo", null))));
@@ -158,7 +177,7 @@ class ClienteServiceTest extends TesteDeIntegracao {
     void bordasDeEntrada() {
         ContaCriada conta = criador.criar("Padaria do Centro", SENHA_DE_TESTE);
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             assertThatExceptionOfType(IllegalArgumentException.class)
                     .as("nome em branco")
                     .isThrownBy(() -> clienteService.cadastrar(new DadosDoCliente("  ", null)));

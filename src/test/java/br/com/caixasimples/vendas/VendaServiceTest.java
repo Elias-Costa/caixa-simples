@@ -20,17 +20,19 @@ import br.com.caixasimples.caixa.domain.MovimentoCaixa;
 import br.com.caixasimples.caixa.internal.SessaoCaixaRepository;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
+import br.com.caixasimples.contas.CriadorDeContaDeTeste.UsuarioCriado;
 import br.com.caixasimples.pagamentos.FormaPagamento;
 import br.com.caixasimples.pagamentos.StatusPagamento;
 import br.com.caixasimples.pagamentos.domain.SolicitacaoPagamento;
+import br.com.caixasimples.shared.AcessoNegadoException;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.TenantContext;
+import br.com.caixasimples.vendas.VendaConcluida.Parcela;
 import br.com.caixasimples.vendas.application.Comprovante;
 import br.com.caixasimples.vendas.application.VendaNaoEncontradaException;
 import br.com.caixasimples.vendas.application.VendaService;
 import br.com.caixasimples.vendas.domain.ItemVenda;
 import br.com.caixasimples.vendas.domain.Pagamento;
-import br.com.caixasimples.vendas.VendaConcluida.Parcela;
 import br.com.caixasimples.vendas.domain.Venda;
 import br.com.caixasimples.vendas.internal.VendaRepository;
 import java.math.BigDecimal;
@@ -97,10 +99,10 @@ class VendaServiceTest extends TesteDeIntegracao {
         ContaCriada conta = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
         UUID sessaoId = abrirCaixa(conta);
 
-        UUID vendaId = TenantContext.executarComo(conta.contaId(), () ->
-                vendaService.iniciar(sessaoId, conta.usuarioId()));
+        UUID vendaId = conta.comoUsuario(() ->
+                vendaService.iniciar(sessaoId));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             Venda gravada = vendas.findById(vendaId).orElseThrow().paraDominio();
 
             assertThat(gravada.getSessaoCaixaId()).isEqualTo(sessaoId);
@@ -119,14 +121,14 @@ class VendaServiceTest extends TesteDeIntegracao {
     void iniciarRecusaSessaoFechada() {
         ContaCriada conta = criador.criar("Padaria Central", SENHA_DE_TESTE);
         UUID sessaoId = abrirCaixa(conta);
-        TenantContext.executarComo(conta.contaId(), () -> caixas.fechar(sessaoId, Money.ZERO));
+        conta.comoUsuario(() -> caixas.fechar(sessaoId, Money.ZERO));
 
         assertThatIllegalStateException()
-                .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
-                        vendaService.iniciar(sessaoId, conta.usuarioId())))
+                .isThrownBy(() -> conta.comoUsuario(() ->
+                        vendaService.iniciar(sessaoId)))
                 .withMessageContaining("nao esta ABERTA");
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(vendas.findAll()).as("nada foi gravado").isEmpty());
     }
 
@@ -141,8 +143,8 @@ class VendaServiceTest extends TesteDeIntegracao {
         // banco, e o id é indistinguível de um que nunca existiu. Sem isso, uma venda da conta B
         // poderia ficar pendurada no caixa da conta A só por conhecer o id.
         assertThatExceptionOfType(SessaoCaixaNaoEncontradaException.class).isThrownBy(() ->
-                TenantContext.executarComo(contaB.contaId(), () ->
-                        vendaService.iniciar(sessaoDaContaA, contaB.usuarioId())));
+                contaB.comoUsuario(() ->
+                        vendaService.iniciar(sessaoDaContaA)));
     }
 
     @Test
@@ -152,17 +154,17 @@ class VendaServiceTest extends TesteDeIntegracao {
         UUID sessaoId = abrirCaixa(conta);
         UUID cafeId = cadastrar(conta, "Cafe coado", Money.de("4.50"));
 
-        UUID vendaId = TenantContext.executarComo(conta.contaId(), () ->
-                vendaService.iniciar(sessaoId, conta.usuarioId()));
-        UUID itemId = TenantContext.executarComo(conta.contaId(), () ->
+        UUID vendaId = conta.comoUsuario(() ->
+                vendaService.iniciar(sessaoId));
+        UUID itemId = conta.comoUsuario(() ->
                 vendaService.adicionarItem(vendaId, cafeId, new BigDecimal("2"), Money.ZERO));
 
         // O reajuste acontece depois de o item estar gravado.
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 produtos.editar(cafeId, new DadosDoProduto("Cafe coado", Money.de("6.00"), null,
                         null, "un", null)));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             assertThat(produtos.consultarParaVenda(cafeId).preco())
                     .as("o cadastro mudou")
                     .isEqualTo(Money.de("6.00"));
@@ -189,17 +191,17 @@ class VendaServiceTest extends TesteDeIntegracao {
         UUID cafeId = cadastrar(conta, "Cafe coado", Money.de("4.50"));
         UUID queijoId = cadastrar(conta, "Queijo minas", Money.de("39.90"));
 
-        UUID vendaId = TenantContext.executarComo(conta.contaId(), () ->
-                vendaService.iniciar(sessaoId, conta.usuarioId()));
+        UUID vendaId = conta.comoUsuario(() ->
+                vendaService.iniciar(sessaoId));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             vendaService.adicionarItem(vendaId, cafeId, new BigDecimal("2"), Money.de("1.00"));
             vendaService.adicionarItem(vendaId, queijoId, new BigDecimal("0.750"), Money.ZERO);
             // O mesmo produto numa segunda linha, sem mesclar com a primeira.
             vendaService.adicionarItem(vendaId, cafeId, BigDecimal.ONE, Money.ZERO);
         });
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             Venda gravada = vendas.findById(vendaId).orElseThrow().paraDominio();
 
             // 8,00 + 29,93 + 4,50, cada linha arredondada antes de somar.
@@ -221,17 +223,17 @@ class VendaServiceTest extends TesteDeIntegracao {
         UUID cafeId = cadastrar(conta, "Cafe coado", Money.de("4.50"));
         UUID queijoId = cadastrar(conta, "Queijo minas", Money.de("39.90"));
 
-        UUID vendaId = TenantContext.executarComo(conta.contaId(), () ->
-                vendaService.iniciar(sessaoId, conta.usuarioId()));
-        UUID itemDoCafe = TenantContext.executarComo(conta.contaId(), () ->
+        UUID vendaId = conta.comoUsuario(() ->
+                vendaService.iniciar(sessaoId));
+        UUID itemDoCafe = conta.comoUsuario(() ->
                 vendaService.adicionarItem(vendaId, cafeId, new BigDecimal("2"), Money.ZERO));
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 vendaService.adicionarItem(vendaId, queijoId, new BigDecimal("0.750"), Money.ZERO));
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 vendaService.removerItem(vendaId, itemDoCafe));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             // Relida do banco: se o orphanRemoval não apagasse a linha, o item voltaria aqui.
             Venda gravada = vendas.findById(vendaId).orElseThrow().paraDominio();
             assertThat(gravada.getItens())
@@ -241,7 +243,7 @@ class VendaServiceTest extends TesteDeIntegracao {
         });
 
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+                .isThrownBy(() -> conta.comoUsuario(() ->
                         vendaService.removerItem(vendaId, itemDoCafe)))
                 .withMessageContaining("nao esta na venda");
     }
@@ -253,15 +255,15 @@ class VendaServiceTest extends TesteDeIntegracao {
         UUID sessaoId = abrirCaixa(conta);
         UUID corteId = cadastrar(conta, "Corte", Money.de("40.00"));
 
-        UUID vendaId = TenantContext.executarComo(conta.contaId(), () ->
-                vendaService.iniciar(sessaoId, conta.usuarioId()));
-        TenantContext.executarComo(conta.contaId(), () ->
+        UUID vendaId = conta.comoUsuario(() ->
+                vendaService.iniciar(sessaoId));
+        conta.comoUsuario(() ->
                 vendaService.adicionarItem(vendaId, corteId, BigDecimal.ONE, Money.de("5.00")));
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 vendaService.aplicarDesconto(vendaId, Money.de("10.00")));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             Venda gravada = vendas.findById(vendaId).orElseThrow().paraDominio();
             assertThat(gravada.getValorDesconto()).isEqualTo(Money.de("10.00"));
             assertThat(gravada.getValorTotal()).isEqualTo(Money.de("25.00"));
@@ -269,11 +271,11 @@ class VendaServiceTest extends TesteDeIntegracao {
 
         // A regra da raiz vale vinda do banco: 35,01 passa da soma de 35,00.
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+                .isThrownBy(() -> conta.comoUsuario(() ->
                         vendaService.aplicarDesconto(vendaId, Money.de("35.01"))))
                 .withMessageContaining("maior que a soma dos itens");
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(vendas.findById(vendaId).orElseThrow().paraDominio().getValorDesconto())
                         .as("a recusa não mexeu no que estava gravado")
                         .isEqualTo(Money.de("10.00")));
@@ -285,18 +287,18 @@ class VendaServiceTest extends TesteDeIntegracao {
         ContaCriada conta = criador.criar("Oficina da Avenida", SENHA_DE_TESTE);
         UUID sessaoId = abrirCaixa(conta);
         UUID produtoId = cadastrar(conta, "Troca de oleo", Money.de("80.00"));
-        TenantContext.executarComo(conta.contaId(), () -> produtos.inativar(produtoId));
+        conta.comoUsuario(() -> produtos.inativar(produtoId));
 
-        UUID vendaId = TenantContext.executarComo(conta.contaId(), () ->
-                vendaService.iniciar(sessaoId, conta.usuarioId()));
+        UUID vendaId = conta.comoUsuario(() ->
+                vendaService.iniciar(sessaoId));
 
         assertThatIllegalStateException()
-                .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+                .isThrownBy(() -> conta.comoUsuario(() ->
                         vendaService.adicionarItem(vendaId, produtoId, BigDecimal.ONE,
                                 Money.ZERO)))
                 .withMessageContaining("inativo");
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(vendas.findById(vendaId).orElseThrow().paraDominio().getItens())
                         .isEmpty());
     }
@@ -309,13 +311,13 @@ class VendaServiceTest extends TesteDeIntegracao {
         UUID produtoDaContaA = cadastrar(contaA, "Cafe coado", Money.de("4.50"));
         UUID sessaoDaContaB = abrirCaixa(contaB);
 
-        UUID vendaDaContaB = TenantContext.executarComo(contaB.contaId(), () ->
-                vendaService.iniciar(sessaoDaContaB, contaB.usuarioId()));
+        UUID vendaDaContaB = contaB.comoUsuario(() ->
+                vendaService.iniciar(sessaoDaContaB));
 
         // A consulta do preço passa pelo filtro de tenant do cadastro, então o produto da conta A
         // não existe para a venda da conta B. Sem isso, a conta B copiaria o preço da conta A.
         assertThatExceptionOfType(ProdutoNaoEncontradoException.class).isThrownBy(() ->
-                TenantContext.executarComo(contaB.contaId(), () ->
+                contaB.comoUsuario(() ->
                         vendaService.adicionarItem(vendaDaContaB, produtoDaContaA,
                                 BigDecimal.ONE, Money.ZERO)));
     }
@@ -328,22 +330,22 @@ class VendaServiceTest extends TesteDeIntegracao {
         UUID sessaoDaContaA = abrirCaixa(contaA);
         UUID produtoDaContaB = cadastrar(contaB, "Escova", Money.de("50.00"));
 
-        UUID vendaDaContaA = TenantContext.executarComo(contaA.contaId(), () ->
-                vendaService.iniciar(sessaoDaContaA, contaA.usuarioId()));
+        UUID vendaDaContaA = contaA.comoUsuario(() ->
+                vendaService.iniciar(sessaoDaContaA));
 
         // O id de outra conta é indistinguível de um id que nunca existiu (RNF05).
         assertThatExceptionOfType(VendaNaoEncontradaException.class).isThrownBy(() ->
-                TenantContext.executarComo(contaB.contaId(), () ->
+                contaB.comoUsuario(() ->
                         vendaService.adicionarItem(vendaDaContaA, produtoDaContaB,
                                 BigDecimal.ONE, Money.ZERO)));
         assertThatExceptionOfType(VendaNaoEncontradaException.class).isThrownBy(() ->
-                TenantContext.executarComo(contaB.contaId(), () ->
+                contaB.comoUsuario(() ->
                         vendaService.removerItem(vendaDaContaA, UUID.randomUUID())));
         assertThatExceptionOfType(VendaNaoEncontradaException.class).isThrownBy(() ->
-                TenantContext.executarComo(contaB.contaId(), () ->
+                contaB.comoUsuario(() ->
                         vendaService.aplicarDesconto(vendaDaContaA, Money.ZERO)));
 
-        TenantContext.executarComo(contaA.contaId(), () ->
+        contaA.comoUsuario(() ->
                 assertThat(vendas.findById(vendaDaContaA).orElseThrow().paraDominio().getItens())
                         .as("a venda da conta A continua intacta")
                         .isEmpty());
@@ -357,18 +359,18 @@ class VendaServiceTest extends TesteDeIntegracao {
         UUID cafeId = cadastrar(conta, "Cafe coado", Money.de("4.50"));
         UUID queijoId = cadastrar(conta, "Queijo minas", Money.de("39.90"));
 
-        UUID vendaId = TenantContext.executarComo(conta.contaId(), () ->
-                vendaService.iniciar(sessaoId, conta.usuarioId()));
-        TenantContext.executarComo(conta.contaId(), () -> {
+        UUID vendaId = conta.comoUsuario(() ->
+                vendaService.iniciar(sessaoId));
+        conta.comoUsuario(() -> {
             vendaService.adicionarItem(vendaId, cafeId, new BigDecimal("2"), Money.ZERO);
             vendaService.adicionarItem(vendaId, queijoId, new BigDecimal("0.750"), Money.ZERO);
         });
         // 9,00 + 29,93 = 38,93.
 
-        Money trocoDoPix = TenantContext.executarComo(conta.contaId(), () ->
+        Money trocoDoPix = conta.comoUsuario(() ->
                 vendaService.registrarPagamento(vendaId,
                         SolicitacaoPagamento.de(FormaPagamento.PIX, Money.de("20.00"))));
-        Money trocoDoDinheiro = TenantContext.executarComo(conta.contaId(), () ->
+        Money trocoDoDinheiro = conta.comoUsuario(() ->
                 vendaService.registrarPagamento(vendaId,
                         SolicitacaoPagamento.emDinheiro(Money.de("18.93"), Money.de("50.00"))));
 
@@ -377,7 +379,7 @@ class VendaServiceTest extends TesteDeIntegracao {
         assertThat(trocoDoPix).isEqualTo(Money.ZERO);
         assertThat(trocoDoDinheiro).isEqualTo(Money.de("31.07"));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             Venda antesDeConcluir = vendas.findById(vendaId).orElseThrow().paraDominio();
             assertThat(antesDeConcluir.getStatus())
                     .as("a parcela que fecha a conta não conclui")
@@ -385,9 +387,9 @@ class VendaServiceTest extends TesteDeIntegracao {
             assertThat(antesDeConcluir.getConcluidoEm()).isNull();
         });
 
-        TenantContext.executarComo(conta.contaId(), () -> vendaService.concluir(vendaId));
+        conta.comoUsuario(() -> vendaService.concluir(vendaId));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             Venda gravada = vendas.findById(vendaId).orElseThrow().paraDominio();
             assertThat(gravada.getStatus()).isEqualTo(StatusVenda.CONCLUIDA);
             assertThat(gravada.getConcluidoEm())
@@ -407,16 +409,16 @@ class VendaServiceTest extends TesteDeIntegracao {
 
         // O status atravessou o banco: a venda concluída não aceita mais montagem nem pagamento.
         assertThatIllegalStateException()
-                .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+                .isThrownBy(() -> conta.comoUsuario(() ->
                         vendaService.adicionarItem(vendaId, cafeId, BigDecimal.ONE, Money.ZERO)))
                 .withMessageContaining("CONCLUIDA");
         assertThatIllegalStateException()
-                .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+                .isThrownBy(() -> conta.comoUsuario(() ->
                         vendaService.registrarPagamento(vendaId,
                                 SolicitacaoPagamento.de(FormaPagamento.PIX, Money.de("1.00")))))
                 .withMessageContaining("CONCLUIDA");
         assertThatIllegalStateException()
-                .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+                .isThrownBy(() -> conta.comoUsuario(() ->
                         vendaService.concluir(vendaId)))
                 .withMessageContaining("CONCLUIDA");
 
@@ -449,7 +451,7 @@ class VendaServiceTest extends TesteDeIntegracao {
         // E o caixa reagiu, em outra thread, pelo outbox: entrou na gaveta o dinheiro, 18,93, e
         // não o total da venda; o Pix nunca esteve lá.
         await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
-                TenantContext.executarComo(conta.contaId(), () ->
+                conta.comoUsuario(() ->
                         assertThat(sessoes.findById(sessaoId).orElseThrow().paraDominio()
                                 .getMovimentos())
                                 .extracting(MovimentoCaixa::tipo, MovimentoCaixa::valor,
@@ -465,24 +467,24 @@ class VendaServiceTest extends TesteDeIntegracao {
         UUID sessaoId = abrirCaixa(conta);
         UUID cafeId = cadastrar(conta, "Cafe coado", Money.de("4.50"));
 
-        UUID vendaId = TenantContext.executarComo(conta.contaId(), () ->
-                vendaService.iniciar(sessaoId, conta.usuarioId()));
-        TenantContext.executarComo(conta.contaId(), () -> {
+        UUID vendaId = conta.comoUsuario(() ->
+                vendaService.iniciar(sessaoId));
+        conta.comoUsuario(() -> {
             vendaService.adicionarItem(vendaId, cafeId, BigDecimal.ONE, Money.ZERO);
             vendaService.registrarPagamento(vendaId,
                     SolicitacaoPagamento.emDinheiro(Money.de("4.50"), Money.de("4.50")));
         });
 
         // O operador fecha o caixa com a comanda ainda aberta.
-        TenantContext.executarComo(conta.contaId(), () -> caixas.fechar(sessaoId, Money.ZERO));
+        conta.comoUsuario(() -> caixas.fechar(sessaoId, Money.ZERO));
 
         // A conta está paga, mas o caixa que receberia o dinheiro já conferiu a gaveta.
         assertThatIllegalStateException()
-                .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+                .isThrownBy(() -> conta.comoUsuario(() ->
                         vendaService.concluir(vendaId)))
                 .withMessageContaining("nao esta ABERTA");
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(vendas.findById(vendaId).orElseThrow().paraDominio().getStatus())
                         .as("a venda fica ABERTA até o cancelamento")
                         .isEqualTo(StatusVenda.ABERTA));
@@ -498,21 +500,21 @@ class VendaServiceTest extends TesteDeIntegracao {
         UUID sessaoId = abrirCaixa(conta);
         UUID paoId = cadastrar(conta, "Pao de queijo", Money.de("30.00"));
 
-        UUID vendaId = TenantContext.executarComo(conta.contaId(), () ->
-                vendaService.iniciar(sessaoId, conta.usuarioId()));
-        TenantContext.executarComo(conta.contaId(), () -> {
+        UUID vendaId = conta.comoUsuario(() ->
+                vendaService.iniciar(sessaoId));
+        conta.comoUsuario(() -> {
             vendaService.adicionarItem(vendaId, paoId, BigDecimal.ONE, Money.ZERO);
             vendaService.registrarPagamento(vendaId,
                     SolicitacaoPagamento.de(FormaPagamento.PIX, Money.de("20.00")));
         });
 
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+                .isThrownBy(() -> conta.comoUsuario(() ->
                         vendaService.registrarPagamento(vendaId,
                                 SolicitacaoPagamento.de(FormaPagamento.CARTAO, Money.de("15.00")))))
                 .withMessageContaining("maior que o que falta pagar, 10.00");
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(vendas.findById(vendaId).orElseThrow().paraDominio().getPagamentos())
                         .as("a parcela recusada não deixou rastro")
                         .extracting(Pagamento::valor)
@@ -526,20 +528,20 @@ class VendaServiceTest extends TesteDeIntegracao {
         UUID sessaoId = abrirCaixa(conta);
         UUID cafeId = cadastrar(conta, "Cafe coado", Money.de("4.50"));
 
-        UUID vendaId = TenantContext.executarComo(conta.contaId(), () ->
-                vendaService.iniciar(sessaoId, conta.usuarioId()));
-        TenantContext.executarComo(conta.contaId(), () -> {
+        UUID vendaId = conta.comoUsuario(() ->
+                vendaService.iniciar(sessaoId));
+        conta.comoUsuario(() -> {
             vendaService.adicionarItem(vendaId, cafeId, new BigDecimal("2"), Money.ZERO);
             vendaService.registrarPagamento(vendaId,
                     SolicitacaoPagamento.de(FormaPagamento.CARTAO, Money.de("5.00")));
         });
 
         assertThatIllegalStateException()
-                .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+                .isThrownBy(() -> conta.comoUsuario(() ->
                         vendaService.concluir(vendaId)))
                 .withMessageContaining("faltam 4.00");
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(vendas.findById(vendaId).orElseThrow().paraDominio().getStatus())
                         .isEqualTo(StatusVenda.ABERTA));
     }
@@ -551,20 +553,20 @@ class VendaServiceTest extends TesteDeIntegracao {
         UUID sessaoId = abrirCaixa(conta);
         UUID cafeId = cadastrar(conta, "Cafe coado", Money.de("4.50"));
 
-        UUID vendaId = TenantContext.executarComo(conta.contaId(), () ->
-                vendaService.iniciar(sessaoId, conta.usuarioId()));
-        TenantContext.executarComo(conta.contaId(), () ->
+        UUID vendaId = conta.comoUsuario(() ->
+                vendaService.iniciar(sessaoId));
+        conta.comoUsuario(() ->
                 vendaService.adicionarItem(vendaId, cafeId, BigDecimal.ONE, Money.ZERO));
 
         // Quem recusa é a estratégia de Pix, encontrada pelo serviço de pagamentos; a venda não é
         // tocada.
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+                .isThrownBy(() -> conta.comoUsuario(() ->
                         vendaService.registrarPagamento(vendaId, new SolicitacaoPagamento(
                                 FormaPagamento.PIX, Money.de("4.50"), Money.de("10.00")))))
                 .withMessageContaining("nao aceita valor recebido");
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(vendas.findById(vendaId).orElseThrow().paraDominio().getPagamentos())
                         .isEmpty());
     }
@@ -577,26 +579,26 @@ class VendaServiceTest extends TesteDeIntegracao {
         UUID sessaoDaContaA = abrirCaixa(contaA);
         UUID produtoDaContaA = cadastrar(contaA, "Escova", Money.de("50.00"));
 
-        UUID vendaDaContaA = TenantContext.executarComo(contaA.contaId(), () ->
-                vendaService.iniciar(sessaoDaContaA, contaA.usuarioId()));
-        TenantContext.executarComo(contaA.contaId(), () ->
+        UUID vendaDaContaA = contaA.comoUsuario(() ->
+                vendaService.iniciar(sessaoDaContaA));
+        contaA.comoUsuario(() ->
                 vendaService.adicionarItem(vendaDaContaA, produtoDaContaA, BigDecimal.ONE,
                         Money.ZERO));
 
         // O id de outra conta é indistinguível de um id que nunca existiu, e a recusa vem antes de
         // qualquer regra de pagamento rodar.
         assertThatExceptionOfType(VendaNaoEncontradaException.class).isThrownBy(() ->
-                TenantContext.executarComo(contaB.contaId(), () ->
+                contaB.comoUsuario(() ->
                         vendaService.registrarPagamento(vendaDaContaA,
                                 SolicitacaoPagamento.de(FormaPagamento.PIX, Money.de("50.00")))));
         assertThatExceptionOfType(VendaNaoEncontradaException.class).isThrownBy(() ->
-                TenantContext.executarComo(contaB.contaId(), () ->
+                contaB.comoUsuario(() ->
                         vendaService.concluir(vendaDaContaA)));
         assertThatExceptionOfType(VendaNaoEncontradaException.class).isThrownBy(() ->
-                TenantContext.executarComo(contaB.contaId(), () ->
+                contaB.comoUsuario(() ->
                         vendaService.cancelar(vendaDaContaA)));
 
-        TenantContext.executarComo(contaA.contaId(), () -> {
+        contaA.comoUsuario(() -> {
             Venda intacta = vendas.findById(vendaDaContaA).orElseThrow().paraDominio();
             assertThat(intacta.getPagamentos()).isEmpty();
             assertThat(intacta.getStatus()).isEqualTo(StatusVenda.ABERTA);
@@ -612,9 +614,9 @@ class VendaServiceTest extends TesteDeIntegracao {
         UUID cafeId = cadastrar(conta, "Cafe coado", Money.de("4.50"));
         UUID queijoId = cadastrar(conta, "Queijo minas", Money.de("39.90"));
 
-        UUID vendaId = TenantContext.executarComo(conta.contaId(), () ->
-                vendaService.iniciar(sessaoId, conta.usuarioId()));
-        TenantContext.executarComo(conta.contaId(), () -> {
+        UUID vendaId = conta.comoUsuario(() ->
+                vendaService.iniciar(sessaoId));
+        conta.comoUsuario(() -> {
             vendaService.adicionarItem(vendaId, cafeId, new BigDecimal("2"), Money.ZERO);
             vendaService.adicionarItem(vendaId, queijoId, new BigDecimal("0.750"), Money.ZERO);
             // 9,00 + 29,93 = 38,93, pagos 20,00 em Pix e 18,93 em dinheiro.
@@ -627,15 +629,15 @@ class VendaServiceTest extends TesteDeIntegracao {
 
         // A conclusão chegou aos dois ouvintes: é o estado que o cancelamento vai desfazer.
         await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
-                TenantContext.executarComo(conta.contaId(), () -> {
+                conta.comoUsuario(() -> {
                     assertThat(esperadoDe(sessaoId)).isEqualTo(Money.de("18.93"));
                     assertThat(saldoDe(cafeId)).isEqualByComparingTo("-2");
                     assertThat(saldoDe(queijoId)).isEqualByComparingTo("-0.750");
                 }));
 
-        TenantContext.executarComo(conta.contaId(), () -> vendaService.cancelar(vendaId));
+        conta.comoUsuario(() -> vendaService.cancelar(vendaId));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             Venda gravada = vendas.findById(vendaId).orElseThrow().paraDominio();
             assertThat(gravada.getStatus()).isEqualTo(StatusVenda.CANCELADA);
             // Itens e parcelas ficam: a venda cancelada continua contando o que tinha sido
@@ -671,7 +673,7 @@ class VendaServiceTest extends TesteDeIntegracao {
 
         // O caixa refletiu: a VENDA fica, o ESTORNO a espelha, e o esperado volta ao anterior.
         await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
-                TenantContext.executarComo(conta.contaId(), () ->
+                conta.comoUsuario(() ->
                         assertThat(sessoes.findById(sessaoId).orElseThrow().paraDominio()
                                 .getMovimentos())
                                 .extracting(MovimentoCaixa::tipo, MovimentoCaixa::valor,
@@ -683,16 +685,16 @@ class VendaServiceTest extends TesteDeIntegracao {
                                                 vendaId))));
         // E o estoque voltou ao valor anterior à venda.
         await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
-                TenantContext.executarComo(conta.contaId(), () -> {
+                conta.comoUsuario(() -> {
                     assertThat(saldoDe(cafeId)).isEqualByComparingTo("0");
                     assertThat(saldoDe(queijoId)).isEqualByComparingTo("0");
                 }));
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(esperadoDe(sessaoId)).isEqualTo(Money.ZERO));
 
         // CANCELADA é final, e o status atravessou o banco.
         assertThatIllegalStateException()
-                .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+                .isThrownBy(() -> conta.comoUsuario(() ->
                         vendaService.cancelar(vendaId)))
                 .withMessageContaining("ja esta CANCELADA");
         assertThat(eventos.stream(VendaCancelada.class)).as("nada mais foi publicado").hasSize(1);
@@ -705,9 +707,9 @@ class VendaServiceTest extends TesteDeIntegracao {
         UUID sessaoId = abrirCaixa(conta);
         UUID cafeId = cadastrar(conta, "Cafe coado", Money.de("4.50"));
 
-        UUID vendaId = TenantContext.executarComo(conta.contaId(), () ->
-                vendaService.iniciar(sessaoId, conta.usuarioId()));
-        TenantContext.executarComo(conta.contaId(), () -> {
+        UUID vendaId = conta.comoUsuario(() ->
+                vendaService.iniciar(sessaoId));
+        conta.comoUsuario(() -> {
             vendaService.adicionarItem(vendaId, cafeId, BigDecimal.ONE, Money.ZERO);
             vendaService.registrarPagamento(vendaId,
                     SolicitacaoPagamento.emDinheiro(Money.de("4.50"), Money.de("4.50")));
@@ -715,18 +717,18 @@ class VendaServiceTest extends TesteDeIntegracao {
         });
         // Espera o dinheiro entrar antes de fechar, senão o fechamento disputaria com o ouvinte.
         await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
-                TenantContext.executarComo(conta.contaId(), () ->
+                conta.comoUsuario(() ->
                         assertThat(esperadoDe(sessaoId)).isEqualTo(Money.de("4.50"))));
 
-        TenantContext.executarComo(conta.contaId(), () -> caixas.fechar(sessaoId, Money.de("4.50")));
+        conta.comoUsuario(() -> caixas.fechar(sessaoId, Money.de("4.50")));
 
         // A gaveta já foi conferida; um estorno nela reescreveria a diferença apurada.
         assertThatIllegalStateException()
-                .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+                .isThrownBy(() -> conta.comoUsuario(() ->
                         vendaService.cancelar(vendaId)))
                 .withMessageContaining("nao esta ABERTA");
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(vendas.findById(vendaId).orElseThrow().paraDominio().getStatus())
                         .isEqualTo(StatusVenda.CONCLUIDA));
         assertThat(eventos.stream(VendaCancelada.class)).as("nada foi publicado").isEmpty();
@@ -739,19 +741,19 @@ class VendaServiceTest extends TesteDeIntegracao {
         UUID sessaoId = abrirCaixa(conta);
         UUID cafeId = cadastrar(conta, "Cafe coado", Money.de("4.50"));
 
-        UUID vendaId = TenantContext.executarComo(conta.contaId(), () ->
-                vendaService.iniciar(sessaoId, conta.usuarioId()));
-        TenantContext.executarComo(conta.contaId(), () -> {
+        UUID vendaId = conta.comoUsuario(() ->
+                vendaService.iniciar(sessaoId));
+        conta.comoUsuario(() -> {
             vendaService.adicionarItem(vendaId, cafeId, BigDecimal.ONE, Money.ZERO);
             vendaService.registrarPagamento(vendaId,
                     SolicitacaoPagamento.emDinheiro(Money.de("4.50"), Money.de("4.50")));
         });
         // O operador fecha o caixa com a comanda paga e ainda aberta: ela não conclui mais.
-        TenantContext.executarComo(conta.contaId(), () -> caixas.fechar(sessaoId, Money.ZERO));
+        conta.comoUsuario(() -> caixas.fechar(sessaoId, Money.ZERO));
 
-        TenantContext.executarComo(conta.contaId(), () -> vendaService.cancelar(vendaId));
+        conta.comoUsuario(() -> vendaService.cancelar(vendaId));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             Venda gravada = vendas.findById(vendaId).orElseThrow().paraDominio();
             assertThat(gravada.getStatus()).isEqualTo(StatusVenda.CANCELADA);
             assertThat(gravada.getPagamentos())
@@ -773,13 +775,13 @@ class VendaServiceTest extends TesteDeIntegracao {
         ContaCriada conta = criador.criar("Emporio da Serra", SENHA_DE_TESTE);
         UUID sessaoId = abrirCaixa(conta);
         UUID cafeId = cadastrar(conta, "Cafe coado", Money.de("4.50"));
-        UUID queijoId = TenantContext.executarComo(conta.contaId(), () ->
+        UUID queijoId = conta.comoUsuario(() ->
                 produtos.cadastrar(TipoProduto.PRODUTO, new DadosDoProduto("Queijo minas",
                         Money.de("39.90"), null, null, "kg", null)));
 
-        UUID vendaId = TenantContext.executarComo(conta.contaId(), () ->
-                vendaService.iniciar(sessaoId, conta.usuarioId()));
-        TenantContext.executarComo(conta.contaId(), () -> {
+        UUID vendaId = conta.comoUsuario(() ->
+                vendaService.iniciar(sessaoId));
+        conta.comoUsuario(() -> {
             // 2 x 4,50 = 9,00; 0,750 x 39,90 = 29,925, que vira 29,93 na linha, menos 1,93 =
             // 28,00. Soma dos itens 37,00; desconto da venda 2,00; total 35,00.
             vendaService.adicionarItem(vendaId, cafeId, new BigDecimal("2"), Money.ZERO);
@@ -793,9 +795,9 @@ class VendaServiceTest extends TesteDeIntegracao {
             vendaService.concluir(vendaId);
         });
 
-        Comprovante comprovante = TenantContext.executarComo(conta.contaId(), () ->
+        Comprovante comprovante = conta.comoUsuario(() ->
                 vendaService.comprovante(vendaId));
-        Venda gravada = TenantContext.executarComo(conta.contaId(), () ->
+        Venda gravada = conta.comoUsuario(() ->
                 vendas.findById(vendaId).orElseThrow().paraDominio());
 
         assertThat(comprovante.vendaId()).isEqualTo(vendaId);
@@ -845,22 +847,22 @@ class VendaServiceTest extends TesteDeIntegracao {
         UUID sessaoId = abrirCaixa(conta);
         UUID cafeId = cadastrar(conta, "Cafe coado", Money.de("4.50"));
 
-        UUID aberta = TenantContext.executarComo(conta.contaId(), () ->
-                vendaService.iniciar(sessaoId, conta.usuarioId()));
-        TenantContext.executarComo(conta.contaId(), () ->
+        UUID aberta = conta.comoUsuario(() ->
+                vendaService.iniciar(sessaoId));
+        conta.comoUsuario(() ->
                 vendaService.adicionarItem(aberta, cafeId, BigDecimal.ONE, Money.ZERO));
 
         // A comanda ainda muda: o que se imprimisse agora não seria prova de nada.
         assertThatIllegalStateException()
-                .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+                .isThrownBy(() -> conta.comoUsuario(() ->
                         vendaService.comprovante(aberta)))
                 .withMessageContaining("ABERTA")
                 .withMessageContaining("nao tem comprovante");
 
         // A comanda abandonada vira CANCELADA sem evento nenhum, e também não tem comprovante.
-        TenantContext.executarComo(conta.contaId(), () -> vendaService.cancelar(aberta));
+        conta.comoUsuario(() -> vendaService.cancelar(aberta));
         assertThatIllegalStateException()
-                .isThrownBy(() -> TenantContext.executarComo(conta.contaId(), () ->
+                .isThrownBy(() -> conta.comoUsuario(() ->
                         vendaService.comprovante(aberta)))
                 .withMessageContaining("CANCELADA");
     }
@@ -875,10 +877,10 @@ class VendaServiceTest extends TesteDeIntegracao {
         // Para a conta B, a venda concluída da conta A é indistinguível de um id que nunca
         // existiu: a recusa vem antes de qualquer pergunta ao cadastro.
         assertThatExceptionOfType(VendaNaoEncontradaException.class)
-                .isThrownBy(() -> TenantContext.executarComo(contaB.contaId(), () ->
+                .isThrownBy(() -> contaB.comoUsuario(() ->
                         vendaService.comprovante(vendaDaContaA)));
 
-        TenantContext.executarComo(contaA.contaId(), () ->
+        contaA.comoUsuario(() ->
                 assertThat(vendaService.comprovante(vendaDaContaA).linhas()).hasSize(1));
     }
 
@@ -887,18 +889,18 @@ class VendaServiceTest extends TesteDeIntegracao {
     void comprovanteMostraONomeAtualDoProduto() {
         ContaCriada conta = criador.criar("Mercearia do Vale", SENHA_DE_TESTE);
         UUID vendaId = vendaConcluidaSimples(conta);
-        UUID cafeId = TenantContext.executarComo(conta.contaId(), () ->
+        UUID cafeId = conta.comoUsuario(() ->
                 vendaService.comprovante(vendaId).linhas().get(0).produtoId());
 
         // O item guarda o preço copiado, mas não o nome: renomear e reajustar depois da venda
         // muda o nome impresso e não muda o preço. É o custo aceito de não copiar o nome.
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             produtos.editar(cafeId, new DadosDoProduto("Cafe especial", Money.de("6.00"), null,
                     null, "xic", null));
             produtos.inativar(cafeId);
         });
 
-        Comprovante reimpresso = TenantContext.executarComo(conta.contaId(), () ->
+        Comprovante reimpresso = conta.comoUsuario(() ->
                 vendaService.comprovante(vendaId));
         assertThat(reimpresso.linhas()).singleElement().satisfies(linha -> {
             assertThat(linha.nome()).isEqualTo("Cafe especial");
@@ -909,17 +911,81 @@ class VendaServiceTest extends TesteDeIntegracao {
         assertThat(reimpresso.valorTotal()).isEqualTo(Money.de("4.50"));
     }
 
+    @Test
+    @DisplayName("o operador não vende no caixa do colega: a pergunta ao caixa é recusada pelo caixa")
+    void operadorNaoVendeNoCaixaDoColega() {
+        ContaCriada conta = criador.criar("Mercado com Dois Caixas", SENHA_DE_TESTE);
+        UsuarioCriado daManha = criador.criarOperadorEm(conta.contaId(), "Atendente da manha");
+        UsuarioCriado daTarde = criador.criarOperadorEm(conta.contaId(), "Atendente da tarde");
+        UUID caixaDaManha = daManha.comoUsuario(() -> caixas.abrir(Money.ZERO));
+
+        assertThatExceptionOfType(AcessoNegadoException.class).isThrownBy(() ->
+                daTarde.comoUsuario(() -> vendaService.iniciar(caixaDaManha)));
+
+        UUID vendaDaManha = daManha.comoUsuario(() -> vendaService.iniciar(caixaDaManha));
+        daManha.comoUsuario(() ->
+                assertThat(vendas.findById(vendaDaManha).orElseThrow().paraDominio().getUsuarioId())
+                        .as("o operador da venda é quem está no contexto")
+                        .isEqualTo(daManha.usuarioId()));
+    }
+
+    @Test
+    @DisplayName("o operador não toca a venda do colega por nenhum caso de uso; o administrador toca")
+    void operadorNaoTocaAVendaDoColega() {
+        ContaCriada conta = criador.criar("Cafeteria com Dois Turnos", SENHA_DE_TESTE);
+        UsuarioCriado daManha = criador.criarOperadorEm(conta.contaId(), "Atendente da manha");
+        UsuarioCriado daTarde = criador.criarOperadorEm(conta.contaId(), "Atendente da tarde");
+        UUID caixaDaManha = daManha.comoUsuario(() -> caixas.abrir(Money.ZERO));
+        UUID cafeId = cadastrar(conta, "Cafe coado", Money.de("4.50"));
+
+        UUID vendaDaManha = daManha.comoUsuario(() -> {
+            UUID vendaId = vendaService.iniciar(caixaDaManha);
+            vendaService.adicionarItem(vendaId, cafeId, BigDecimal.ONE, Money.ZERO);
+            return vendaId;
+        });
+
+        daTarde.comoUsuario(() -> {
+            assertThatExceptionOfType(AcessoNegadoException.class).isThrownBy(() ->
+                    vendaService.adicionarItem(vendaDaManha, cafeId, BigDecimal.ONE, Money.ZERO));
+            assertThatExceptionOfType(AcessoNegadoException.class).isThrownBy(() ->
+                    vendaService.removerItem(vendaDaManha, UUID.randomUUID()));
+            assertThatExceptionOfType(AcessoNegadoException.class).isThrownBy(() ->
+                    vendaService.aplicarDesconto(vendaDaManha, Money.ZERO));
+            assertThatExceptionOfType(AcessoNegadoException.class).isThrownBy(() ->
+                    vendaService.registrarPagamento(vendaDaManha,
+                            SolicitacaoPagamento.emDinheiro(Money.de("4.50"), Money.de("4.50"))));
+            assertThatExceptionOfType(AcessoNegadoException.class).isThrownBy(() ->
+                    vendaService.concluir(vendaDaManha));
+            assertThatExceptionOfType(AcessoNegadoException.class).isThrownBy(() ->
+                    vendaService.cancelar(vendaDaManha));
+            assertThatExceptionOfType(AcessoNegadoException.class).isThrownBy(() ->
+                    vendaService.comprovante(vendaDaManha));
+        });
+
+        // O dono conclui, tira o comprovante e cancela a venda do atendente.
+        conta.comoUsuario(() -> {
+            vendaService.registrarPagamento(vendaDaManha,
+                    SolicitacaoPagamento.emDinheiro(Money.de("4.50"), Money.de("4.50")));
+            vendaService.concluir(vendaDaManha);
+            assertThat(vendaService.comprovante(vendaDaManha).usuarioId())
+                    .isEqualTo(daManha.usuarioId());
+            vendaService.cancelar(vendaDaManha);
+            assertThat(vendas.findById(vendaDaManha).orElseThrow().paraDominio().getStatus())
+                    .isEqualTo(StatusVenda.CANCELADA);
+        });
+    }
+
     private UUID abrirCaixa(ContaCriada conta) {
-        return TenantContext.executarComo(conta.contaId(), () ->
-                caixas.abrir(conta.usuarioId(), Money.ZERO));
+        return conta.comoUsuario(() ->
+                caixas.abrir(Money.ZERO));
     }
 
     /** Um café a 4,50, pago em dinheiro exato e concluído: o mínimo que tem comprovante. */
     private UUID vendaConcluidaSimples(ContaCriada conta) {
         UUID sessaoId = abrirCaixa(conta);
         UUID cafeId = cadastrar(conta, "Cafe coado", Money.de("4.50"));
-        return TenantContext.executarComo(conta.contaId(), () -> {
-            UUID vendaId = vendaService.iniciar(sessaoId, conta.usuarioId());
+        return conta.comoUsuario(() -> {
+            UUID vendaId = vendaService.iniciar(sessaoId);
             vendaService.adicionarItem(vendaId, cafeId, BigDecimal.ONE, Money.ZERO);
             vendaService.registrarPagamento(vendaId,
                     SolicitacaoPagamento.emDinheiro(Money.de("4.50"), Money.de("4.50")));
@@ -929,7 +995,7 @@ class VendaServiceTest extends TesteDeIntegracao {
     }
 
     private UUID cadastrar(ContaCriada conta, String nome, Money preco) {
-        return TenantContext.executarComo(conta.contaId(), () ->
+        return conta.comoUsuario(() ->
                 produtos.cadastrar(TipoProduto.PRODUTO,
                         new DadosDoProduto(nome, preco, null, null, "un", null)));
     }

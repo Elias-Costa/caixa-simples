@@ -74,12 +74,12 @@ class MovimentoEstoqueDoAgregadoTest extends TesteDeIntegracao {
         UUID primeiraVenda = vendaEm(conta, sessaoId);
         UUID segundaVenda = vendaEm(conta, sessaoId);
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             produtoService.darBaixaPorVenda(produtoId, new BigDecimal("2"), primeiraVenda);
             produtoService.darBaixaPorVenda(produtoId, new BigDecimal("0.750"), segundaVenda);
         });
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 transacao.executeWithoutResult(status -> {
                     ProdutoEntity gravado = produtos.findById(produtoId).orElseThrow();
                     List<MovimentoEstoque> historico = gravado.getMovimentos().stream()
@@ -117,13 +117,13 @@ class MovimentoEstoqueDoAgregadoTest extends TesteDeIntegracao {
         UUID produtoId = cadastrarProduto(conta, "Feijao");
         UUID vendaId = vendaEm(conta, abrirCaixa(conta));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             produtoService.ajustarEstoque(produtoId, new BigDecimal("10"), "contagem inicial");
             produtoService.darBaixaPorVenda(produtoId, new BigDecimal("3"), vendaId);
             produtoService.ajustarEstoque(produtoId, new BigDecimal("-1.500"), "pacote rasgado");
         });
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 transacao.executeWithoutResult(status -> {
                     ProdutoEntity gravado = produtos.findById(produtoId).orElseThrow();
                     List<MovimentoEstoque> historico = gravado.getMovimentos().stream()
@@ -170,12 +170,12 @@ class MovimentoEstoqueDoAgregadoTest extends TesteDeIntegracao {
         UUID produtoDaContaA = cadastrarProduto(contaA, "Cerveja");
         UUID vendaDaContaA = vendaEm(contaA, abrirCaixa(contaA));
 
-        TenantContext.executarComo(contaA.contaId(), () ->
+        contaA.comoUsuario(() ->
                 produtoService.darBaixaPorVenda(produtoDaContaA, BigDecimal.ONE, vendaDaContaA));
 
         // Como não existe repositório para o membro do agregado, as portas para ele são a raiz e a
         // pergunta derivada que a atravessa, e as duas já estão fechadas para a conta B.
-        TenantContext.executarComo(contaB.contaId(), () -> {
+        contaB.comoUsuario(() -> {
             assertThat(produtos.findById(produtoDaContaA)).isEmpty();
             assertThat(produtos.existsByIdAndMovimentosVendaIdAndMovimentosTipo(produtoDaContaA,
                     vendaDaContaA, TipoMovimentoEstoque.SAIDA))
@@ -188,7 +188,7 @@ class MovimentoEstoqueDoAgregadoTest extends TesteDeIntegracao {
         });
 
         // E a conta A continua vendo o próprio dado: o filtro não pode ser esconder de todos.
-        TenantContext.executarComo(contaA.contaId(), () ->
+        contaA.comoUsuario(() ->
                 assertThat(produtos.existsByIdAndMovimentosVendaIdAndMovimentosTipo(
                         produtoDaContaA, vendaDaContaA, TipoMovimentoEstoque.SAIDA)).isTrue());
     }
@@ -200,13 +200,13 @@ class MovimentoEstoqueDoAgregadoTest extends TesteDeIntegracao {
         UUID produtoId = cadastrarProduto(conta, "Pao");
         UUID vendaId = vendaEm(conta, abrirCaixa(conta));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             produtoService.ajustarEstoque(produtoId, new BigDecimal("10"), "contagem inicial");
             produtoService.darBaixaPorVenda(produtoId, new BigDecimal("3"), vendaId);
             produtoService.estornarPorCancelamento(produtoId, new BigDecimal("3"), vendaId);
         });
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 transacao.executeWithoutResult(status -> {
                     ProdutoEntity gravado = produtos.findById(produtoId).orElseThrow();
                     List<MovimentoEstoque> historico = gravado.getMovimentos().stream()
@@ -228,7 +228,7 @@ class MovimentoEstoqueDoAgregadoTest extends TesteDeIntegracao {
                             .isEqualByComparingTo("10");
                 }));
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             assertThat(produtoService.jaDeuBaixaPorVenda(produtoId, vendaId))
                     .as("a baixa aconteceu; o estorno não a apaga")
                     .isTrue();
@@ -245,13 +245,13 @@ class MovimentoEstoqueDoAgregadoTest extends TesteDeIntegracao {
         UUID vendaA = vendaEm(conta, sessaoId);
         UUID vendaB = vendaEm(conta, sessaoId);
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             produtoService.darBaixaPorVenda(produtoId, new BigDecimal("2"), vendaA);
             produtoService.darBaixaPorVenda(produtoId, new BigDecimal("5"), vendaB);
             produtoService.estornarPorCancelamento(produtoId, new BigDecimal("5"), vendaB);
         });
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             // O produto tem SAIDA da venda A e ENTRADA da venda B. Se a consulta derivada abrisse
             // um JOIN por filtro, "venda A com tipo ENTRADA" casaria com a linha da A e a linha da
             // B ao mesmo tempo e responderia sim; ela responde não porque os dois filtros caem na
@@ -281,15 +281,15 @@ class MovimentoEstoqueDoAgregadoTest extends TesteDeIntegracao {
     }
 
     private UUID cadastrarProduto(ContaCriada conta, String nome) {
-        return TenantContext.executarComo(conta.contaId(), () ->
+        return conta.comoUsuario(() ->
                 produtoService.cadastrar(TipoProduto.PRODUTO,
                         new DadosDoProduto(nome, Money.de("5.00"), null, null, "un", null)));
     }
 
     /** Um caixa aberto, uma vez por conta: um operador só tem uma sessão ABERTA por vez. */
     private UUID abrirCaixa(ContaCriada conta) {
-        return TenantContext.executarComo(conta.contaId(), () ->
-                sessoesDeCaixa.abrir(conta.usuarioId(), Money.ZERO));
+        return conta.comoUsuario(() ->
+                sessoesDeCaixa.abrir(Money.ZERO));
     }
 
     /** Uma venda vazia nesse caixa: só o alvo da chave estrangeira de {@code venda_id}. */

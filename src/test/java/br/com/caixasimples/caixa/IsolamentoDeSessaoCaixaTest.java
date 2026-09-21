@@ -55,11 +55,11 @@ class IsolamentoDeSessaoCaixaTest extends TesteDeIntegracao {
         ContaCriada contaA = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
         ContaCriada contaB = criador.criar("Salao Vizinho", SENHA_DE_TESTE);
 
-        UUID sessaoDaContaA = TenantContext.executarComo(contaA.contaId(), () ->
+        UUID sessaoDaContaA = contaA.comoUsuario(() ->
                 sessoes.save(SessaoCaixaEntity.de(
                         new SessaoCaixa(contaA.usuarioId(), Money.de("150.00")))).getId());
 
-        TenantContext.executarComo(contaB.contaId(), () -> {
+        contaB.comoUsuario(() -> {
             assertThat(sessoes.findById(sessaoDaContaA))
                     .as("findById atravessando tenant")
                     .isEmpty();
@@ -70,7 +70,7 @@ class IsolamentoDeSessaoCaixaTest extends TesteDeIntegracao {
         });
 
         // E a conta A continua vendo o próprio dado: o filtro não pode ser esconder de todos.
-        TenantContext.executarComo(contaA.contaId(), () -> {
+        contaA.comoUsuario(() -> {
             assertThat(sessoes.findById(sessaoDaContaA)).isPresent();
             assertThat(sessoes.findAll())
                     .extracting(SessaoCaixaEntity::getId)
@@ -85,11 +85,11 @@ class IsolamentoDeSessaoCaixaTest extends TesteDeIntegracao {
 
         // Repare que nem o construtor de SessaoCaixa nem o save recebem a conta: não existe
         // assinatura por onde um chamador pudesse informá-la (RNF05).
-        UUID sessaoId = TenantContext.executarComo(conta.contaId(), () ->
+        UUID sessaoId = conta.comoUsuario(() ->
                 sessoes.save(SessaoCaixaEntity.de(
                         new SessaoCaixa(conta.usuarioId(), Money.de("0.00")))).getId());
 
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 assertThat(sessoes.findById(sessaoId))
                         .get()
                         .extracting(SessaoCaixaEntity::getContaId)
@@ -107,7 +107,7 @@ class IsolamentoDeSessaoCaixaTest extends TesteDeIntegracao {
 
         // Uma chamada de save grava a raiz e os movimentos: o agregado é a unidade transacional,
         // e é o cascade de SessaoCaixaEntity que faz isso valer.
-        TenantContext.executarComo(conta.contaId(), () ->
+        conta.comoUsuario(() ->
                 sessoes.save(SessaoCaixaEntity.de(original)));
 
         // O movimento de VENDA aponta para uma venda de verdade, porque desde a migration V7 o
@@ -117,13 +117,13 @@ class IsolamentoDeSessaoCaixaTest extends TesteDeIntegracao {
         UUID vendaId = criadorDeVenda.criarAbertaEm(conta.contaId(), original.getId(),
                 conta.usuarioId());
         original.registrarVenda(Money.de("25.00"), vendaId);
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             SessaoCaixaEntity gravada = sessoes.findById(original.getId()).orElseThrow();
             gravada.atualizarCom(original);
             sessoes.save(gravada);
         });
 
-        TenantContext.executarComo(conta.contaId(), () -> {
+        conta.comoUsuario(() -> {
             SessaoCaixa lida = sessoes.findById(original.getId()).orElseThrow().paraDominio();
 
             assertThat(lida.getId()).isEqualTo(original.getId());
