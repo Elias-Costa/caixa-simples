@@ -1,10 +1,9 @@
 package br.com.caixasimples.contas.web;
 
 import br.com.caixasimples.contas.application.AutenticacaoService;
+import br.com.caixasimples.contas.application.AutenticacaoService.Identidade;
 import br.com.caixasimples.contas.internal.CredenciaisInvalidasException;
-import br.com.caixasimples.shared.TenantContext;
-import br.com.caixasimples.shared.UsuarioAutenticado;
-import br.com.caixasimples.shared.UsuarioContext;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -15,14 +14,17 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.validation.annotation.Validated;
 
 /**
  * Entrada HTTP da autenticação. Rotas sob {@code /api}, sem versão no caminho.
+ *
+ * <p>É o molde dos controllers do projeto: pedido e resposta são records aninhados, o corpo do
+ * pedido é validado com {@code @Valid} (campo em branco vira 400 antes de chegar ao caso de uso),
+ * o controller só traduz e delega, e a exceção que só este módulo lança é traduzida aqui mesmo.
+ * O que é transversal, como a recusa por perfil virar 403, fica no tratador de {@code shared}.
  */
 @RestController
 @RequestMapping("/api/auth")
-@Validated
 class AutenticacaoController {
 
     private final AutenticacaoService autenticacao;
@@ -32,25 +34,29 @@ class AutenticacaoController {
     }
 
     @PostMapping("/login")
-    RespostaDeLogin login(@RequestBody PedidoDeLogin pedido) {
+    RespostaDeLogin login(@Valid @RequestBody PedidoDeLogin pedido) {
         return new RespostaDeLogin(autenticacao.entrar(pedido.email(), pedido.senha()));
     }
 
     /**
-     * Quem está autenticado agora.
+     * Quem está autenticado agora, e em que negócio.
      *
-     * <p>Existe para que haja um endpoint protegido de verdade: é por ele que se verifica, por
-     * HTTP, que requisição sem token é recusada, que o tenant do contexto vem do claim, não do
-     * pedido, e que o perfil é o do banco, não o do claim, de modo que um usuário inativado deixa
-     * de entrar na requisição seguinte.
+     * <p>É o que o aplicativo mostra no cabeçalho de toda tela, e é também o endpoint protegido
+     * pelo qual se verifica, por HTTP, que requisição sem token é recusada, que o tenant do
+     * contexto vem do claim, não do pedido, e que o perfil é o do banco, não o do claim, de modo
+     * que um usuário inativado deixa de entrar na requisição seguinte.
      */
     @GetMapping("/eu")
     RespostaDeIdentidade eu() {
-        UsuarioAutenticado usuario = UsuarioContext.exigirAtual();
+        Identidade identidade = autenticacao.identidade();
         return new RespostaDeIdentidade(
-                usuario.usuarioId(),
-                TenantContext.exigirAtual().valor(),
-                usuario.perfil().name());
+                identidade.usuarioId(),
+                identidade.nome(),
+                identidade.perfil().name(),
+                identidade.contaId(),
+                identidade.nomeNegocio(),
+                identidade.tipoNegocio(),
+                identidade.estoqueHabilitado());
     }
 
     /**
@@ -69,6 +75,10 @@ class AutenticacaoController {
     record RespostaDeLogin(String token) {
     }
 
-    record RespostaDeIdentidade(UUID usuarioId, UUID contaId, String perfil) {
+    /**
+     * @param tipoNegocio omitido no JSON quando a conta não tem tipo
+     */
+    record RespostaDeIdentidade(UUID usuarioId, String nome, String perfil, UUID contaId,
+            String nomeNegocio, String tipoNegocio, boolean estoqueHabilitado) {
     }
 }

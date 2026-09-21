@@ -3,6 +3,7 @@ package br.com.caixasimples.contas;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -77,6 +78,41 @@ class AutenticacaoTest extends TesteDeIntegracao {
                 .andExpect(jsonPath("$.contaId").value(conta.contaId().valor().toString()))
                 .andExpect(jsonPath("$.usuarioId").value(conta.usuarioId().toString()))
                 .andExpect(jsonPath("$.perfil").value("ADMIN"));
+    }
+
+    @Test
+    @DisplayName("quem está operando traz o nome, o negócio, o tipo e se o estoque está ligado")
+    void identidadeTrazONegocio() throws Exception {
+        ContaCriada conta = criador.criarComTipo("Cafeteria Aurora", "cafeteria", SENHA_VALIDA);
+        String token = extrairToken(conta);
+
+        http.perform(get("/api/auth/eu").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nome").value("Pessoa de Cafeteria Aurora"))
+                .andExpect(jsonPath("$.nomeNegocio").value("Cafeteria Aurora"))
+                .andExpect(jsonPath("$.tipoNegocio").value("cafeteria"))
+                .andExpect(jsonPath("$.estoqueHabilitado").value(false));
+    }
+
+    @Test
+    @DisplayName("conta sem tipo de negócio responde sem o campo, e não com nulo")
+    void semTipoDeNegocioOCampoSome() throws Exception {
+        ContaCriada conta = criador.criar("Negocio Sem Tipo", SENHA_VALIDA);
+        String token = extrairToken(conta);
+
+        http.perform(get("/api/auth/eu").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nomeNegocio").value("Negocio Sem Tipo"))
+                .andExpect(jsonPath("$.tipoNegocio").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("e-mail em branco é pedido inválido: 400 apontando o campo, e não 401")
+    void emailEmBrancoVira400() throws Exception {
+        http.perform(login("   ", SENHA_VALIDA))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith("application/problem+json"))
+                .andExpect(jsonPath("$.campos.email").isNotEmpty());
     }
 
     @Test

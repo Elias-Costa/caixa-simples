@@ -44,8 +44,18 @@ public class CriadorDeContaDeTeste {
         return criar(nomeNegocio, senha, Perfil.ADMIN, true);
     }
 
+    /** Conta com tipo de negócio, para quem testa o que depende dele, como a oferta do catálogo. */
+    public ContaCriada criarComTipo(String nomeNegocio, String tipoNegocio, String senha) {
+        return criar(nomeNegocio, tipoNegocio, senha, Perfil.ADMIN, true);
+    }
+
     public ContaCriada criar(String nomeNegocio, String senha, Perfil perfil, boolean ativo) {
-        ContaId contaId = contas.save(new Conta(nomeNegocio, null, Plano.GRATIS)).contaId();
+        return criar(nomeNegocio, null, senha, perfil, ativo);
+    }
+
+    private ContaCriada criar(String nomeNegocio, String tipoNegocio, String senha, Perfil perfil,
+            boolean ativo) {
+        ContaId contaId = contas.save(new Conta(nomeNegocio, tipoNegocio, Plano.GRATIS)).contaId();
         String email = "teste-" + UUID.randomUUID() + "@exemplo.test";
 
         UUID usuarioId = TenantContext.executarComo(contaId, () -> {

@@ -2,6 +2,7 @@ package br.com.caixasimples;
 
 import br.com.caixasimples.caixa.CriadorDeSessaoCaixaDeTeste;
 import br.com.caixasimples.caixa.internal.SessaoCaixaRepository;
+import br.com.caixasimples.contas.AutenticadorDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste;
 import br.com.caixasimples.contas.internal.ContaRepository;
 import br.com.caixasimples.contas.internal.CredencialRepository;
@@ -13,6 +14,8 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.web.servlet.MockMvc;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Substituições que valem para toda a suíte de integração.
@@ -37,6 +40,15 @@ public class ConfiguracaoDeTeste {
     CriadorDeContaDeTeste criadorDeContaDeTeste(ContaRepository contas, UsuarioRepository usuarios,
             CredencialRepository credenciais, PasswordEncoder encoder) {
         return new CriadorDeContaDeTeste(contas, usuarios, credenciais, encoder);
+    }
+
+    /**
+     * Mesma ideia, para teste de endpoint: faz o login real de uma conta de teste e entrega o
+     * token, ou o cabeçalho pronto.
+     */
+    @Bean
+    AutenticadorDeTeste autenticadorDeTeste(MockMvc http, ObjectMapper json) {
+        return new AutenticadorDeTeste(http, json);
     }
 
     /** Mesma ideia, para teste de outro módulo que precise apontar para uma venda real. */

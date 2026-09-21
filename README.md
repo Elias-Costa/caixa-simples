@@ -74,8 +74,8 @@ primeiro dia; sete já têm código de negócio dentro.
 
 | Módulo | Estado | O que existe hoje |
 |---|---|---|
-| `shared` | Implementado | `Money`, `ContaId`, `FusoDeReferencia` e os dois contextos da requisição: `TenantContext`, a conta em operação, e `UsuarioContext`, quem está operando e com que perfil, com as duas perguntas de autorização que todo caso de uso restrito faz na primeira linha |
-| `contas` | Implementado | `Conta`, `Usuario`, `Credencial`, login por JWT, política de senha, provisionamento de conta, a pergunta que os outros módulos fazem à conta em operação, como se o controle de estoque está ligado, e a gestão de usuários: o administrador cria operador ou administrador com login próprio, lista e inativa, com mais de um usuário só no plano mais alto e a conta nunca sem administrador. O filtro que resolve o token lê o usuário no banco a cada requisição, então inativar vale na requisição seguinte, e o perfil que vale é o do banco, não o do token |
+| `shared` | Implementado | `Money`, `ContaId`, `FusoDeReferencia` e os dois contextos da requisição: `TenantContext`, a conta em operação, e `UsuarioContext`, quem está operando e com que perfil, com as duas perguntas de autorização que todo caso de uso restrito faz na primeira linha. E o tratamento transversal de erro da API: toda resposta de erro sai em Problem Details, a recusa por perfil vira 403, argumento que o domínio rejeita vira 400 e estado que o agregado rejeita vira 409 |
+| `contas` | Implementado | `Conta`, `Usuario`, `Credencial`, login por JWT, política de senha, provisionamento de conta, a pergunta que os outros módulos fazem à conta em operação, como se o controle de estoque está ligado, e a gestão de usuários: o administrador cria operador ou administrador com login próprio, lista e inativa, com mais de um usuário só no plano mais alto e a conta nunca sem administrador. O filtro que resolve o token lê o usuário no banco a cada requisição, então inativar vale na requisição seguinte, e o perfil que vale é o do banco, não o do token. Quem está autenticado pergunta em `/api/auth/eu` e recebe o próprio nome, o negócio, o tipo dele e se o estoque está ligado: é o cabeçalho de toda tela |
 | `cadastro` | Implementado | `Produto` com atributos `JSONB`, busca por nome ou código para o balcão, `Cliente` como vertical slice, catálogo sugerido por tipo de negócio, e o agregado inteiro: `MovimentoEstoque` como membro, com a baixa por venda, o estorno por cancelamento e o ajuste manual gravando movimento e saldo na mesma transação, o estoque mínimo de cada produto e a resposta de quais estão com estoque baixo. Cadastrar, editar e inativar produto e aplicar o catálogo inicial são do administrador; consultar e buscar produto e cadastrar cliente são dos dois perfis, porque o cliente se cadastra no balcão |
 | `caixa` | Implementado | `SessaoCaixa`: abertura, sangria, suprimento, fechamento com conferência, histórico por operador e por dia, e o dinheiro em espécie de cada venda concluída entrando na gaveta por evento, uma vez só, mesmo que o evento chegue de novo; e saindo dela, por outro evento, quando a venda é cancelada, num estorno que espelha exatamente o que entrou. O caixa é de quem o abriu: o operador só lança, fecha e consulta a própria sessão e só pede o próprio histórico; o administrador toca qualquer sessão da conta, porque é ele quem fecha o caixa do atendente que foi embora |
 | `pagamentos` | Implementado | Strategy por forma de pagamento: dinheiro com troco calculado no domínio, Pix e cartão lançados à mão pelo operador. Sem provedor de Pix ainda |
@@ -93,14 +93,21 @@ quarto tipo de movimento, com as restrições da quinta recriadas para o receber
 comprovante precisava e a venda não guardava, o troco de cada parcela e o instante da conclusão.
 
 **Superfície HTTP.** Dois endpoints, ambos de autenticação: `POST /api/auth/login`, que devolve o
-token, e `GET /api/auth/eu`, que existe para haver um recurso protegido de verdade contra o qual
-verificar, por HTTP, que requisição sem token é recusada, que o tenant vem do claim e não do
-pedido, e que o perfil é o do banco: um usuário inativado recebe 401 na requisição seguinte, com o
-token que já tinha. Os casos de uso de produto, cliente, caixa, pagamento, venda, estoque,
-relatório e usuário vivem na camada de aplicação e são exercitados por teste de integração,
-inclusive a autorização por perfil, que é verificada dentro de cada caso de uso e não por rota: a
-camada `web` de cada módulo nasce junto com o PWA que vai consumi-la, e não antes, para o contrato
-HTTP não ser desenhado às cegas, e é nela que a recusa por perfil vira 403.
+token, e `GET /api/auth/eu`, que diz quem está autenticado e em que negócio, para o cabeçalho de
+toda tela, e que serve também de recurso protegido contra o qual verificar, por HTTP, que
+requisição sem token é recusada, que o tenant vem do claim e não do pedido, e que o perfil é o do
+banco: um usuário inativado recebe 401 na requisição seguinte, com o token que já tinha. O contrato
+de erro já está fixado para todos os endpoints que virão: toda resposta de erro é Problem Details
+(RFC 9457), produzida por um tratador transversal em `shared` que estende o do próprio Spring MVC,
+para o cliente receber uma forma só venha o erro do framework ou da aplicação. A recusa por perfil
+vira 403; argumento que o domínio rejeita, 400, o mesmo da validação de corpo, que ainda lista a
+mensagem por campo; estado que o agregado rejeita, 409; erro inesperado, 500 sem a mensagem
+interna; e o não encontrado de cada módulo é traduzido em 404 no pacote `web` do próprio módulo.
+Valor monetário viaja como número, e a conversão para `Money` é escrita no controller. Os casos de
+uso de produto, cliente, caixa, pagamento, venda, estoque, relatório e usuário vivem na camada de
+aplicação e são exercitados por teste de integração, inclusive a autorização por perfil, que é
+verificada dentro de cada caso de uso e não por rota: a camada `web` de cada módulo nasce junto
+com a tela do PWA que vai consumi-la, e não antes, para o contrato HTTP não ser desenhado às cegas.
 
 ## Por onde começar a leitura
 
@@ -113,6 +120,7 @@ Atalhos para avaliar o código sem percorrer o repositório inteiro.
 | O mecanismo por trás desse isolamento | [MultiTenancyConfiguration.java](src/main/java/br/com/caixasimples/shared/internal/MultiTenancyConfiguration.java) | Filtro no Hibernate, não em cada consulta, e o que acontece quando não há tenant no contexto |
 | Autorização explícita, sem anotação | [UsuarioContext.java](src/main/java/br/com/caixasimples/shared/UsuarioContext.java) | Quem chama vem do contexto, nunca de parâmetro, e cada caso de uso restrito pergunta na primeira linha se é o administrador ou o dono do caixa; o porquê de não haver `@PreAuthorize` nem tabela de rotas está escrito no lugar. [IdentidadeDoTokenFilter.java](src/main/java/br/com/caixasimples/contas/internal/IdentidadeDoTokenFilter.java) preenche os dois contextos e lê o usuário no banco a cada requisição, para inativar valer na hora |
 | Gestão de usuários com o plano no caminho | [UsuarioService.java](src/main/java/br/com/caixasimples/contas/application/UsuarioService.java) | Criar usuário grava duas linhas numa transação, passa pela política de senha e pela unicidade global de e-mail, e é recusado fora do plano que admite mais de um usuário; inativar nunca deixa a conta sem administrador |
+| Um contrato de erro só, para o framework e para a aplicação | [TratamentoDeErrosHttp.java](src/main/java/br/com/caixasimples/shared/web/TratamentoDeErrosHttp.java) | Estende o tratador do Spring MVC em vez de substituí-lo, então corpo ilegível e recusa por perfil saem na mesma forma; cada status tem o porquê escrito no lugar, e o 404 de cada módulo fica no módulo, sem hierarquia de exceção. O molde do controller, com validação do pedido e a exceção própria traduzida no lugar, é [AutenticacaoController.java](src/main/java/br/com/caixasimples/contas/web/AutenticacaoController.java) |
 | Raiz de agregado sem framework | [SessaoCaixa.java](src/main/java/br/com/caixasimples/caixa/domain/SessaoCaixa.java) | Regra de negócio e invariantes isoladas de Spring e de JPA |
 | Invariante viva, recalculada a cada operação | [Venda.java](src/main/java/br/com/caixasimples/vendas/domain/Venda.java) | O total nunca fica negativo, nunca diverge dos itens e nunca fica abaixo do já pago; a venda só conclui com os pagamentos confirmados iguais ao total. Cada operação que quebraria uma regra é recusada antes de tocar no agregado, e o estado remontado do banco passa pela mesma conferência |
 | Pergunta entre módulos sem expor o agregado | [VendaService.java](src/main/java/br/com/caixasimples/vendas/application/VendaService.java) | A venda copia o preço do cadastro por chamada à camada de aplicação dele, recebendo um record e nunca a raiz alheia; confere o caixa por uma interface que ela mesma declara; e, ao concluir ou cancelar, publica o evento em vez de chamar quem reage |
@@ -152,8 +160,9 @@ está em [Estado atual](#estado-atual).
 └── internal/      JPA, adapters e configuração, invisível aos outros módulos
 ```
 
-Nem todo módulo tem as quatro: uma camada nasce quando há o que colocar nela. Hoje só `contas` tem
-`web/`, por ser o único com superfície HTTP; `cadastro` acomoda `Cliente` inteiro em `internal/`,
+Nem todo módulo tem as quatro: uma camada nasce quando há o que colocar nela. Hoje `contas` tem
+`web/`, por ser o único com superfície HTTP, e `shared` tem `web/` só com o tratamento de erro,
+que é transversal; `cadastro` acomoda `Cliente` inteiro em `internal/`,
 porque um slice sem invariante não precisa de `domain/`; e `relatorios` não tem `domain/` porque
 não tem regra a proteger: ele lê colunas e soma.
 
@@ -550,7 +559,7 @@ src
 │   │   ├── contas/         application, web, internal
 │   │   ├── pagamentos/     domain, application, internal
 │   │   ├── vendas/         domain, application, internal
-│   │   ├── shared/         Money, ContaId, TenantContext, UsuarioContext, Perfil, FusoDeReferencia
+│   │   ├── shared/         Money, ContaId, TenantContext, UsuarioContext, Perfil, FusoDeReferencia; web com o tratamento de erro
 │   │   ├── estoque/        application, internal
 │   │   └── relatorios/     application, internal
 │   └── resources
