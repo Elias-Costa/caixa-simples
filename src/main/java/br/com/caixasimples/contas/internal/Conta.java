@@ -40,6 +40,9 @@ public class Conta {
     @Column(name = "estoque_habilitado", nullable = false)
     private boolean estoqueHabilitado;
 
+    @Column(name = "catalogo_inicial_aplicado", nullable = false)
+    private boolean catalogoInicialAplicado;
+
     @Column(name = "criado_em", nullable = false, updatable = false)
     private Instant criadoEm;
 
@@ -57,6 +60,7 @@ public class Conta {
         this.tipoNegocio = tipoNegocio;
         this.plano = Objects.requireNonNull(plano, "plano nao pode ser nulo");
         this.estoqueHabilitado = false;
+        this.catalogoInicialAplicado = false;
         this.criadoEm = Instant.now();
     }
 
@@ -90,6 +94,17 @@ public class Conta {
     /** Negócio baseado em serviço opera com o módulo de estoque desligado (RF17). */
     public boolean isEstoqueHabilitado() {
         return estoqueHabilitado;
+    }
+
+    public boolean isCatalogoInicialAplicado() {
+        return catalogoInicialAplicado;
+    }
+
+    public void marcarCatalogoInicialAplicado() {
+        if (catalogoInicialAplicado) {
+            throw new IllegalStateException("catalogo inicial desta conta ja foi aplicado");
+        }
+        this.catalogoInicialAplicado = true;
     }
 
     public Instant getCriadoEm() {

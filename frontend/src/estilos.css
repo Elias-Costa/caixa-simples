@@ -239,6 +239,51 @@ body {
   padding: var(--espaco);
 }
 
+/* Cadastro: lista e formulário usam a largura do tablet sem encolher os alvos de toque. */
+.cadastro {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.cadastro__topo,
+.cadastro__item,
+.cadastro__acoes {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--espaco);
+  flex-wrap: wrap;
+}
+
+.cadastro__topo { margin-bottom: var(--espaco); }
+.cadastro__topo p,
+.cadastro__item p { margin: 4px 0 0; }
+.cadastro__lista { list-style: none; padding: 0; margin: 0 0 24px; }
+.cadastro__item {
+  padding: var(--espaco);
+  margin-bottom: 8px;
+  background: var(--cor-superficie);
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio);
+}
+.cadastro__apoio { color: #52605b; font-size: 0.9rem; }
+.cadastro__formulario {
+  padding: var(--espaco);
+  margin-top: 24px;
+  background: var(--cor-superficie);
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio);
+}
+.cadastro__formulario h3 { margin-top: 0; }
+.cadastro__grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 var(--espaco); }
+.cadastro__atributos { border: 1px solid var(--cor-borda); border-radius: var(--raio); margin: 0 0 var(--espaco); padding: var(--espaco); }
+.cadastro__par { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; margin-bottom: 8px; }
+.mensagem-erro { color: var(--cor-erro); font-weight: 600; }
+
+@media (max-width: 600px) {
+  .cadastro__par { grid-template-columns: 1fr; }
+}
+
 .titulo {
   margin: 0 0 var(--espaco);
   font-size: 1.4rem;

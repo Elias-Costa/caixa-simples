@@ -5,6 +5,8 @@ import { Shell } from './shell/Shell'
 import { EmConstrucao } from './telas/EmConstrucao'
 import { Inicio } from './telas/Inicio'
 import { TelaDeLogin } from './telas/TelaDeLogin'
+import { TelaDeProdutos } from './telas/TelaDeProdutos'
+import { TelaDeClientes } from './telas/TelaDeClientes'
 
 /**
  * As rotas do aplicativo. Todas, menos o login, vivem dentro do shell e exigem sessão; as do
@@ -21,8 +23,8 @@ export function App() {
           <Route index element={<Inicio />} />
           <Route path="vender" element={<EmConstrucao titulo="Vender" />} />
           <Route path="caixa" element={<EmConstrucao titulo="Caixa" />} />
-          <Route path="produtos" element={<EmConstrucao titulo="Produtos" />} />
-          <Route path="clientes" element={<EmConstrucao titulo="Clientes" />} />
+          <Route path="produtos" element={<TelaDeProdutos />} />
+          <Route path="clientes" element={<TelaDeClientes />} />
 
           <Route element={<ExigeAdmin />}>
             <Route path="relatorios" element={<EmConstrucao titulo="Relatórios" />} />

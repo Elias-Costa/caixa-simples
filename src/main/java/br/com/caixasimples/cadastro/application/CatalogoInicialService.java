@@ -17,9 +17,9 @@ import org.springframework.transaction.annotation.Transactional;
  * {@code Produto} da conta como qualquer outro, editável, inativável e invisível para as demais.
  * Alterar o modelo depois não alcança ninguém que já copiou.
  *
- * <p><strong>Ainda não há chamador em produção.</strong> O RF32 fala em primeiro acesso, e o
- * primeiro acesso é o primeiro login, mas ainda não existe tela. Enquanto o gatilho não nasce, o
- * método é ponto de entrada único e testado.
+ * <p>O primeiro login de ADMIN publica um evento síncrono, e o ouvinte chama este método dentro da
+ * transação que marca a Conta. A condição de primeira vez fica no gatilho; este método continua
+ * copiando sempre que for chamado diretamente.
  *
  * <p>A cópia passa por {@link ProdutoService#cadastrar}, e não por um {@code save} direto: o item
  * copiado atravessa exatamente as mesmas regras do cadastro feito no balcão, e {@code produto} não
@@ -41,9 +41,9 @@ public class CatalogoInicialService {
      * Copia para a conta do contexto atual todos os modelos do tipo de negócio informado (RF32).
      *
      * <p><strong>Copia sempre, a cada chamada.</strong> Não há guarda de idempotência. Uma checagem
-     * de catálogo vazio escondida aqui dentro seria uma condição que o nome do método não anuncia, e
-     * o gatilho que decidirá <em>quando</em> chamar ainda nem existe. Chamar duas vezes duplica o
-     * catálogo, e quem ligar o gatilho decide a condição.
+     * de catálogo vazio escondida aqui dentro seria uma condição que o nome do método não anuncia.
+     * Chamar duas vezes diretamente duplica o catálogo; o gatilho do primeiro acesso guarda a
+     * condição e chama uma vez só.
      *
      * <p>O preço de cada item copiado nasce em <strong>zero</strong>, que o cadastro já aceita como
      * válido. Preço é hiperlocal, e um número sugerido pela plataforma seria chute sobre o mercado

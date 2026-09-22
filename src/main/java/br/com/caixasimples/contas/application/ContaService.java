@@ -2,13 +2,16 @@ package br.com.caixasimples.contas.application;
 
 import br.com.caixasimples.contas.internal.Conta;
 import br.com.caixasimples.contas.internal.ContaRepository;
+import br.com.caixasimples.contas.PrimeiroAcessoDaConta;
 import br.com.caixasimples.shared.ContaId;
 import br.com.caixasimples.shared.TenantContext;
+import br.com.caixasimples.shared.UsuarioContext;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * O que os outros módulos podem perguntar sobre a conta em operação.
+ * Casos de uso da Conta em operação: responder sobre o estoque e marcar o primeiro acesso.
  *
  * <p><strong>Nenhum método recebe a conta como parâmetro, e essa ausência é a regra.</strong>
  * {@code Conta} é a única entidade de negócio sem filtro automático de tenant, porque o id dela
@@ -16,17 +19,19 @@ import org.springframework.transaction.annotation.Transactional;
  * nunca de um id que alguém informe (RNF05). Quem precisa saber algo de outra conta não tem por
  * onde perguntar.
  *
- * <p>Quem chama daqui hoje é o módulo de estoque, que precisa saber se a conta ligou o controle
- * de estoque (RF17) antes de dar baixa numa venda concluída. É pergunta, não efeito colateral, e
- * por isso é chamada direta à API deste módulo.
+ * <p>O módulo de estoque pergunta se a conta ligou o controle (RF17) antes de dar baixa numa
+ * venda concluída. O login chama a marca do primeiro acesso (RF32) dentro deste módulo, que
+ * publica o fato para o cadastro reagir sem receber uma chamada direta de escrita.
  */
 @Service
 public class ContaService {
 
     private final ContaRepository contas;
+    private final ApplicationEventPublisher eventos;
 
-    ContaService(ContaRepository contas) {
+    ContaService(ContaRepository contas, ApplicationEventPublisher eventos) {
         this.contas = contas;
+        this.eventos = eventos;
     }
 
     /**
@@ -44,5 +49,23 @@ public class ContaService {
                 .orElseThrow(() -> new IllegalStateException(
                         "conta do contexto nao existe: " + contaId));
         return conta.isEstoqueHabilitado();
+    }
+
+    /**
+     * Aplica a oferta no primeiro login de ADMIN. O bloqueio da linha da Conta torna a marca
+     * suficiente mesmo com dois logins simultâneos, e o ouvinte síncrono copia antes do commit.
+     */
+    @Transactional
+    public void registrarPrimeiroAcessoSeNecessario() {
+        UsuarioContext.exigirAdmin();
+        ContaId contaId = TenantContext.exigirAtual();
+        Conta conta = contas.buscarParaPrimeiroAcesso(contaId.valor())
+                .orElseThrow(() -> new IllegalStateException(
+                        "conta do contexto nao existe: " + contaId));
+        if (conta.isCatalogoInicialAplicado()) {
+            return;
+        }
+        conta.marcarCatalogoInicialAplicado();
+        eventos.publishEvent(new PrimeiroAcessoDaConta(contaId.valor(), conta.getTipoNegocio()));
     }
 }

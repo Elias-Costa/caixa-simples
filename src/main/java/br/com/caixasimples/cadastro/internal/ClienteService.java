@@ -106,6 +106,12 @@ public class ClienteService {
         return clientes.findByAtivoTrue().stream().map(ClienteEntity::paraCliente).toList();
     }
 
+    /** A tela mostra os inativos em separado para permitir reativar sem expor exclusão física. */
+    @Transactional(readOnly = true)
+    public List<Cliente> listarInativos() {
+        return clientes.findByAtivoFalse().stream().map(ClienteEntity::paraCliente).toList();
+    }
+
     private ClienteEntity buscar(UUID id) {
         Objects.requireNonNull(id, "id do cliente nao pode ser nulo");
         return clientes.findById(id).orElseThrow(() -> new ClienteNaoEncontradoException(id));
@@ -263,4 +269,6 @@ class ClienteEntity {
 interface ClienteRepository extends JpaRepository<ClienteEntity, UUID> {
 
     List<ClienteEntity> findByAtivoTrue();
+
+    List<ClienteEntity> findByAtivoFalse();
 }

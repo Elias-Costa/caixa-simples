@@ -21,9 +21,9 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Casos de uso de identidade: o login (RNF06) e quem está operando agora.
  *
- * <p>O login são três passos, nesta ordem, e a ordem importa: a credencial é o único dado
- * consultável antes de existir tenant; é ela que revela a conta; e só então o usuário pode ser
- * lido sob o filtro normal de {@code @TenantId}.
+ * <p>O login descobre a conta pela credencial, a única busca possível sem tenant, e só então lê o
+ * usuário sob o filtro normal de {@code @TenantId}. No primeiro login de ADMIN, marca a Conta e
+ * pede a cópia do catálogo inicial antes de emitir o token.
  *
  * <p><strong>Toda falha responde igual.</strong> E-mail inexistente, senha errada e usuário inativo
  * produzem a mesma exceção com a mesma mensagem, porque distinguir permitiria descobrir quais
@@ -37,14 +37,17 @@ public class AutenticacaoService {
     private final ContaRepository contas;
     private final PasswordEncoder encoder;
     private final EmissorDeToken emissor;
+    private final ContaService contaService;
 
     AutenticacaoService(CredencialRepository credenciais, UsuarioRepository usuarios,
-            ContaRepository contas, PasswordEncoder encoder, EmissorDeToken emissor) {
+            ContaRepository contas, PasswordEncoder encoder, EmissorDeToken emissor,
+            ContaService contaService) {
         this.credenciais = credenciais;
         this.usuarios = usuarios;
         this.contas = contas;
         this.encoder = encoder;
         this.emissor = emissor;
+        this.contaService = contaService;
     }
 
     /**
@@ -54,7 +57,8 @@ public class AutenticacaoService {
      * login falhar. Cada consulta abrindo a própria sessão é o que permite a segunda enxergar a
      * conta que a primeira descobriu.
      *
-     * <p>Não há perda, porque são duas leituras que não precisam ser atômicas entre si.
+     * <p>As leituras não precisam ser atômicas entre si. A escrita do primeiro acesso abre sua
+     * própria transação depois de os contextos da Conta e do administrador terem sido definidos.
      *
      * @return o token de acesso
      * @throws CredenciaisInvalidasException em qualquer falha
@@ -79,6 +83,12 @@ public class AutenticacaoService {
                 () -> usuarios.findById(credencial.getUsuarioId()))
                 .filter(Usuario::isAtivo)
                 .orElseThrow(CredenciaisInvalidasException::new);
+
+        if (usuario.getPerfil() == Perfil.ADMIN) {
+            TenantContext.executarComo(conta, () -> UsuarioContext.executarComo(
+                    new UsuarioAutenticado(usuario.getId(), usuario.getPerfil()),
+                    contaService::registrarPrimeiroAcessoSeNecessario));
+        }
 
         return emissor.emitir(usuario.getId(), conta, usuario.getPerfil());
     }
