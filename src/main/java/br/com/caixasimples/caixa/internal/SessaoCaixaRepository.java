@@ -35,6 +35,10 @@ public interface SessaoCaixaRepository extends JpaRepository<SessaoCaixaEntity, 
      */
     boolean existsByUsuarioIdAndStatus(UUID usuarioId, StatusSessaoCaixa status);
 
+    /** A sessão de trabalho do usuário atual, por projeção para não carregar o extrato. */
+    Optional<LinhaDoHistorico> findLinhaByUsuarioIdAndStatus(UUID usuarioId,
+            StatusSessaoCaixa status);
+
     /**
      * As sessões de um dia, de todos os operadores da conta (RF16).
      *

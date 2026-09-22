@@ -2,6 +2,7 @@ package br.com.caixasimples.caixa.application;
 
 import br.com.caixasimples.caixa.StatusSessaoCaixa;
 import br.com.caixasimples.caixa.domain.SessaoCaixa;
+import br.com.caixasimples.caixa.domain.MovimentoCaixa;
 import br.com.caixasimples.caixa.internal.LinhaDoHistorico;
 import br.com.caixasimples.caixa.internal.SessaoCaixaEntity;
 import br.com.caixasimples.caixa.internal.SessaoCaixaRepository;
@@ -13,6 +14,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -227,6 +229,32 @@ public class SessaoCaixaService {
                 .orElseThrow(() -> new SessaoCaixaNaoEncontradaException(sessaoId));
         UsuarioContext.exigirDonoOuAdmin(resumo.usuarioId());
         return resumo;
+    }
+
+    /** Consulta a sessão ABERTA de quem chama, mesmo se ela começou em outro dia. */
+    @Transactional(readOnly = true)
+    public Optional<ResumoDeSessao> abertaDoOperadorAtual() {
+        UUID usuarioId = UsuarioContext.exigirAtual().usuarioId();
+        return sessoes.findLinhaByUsuarioIdAndStatus(usuarioId, StatusSessaoCaixa.ABERTA)
+                .map(ResumoDeSessao::de);
+    }
+
+    /** Extrato de uma sessão escolhida, com a Venda de origem quando o movimento a tem. */
+    @Transactional(readOnly = true)
+    public ExtratoDaSessao consultarExtrato(UUID sessaoId) {
+        SessaoCaixa sessao = buscar(sessaoId).paraDominio();
+        UsuarioContext.exigirDonoOuAdmin(sessao.getUsuarioId());
+        ResumoDeSessao resumo = new ResumoDeSessao(sessao.getId(), sessao.getUsuarioId(),
+                sessao.getValorAbertura(), sessao.getValorFechamentoEsperado(),
+                sessao.getValorFechamentoContado(), sessao.getDiferenca(), sessao.getAbertaEm(),
+                sessao.getFechadaEm(), sessao.getStatus());
+        return new ExtratoDaSessao(resumo, sessao.getMovimentos());
+    }
+
+    public record ExtratoDaSessao(ResumoDeSessao sessao, List<MovimentoCaixa> movimentos) {
+        public ExtratoDaSessao {
+            movimentos = List.copyOf(movimentos);
+        }
     }
 
     /**

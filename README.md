@@ -72,14 +72,14 @@ O núcleo transacional é construído módulo a módulo, e cada um fecha com a s
 próximo começar. Os oito módulos estão declarados e têm suas fronteiras verificadas desde o
 primeiro dia; sete já têm código de negócio dentro. O aplicativo, um PWA em `frontend/`, tem o
 esqueleto pronto: login, sessão no dispositivo, shell por perfil e abertura sem rede. As telas de
-produto e cliente já operam sobre a API; as demais entram uma a uma com seus endpoints.
+produto, cliente e caixa já operam sobre a API; as demais entram uma a uma com seus endpoints.
 
 | Módulo | Estado | O que existe hoje |
 |---|---|---|
 | `shared` | Implementado | `Money`, `ContaId`, `FusoDeReferencia` e os dois contextos da requisição: `TenantContext`, a conta em operação, e `UsuarioContext`, quem está operando e com que perfil, com as duas perguntas de autorização que todo caso de uso restrito faz na primeira linha. E o tratamento transversal de erro da API: toda resposta de erro sai em Problem Details, a recusa por perfil vira 403, argumento que o domínio rejeita vira 400 e estado que o agregado rejeita vira 409. E a entrega do aplicativo: o shell do PWA sai daqui, com o fallback que devolve a mesma página para qualquer rota do cliente e nunca para a API |
 | `contas` | Implementado | `Conta`, `Usuario`, `Credencial`, login por JWT, política de senha, provisionamento de conta, a pergunta que os outros módulos fazem à conta em operação, como se o controle de estoque está ligado, e a gestão de usuários: o administrador cria operador ou administrador com login próprio, lista e inativa, com mais de um usuário só no plano mais alto e a conta nunca sem administrador. O filtro que resolve o token lê o usuário no banco a cada requisição, então inativar vale na requisição seguinte, e o perfil que vale é o do banco, não o do token. O primeiro login do administrador marca a Conta e publica o primeiro acesso na mesma transação que copia o catálogo sugerido. Quem está autenticado pergunta em `/api/auth/eu` e recebe o próprio nome, o negócio, o tipo dele e se o estoque está ligado: é o cabeçalho de toda tela |
 | `cadastro` | Implementado | `Produto` com atributos `JSONB`, busca por nome ou código para o balcão, `Cliente` como vertical slice, catálogo sugerido por tipo de negócio e copiado no primeiro login do administrador, e o agregado inteiro: `MovimentoEstoque` como membro, com a baixa por venda, o estorno por cancelamento e o ajuste manual gravando movimento e saldo na mesma transação, o estoque mínimo de cada produto e a resposta de quais estão com estoque baixo. A API e o PWA permitem cadastrar, editar, inativar e listar produtos ativos; cadastrar, editar, inativar, reativar e listar clientes. Só o administrador escreve produto; os dois perfis consultam produtos e cadastram clientes no balcão |
-| `caixa` | Implementado | `SessaoCaixa`: abertura, sangria, suprimento, fechamento com conferência, histórico por operador e por dia, e o dinheiro em espécie de cada venda concluída entrando na gaveta por evento, uma vez só, mesmo que o evento chegue de novo; e saindo dela, por outro evento, quando a venda é cancelada, num estorno que espelha exatamente o que entrou. O caixa é de quem o abriu: o operador só lança, fecha e consulta a própria sessão e só pede o próprio histórico; o administrador toca qualquer sessão da conta, porque é ele quem fecha o caixa do atendente que foi embora |
+| `caixa` | Implementado | `SessaoCaixa`: abertura, sangria, suprimento, fechamento com conferência, histórico por operador e por dia, consulta da sessão aberta do usuário atual e extrato de uma sessão com a Venda de origem nos movimentos. A API e o PWA permitem operar e conferir o caixa, com o esperado visível antes de informar o contado. O dinheiro em espécie de cada venda concluída entra na gaveta por evento, uma vez só; o cancelamento o estorna. O caixa é de quem o abriu: o operador só lança, fecha e consulta a própria sessão e só pede o próprio histórico; o administrador toca qualquer sessão da conta, inclusive para fechar o caixa de outro operador |
 | `pagamentos` | Implementado | Strategy por forma de pagamento: dinheiro com troco calculado no domínio, Pix e cartão lançados à mão pelo operador. Sem provedor de Pix ainda |
 | `vendas` | Em andamento | agregado `Venda`, com `ItemVenda` e `Pagamento` como membros: abrir a comanda num caixa aberto, lançar e remover itens com o preço copiado do produto, desconto por item e por venda, total recalculado a cada operação, pagamento dividido entre formas com o troco vindo do módulo de pagamentos, conclusão como passo explícito, que exige o caixa ainda aberto e publica o evento `VendaConcluida` pelo outbox, e cancelamento, que desfaz a comanda aberta ou a venda concluída e, só no segundo caso, publica `VendaCancelada` para o caixa e o estoque desfazerem o que fizeram; e o comprovante não-fiscal de uma venda concluída, devolvido como dado para a tela imprimir ou compartilhar, com as linhas já calculadas, os descontos, as parcelas confirmadas e o troco, que passou a ficar gravado na parcela. A venda é de quem a iniciou: o operador só toca as próprias e só vende no próprio caixa, e o administrador toca qualquer uma. Falta o vínculo de cliente |
 | `estoque` | Em andamento | o ouvinte da venda concluída: quando a conta ligou o controle de estoque, cada produto vendido vira uma baixa, pedida ao cadastro, dono do agregado; serviço no meio dos itens não gera nada, e o evento entregue de novo não baixa em dobro. E os casos de uso que uma pessoa aciona: ajuste manual com motivo obrigatório, perda, quebra ou contagem, com a diferença carregando o sinal; estoque mínimo por produto; e o alerta de estoque baixo como consulta, a lista dos produtos ativos no mínimo ou abaixo. A conta que não ligou o controle é recusada nos três, e os três são do administrador. E o ouvinte da venda cancelada, imagem espelhada do primeiro: cada produto que a venda baixou volta, uma vez só, e o que nunca saiu não volta |
@@ -111,6 +111,12 @@ oferece `GET` e `POST /api/produtos`, `PUT /api/produtos/{id}` e
 `POST /api/produtos/{id}/inativar`; para clientes, `GET` e `POST /api/clientes`,
 `GET /api/clientes/inativos`, `PUT /api/clientes/{id}`,
 `POST /api/clientes/{id}/inativar` e `POST /api/clientes/{id}/reativar`.
+O caixa oferece `GET` e `POST /api/caixa/sessoes`,
+`GET /api/caixa/sessoes/aberta`, `GET /api/caixa/sessoes/{id}`,
+`POST /api/caixa/sessoes/{id}/sangrias`,
+`POST /api/caixa/sessoes/{id}/suprimentos` e
+`POST /api/caixa/sessoes/{id}/fechamento`. O histórico recebe o dia e, opcionalmente, o operador;
+a consulta por id devolve o extrato, e as listas carregam só os totais.
 A escrita de produto por operador responde 403; id de outra Conta responde 404.
 Os casos de uso de produto, cliente, caixa, pagamento, venda, estoque, relatório e usuário são
 exercitados por teste de integração, inclusive a autorização por perfil, que é
@@ -123,10 +129,12 @@ scripts com hash no nome, o manifest, o service worker e os ícones, copiados do
 direto ao servidor recebe a mesma página, e o roteador do cliente escolhe a tela; uma rota da API
 que não existe nunca recebe a página, e sim 401 sem token e 404 com token. Todo dado sai por
 `/api`, com token. O aplicativo tem hoje o login, a sessão guardada no dispositivo, o shell com o
-nome do negócio e de quem opera, a navegação por perfil e as telas de produtos e clientes.
+nome do negócio e de quem opera, a navegação por perfil e as telas de produtos, clientes e caixa.
 Nelas se listam e alteram os cadastros, com pares livres de chave e valor para os atributos do
-produto. Um cliente HTTP só envia o token, troca-o pelo renovado que toda resposta devolve e
-traduz todo erro no mesmo objeto, lido do Problem Details. Com token guardado e ainda válido, o aplicativo
+produto. No caixa, quem opera abre a sessão, lança sangria e suprimento, vê o extrato e o histórico
+do dia e fecha com o saldo esperado à vista e a diferença apurada. Um cliente HTTP só envia o token,
+troca-o pelo renovado que toda resposta devolve e traduz todo erro no mesmo objeto, lido do Problem
+Details. Com token guardado e ainda válido, o aplicativo
 abre sem rede no shell, com a identidade guardada, e pergunta ao servidor quem está operando assim
 que a rede volta; a versão nova avisa e espera o operador mandar atualizar, porque recarregar no
 meio de uma venda custaria a venda.
@@ -145,6 +153,7 @@ Atalhos para avaliar o código sem percorrer o repositório inteiro.
 | Um contrato de erro só, para o framework e para a aplicação | [TratamentoDeErrosHttp.java](src/main/java/br/com/caixasimples/shared/web/TratamentoDeErrosHttp.java) | Estende o tratador do Spring MVC em vez de substituí-lo, então corpo ilegível e recusa por perfil saem na mesma forma; cada status tem o porquê escrito no lugar, e o 404 de cada módulo fica no módulo, sem hierarquia de exceção. O molde do controller, com validação do pedido e a exceção própria traduzida no lugar, é [AutenticacaoController.java](src/main/java/br/com/caixasimples/contas/web/AutenticacaoController.java) |
 | O primeiro login aplicando o catálogo uma vez | [ContaService.java](src/main/java/br/com/caixasimples/contas/application/ContaService.java) | Bloqueia a linha da Conta, marca o primeiro acesso e publica um evento síncrono para o cadastro copiar os itens na mesma transação; [PrimeiroAcessoDaContaListener.java](src/main/java/br/com/caixasimples/cadastro/internal/PrimeiroAcessoDaContaListener.java) reage sem criar dependência de Contas para o catálogo |
 | Cadastro HTTP consumido pelas telas | [ProdutoController.java](src/main/java/br/com/caixasimples/cadastro/web/ProdutoController.java) e [ClienteController.java](src/main/java/br/com/caixasimples/cadastro/web/ClienteController.java) | A API conserva a Conta e o perfil fora do corpo, faz inativação lógica e devolve 404 para id de outra Conta; [TelaDeProdutos.tsx](frontend/src/telas/TelaDeProdutos.tsx) e [TelaDeClientes.tsx](frontend/src/telas/TelaDeClientes.tsx) exercitam o contrato no PWA |
+| Caixa HTTP e conferência no PWA | [SessaoCaixaController.java](src/main/java/br/com/caixasimples/caixa/web/SessaoCaixaController.java) e [TelaDeCaixa.tsx](frontend/src/telas/TelaDeCaixa.tsx) | A sessão aberta vem do usuário autenticado, o histórico preserva o filtro por perfil, e só a consulta de uma sessão carrega os movimentos com a Venda de origem |
 | O servidor entregando o aplicativo | [PwaConfiguration.java](src/main/java/br/com/caixasimples/shared/web/PwaConfiguration.java) | Fallback de página única escrito à mão, com o porquê de cada caso: rota do cliente recebe o shell, arquivo que não existe e rota da API que não existe recebem 404, e os cabeçalhos de cache são explícitos porque o cache heurístico do navegador seguraria uma página antiga. Fora de `/api` tudo é público, e a razão está em [SecurityConfiguration.java](src/main/java/br/com/caixasimples/contas/internal/SecurityConfiguration.java) |
 | O cliente HTTP do aplicativo | [cliente.ts](frontend/src/api/cliente.ts) | Um lugar só envia o token, troca-o pelo renovado de toda resposta e traduz o Problem Details em um erro com status, detalhe e mensagem por campo; nenhuma tela precisa lembrar disso. A sessão no dispositivo, e o que acontece na abertura sem rede, está em [SessaoProvider.tsx](frontend/src/sessao/SessaoProvider.tsx); a navegação por perfil, que esconde o que a API recusaria mas não decide autorização, em [menu.ts](frontend/src/shell/menu.ts) |
 | Raiz de agregado sem framework | [SessaoCaixa.java](src/main/java/br/com/caixasimples/caixa/domain/SessaoCaixa.java) | Regra de negócio e invariantes isoladas de Spring e de JPA |
@@ -186,8 +195,8 @@ está em [Estado atual](#estado-atual).
 └── internal/      JPA, adapters e configuração, invisível aos outros módulos
 ```
 
-Nem todo módulo tem as quatro: uma camada nasce quando há o que colocar nela. Hoje `contas` e
-`cadastro` têm `web/` com os endpoints que suas telas consomem, e `shared` tem `web/` com o que é
+Nem todo módulo tem as quatro: uma camada nasce quando há o que colocar nela. Hoje `contas`,
+`cadastro` e `caixa` têm `web/` com os endpoints que suas telas consomem, e `shared` tem `web/` com o que é
 transversal, o tratamento de erro e a entrega do aplicativo; `cadastro` acomoda `Cliente` inteiro
 em `internal/`,
 porque um slice sem invariante não precisa de `domain/`; e `relatorios` não tem `domain/` porque
@@ -380,6 +389,8 @@ de uso, provada por teste negativo, e nunca dependente de um valor que o cliente
   não nela. O cadastro HTTP também prova as listas de produtos e clientes vazias na outra Conta,
   inclusive a lista de clientes inativos, e o 404 ao tentar editar pelo id alheio. O primeiro
   acesso aplica a cada Conta uma cópia própria do catálogo sugerido.
+  O caixa HTTP também prova que a Conta B não encontra a sessão da Conta A, recebe histórico vazio
+  e não deduz um caixa aberto alheio.
 - **Os listeners da venda agem na conta do evento, não na de quem publicou.** Eles rodam em outra
   thread, sem o tenant da requisição, e uma reentrega pode partir do outbox horas depois; a conta
   vai dentro do evento, lida do contexto autenticado no ato da publicação, e há teste, para os
@@ -596,7 +607,7 @@ src
 ├── main
 │   ├── java/br/com/caixasimples
 │   │   ├── cadastro/       domain, application, web, internal
-│   │   ├── caixa/          domain, application, internal
+│   │   ├── caixa/          domain, application, web, internal
 │   │   ├── contas/         application, web, internal
 │   │   ├── pagamentos/     domain, application, internal
 │   │   ├── vendas/         domain, application, internal
@@ -611,10 +622,10 @@ src
 │   └── ...                 testes por módulo, incluindo isolamento entre contas
 frontend
 ├── src
-│   ├── api/                o cliente HTTP e as chamadas de cadastro
+│   ├── api/                o cliente HTTP e as chamadas de cadastro e caixa
 │   ├── sessao/             token e identidade no dispositivo, provedor de sessão
 │   ├── shell/              cabeçalho, navegação por perfil, guardas de rota
-│   └── telas/              login, produto, cliente e o lugar das demais telas
+│   └── telas/              login, produto, cliente, caixa e o lugar das demais telas
 ├── public/                 ícones e manifest
 └── vite.config.ts          build, service worker e o proxy de desenvolvimento para a API
 ```

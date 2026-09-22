@@ -280,6 +280,16 @@ body {
 .cadastro__par { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; margin-bottom: 8px; }
 .mensagem-erro { color: var(--cor-erro); font-weight: 600; }
 
+.caixa { max-width: 1100px; margin: 0 auto; }
+.caixa__cartao { background: var(--cor-superficie); border: 1px solid var(--cor-borda); border-radius: var(--raio); padding: var(--espaco); margin-bottom: var(--espaco); }
+.caixa__cartao h3 { margin-top: 0; }
+.caixa__cartao label, .caixa__formulario { display: grid; gap: 8px; }
+.caixa__cartao label { margin-bottom: 12px; }
+.caixa__cartao input, .caixa__cartao select { max-width: 320px; }
+.caixa__lista { list-style: none; padding: 0; display: grid; gap: 8px; }
+.caixa__lista .botao { text-align: left; white-space: normal; }
+.caixa__movimentos { padding-left: 20px; display: grid; gap: 8px; overflow-wrap: anywhere; }
+
 @media (max-width: 600px) {
   .cadastro__par { grid-template-columns: 1fr; }
 }
