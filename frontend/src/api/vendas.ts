@@ -1,0 +1,76 @@
+import { chamarApi } from './cliente'
+
+export type FormaPagamento = 'DINHEIRO' | 'PIX' | 'CARTAO'
+export type StatusVenda = 'ABERTA' | 'CONCLUIDA' | 'CANCELADA'
+
+export type ResumoDaVenda = {
+  id: string
+  sessaoCaixaId: string
+  usuarioId: string
+  status: StatusVenda
+  total: number
+  criadoEm: string
+}
+
+export type ItemDaVenda = {
+  id: string
+  produtoId: string
+  nome: string
+  quantidade: number
+  precoUnitario: number
+  desconto: number
+  subtotal: number
+}
+
+export type ParcelaDaVenda = {
+  id: string
+  forma: FormaPagamento
+  valor: number
+  status: 'PENDENTE' | 'CONFIRMADO' | 'RECUSADO'
+  troco: number
+}
+
+export type Venda = ResumoDaVenda & {
+  descontoDaVenda: number
+  pago: number
+  faltaPagar: number
+  itens: ItemDaVenda[]
+  parcelas: ParcelaDaVenda[]
+}
+
+export type Comprovante = {
+  vendaId: string
+  usuarioId: string
+  concluidoEm: string
+  linhas: (Omit<ItemDaVenda, 'id'> & { unidade: string | null; valorBruto: number })[]
+  somaDosItens: number
+  descontoDaVenda: number
+  valorTotal: number
+  parcelas: Pick<ParcelaDaVenda, 'forma' | 'valor' | 'troco'>[]
+  troco: number
+}
+
+export const vendas = {
+  iniciar: (sessaoCaixaId: string) =>
+    chamarApi<{ id: string }>('/api/vendas', { metodo: 'POST', corpo: { sessaoCaixaId } }),
+  daSessao: (sessaoCaixaId: string) =>
+    chamarApi<ResumoDaVenda[]>(`/api/vendas?sessaoCaixaId=${encodeURIComponent(sessaoCaixaId)}`),
+  consultar: (id: string) => chamarApi<Venda>(`/api/vendas/${id}`),
+  adicionarItem: (id: string, produtoId: string, quantidade: number, desconto: number) =>
+    chamarApi<{ id: string }>(`/api/vendas/${id}/itens`, {
+      metodo: 'POST', corpo: { produtoId, quantidade, desconto },
+    }),
+  removerItem: (id: string, itemId: string) =>
+    chamarApi<void>(`/api/vendas/${id}/itens/${itemId}`, { metodo: 'DELETE' }),
+  descontar: (id: string, valor: number) =>
+    chamarApi<void>(`/api/vendas/${id}/desconto`, { metodo: 'PUT', corpo: { valor } }),
+  pagar: (id: string, forma: FormaPagamento, valor: number, valorRecebido?: number) =>
+    chamarApi<{ troco: number }>(`/api/vendas/${id}/pagamentos`, {
+      metodo: 'POST', corpo: { forma, valor, valorRecebido },
+    }),
+  concluir: (id: string) =>
+    chamarApi<void>(`/api/vendas/${id}/conclusao`, { metodo: 'POST' }),
+  cancelar: (id: string) =>
+    chamarApi<void>(`/api/vendas/${id}/cancelamento`, { metodo: 'POST' }),
+  comprovante: (id: string) => chamarApi<Comprovante>(`/api/vendas/${id}/comprovante`),
+}

@@ -16,10 +16,12 @@ import br.com.caixasimples.vendas.StatusVenda;
 import br.com.caixasimples.vendas.VendaCancelada;
 import br.com.caixasimples.vendas.VendaConcluida;
 import br.com.caixasimples.vendas.domain.ItemVenda;
+import br.com.caixasimples.vendas.domain.Pagamento;
 import br.com.caixasimples.vendas.domain.Venda;
 import br.com.caixasimples.vendas.internal.VendaEntity;
 import br.com.caixasimples.vendas.internal.VendaRepository;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -167,6 +169,9 @@ public class VendaService {
      */
     @Transactional
     public UUID adicionarItem(UUID vendaId, UUID produtoId, BigDecimal quantidade, Money desconto) {
+        if (desconto != null && !desconto.equals(Money.ZERO)) {
+            UsuarioContext.exigirAdmin();
+        }
         VendaEntity linha = buscar(vendaId);
         Venda venda = linha.paraDominio();
         UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
@@ -219,6 +224,7 @@ public class VendaService {
      */
     @Transactional
     public void aplicarDesconto(UUID vendaId, Money desconto) {
+        UsuarioContext.exigirAdmin();
         VendaEntity linha = buscar(vendaId);
         Venda venda = linha.paraDominio();
         UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
@@ -402,6 +408,68 @@ public class VendaService {
         return new Comprovante(venda.getId(), venda.getUsuarioId(), venda.getConcluidoEm(),
                 linhas, somaDosItens, venda.getValorDesconto(), venda.getValorTotal(), parcelas,
                 troco);
+    }
+
+    /** Devolve a comanda inteira após recarga da tela, incluindo parcelas já lançadas. */
+    @Transactional(readOnly = true)
+    public VendaParaTela consultar(UUID vendaId) {
+        Venda venda = buscar(vendaId).paraDominio();
+        UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
+        return paraTela(venda);
+    }
+
+    /** Vendas da SessaoCaixa, inclusive comandas ABERTA que podem ser retomadas ou canceladas. */
+    @Transactional(readOnly = true)
+    public List<ResumoDaVenda> vendasDaSessao(UUID sessaoCaixaId) {
+        Objects.requireNonNull(sessaoCaixaId, "id da sessao de caixa nao pode ser nulo");
+        return vendas.findBySessaoCaixaIdOrderByCriadoEmDesc(sessaoCaixaId).stream()
+                .map(VendaEntity::paraDominio)
+                .map(venda -> {
+                    UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
+                    return new ResumoDaVenda(venda.getId(), venda.getSessaoCaixaId(),
+                            venda.getUsuarioId(), venda.getStatus(), venda.getValorTotal(),
+                            venda.getCriadoEm());
+                })
+                .toList();
+    }
+
+    private VendaParaTela paraTela(Venda venda) {
+        Set<UUID> ids = venda.getItens().stream().map(ItemVenda::produtoId)
+                .collect(Collectors.toSet());
+        Map<UUID, ProdutoParaComprovante> porId = produtos.consultarParaComprovante(ids).stream()
+                .collect(Collectors.toMap(ProdutoParaComprovante::id, produto -> produto));
+        List<ItemParaTela> itens = venda.getItens().stream()
+                .map(item -> new ItemParaTela(item.id(), item.produtoId(),
+                        porId.get(item.produtoId()).nome(), item.quantidade(),
+                        item.precoUnitario(), item.desconto(), item.subtotal()))
+                .toList();
+        Money pago = venda.getPagamentos().stream()
+                .filter(parcela -> parcela.status() != StatusPagamento.RECUSADO)
+                .map(Pagamento::valor).reduce(Money.ZERO, Money::somar);
+        return new VendaParaTela(venda.getId(), venda.getSessaoCaixaId(), venda.getUsuarioId(),
+                venda.getStatus(), venda.getCriadoEm(), venda.getValorDesconto(),
+                venda.getValorTotal(), pago, venda.getValorTotal().subtrair(pago), itens,
+                venda.getPagamentos().stream().map(parcela -> new ParcelaParaTela(parcela.id(),
+                        parcela.forma(), parcela.valor(), parcela.status(), parcela.troco()))
+                        .toList());
+    }
+
+    public record ResumoDaVenda(UUID id, UUID sessaoCaixaId, UUID usuarioId,
+            StatusVenda status, Money total, Instant criadoEm) {
+    }
+
+    public record VendaParaTela(UUID id, UUID sessaoCaixaId, UUID usuarioId,
+            StatusVenda status, Instant criadoEm, Money descontoDaVenda, Money total,
+            Money pago, Money faltaPagar, List<ItemParaTela> itens,
+            List<ParcelaParaTela> parcelas) {
+    }
+
+    public record ItemParaTela(UUID id, UUID produtoId, String nome, BigDecimal quantidade,
+            Money precoUnitario, Money desconto, Money subtotal) {
+    }
+
+    public record ParcelaParaTela(UUID id, br.com.caixasimples.pagamentos.FormaPagamento forma,
+            Money valor, StatusPagamento status, Money troco) {
     }
 
     /**

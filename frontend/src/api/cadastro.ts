@@ -25,6 +25,8 @@ export type DadosDoCliente = Omit<Cliente, 'id'>
 
 export const cadastro = {
   produtos: () => chamarApi<Produto[]>('/api/produtos'),
+  buscarProdutos: (termo: string) =>
+    chamarApi<Produto[]>(`/api/produtos/busca?termo=${encodeURIComponent(termo)}`),
   criarProduto: (dados: DadosDoProduto) =>
     chamarApi<{ id: string }>('/api/produtos', { metodo: 'POST', corpo: dados }),
   editarProduto: (id: string, dados: DadosDoProduto) =>

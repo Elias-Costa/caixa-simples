@@ -290,6 +290,39 @@ body {
 .caixa__lista .botao { text-align: left; white-space: normal; }
 .caixa__movimentos { padding-left: 20px; display: grid; gap: 8px; overflow-wrap: anywhere; }
 
+/* PDV: busca e comanda lado a lado no tablet; histórico abaixo das duas. */
+.pdv { max-width: 1400px; margin: 0 auto; }
+.pdv__grade { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 1fr); gap: var(--espaco); }
+.pdv__painel { min-width: 0; padding: var(--espaco); border: 1px solid var(--cor-borda); border-radius: var(--raio); background: var(--cor-superficie); }
+.pdv__painel h3 { margin-top: 0; }
+.pdv__painel label { display: grid; gap: 6px; margin-bottom: 12px; }
+.pdv__painel input, .pdv__painel select { min-height: var(--toque); padding: 8px; border: 1px solid var(--cor-borda); border-radius: var(--raio); font: inherit; max-width: 100%; }
+.pdv__busca { display: grid; grid-template-columns: minmax(0, 1fr) 130px; gap: 12px; }
+.pdv__ajuda { margin-top: 0; color: #52605b; font-size: 0.85rem; }
+.pdv__resultados, .pdv__itens, .pdv__parcelas, .pdv__historico ul { list-style: none; padding: 0; display: grid; gap: 8px; }
+.pdv__resultados .botao, .pdv__historico .botao { text-align: left; width: 100%; white-space: normal; }
+.pdv__itens li, .pdv__topo, .pdv__acoes { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.pdv__itens li { border-bottom: 1px solid var(--cor-borda); padding: 8px 0; }
+.pdv__total { font-size: 1.4rem; font-weight: 700; margin-bottom: 4px; }
+.pdv__pagamento { border-top: 1px solid var(--cor-borda); margin-top: var(--espaco); padding-top: var(--espaco); }
+.pdv__historico { grid-column: 1 / -1; }
+.pdv__desconto { display: flex; align-items: end; gap: 8px; flex-wrap: wrap; }
+.comprovante { max-width: 540px; margin: 24px auto; padding: 24px; background: #fff; border: 1px solid var(--cor-borda); }
+.comprovante ul { padding-left: 20px; }
+.comprovante__acoes { display: flex; gap: 8px; flex-wrap: wrap; }
+
+@media (max-width: 760px) {
+  .pdv__grade { grid-template-columns: 1fr; }
+  .pdv__historico { grid-column: auto; }
+}
+
+@media print {
+  body * { visibility: hidden; }
+  .comprovante, .comprovante * { visibility: visible; }
+  .comprovante { position: absolute; inset: 0 auto auto 0; width: 100%; max-width: none; border: 0; margin: 0; }
+  .comprovante__acoes { display: none; }
+}
+
 @media (max-width: 600px) {
   .cadastro__par { grid-template-columns: 1fr; }
 }

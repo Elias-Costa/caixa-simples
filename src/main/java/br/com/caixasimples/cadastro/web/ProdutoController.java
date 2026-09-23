@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /** Entrada HTTP do catálogo da Conta: o corpo nunca aceita contaId nem saldo de estoque. */
@@ -38,6 +39,12 @@ class ProdutoController {
     @GetMapping
     List<ProdutoNaLista> listar() {
         return produtos.listarAtivos().stream().map(ProdutoNaLista::de).toList();
+    }
+
+    /** RF06: código exato primeiro; depois nomes que contêm o termo. */
+    @GetMapping("/busca")
+    List<ProdutoNaLista> buscar(@RequestParam String termo) {
+        return produtos.buscarPorNomeOuCodigo(termo).stream().map(ProdutoNaLista::de).toList();
     }
 
     @PostMapping
