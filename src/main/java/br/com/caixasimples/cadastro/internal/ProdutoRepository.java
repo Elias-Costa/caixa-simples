@@ -25,6 +25,9 @@ import org.springframework.data.jpa.repository.JpaRepository;
  */
 public interface ProdutoRepository extends JpaRepository<ProdutoEntity, UUID> {
 
+    /** Inclui produtos inativos: seu histórico ainda impede desligar o controle (RF17). */
+    boolean existsByMovimentosIsNotEmpty();
+
     /**
      * Se este produto já tem movimento deste tipo vindo desta venda: com SAIDA, se a venda já deu
      * baixa; com ENTRADA, se o cancelamento já a estornou. São as perguntas que os casos de uso

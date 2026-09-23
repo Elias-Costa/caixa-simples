@@ -94,8 +94,8 @@ public class CriadorDeContaDeTeste {
 
     /**
      * Liga o controle de estoque da conta (RF17). Conta nasce com ele desligado, então todo teste
-     * da baixa por venda precisa deste passo; a tela de configuração que fará isso ainda não
-     * existe.
+     * da baixa por venda precisa deste passo. A fixture prepara o estado diretamente para testes
+     * de outros módulos; a tela de configuração usa o caso de uso autenticado.
      */
     public void habilitarEstoque(ContaId contaId) {
         Conta conta = contas.findById(contaId.valor()).orElseThrow();

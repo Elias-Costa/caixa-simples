@@ -33,6 +33,11 @@ export function SessaoProvider({ children }: { children: ReactNode }) {
     setIdentidade(null)
   }, [])
 
+  const atualizarIdentidade = useCallback((atual: Identidade) => {
+    gravarIdentidade(atual)
+    setIdentidade(atual)
+  }, [])
+
   const entrar = useCallback(async (email: string, senha: string) => {
     const login = await chamarApi<{ token: string }>('/api/auth/login', {
       metodo: 'POST',
@@ -41,9 +46,8 @@ export function SessaoProvider({ children }: { children: ReactNode }) {
     })
     gravarToken(login.token)
     const atual = await chamarApi<Identidade>('/api/auth/eu')
-    gravarIdentidade(atual)
-    setIdentidade(atual)
-  }, [])
+    atualizarIdentidade(atual)
+  }, [atualizarIdentidade])
 
   // Ao abrir com sessão guardada, pergunta ao servidor quem está operando: a resposta renova o
   // token, atualiza nome e perfil e derruba quem foi inativado, porque o servidor responde 401.
@@ -55,8 +59,7 @@ export function SessaoProvider({ children }: { children: ReactNode }) {
     chamarApi<Identidade>('/api/auth/eu')
       .then((atual) => {
         if (descartado) return
-        gravarIdentidade(atual)
-        setIdentidade(atual)
+        atualizarIdentidade(atual)
       })
       .catch((falha: unknown) => {
         if (descartado) return
@@ -65,11 +68,11 @@ export function SessaoProvider({ children }: { children: ReactNode }) {
     return () => {
       descartado = true
     }
-  }, [sair])
+  }, [sair, atualizarIdentidade])
 
   const sessao = useMemo<Sessao>(
-    () => ({ identidade, entrar, sair }),
-    [identidade, entrar, sair],
+    () => ({ identidade, entrar, sair, atualizarIdentidade }),
+    [identidade, entrar, sair, atualizarIdentidade],
   )
 
   return <SessaoContext.Provider value={sessao}>{children}</SessaoContext.Provider>

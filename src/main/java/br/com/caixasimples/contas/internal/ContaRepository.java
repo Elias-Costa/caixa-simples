@@ -17,8 +17,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
  */
 public interface ContaRepository extends JpaRepository<Conta, UUID> {
 
-    /** Serializa dois primeiros logins da mesma Conta para o catálogo não ser copiado duas vezes. */
+    /** Serializa o primeiro acesso e as mudanças de configuração da mesma Conta. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select c from Conta c where c.id = :id")
-    Optional<Conta> buscarParaPrimeiroAcesso(UUID id);
+    Optional<Conta> buscarParaAtualizar(UUID id);
 }

@@ -18,7 +18,7 @@ function mostrar(perfil: 'ADMIN' | 'OPERADOR' = 'OPERADOR') {
       usuarioId: 'u-1', nome: 'Ana', perfil, contaId: 'c-1',
       nomeNegocio: 'Loja da Esquina', estoqueHabilitado: false,
     },
-    entrar: vi.fn(), sair: vi.fn(),
+    entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(),
   }}><TelaDeCaixa /></SessaoContext.Provider>)
 }
 

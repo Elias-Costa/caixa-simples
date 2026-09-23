@@ -34,7 +34,7 @@ function mostrar() {
   render(<MemoryRouter><SessaoContext.Provider value={{
     identidade: { usuarioId: 'usuario-1', nome: 'Ana', perfil: 'OPERADOR',
       contaId: 'conta-1', nomeNegocio: 'Loja da Esquina', estoqueHabilitado: false },
-    entrar: vi.fn(), sair: vi.fn(),
+    entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(),
   }}><TelaDeVenda /></SessaoContext.Provider></MemoryRouter>)
 }
 

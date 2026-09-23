@@ -3,6 +3,7 @@ package br.com.caixasimples.contas.application;
 import br.com.caixasimples.contas.internal.Conta;
 import br.com.caixasimples.contas.internal.ContaRepository;
 import br.com.caixasimples.contas.PrimeiroAcessoDaConta;
+import br.com.caixasimples.contas.MovimentosDeEstoqueDaConta;
 import br.com.caixasimples.shared.ContaId;
 import br.com.caixasimples.shared.TenantContext;
 import br.com.caixasimples.shared.UsuarioContext;
@@ -11,7 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Casos de uso da Conta em operação: responder sobre o estoque e marcar o primeiro acesso.
+ * Casos de uso da Conta em operação: consultar e configurar o estoque, e marcar o primeiro acesso.
  *
  * <p><strong>Nenhum método recebe a conta como parâmetro, e essa ausência é a regra.</strong>
  * {@code Conta} é a única entidade de negócio sem filtro automático de tenant, porque o id dela
@@ -28,10 +29,13 @@ public class ContaService {
 
     private final ContaRepository contas;
     private final ApplicationEventPublisher eventos;
+    private final MovimentosDeEstoqueDaConta movimentos;
 
-    ContaService(ContaRepository contas, ApplicationEventPublisher eventos) {
+    ContaService(ContaRepository contas, ApplicationEventPublisher eventos,
+            MovimentosDeEstoqueDaConta movimentos) {
         this.contas = contas;
         this.eventos = eventos;
+        this.movimentos = movimentos;
     }
 
     /**
@@ -51,6 +55,31 @@ public class ContaService {
         return conta.isEstoqueHabilitado();
     }
 
+    /** A configuração é restrita ao administrador, embora a pergunta operacional seja pública. */
+    @Transactional(readOnly = true)
+    public boolean configuracaoDeEstoque() {
+        UsuarioContext.exigirAdmin();
+        return estoqueHabilitado();
+    }
+
+    /**
+     * Altera o controle da Conta autenticada (RF17). Depois do primeiro movimento, desligar faria
+     * as vendas continuarem sem atualizar o saldo; a checagem consulta também produtos inativos.
+     */
+    @Transactional
+    public boolean definirEstoqueHabilitado(boolean habilitado) {
+        UsuarioContext.exigirAdmin();
+        ContaId contaId = TenantContext.exigirAtual();
+        Conta conta = contas.buscarParaAtualizar(contaId.valor())
+                .orElseThrow(() -> new IllegalStateException(
+                        "conta do contexto nao existe: " + contaId));
+        if (!habilitado && conta.isEstoqueHabilitado() && movimentos.existem()) {
+            throw new EstoqueComMovimentosException();
+        }
+        conta.definirEstoqueHabilitado(habilitado);
+        return conta.isEstoqueHabilitado();
+    }
+
     /**
      * Aplica a oferta no primeiro login de ADMIN. O bloqueio da linha da Conta torna a marca
      * suficiente mesmo com dois logins simultâneos, e o ouvinte síncrono copia antes do commit.
@@ -59,7 +88,7 @@ public class ContaService {
     public void registrarPrimeiroAcessoSeNecessario() {
         UsuarioContext.exigirAdmin();
         ContaId contaId = TenantContext.exigirAtual();
-        Conta conta = contas.buscarParaPrimeiroAcesso(contaId.valor())
+        Conta conta = contas.buscarParaAtualizar(contaId.valor())
                 .orElseThrow(() -> new IllegalStateException(
                         "conta do contexto nao existe: " + contaId));
         if (conta.isCatalogoInicialAplicado()) {
