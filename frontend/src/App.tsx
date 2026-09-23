@@ -2,7 +2,6 @@ import { Navigate, Route, Routes } from 'react-router'
 import { ExigeAdmin } from './shell/ExigeAdmin'
 import { ExigeSessao } from './shell/ExigeSessao'
 import { Shell } from './shell/Shell'
-import { EmConstrucao } from './telas/EmConstrucao'
 import { Inicio } from './telas/Inicio'
 import { TelaDeLogin } from './telas/TelaDeLogin'
 import { TelaDeProdutos } from './telas/TelaDeProdutos'
@@ -12,6 +11,7 @@ import { TelaDeVenda } from './telas/TelaDeVenda'
 import { TelaDeRelatorios } from './telas/TelaDeRelatorios'
 import { TelaDeUsuarios } from './telas/TelaDeUsuarios'
 import { TelaDeConfiguracao } from './telas/TelaDeConfiguracao'
+import { TelaDeEstoque } from './telas/TelaDeEstoque'
 
 /**
  * As rotas do aplicativo. Todas, menos o login, vivem dentro do shell e exigem sessão; as do
@@ -38,7 +38,7 @@ export function App() {
           </Route>
 
           <Route element={<ExigeAdmin comEstoque />}>
-            <Route path="estoque" element={<EmConstrucao titulo="Estoque" />} />
+            <Route path="estoque" element={<TelaDeEstoque />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />

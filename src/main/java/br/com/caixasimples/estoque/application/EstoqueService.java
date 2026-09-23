@@ -106,6 +106,13 @@ public class EstoqueService {
         return produtos.listarComEstoqueBaixo();
     }
 
+    /** O filtro de perfil e do controle fica aqui antes de expor os saldos ao aplicativo. */
+    public List<EstoqueDoProduto> produtos() {
+        UsuarioContext.exigirAdmin();
+        exigirControleLigado();
+        return produtos.listarEstoqueDosProdutos();
+    }
+
     private void exigirControleLigado() {
         if (!contas.estoqueHabilitado()) {
             throw new ControleDeEstoqueDesligadoException(TenantContext.exigirAtual());

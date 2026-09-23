@@ -298,6 +298,14 @@ body {
 .relatorios__formulario input { min-height: var(--toque); padding: 8px; border: 1px solid var(--cor-borda); border-radius: var(--raio); font: inherit; }
 .relatorios__total { margin: 8px 0; font-size: 2rem; font-weight: 700; }
 
+.estoque { max-width: 1100px; margin: 0 auto; }
+.estoque__lista { padding-left: 20px; display: grid; gap: 8px; }
+.estoque__selecao { display: grid; gap: 8px; max-width: 420px; }
+.estoque__formularios { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--espaco); }
+.estoque__formularios form, .estoque__formularios label { display: grid; gap: 8px; align-content: start; }
+.estoque__formularios form { padding: var(--espaco); border: 1px solid var(--cor-borda); border-radius: var(--raio); }
+.estoque__formularios input, .estoque__formularios select { width: 100%; }
+
 /* PDV: busca e comanda lado a lado no tablet; histórico abaixo das duas. */
 .pdv { max-width: 1400px; margin: 0 auto; }
 .pdv__grade { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 1fr); gap: var(--espaco); }

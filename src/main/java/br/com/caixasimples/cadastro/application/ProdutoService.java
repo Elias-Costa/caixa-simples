@@ -453,6 +453,17 @@ public class ProdutoService {
                 .toList();
     }
 
+    /** A tela recebe uma projeção de saldo e mínimo, sem abrir a raiz do agregado ao estoque. */
+    @Transactional(readOnly = true)
+    public List<EstoqueDoProduto> listarEstoqueDosProdutos() {
+        return produtos.findByAtivoTrueAndTipo(TipoProduto.PRODUTO).stream()
+                .map(ProdutoEntity::paraDominio)
+                .map(produto -> new EstoqueDoProduto(produto.getId(), produto.getNome(),
+                        produto.getCodigo(), produto.getUnidade(), produto.getEstoqueAtual(),
+                        produto.getEstoqueMinimo()))
+                .toList();
+    }
+
     private ProdutoEntity buscar(UUID id) {
         Objects.requireNonNull(id, "id do produto nao pode ser nulo");
         return produtos.findById(id).orElseThrow(() -> new ProdutoNaoEncontradoException(id));
