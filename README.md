@@ -72,7 +72,7 @@ O núcleo transacional é construído módulo a módulo, e cada um fecha com a s
 próximo começar. Os oito módulos estão declarados e têm suas fronteiras verificadas desde o
 primeiro dia; sete já têm código de negócio dentro. O aplicativo, um PWA em `frontend/`, tem o
 esqueleto pronto: login, sessão no dispositivo, shell por perfil e abertura sem rede. As telas de
-produto, cliente, caixa e Venda já operam sobre a API; as demais entram uma a uma com seus endpoints.
+produto, cliente, caixa, Venda e faturamento já operam sobre a API; as demais entram uma a uma com seus endpoints.
 
 | Módulo | Estado | O que existe hoje |
 |---|---|---|
@@ -83,7 +83,7 @@ produto, cliente, caixa e Venda já operam sobre a API; as demais entram uma a u
 | `pagamentos` | Implementado | Strategy por forma de pagamento: dinheiro com troco calculado no domínio, Pix e cartão lançados à mão pelo operador. Sem provedor de Pix ainda |
 | `vendas` | Implementado para o PDV online | agregado `Venda`, com `ItemVenda` e `Pagamento` como membros: abrir a comanda num caixa aberto, lançar e remover itens com o preço copiado do produto, desconto por item e por venda só pelo administrador, total recalculado a cada operação, pagamento dividido entre formas com o troco vindo do módulo de pagamentos, conclusão como passo explícito, que exige o caixa ainda aberto e publica o evento `VendaConcluida` pelo outbox, e cancelamento, que desfaz a comanda aberta ou a venda concluída e, só no segundo caso, publica `VendaCancelada` para o caixa e o estoque desfazerem o que fizeram. A API e o PWA leem a comanda com itens e parcelas, listam as vendas da sessão, retomam ou cancelam a ABERTA e exibem o comprovante não fiscal para imprimir ou compartilhar. A venda é de quem a iniciou: o operador só toca as próprias e só vende no próprio caixa, e o administrador toca qualquer uma. O vínculo de cliente entra depois |
 | `estoque` | Em andamento | o ouvinte da venda concluída: quando a conta ligou o controle de estoque, cada produto vendido vira uma baixa, pedida ao cadastro, dono do agregado; serviço no meio dos itens não gera nada, e o evento entregue de novo não baixa em dobro. E os casos de uso que uma pessoa aciona: ajuste manual com motivo obrigatório, perda, quebra ou contagem, com a diferença carregando o sinal; estoque mínimo por produto; e o alerta de estoque baixo como consulta, a lista dos produtos ativos no mínimo ou abaixo. A conta que não ligou o controle é recusada nos três, e os três são do administrador. E o ouvinte da venda cancelada, imagem espelhada do primeiro: cada produto que a venda baixou volta, uma vez só, e o que nunca saiu não volta |
-| `relatorios` | Implementado | faturamento do dia e de um período, produtos mais vendidos e fluxo de caixa de um período, com o dia delimitado no fuso do balcão. Faturamento e ranking contam as mesmas vendas, as concluídas, pelo instante em que concluíram; o ranking é por quantidade, com o valor, o nome e a unidade ao lado; o fluxo de caixa é o da gaveta, só dinheiro em espécie, com entradas, saídas e saldo pelo dia em que cada movimento foi lançado. Filtros combináveis: o faturamento por forma de pagamento e por operador, juntos ou separados, e o ranking por operador; uma venda paga metade em dinheiro e metade em Pix se reparte entre as duas formas pelo valor de cada parcela, e as três formas somadas dão o faturamento inteiro. O módulo só lê: enxerga as tabelas de venda, item, produto, pagamento e movimento de caixa por mapeamentos próprios, imutáveis, com as colunas que cada relatório usa, e os repositórios nem têm método de escrita. As somas e as junções são do banco. Os três relatórios são do administrador, inclusive filtrados por operador |
+| `relatorios` | Implementado | faturamento do dia e de um período, produtos mais vendidos e fluxo de caixa de um período, com o dia delimitado no fuso do balcão. A API e o PWA exibem o faturamento de hoje por padrão e permitem escolher um período; os outros relatórios e os filtros ainda não têm tela. Faturamento e ranking contam as mesmas vendas, as concluídas, pelo instante em que concluíram; o ranking é por quantidade, com o valor, o nome e a unidade ao lado; o fluxo de caixa é o da gaveta, só dinheiro em espécie, com entradas, saídas e saldo pelo dia em que cada movimento foi lançado. Filtros combináveis: o faturamento por forma de pagamento e por operador, juntos ou separados, e o ranking por operador; uma venda paga metade em dinheiro e metade em Pix se reparte entre as duas formas pelo valor de cada parcela, e as três formas somadas dão o faturamento inteiro. O módulo só lê: enxerga as tabelas de venda, item, produto, pagamento e movimento de caixa por mapeamentos próprios, imutáveis, com as colunas que cada relatório usa, e os repositórios nem têm método de escrita. As somas e as junções são do banco. Os três relatórios são do administrador, inclusive filtrados por operador |
 
 **Schema.** Treze migrations Flyway, de `V1` a `V13`: conta, usuário e credencial; produto; cliente;
 catálogo de referência; o agregado de caixa, com a regra de uma sessão aberta por operador; o
@@ -125,6 +125,9 @@ O caixa oferece `GET` e `POST /api/caixa/sessoes`,
 `POST /api/caixa/sessoes/{id}/suprimentos` e
 `POST /api/caixa/sessoes/{id}/fechamento`. O histórico recebe o dia e, opcionalmente, o operador;
 a consulta por id devolve o extrato, e as listas carregam só os totais.
+O faturamento usa `GET /api/relatorios/faturamento/dia?dia=...` e
+`GET /api/relatorios/faturamento?inicio=...&fim=...`; os dois devolvem o período, o total e
+a quantidade de vendas, e recusam o OPERADOR com 403.
 A escrita de produto por operador responde 403; id de outra Conta responde 404.
 Os casos de uso de produto, cliente, caixa, pagamento, venda, estoque, relatório e usuário são
 exercitados por teste de integração, inclusive a autorização por perfil, que é
@@ -137,14 +140,14 @@ scripts com hash no nome, o manifest, o service worker e os ícones, copiados do
 direto ao servidor recebe a mesma página, e o roteador do cliente escolhe a tela; uma rota da API
 que não existe nunca recebe a página, e sim 401 sem token e 404 com token. Todo dado sai por
 `/api`, com token. O aplicativo tem hoje o login, a sessão guardada no dispositivo, o shell com o
-nome do negócio e de quem opera, a navegação por perfil e as telas de produtos, clientes, caixa e
-Venda.
-Nelas se listam e alteram os cadastros, com pares livres de chave e valor para os atributos do
+nome do negócio e de quem opera, a navegação por perfil e as telas de produtos, clientes, caixa,
+Venda e faturamento. Nelas se listam e alteram os cadastros, com pares livres de chave e valor para os atributos do
 produto. No caixa, quem opera abre a sessão, lança sangria e suprimento, vê o extrato e o histórico
 do dia e fecha com o saldo esperado à vista e a diferença apurada. No PDV, a busca aceita nome,
 código e multiplicador de quantidade; a comanda mostra o total, o que já foi pago e o que falta,
 admite pagamento dividido e exibe o troco. Uma venda simples em dinheiro fecha em até seis toques.
 O comprovante usa a impressão do navegador e o compartilhamento do dispositivo quando disponível.
+O faturamento abre no dia do balcão e permite consultar um período escolhido pelo administrador.
 Um cliente HTTP só envia o token,
 troca-o pelo renovado que toda resposta devolve e traduz todo erro no mesmo objeto, lido do Problem
 Details. Com token guardado e ainda válido, o aplicativo
@@ -168,6 +171,7 @@ Atalhos para avaliar o código sem percorrer o repositório inteiro.
 | Cadastro HTTP consumido pelas telas | [ProdutoController.java](src/main/java/br/com/caixasimples/cadastro/web/ProdutoController.java) e [ClienteController.java](src/main/java/br/com/caixasimples/cadastro/web/ClienteController.java) | A API conserva a Conta e o perfil fora do corpo, faz inativação lógica e devolve 404 para id de outra Conta; [TelaDeProdutos.tsx](frontend/src/telas/TelaDeProdutos.tsx) e [TelaDeClientes.tsx](frontend/src/telas/TelaDeClientes.tsx) exercitam o contrato no PWA |
 | Caixa HTTP e conferência no PWA | [SessaoCaixaController.java](src/main/java/br/com/caixasimples/caixa/web/SessaoCaixaController.java) e [TelaDeCaixa.tsx](frontend/src/telas/TelaDeCaixa.tsx) | A sessão aberta vem do usuário autenticado, o histórico preserva o filtro por perfil, e só a consulta de uma sessão carrega os movimentos com a Venda de origem |
 | Venda HTTP e PDV | [VendaController.java](src/main/java/br/com/caixasimples/vendas/web/VendaController.java) e [TelaDeVenda.tsx](frontend/src/telas/TelaDeVenda.tsx) | A comanda é recuperada após recarga, o pagamento dividido mostra o troco e a tela apresenta o comprovante não fiscal para imprimir ou compartilhar |
+| Faturamento HTTP e no PWA | [FaturamentoController.java](src/main/java/br/com/caixasimples/relatorios/web/FaturamentoController.java) e [TelaDeRelatorios.tsx](frontend/src/telas/TelaDeRelatorios.tsx) | A tela começa no dia do balcão e consulta um período escolhido; o caso de uso restringe ambas as consultas ao administrador e à Conta autenticada |
 | O servidor entregando o aplicativo | [PwaConfiguration.java](src/main/java/br/com/caixasimples/shared/web/PwaConfiguration.java) | Fallback de página única escrito à mão, com o porquê de cada caso: rota do cliente recebe o shell, arquivo que não existe e rota da API que não existe recebem 404, e os cabeçalhos de cache são explícitos porque o cache heurístico do navegador seguraria uma página antiga. Fora de `/api` tudo é público, e a razão está em [SecurityConfiguration.java](src/main/java/br/com/caixasimples/contas/internal/SecurityConfiguration.java) |
 | O cliente HTTP do aplicativo | [cliente.ts](frontend/src/api/cliente.ts) | Um lugar só envia o token, troca-o pelo renovado de toda resposta e traduz o Problem Details em um erro com status, detalhe e mensagem por campo; nenhuma tela precisa lembrar disso. A sessão no dispositivo, e o que acontece na abertura sem rede, está em [SessaoProvider.tsx](frontend/src/sessao/SessaoProvider.tsx); a navegação por perfil, que esconde o que a API recusaria mas não decide autorização, em [menu.ts](frontend/src/shell/menu.ts) |
 | Raiz de agregado sem framework | [SessaoCaixa.java](src/main/java/br/com/caixasimples/caixa/domain/SessaoCaixa.java) | Regra de negócio e invariantes isoladas de Spring e de JPA |
@@ -210,7 +214,7 @@ está em [Estado atual](#estado-atual).
 ```
 
 Nem todo módulo tem as quatro: uma camada nasce quando há o que colocar nela. Hoje `contas`,
-`cadastro` e `caixa` têm `web/` com os endpoints que suas telas consomem, e `shared` tem `web/` com o que é
+`cadastro`, `caixa`, `vendas` e `relatorios` têm `web/` com os endpoints que suas telas consomem, e `shared` tem `web/` com o que é
 transversal, o tratamento de erro e a entrega do aplicativo; `cadastro` acomoda `Cliente` inteiro
 em `internal/`,
 porque um slice sem invariante não precisa de `domain/`; e `relatorios` não tem `domain/` porque
@@ -627,7 +631,7 @@ src
 │   │   ├── vendas/         domain, application, web, internal
 │   │   ├── shared/         Money, ContaId, TenantContext, UsuarioContext, Perfil, FusoDeReferencia; web com o tratamento de erro e a entrega do aplicativo
 │   │   ├── estoque/        application, internal
-│   │   └── relatorios/     application, internal
+│   │   └── relatorios/     application, web, internal
 │   └── resources
 │       └── db/migration/   V1 a V13, imutáveis depois de publicadas
 ├── test/java/br/com/caixasimples
@@ -636,10 +640,10 @@ src
 │   └── ...                 testes por módulo, incluindo isolamento entre contas
 frontend
 ├── src
-│   ├── api/                o cliente HTTP e as chamadas de cadastro, caixa e vendas
+│   ├── api/                o cliente HTTP e as chamadas de cadastro, caixa, vendas e faturamento
 │   ├── sessao/             token e identidade no dispositivo, provedor de sessão
 │   ├── shell/              cabeçalho, navegação por perfil, guardas de rota
-│   └── telas/              login, produto, cliente, caixa, Venda e o lugar das demais telas
+│   └── telas/              login, produto, cliente, caixa, Venda, faturamento e o lugar das demais telas
 ├── public/                 ícones e manifest
 └── vite.config.ts          build, service worker e o proxy de desenvolvimento para a API
 ```

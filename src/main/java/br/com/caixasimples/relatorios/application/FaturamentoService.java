@@ -51,7 +51,7 @@ import org.springframework.transaction.annotation.Transactional;
  * em que todas as sobrecargas desembocam.
  *
  * <p>O pacote não é exposto aos outros módulos: quem chama daqui é a camada web deste mesmo
- * módulo, quando nascer. Ninguém depende de relatórios.
+ * módulo. Ninguém depende de relatórios.
  */
 @Service
 public class FaturamentoService {

@@ -9,6 +9,7 @@ import { TelaDeProdutos } from './telas/TelaDeProdutos'
 import { TelaDeClientes } from './telas/TelaDeClientes'
 import { TelaDeCaixa } from './telas/TelaDeCaixa'
 import { TelaDeVenda } from './telas/TelaDeVenda'
+import { TelaDeRelatorios } from './telas/TelaDeRelatorios'
 
 /**
  * As rotas do aplicativo. Todas, menos o login, vivem dentro do shell e exigem sessão; as do
@@ -29,7 +30,7 @@ export function App() {
           <Route path="clientes" element={<TelaDeClientes />} />
 
           <Route element={<ExigeAdmin />}>
-            <Route path="relatorios" element={<EmConstrucao titulo="Relatórios" />} />
+            <Route path="relatorios" element={<TelaDeRelatorios />} />
             <Route path="usuarios" element={<EmConstrucao titulo="Usuários" />} />
             <Route path="configuracao" element={<EmConstrucao titulo="Configuração" />} />
           </Route>

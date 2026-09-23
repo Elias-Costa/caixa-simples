@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { caixa, type SessaoCaixa } from '../api/caixa'
+import { hojeNoBalcao } from '../dataDoBalcao'
 import { useSessao } from '../sessao/useSessao'
 import { erroDeCadastro } from './erroDeCadastro'
 
@@ -7,14 +8,6 @@ const moeda = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL
 const dataHora = new Intl.DateTimeFormat('pt-BR', {
   dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Bahia',
 })
-
-function hojeNoBalcao(): string {
-  const partes = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/Bahia', year: 'numeric', month: '2-digit', day: '2-digit',
-  }).formatToParts(new Date())
-  const campo = (tipo: string) => partes.find((parte) => parte.type === tipo)?.value ?? ''
-  return `${campo('year')}-${campo('month')}-${campo('day')}`
-}
 
 function dinheiroDigitado(valor: string): number {
   return Number(valor.replace(',', '.'))
