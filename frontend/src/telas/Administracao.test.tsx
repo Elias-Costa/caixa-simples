@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { contas } from '../api/contas'
 import { ErroDaApi } from '../api/cliente'
+import { gravarToken } from '../sessao/armazenamento'
 import { SessaoContext } from '../sessao/contexto'
 import type { Identidade } from '../sessao/Identidade'
 import { itensDoMenu } from '../shell/menu'
@@ -28,6 +29,7 @@ function ComSessaoEConfig() {
 
 describe('administração na tela', () => {
   it('liga o estoque e mostra o menu imediatamente', async () => {
+    gravarToken('token-admin')
     vi.spyOn(contas, 'configuracao').mockResolvedValue({ estoqueHabilitado: false })
     const definir = vi.spyOn(contas, 'definirEstoque')
       .mockResolvedValue({ estoqueHabilitado: true })

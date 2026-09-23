@@ -1,4 +1,4 @@
-import { gravarToken, lerToken } from '../sessao/armazenamento'
+import { lerTokenDaSessao, renovarTokenDaSessao, sessaoAtual, sessaoDaAba } from '../sessao/armazenamento'
 
 /** Cabeçalho pelo qual toda resposta autenticada devolve um token novo. */
 export const CABECALHO_DO_TOKEN_RENOVADO = 'X-Caixa-Simples-Token'
@@ -40,6 +40,14 @@ export class SemConexao extends Error {
   }
 }
 
+/** Uma resposta iniciada em outra sessão não pode entregar dados nem renovar o token. */
+export class SessaoAlterada extends Error {
+  constructor() {
+    super('A sessão mudou durante a requisição')
+    this.name = 'SessaoAlterada'
+  }
+}
+
 export type OpcoesDaChamada = {
   metodo?: 'GET' | 'POST' | 'PUT' | 'DELETE'
   corpo?: unknown
@@ -58,8 +66,14 @@ export type OpcoesDaChamada = {
 export async function chamarApi<T>(caminho: string, opcoes: OpcoesDaChamada = {}): Promise<T> {
   const cabecalhos = new Headers()
   if (opcoes.corpo !== undefined) cabecalhos.set('Content-Type', 'application/json')
-  const token = lerToken()
-  if ((opcoes.autenticado ?? true) && token) cabecalhos.set('Authorization', `Bearer ${token}`)
+  const autenticado = opcoes.autenticado ?? true
+  const sessao = autenticado ? sessaoAtual() : null
+  if (autenticado && sessao !== sessaoDaAba()) throw new SessaoAlterada()
+  // A Conta pode mudar em outra aba entre a guarda acima e esta leitura. A chave da sessão
+  // capturada impede enviar o token da nova Conta numa chamada iniciada pela aba antiga.
+  const token = autenticado && sessao ? lerTokenDaSessao(sessao) : null
+  if (autenticado && sessao && !token) throw new SessaoAlterada()
+  if (autenticado && token) cabecalhos.set('Authorization', `Bearer ${token}`)
 
   let resposta: Response
   try {
@@ -72,12 +86,22 @@ export async function chamarApi<T>(caminho: string, opcoes: OpcoesDaChamada = {}
     throw new SemConexao()
   }
 
+  const exigirSessaoDaChamada = () => {
+    if (autenticado && sessaoAtual() !== sessao) throw new SessaoAlterada()
+  }
+  exigirSessaoDaChamada()
   const tokenRenovado = resposta.headers.get(CABECALHO_DO_TOKEN_RENOVADO)
-  if (tokenRenovado) gravarToken(tokenRenovado)
+  if (autenticado && sessao && tokenRenovado) renovarTokenDaSessao(sessao, tokenRenovado)
 
-  if (!resposta.ok) throw await lerErro(resposta)
+  if (!resposta.ok) {
+    const erro = await lerErro(resposta)
+    exigirSessaoDaChamada()
+    throw erro
+  }
   if (resposta.status === 204) return undefined as T
-  return (await resposta.json()) as T
+  const corpo = (await resposta.json()) as T
+  exigirSessaoDaChamada()
+  return corpo
 }
 
 type ProblemDetails = {

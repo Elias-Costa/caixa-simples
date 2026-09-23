@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { gravarToken, lerToken } from '../sessao/armazenamento'
-import { CABECALHO_DO_TOKEN_RENOVADO, chamarApi, ErroDaApi, SemConexao } from './cliente'
+import { fixarSessaoDaAba, gravarToken, lerToken, sessaoAtual } from '../sessao/armazenamento'
+import { CABECALHO_DO_TOKEN_RENOVADO, chamarApi, ErroDaApi, SemConexao, SessaoAlterada } from './cliente'
 
 function respostaJson(status: number, corpo: unknown, cabecalhos: Record<string, string> = {}) {
   return new Response(JSON.stringify(corpo), {
@@ -33,6 +33,77 @@ describe('chamarApi', () => {
     await chamarApi('/api/auth/eu')
 
     expect(lerToken()).toBe('token-novo')
+  })
+
+  it('resposta antiga da Conta A não troca o token nem entrega dados à Conta B', async () => {
+    let responder!: (resposta: Response) => void
+    vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise<Response>((resolve) => { responder = resolve })))
+    gravarToken('token-conta-a')
+    const chamada = chamarApi<{ segredo: string }>('/api/vendas')
+
+    gravarToken('token-conta-b')
+    responder(respostaJson(200, { segredo: 'da conta A' }, {
+      [CABECALHO_DO_TOKEN_RENOVADO]: 'token-conta-a-renovado',
+    }))
+
+    await expect(chamada).rejects.toBeInstanceOf(SessaoAlterada)
+    expect(lerToken()).toBe('token-conta-b')
+  })
+
+  it('aba antiga não envia o token da Conta que entrou em outra aba', async () => {
+    gravarToken('token-conta-a')
+    const sessaoA = sessaoAtual()!
+    gravarToken('token-conta-b')
+    fixarSessaoDaAba(sessaoA)
+    const fetchFalso = vi.fn()
+    vi.stubGlobal('fetch', fetchFalso)
+
+    await expect(chamarApi('/api/vendas')).rejects.toBeInstanceOf(SessaoAlterada)
+    expect(fetchFalso).not.toHaveBeenCalled()
+    expect(lerToken()).toBe('token-conta-b')
+  })
+
+  it('troca de Conta durante a leitura da sessão não envia o novo token pela aba antiga', async () => {
+    gravarToken('token-conta-a')
+    const sessaoA = sessaoAtual()!
+    const fetchFalso = vi.fn()
+    vi.stubGlobal('fetch', fetchFalso)
+    const leituraOriginal = Storage.prototype.getItem
+    let trocou = false
+    const leitura = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(function (this: Storage, chave: string) {
+      if (!trocou && this === sessionStorage && chave === 'caixa-simples.sessao-na-aba') {
+        trocou = true
+        gravarToken('token-conta-b')
+        fixarSessaoDaAba(sessaoA)
+      }
+      return leituraOriginal.call(this, chave)
+    })
+
+    try {
+      await expect(chamarApi('/api/vendas')).rejects.toBeInstanceOf(SessaoAlterada)
+      expect(fetchFalso).not.toHaveBeenCalled()
+      expect(lerToken()).toBe('token-conta-b')
+    } finally {
+      leitura.mockRestore()
+    }
+  })
+
+  it('duas respostas da mesma sessão podem renovar o token sem se invalidar', async () => {
+    let responderPrimeira!: (resposta: Response) => void
+    let responderSegunda!: (resposta: Response) => void
+    vi.stubGlobal('fetch', vi.fn()
+      .mockReturnValueOnce(new Promise<Response>((resolve) => { responderPrimeira = resolve }))
+      .mockReturnValueOnce(new Promise<Response>((resolve) => { responderSegunda = resolve })))
+    gravarToken('token-inicial')
+    const primeira = chamarApi('/api/auth/eu')
+    const segunda = chamarApi('/api/produtos')
+
+    responderPrimeira(respostaJson(200, {}, { [CABECALHO_DO_TOKEN_RENOVADO]: 'token-renovado-1' }))
+    await primeira
+    responderSegunda(respostaJson(200, {}, { [CABECALHO_DO_TOKEN_RENOVADO]: 'token-renovado-2' }))
+    await segunda
+
+    expect(lerToken()).toBe('token-renovado-2')
   })
 
   it('chamada sem sessão não envia Authorization e serializa o corpo como JSON', async () => {

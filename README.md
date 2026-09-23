@@ -157,9 +157,10 @@ código e multiplicador de quantidade; a comanda mostra o total, o que já foi p
 admite pagamento dividido e exibe o troco. Uma venda simples em dinheiro fecha em até seis toques.
 O comprovante usa a impressão do navegador e o compartilhamento do dispositivo quando disponível.
 O faturamento abre no dia do balcão e permite consultar um período escolhido pelo administrador.
-Um cliente HTTP só envia o token,
-troca-o pelo renovado que toda resposta devolve e traduz todo erro no mesmo objeto, lido do Problem
-Details. Com token guardado e ainda válido, o aplicativo
+Um cliente HTTP só envia o token da sessão aberta nesta aba, troca-o pelo renovado quando a resposta
+pertence à mesma sessão e traduz todo erro no mesmo objeto, lido do Problem Details. Respostas de
+uma Conta anterior são descartadas depois de uma troca de sessão, inclusive entre abas.
+Com token guardado e ainda válido, o aplicativo
 abre sem rede no shell, com a identidade guardada, e pergunta ao servidor quem está operando assim
 que a rede volta; a versão nova avisa e espera o operador mandar atualizar, porque recarregar no
 meio de uma venda custaria a venda.
@@ -184,7 +185,7 @@ Atalhos para avaliar o código sem percorrer o repositório inteiro.
 | Faturamento HTTP e no PWA | [FaturamentoController.java](src/main/java/br/com/caixasimples/relatorios/web/FaturamentoController.java) e [TelaDeRelatorios.tsx](frontend/src/telas/TelaDeRelatorios.tsx) | A tela começa no dia do balcão e consulta um período escolhido; o caso de uso restringe ambas as consultas ao administrador e à Conta autenticada |
 | Estoque HTTP e no PWA | [EstoqueController.java](src/main/java/br/com/caixasimples/estoque/web/EstoqueController.java) e [TelaDeEstoque.tsx](frontend/src/telas/TelaDeEstoque.tsx) | A API exige controle ligado e perfil ADMIN; a tela mostra saldo, mínimo e alerta e calcula a diferença da contagem antes do ajuste |
 | O servidor entregando o aplicativo | [PwaConfiguration.java](src/main/java/br/com/caixasimples/shared/web/PwaConfiguration.java) | Fallback de página única escrito à mão, com o porquê de cada caso: rota do cliente recebe o shell, arquivo que não existe e rota da API que não existe recebem 404, e os cabeçalhos de cache são explícitos porque o cache heurístico do navegador seguraria uma página antiga. Fora de `/api` tudo é público, e a razão está em [SecurityConfiguration.java](src/main/java/br/com/caixasimples/contas/internal/SecurityConfiguration.java) |
-| O cliente HTTP do aplicativo | [cliente.ts](frontend/src/api/cliente.ts) | Um lugar só envia o token, troca-o pelo renovado de toda resposta e traduz o Problem Details em um erro com status, detalhe e mensagem por campo; nenhuma tela precisa lembrar disso. A sessão no dispositivo, e o que acontece na abertura sem rede, está em [SessaoProvider.tsx](frontend/src/sessao/SessaoProvider.tsx); a navegação por perfil, que esconde o que a API recusaria mas não decide autorização, em [menu.ts](frontend/src/shell/menu.ts) |
+| O cliente HTTP do aplicativo | [cliente.ts](frontend/src/api/cliente.ts) | Um lugar só envia o token, aceita a renovação da sessão que fez a chamada e traduz o Problem Details em um erro com status, detalhe e mensagem por campo; nenhuma tela precisa lembrar disso. A sessão no dispositivo, e o que acontece na abertura sem rede ou na troca entre abas, está em [SessaoProvider.tsx](frontend/src/sessao/SessaoProvider.tsx); a navegação por perfil, que esconde o que a API recusaria mas não decide autorização, em [menu.ts](frontend/src/shell/menu.ts) |
 | Raiz de agregado sem framework | [SessaoCaixa.java](src/main/java/br/com/caixasimples/caixa/domain/SessaoCaixa.java) | Regra de negócio e invariantes isoladas de Spring e de JPA |
 | Invariante viva, recalculada a cada operação | [Venda.java](src/main/java/br/com/caixasimples/vendas/domain/Venda.java) | O total nunca fica negativo, nunca diverge dos itens e nunca fica abaixo do já pago; a venda só conclui com os pagamentos confirmados iguais ao total. Cada operação que quebraria uma regra é recusada antes de tocar no agregado, e o estado remontado do banco passa pela mesma conferência |
 | Pergunta entre módulos sem expor o agregado | [VendaService.java](src/main/java/br/com/caixasimples/vendas/application/VendaService.java) | A venda copia o preço do cadastro por chamada à camada de aplicação dele, recebendo um record e nunca a raiz alheia; confere o caixa por uma interface que ela mesma declara; e, ao concluir ou cancelar, publica o evento em vez de chamar quem reage |
@@ -449,7 +450,9 @@ A validade do token conta a partir do último contato com o servidor e não do l
 autenticada devolve um token renovado. Na prática, é a janela de resistência que a operação offline
 exige. Não há revogação de token, e sim de usuário: inativar alguém derruba o token dele na
 requisição seguinte. No aplicativo, o token e a identidade de quem entrou ficam guardados no
-dispositivo, e é isso que permite abrir o aplicativo sem rede; o custo aceito, e escrito, é que
+dispositivo, e é isso que permite abrir o aplicativo sem rede. Cada login inicia uma sessão nova
+no navegador; token e identidade ficam vinculados a ela, cada aba só usa a sessão com que abriu,
+e uma troca em outra aba remove a identidade anterior da tela. O custo aceito, e escrito, é que
 quem pega o tablet destravado entra até o token expirar. O cliente nunca envia conta nem perfil em
 requisição nenhuma, e a navegação por perfil apenas esconde o que o servidor recusaria: a
 autorização continua sendo do caso de uso.

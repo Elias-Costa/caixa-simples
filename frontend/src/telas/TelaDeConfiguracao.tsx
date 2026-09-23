@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { contas } from '../api/contas'
+import { sessaoAtual } from '../sessao/armazenamento'
 import { useSessao } from '../sessao/useSessao'
 import { erroDeCadastro } from './erroDeCadastro'
 
@@ -23,12 +24,14 @@ export function TelaDeConfiguracao() {
 
   async function alternar() {
     if (habilitado === null || !identidade) return
+    const sessao = sessaoAtual()
+    if (!sessao) return
     setSalvando(true)
     setErro(null)
     try {
       const configuracao = await contas.definirEstoque(!habilitado)
       setHabilitado(configuracao.estoqueHabilitado)
-      atualizarIdentidade({ ...identidade, estoqueHabilitado: configuracao.estoqueHabilitado })
+      atualizarIdentidade({ ...identidade, estoqueHabilitado: configuracao.estoqueHabilitado }, sessao)
     } catch (falha) {
       setErro(erroDeCadastro(falha))
     } finally {
