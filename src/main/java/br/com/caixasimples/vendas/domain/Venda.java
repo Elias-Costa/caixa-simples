@@ -13,12 +13,13 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Uma venda do balcão. Raiz do agregado Venda, com {@link ItemVenda} e {@link Pagamento} como
- * membros.
+ * Uma venda do balcão. Raiz do agregado Venda, com {@link ItemVenda}, {@link Pagamento} e
+ * {@link Recebimento} como membros.
  *
  * <p><strong>As invariantes que esta classe existe para guardar:</strong>
  * {@code valorTotal = soma dos subtotais dos itens menos o desconto da venda}, o tempo todo; e,
- * numa venda CONCLUIDA, a soma dos pagamentos CONFIRMADO é igual ao {@code valorTotal} (RF09). É
+ * numa venda CONCLUIDA, pagamentos CONFIRMADO e FIADO PENDENTE cobrem o {@code valorTotal}
+ * (RF09, RF33). É
  * por isso que item e pagamento não têm repositório: uma linha alterada por fora deixaria o total
  * mentindo.
  *
@@ -39,7 +40,7 @@ import java.util.UUID;
  *
  * <p>{@code sessaoCaixaId}, {@code usuarioId}, {@code clienteId} e o {@code produtoId} de cada
  * item são referências entre agregados: sempre por id, nunca objeto navegável. O cliente é
- * opcional (RF03), e por isso é o único que aceita nulo.
+ * opcional (RF03), salvo na conclusão com FIADO (RF33), e por isso é o único que aceita nulo.
  *
  * <h2>As regras da montagem</h2>
  *
@@ -80,8 +81,8 @@ import java.util.UUID;
  *   <li>Parcela maior que o que falta pagar é recusada. O que falta é o total menos as parcelas já
  *       lançadas que não estão RECUSADO: uma parcela PENDENTE, à espera de um provedor, reserva o
  *       lugar dela; uma RECUSADO é desfecho encerrado e não ocupa lugar.</li>
- *   <li>A venda só conclui com a soma das parcelas CONFIRMADO igual ao total. A menos e a mais são
- *       recusados, e a mais nem chega a existir, pela regra anterior.</li>
+ *   <li>A venda só conclui quando parcelas CONFIRMADO e FIADO PENDENTE cobrem o total. O FIADO
+ *       exige Cliente vinculado e só pode aparecer uma vez por Venda (RF33).</li>
  *   <li>Venda sem item não conclui: venda de nada não é venda. Venda com item de preço zero e
  *       total zero conclui sem parcela nenhuma, porque algo foi vendido e a conta fecha.</li>
  * </ul>
@@ -115,16 +116,16 @@ import java.util.UUID;
  * valor ao cliente acontece no balcão; o sistema não registra estorno de Pix nem de cartão,
  * porque as duas formas são lançadas à mão e não há provedor a quem pedir.
  *
- * <p><strong>Vincular cliente ainda não existe em código.</strong> A venda nasce sem cliente e o
- * vínculo chega como operação própria, porque numa comanda o cliente costuma ser identificado
- * depois do primeiro item, e às vezes só na hora de pagar.
+ * <p>A Venda nasce sem Cliente; o vínculo é uma operação própria porque ele costuma ser
+ * identificado depois do primeiro item. Recebimentos parciais ficam imutáveis no agregado e
+ * quitam a parcela FIADO quando somam seu valor (RF33).
  */
 public class Venda {
 
     private final UUID id;
     private final UUID sessaoCaixaId;
     private final UUID usuarioId;
-    private final UUID clienteId;
+    private UUID clienteId;
     private final Instant criadoEm;
 
     /** Só {@link #concluir} e {@link #cancelar} o mudam, e CANCELADA é final. */
@@ -141,6 +142,7 @@ public class Venda {
 
     private final List<ItemVenda> itens;
     private final List<Pagamento> pagamentos;
+    private final List<Recebimento> recebimentos;
 
     /**
      * Abre uma comanda (RF07): nasce ABERTA, vazia, com total e desconto zero e sem cliente.
@@ -163,11 +165,12 @@ public class Venda {
         this.valorDesconto = Money.ZERO;
         this.itens = new ArrayList<>();
         this.pagamentos = new ArrayList<>();
+        this.recebimentos = new ArrayList<>();
     }
 
     private Venda(UUID id, UUID sessaoCaixaId, UUID usuarioId, UUID clienteId, StatusVenda status,
             Money valorTotal, Money valorDesconto, Instant criadoEm, Instant concluidoEm,
-            List<ItemVenda> itens, List<Pagamento> pagamentos) {
+            List<ItemVenda> itens, List<Pagamento> pagamentos, List<Recebimento> recebimentos) {
         this.id = id;
         this.sessaoCaixaId = sessaoCaixaId;
         this.usuarioId = usuarioId;
@@ -179,6 +182,7 @@ public class Venda {
         this.concluidoEm = concluidoEm;
         this.itens = new ArrayList<>(itens);
         this.pagamentos = new ArrayList<>(pagamentos);
+        this.recebimentos = new ArrayList<>(recebimentos);
     }
 
     /**
@@ -205,14 +209,22 @@ public class Venda {
      *                    é estado que a raiz nunca produz, e não entra por aqui
      * @throws IllegalStateException se {@code valorTotal} não é a soma dos subtotais menos o
      *                               desconto, se a venda está CONCLUIDA com a soma dos
-     *                               pagamentos CONFIRMADO diferente do total, ou se está
+     *                               pagamentos CONFIRMADO e FIADO PENDENTE diferentes do total, ou se está
      *                               CONCLUIDA sem {@code concluidoEm}
      */
     public static Venda reconstituir(UUID id, UUID sessaoCaixaId, UUID usuarioId, UUID clienteId,
             StatusVenda status, Money valorTotal, Money valorDesconto, Instant criadoEm,
             Instant concluidoEm, List<ItemVenda> itens, List<Pagamento> pagamentos) {
+        return reconstituir(id, sessaoCaixaId, usuarioId, clienteId, status, valorTotal,
+                valorDesconto, criadoEm, concluidoEm, itens, pagamentos, List.of());
+    }
+
+    public static Venda reconstituir(UUID id, UUID sessaoCaixaId, UUID usuarioId, UUID clienteId,
+            StatusVenda status, Money valorTotal, Money valorDesconto, Instant criadoEm,
+            Instant concluidoEm, List<ItemVenda> itens, List<Pagamento> pagamentos,
+            List<Recebimento> recebimentos) {
         Venda venda = new Venda(id, sessaoCaixaId, usuarioId, clienteId, status, valorTotal,
-                valorDesconto, criadoEm, concluidoEm, itens, pagamentos);
+                valorDesconto, criadoEm, concluidoEm, itens, pagamentos, recebimentos);
 
         Money totalPelosItens = venda.somaDosItens().subtrair(venda.valorDesconto);
         if (!venda.valorTotal.equals(totalPelosItens)) {
@@ -223,10 +235,10 @@ public class Venda {
                             + " do total e nao pode ser remontado.");
         }
         if (venda.status == StatusVenda.CONCLUIDA) {
-            Money confirmados = venda.somaDosConfirmados();
-            if (!confirmados.equals(venda.valorTotal)) {
+            Money cobertura = venda.somaDaCobertura();
+            if (!cobertura.equals(venda.valorTotal)) {
                 throw new IllegalStateException(
-                        "venda " + id + " esta CONCLUIDA com " + confirmados + " em pagamentos"
+                        "venda " + id + " esta CONCLUIDA com " + cobertura + " em pagamentos"
                                 + " confirmados para um total de " + venda.valorTotal
                                 + ". O estado gravado viola a invariante da conclusao e nao"
                                 + " pode ser remontado.");
@@ -235,6 +247,29 @@ public class Venda {
                 throw new IllegalStateException(
                         "venda " + id + " esta CONCLUIDA sem o instante da conclusao. O estado"
                                 + " gravado nao pode ser remontado.");
+            }
+        }
+
+        long quantidadeDeParcelasFiado = pagamentos.stream()
+                .filter(p -> p.forma() == FormaPagamento.FIADO).count();
+        if (quantidadeDeParcelasFiado > 1) {
+            throw new IllegalStateException("venda possui mais de uma parcela FIADO");
+        }
+        if (!recebimentos.isEmpty() && (venda.status == StatusVenda.ABERTA
+                || quantidadeDeParcelasFiado == 0)) {
+            throw new IllegalStateException("venda ABERTA nao pode ter recebimento de fiado");
+        }
+        if (venda.saldoFiadoAntesDoCancelamento().isNegativo()) {
+            throw new IllegalStateException("recebimentos excedem a parcela FIADO da venda " + id);
+        }
+        Pagamento fiado = venda.parcelaFiado();
+        if (fiado != null && venda.status == StatusVenda.CONCLUIDA) {
+            if (clienteId == null) {
+                throw new IllegalStateException("venda FIADO concluida exige cliente");
+            }
+            boolean quitado = venda.saldoFiadoAntesDoCancelamento().equals(Money.ZERO);
+            if (quitado != (fiado.status() == StatusPagamento.CONFIRMADO)) {
+                throw new IllegalStateException("status do FIADO diverge dos recebimentos");
             }
         }
 
@@ -379,11 +414,15 @@ public class Venda {
                             + somaDasParcelasLancadas() + " em parcelas lancadas.");
         }
 
+        if (forma == FormaPagamento.FIADO && parcelaFiado() != null) {
+            throw new IllegalStateException("a venda aceita uma unica parcela FIADO");
+        }
         pagamentos.add(Pagamento.novo(forma, valor, status, troco));
     }
 
     /**
-     * Fecha a venda (RF09): confere que os pagamentos confirmados cobrem exatamente o total, vira
+     * Fecha a venda (RF09, RF33): confere que os pagamentos confirmados e o FIADO pendente cobrem
+     * exatamente o total, vira
      * o status para CONCLUIDA e grava o instante. É a única transição para CONCLUIDA que existe em
      * código.
      *
@@ -409,13 +448,17 @@ public class Venda {
                             + " venda.");
         }
 
-        Money confirmados = somaDosConfirmados();
-        if (!confirmados.equals(valorTotal)) {
+        if (parcelaFiado() != null && clienteId == null) {
+            throw new IllegalStateException("venda FIADO exige cliente vinculado");
+        }
+        Money cobertura = somaDaCobertura();
+        if (!cobertura.equals(valorTotal)) {
             throw new IllegalStateException(
-                    "venda " + id + " tem " + confirmados + " em pagamentos confirmados para um"
-                            + " total de " + valorTotal + "; faltam "
-                            + valorTotal.subtrair(confirmados) + ". A venda so conclui quando os"
-                            + " pagamentos confirmados cobrem exatamente o total.");
+                    "venda " + id + " tem " + cobertura
+                    + " em pagamentos confirmados ou FIADO pendente para um"
+                    + " total de " + valorTotal + "; faltam "
+                    + valorTotal.subtrair(cobertura) + ". A venda so conclui quando os"
+                    + " pagamentos confirmados ou FIADO pendente cobrem o total.");
         }
 
         this.status = StatusVenda.CONCLUIDA;
@@ -444,6 +487,54 @@ public class Venda {
                     "venda " + id + " ja esta CANCELADA e nao cancela de novo.");
         }
         this.status = StatusVenda.CANCELADA;
+    }
+
+    /** Cliente é opcional na comanda, mas obrigatório antes de concluir com FIADO. */
+    public void vincularCliente(UUID novoClienteId) {
+        exigirAberta();
+        this.clienteId = Objects.requireNonNull(novoClienteId, "clienteId nao pode ser nulo");
+    }
+
+    /** Registra cada entrada sem alterar seu histórico; a parcela quita quando o saldo chega a zero. */
+    public Recebimento receber(UUID sessaoCaixaId, Money valor, FormaPagamento forma) {
+        if (status != StatusVenda.CONCLUIDA) {
+            throw new IllegalStateException("so venda CONCLUIDA aceita recebimento");
+        }
+        Pagamento fiado = parcelaFiado();
+        if (fiado == null) {
+            throw new IllegalStateException("venda nao possui parcela FIADO");
+        }
+        Recebimento recebimento = Recebimento.novo(sessaoCaixaId, valor, forma);
+        if (valor.subtrair(saldoDevedor()).valor().signum() > 0) {
+            throw new IllegalArgumentException("recebimento supera o saldo devedor da venda");
+        }
+        recebimentos.add(recebimento);
+        if (saldoDevedor().equals(Money.ZERO)) {
+            pagamentos.set(pagamentos.indexOf(fiado), fiado.comStatus(StatusPagamento.CONFIRMADO));
+        }
+        return recebimento;
+    }
+
+    public Money saldoDevedor() {
+        if (status == StatusVenda.CANCELADA) {
+            return Money.ZERO;
+        }
+        return saldoFiadoAntesDoCancelamento();
+    }
+
+    private Money saldoFiadoAntesDoCancelamento() {
+        Pagamento fiado = parcelaFiado();
+        if (fiado == null) {
+            return Money.ZERO;
+        }
+        Money recebido = recebimentos.stream().map(Recebimento::valor)
+                .reduce(Money.ZERO, Money::somar);
+        return fiado.valor().subtrair(recebido);
+    }
+
+    private Pagamento parcelaFiado() {
+        return pagamentos.stream().filter(p -> p.forma() == FormaPagamento.FIADO)
+                .findFirst().orElse(null);
     }
 
     /**
@@ -476,6 +567,14 @@ public class Venda {
                 .filter(parcela -> parcela.status() == StatusPagamento.CONFIRMADO)
                 .map(Pagamento::valor)
                 .reduce(Money.ZERO, Money::somar);
+    }
+
+    private Money somaDaCobertura() {
+        return pagamentos.stream()
+                .filter(parcela -> parcela.status() == StatusPagamento.CONFIRMADO
+                        || parcela.forma() == FormaPagamento.FIADO
+                                && parcela.status() == StatusPagamento.PENDENTE)
+                .map(Pagamento::valor).reduce(Money.ZERO, Money::somar);
     }
 
     private Money saldoAPagar() {
@@ -557,5 +656,9 @@ public class Venda {
     /** Cópia imutável: pagamento só entra pela raiz, nunca por quem leu a lista. */
     public List<Pagamento> getPagamentos() {
         return Collections.unmodifiableList(pagamentos);
+    }
+
+    public List<Recebimento> getRecebimentos() {
+        return Collections.unmodifiableList(recebimentos);
     }
 }

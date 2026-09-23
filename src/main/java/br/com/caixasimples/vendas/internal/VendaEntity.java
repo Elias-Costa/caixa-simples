@@ -5,6 +5,7 @@ import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.vendas.StatusVenda;
 import br.com.caixasimples.vendas.domain.ItemVenda;
 import br.com.caixasimples.vendas.domain.Pagamento;
+import br.com.caixasimples.vendas.domain.Recebimento;
 import br.com.caixasimples.vendas.domain.Venda;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
@@ -98,9 +99,9 @@ public class VendaEntity {
      * na lista levaria {@code LazyInitializationException}.
      *
      * <p><strong>{@link Fetch} com {@code SUBSELECT}, e vale ler o porquê.</strong> Esta entidade
-     * tem duas listas {@code EAGER}, e o Hibernate não consegue trazer as duas por JOIN na mesma
+     * tem três listas {@code EAGER}, e o Hibernate não consegue trazê-las por JOIN na mesma
      * consulta: ele recusa na subida da aplicação, com {@code MultipleBagFetchException}. E mesmo
-     * que aceitasse, o JOIN duplo multiplicaria linhas, itens vezes pagamentos, para depois
+     * que aceitasse, os JOINs multiplicariam linhas de itens, pagamentos e recebimentos, para depois
      * desfazer a multiplicação em memória. Com {@code SUBSELECT} cada coleção vem numa consulta
      * própria, logo depois da raiz, o que é o comportamento que se esperaria ler no nome.
      *
@@ -119,6 +120,12 @@ public class VendaEntity {
     @JoinColumn(name = "venda_id", nullable = false)
     @OrderBy("criadoEm")
     private List<PagamentoEntity> pagamentos = new ArrayList<>();
+
+    @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SUBSELECT)
+    @JoinColumn(name = "venda_id", nullable = false)
+    @OrderBy("criadoEm")
+    private List<RecebimentoEntity> recebimentos = new ArrayList<>();
 
     protected VendaEntity() {
         // exigido pelo JPA
@@ -140,6 +147,9 @@ public class VendaEntity {
         this.pagamentos = venda.getPagamentos().stream()
                 .map(PagamentoEntity::de)
                 .collect(Collectors.toCollection(ArrayList::new));
+        this.recebimentos = venda.getRecebimentos().stream()
+                .map(RecebimentoEntity::de)
+                .collect(Collectors.toCollection(ArrayList::new));
     }
 
     public static VendaEntity de(Venda venda) {
@@ -148,7 +158,7 @@ public class VendaEntity {
 
     /**
      * Copia para a linha tudo o que a montagem, o pagamento e a conclusão podem ter mudado: o
-     * status, o instante da conclusão, os dois totais e as duas listas.
+     * status, o instante da conclusão, os dois totais e as três listas.
      *
      * <p><strong>Os itens são sincronizados por id, nos dois sentidos.</strong> O que saiu do
      * domínio sai da coleção, e {@code orphanRemoval} apaga a linha; o que entrou vira linha nova;
@@ -167,6 +177,7 @@ public class VendaEntity {
      * ABERTA custa menos que escolher errado entre dois métodos.
      */
     public void atualizarCom(Venda venda) {
+        this.clienteId = venda.getClienteId();
         this.status = venda.getStatus();
         this.concluidoEm = venda.getConcluidoEm();
         this.valorTotal = venda.getValorTotal().valor();
@@ -192,6 +203,17 @@ public class VendaEntity {
                 .filter(parcela -> !parcelasGravadas.contains(parcela.id()))
                 .map(PagamentoEntity::de)
                 .forEach(pagamentos::add);
+
+        for (Pagamento parcela : venda.getPagamentos()) {
+            pagamentos.stream().filter(linha -> linha.getId().equals(parcela.id()))
+                    .findFirst().ifPresent(linha -> linha.atualizarStatus(parcela.status()));
+        }
+
+        Set<UUID> recebimentosGravados = recebimentos.stream()
+                .map(RecebimentoEntity::getId).collect(Collectors.toSet());
+        venda.getRecebimentos().stream()
+                .filter(recebimento -> !recebimentosGravados.contains(recebimento.id()))
+                .map(RecebimentoEntity::de).forEach(recebimentos::add);
     }
 
     /**
@@ -206,10 +228,12 @@ public class VendaEntity {
         List<Pagamento> pagamentosDoDominio = pagamentos.stream()
                 .map(PagamentoEntity::paraDominio)
                 .toList();
+        List<Recebimento> recebimentosDoDominio = recebimentos.stream()
+                .map(RecebimentoEntity::paraDominio).toList();
 
         return Venda.reconstituir(id, sessaoCaixaId, usuarioId, clienteId, status,
                 Money.de(valorTotal), Money.de(valorDesconto), criadoEm, concluidoEm,
-                itensDoDominio, pagamentosDoDominio);
+                itensDoDominio, pagamentosDoDominio, recebimentosDoDominio);
     }
 
     public UUID getId() {

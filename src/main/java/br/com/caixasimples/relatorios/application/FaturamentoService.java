@@ -128,7 +128,8 @@ public class FaturamentoService {
                     periodo.inicioInclusivo(), periodo.fimExclusivo(), filtros.operadorId());
         } else {
             totais = vendas.totaisPorFormaEntre(StatusVenda.CONCLUIDA, filtros.forma(),
-                    StatusPagamento.CONFIRMADO,
+                    StatusPagamento.CONFIRMADO, br.com.caixasimples.pagamentos.FormaPagamento.FIADO,
+                    StatusPagamento.PENDENTE,
                     periodo.inicioInclusivo(), periodo.fimExclusivo(), filtros.operadorId());
         }
 

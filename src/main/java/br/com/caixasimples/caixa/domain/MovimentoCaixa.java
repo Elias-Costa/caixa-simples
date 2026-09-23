@@ -35,7 +35,12 @@ import java.util.UUID;
  * @param criadoEm momento do lançamento, em UTC
  */
 public record MovimentoCaixa(UUID id, TipoMovimentoCaixa tipo, Money valor, String motivo,
-        UUID vendaId, Instant criadoEm) {
+        UUID vendaId, UUID recebimentoId, Instant criadoEm) {
+
+    public MovimentoCaixa(UUID id, TipoMovimentoCaixa tipo, Money valor, String motivo,
+            UUID vendaId, Instant criadoEm) {
+        this(id, tipo, valor, motivo, vendaId, null, criadoEm);
+    }
 
     public MovimentoCaixa {
         Objects.requireNonNull(id, "id nao pode ser nulo");
@@ -56,7 +61,13 @@ public record MovimentoCaixa(UUID id, TipoMovimentoCaixa tipo, Money valor, Stri
      * Movimento novo: identidade e momento nascem aqui, como em todo registro do sistema (RNF01).
      */
     static MovimentoCaixa novo(TipoMovimentoCaixa tipo, Money valor, String motivo, UUID vendaId) {
-        return new MovimentoCaixa(UUID.randomUUID(), tipo, valor, motivo, vendaId, Instant.now());
+        return novo(tipo, valor, motivo, vendaId, null);
+    }
+
+    static MovimentoCaixa novo(TipoMovimentoCaixa tipo, Money valor, String motivo, UUID vendaId,
+            UUID recebimentoId) {
+        return new MovimentoCaixa(UUID.randomUUID(), tipo, valor, motivo, vendaId, recebimentoId,
+                Instant.now());
     }
 
     private static String textoOpcional(String valor) {

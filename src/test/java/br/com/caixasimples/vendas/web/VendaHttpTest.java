@@ -12,6 +12,8 @@ import br.com.caixasimples.cadastro.TipoProduto;
 import br.com.caixasimples.cadastro.application.ProdutoService;
 import br.com.caixasimples.cadastro.application.ProdutoService.DadosDoProduto;
 import br.com.caixasimples.caixa.application.SessaoCaixaService;
+import br.com.caixasimples.pagamentos.FormaPagamento;
+import br.com.caixasimples.pagamentos.domain.SolicitacaoPagamento;
 import br.com.caixasimples.contas.AutenticadorDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
@@ -157,6 +159,55 @@ class VendaHttpTest extends TesteDeIntegracao {
         http.perform(get("/api/vendas").param("sessaoCaixaId", sessaoDoOperador.toString())
                 .with(tokenOperador)).andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].status").value("CANCELADA"));
+    }
+
+    @Test
+    void operadorNaoVendeFiadoMasRecebeEConsultaComprovante() throws Exception {
+        ContaCriada operador = criador.criar("PDV Fiado", SENHA, Perfil.OPERADOR, true);
+        UsuarioCriado admin = criador.criarAdminEm(operador.contaId(), "Gerente");
+        UUID produto = admin.comoUsuario(() -> produtos.cadastrar(TipoProduto.PRODUTO,
+                new DadosDoProduto("Café fiado", Money.de("20.00"), null, null, "un", Map.of())));
+        UUID sessao = operador.comoUsuario(() -> caixas.abrir(Money.ZERO));
+        RequestPostProcessor tokenOperador = autenticador.como(operador);
+        UUID cliente = uuidDaResposta(http.perform(post("/api/clientes").with(tokenOperador)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"nome\":\"Lia\",\"contato\":null}"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString());
+        UUID venda = criarVenda(tokenOperador, sessao);
+        http.perform(post("/api/vendas/{id}/itens", venda).with(tokenOperador)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"produtoId\":\"" + produto + "\",\"quantidade\":1,\"desconto\":0}"))
+                .andExpect(status().isCreated());
+        http.perform(put("/api/vendas/{id}/cliente", venda).with(tokenOperador)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"clienteId\":\"" + cliente + "\"}"))
+                .andExpect(status().isNoContent());
+        http.perform(post("/api/vendas/{id}/pagamentos", venda).with(tokenOperador)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"forma\":\"FIADO\",\"valor\":20}"))
+                .andExpect(status().isForbidden());
+        admin.comoUsuario(() -> vendaService.registrarPagamento(venda,
+                SolicitacaoPagamento.de(FormaPagamento.FIADO, Money.de("20.00"))));
+        http.perform(post("/api/vendas/{id}/conclusao", venda).with(tokenOperador))
+                .andExpect(status().isForbidden());
+        admin.comoUsuario(() -> vendaService.concluir(venda));
+        http.perform(get("/api/fiado/clientes/{id}/saldo", cliente).with(tokenOperador))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.saldoDevedor").value(20.0));
+        http.perform(get("/api/fiado/dividas").with(tokenOperador))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[0].vendaId")
+                        .value(venda.toString()));
+        http.perform(get("/api/vendas/{id}/comprovante", venda).with(tokenOperador))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.valorFiado").value(20.0))
+                .andExpect(jsonPath("$.saldoDevedor").value(20.0));
+        UUID recebimento = uuidDaResposta(http.perform(post("/api/vendas/{id}/recebimentos", venda)
+                .with(tokenOperador).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"valor\":7,\"forma\":\"PIX\"}"))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.saldoDevedor").value(13.0))
+                .andReturn().getResponse().getContentAsString());
+        http.perform(get("/api/vendas/{id}/recebimentos/{recebimento}/comprovante", venda,
+                recebimento).with(tokenOperador))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.saldoApos").value(13.0))
+                .andExpect(jsonPath("$.nomeCliente").value("Lia"));
     }
 
     @Autowired br.com.caixasimples.vendas.application.VendaService vendaService;

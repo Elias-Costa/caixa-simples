@@ -18,5 +18,6 @@ package br.com.caixasimples.pagamentos;
 public enum FormaPagamento {
     DINHEIRO,
     PIX,
-    CARTAO
+    CARTAO,
+    FIADO
 }

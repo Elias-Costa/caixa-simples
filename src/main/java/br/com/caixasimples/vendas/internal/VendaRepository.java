@@ -3,6 +3,10 @@ package br.com.caixasimples.vendas.internal;
 import java.util.UUID;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import jakarta.persistence.LockModeType;
+import java.util.Optional;
+import br.com.caixasimples.vendas.StatusVenda;
 
 /**
  * Repositório da raiz de agregado {@code Venda}.
@@ -21,4 +25,12 @@ import org.springframework.data.jpa.repository.JpaRepository;
  */
 public interface VendaRepository extends JpaRepository<VendaEntity, UUID> {
     List<VendaEntity> findBySessaoCaixaIdOrderByCriadoEmDesc(UUID sessaoCaixaId);
+
+    List<VendaEntity> findByClienteIdAndStatus(UUID clienteId, StatusVenda status);
+
+    List<VendaEntity> findByStatus(StatusVenda status);
+
+    /** Serializa recebimentos parciais da mesma dívida antes de conferir o saldo. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    Optional<VendaEntity> findLockedById(UUID id);
 }

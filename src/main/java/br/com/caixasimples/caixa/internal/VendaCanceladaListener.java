@@ -23,11 +23,10 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <h2>O que sai da gaveta</h2>
  *
- * <p><strong>Exatamente o que a venda tinha posto nela</strong>, e quem sabe quanto foi é a
- * sessão, que guarda o movimento VENDA daquela venda: o estorno espelha esse movimento, e este
- * ouvinte não recalcula o valor. As parcelas do evento são lidas só para uma pergunta anterior,
- * se a venda chegou a trazer dinheiro em espécie. Uma venda paga só em Pix ou cartão nunca mexeu
- * na gaveta, então não há o que devolver, e nem se abre transação.
+ * <p>O ESTORNO sai da sessão original da Venda (D44i), inclusive quando um recebimento de FIADO
+ * entrou em outra sessão. A entrada da outra sessão permanece no extrato, mesmo se ela já fechou.
+ * A parcela original em dinheiro é conferida pelo movimento VENDA; recebimentos em dinheiro vêm
+ * como fatos imutáveis no evento. Se nada entrou em dinheiro, nem se abre transação.
  *
  * <p><strong>A mesma venda sai uma vez.</strong> A entrega é garantida ao menos uma vez, então o
  * evento pode chegar de novo; a raiz sabe dizer se a venda já foi estornada, e a reentrega vira
@@ -78,12 +77,18 @@ class VendaCanceladaListener {
                 .map(VendaCancelada.Parcela::valor)
                 .reduce(Money.ZERO, Money::somar);
 
-        if (emDinheiro.equals(Money.ZERO)) {
+        Money fiadoRecebidoEmDinheiro = evento.recebimentos().stream()
+                .filter(recebimento -> recebimento.forma() == FormaPagamento.DINHEIRO)
+                .map(VendaCancelada.Recebimento::valor)
+                .reduce(Money.ZERO, Money::somar);
+
+        if (emDinheiro.equals(Money.ZERO) && fiadoRecebidoEmDinheiro.equals(Money.ZERO)) {
             // A gaveta nunca mexeu por esta venda: nada a devolver, e nem se abre transação.
             return;
         }
 
-        // Tenant primeiro, transação depois. Ver o javadoc da classe.
+        // D44i: a devolução sai da sessão original, inclusive quando o fiado foi recebido em
+        // outra sessão. A janela de cancelamento depende somente da sessão original aberta.
         TenantContext.executarComo(evento.contaId(), () ->
                 transacao.executeWithoutResult(status -> {
                     SessaoCaixaEntity linha = sessoes.findById(evento.sessaoCaixaId())
@@ -98,7 +103,11 @@ class VendaCanceladaListener {
                         return;
                     }
 
-                    sessao.estornarVenda(evento.vendaId());
+                    if (!emDinheiro.equals(Money.ZERO)
+                            && !sessao.jaRegistrouVenda(evento.vendaId())) {
+                        throw new IllegalStateException("venda ainda nao entrou no caixa para estorno");
+                    }
+                    sessao.estornarVenda(evento.vendaId(), fiadoRecebidoEmDinheiro);
 
                     linha.atualizarCom(sessao);
                     sessoes.save(linha);

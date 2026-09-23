@@ -28,14 +28,20 @@ import java.util.UUID;
  *
  * @param contaId       a conta a que a venda pertence
  * @param vendaId       a venda cancelada
- * @param sessaoCaixaId a sessão de caixa em que ela nasceu, e de onde o dinheiro sai
+ * @param sessaoCaixaId a sessão de caixa em que ela nasceu, de onde o ESTORNO sai; recebimentos
+ *                      podem ter entrado em outras sessões
  * @param usuarioId     o operador que vendeu
  * @param itens         o que tinha sido vendido, na ordem em que entrou na comanda
  * @param parcelas      como tinha sido pago, na ordem em que as parcelas foram lançadas, inclusive
  *                      as recusadas: o status diz o que cada uma valia
  */
 public record VendaCancelada(ContaId contaId, UUID vendaId, UUID sessaoCaixaId, UUID usuarioId,
-        List<Item> itens, List<Parcela> parcelas) {
+        List<Item> itens, List<Parcela> parcelas, List<Recebimento> recebimentos) {
+
+    public VendaCancelada(ContaId contaId, UUID vendaId, UUID sessaoCaixaId, UUID usuarioId,
+            List<Item> itens, List<Parcela> parcelas) {
+        this(contaId, vendaId, sessaoCaixaId, usuarioId, itens, parcelas, List.of());
+    }
 
     public VendaCancelada {
         Objects.requireNonNull(contaId, "contaId nao pode ser nulo");
@@ -44,6 +50,8 @@ public record VendaCancelada(ContaId contaId, UUID vendaId, UUID sessaoCaixaId, 
         Objects.requireNonNull(usuarioId, "usuarioId nao pode ser nulo");
         itens = List.copyOf(Objects.requireNonNull(itens, "itens nao pode ser nulo"));
         parcelas = List.copyOf(Objects.requireNonNull(parcelas, "parcelas nao pode ser nulo"));
+        // Publicações anteriores ao fiado não tinham este campo no JSON do outbox.
+        recebimentos = recebimentos == null ? List.of() : List.copyOf(recebimentos);
     }
 
     /**
@@ -70,6 +78,15 @@ public record VendaCancelada(ContaId contaId, UUID vendaId, UUID sessaoCaixaId, 
             Objects.requireNonNull(forma, "forma nao pode ser nula");
             Objects.requireNonNull(valor, "valor nao pode ser nulo");
             Objects.requireNonNull(status, "status nao pode ser nulo");
+        }
+    }
+
+    public record Recebimento(UUID id, UUID sessaoCaixaId, FormaPagamento forma, Money valor) {
+        public Recebimento {
+            Objects.requireNonNull(id);
+            Objects.requireNonNull(sessaoCaixaId);
+            Objects.requireNonNull(forma);
+            Objects.requireNonNull(valor);
         }
     }
 }

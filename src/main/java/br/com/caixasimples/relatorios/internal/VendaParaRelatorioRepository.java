@@ -102,12 +102,15 @@ public interface VendaParaRelatorioRepository extends Repository<VendaParaRelato
               and v.concluidoEm >= :inicio
               and v.concluidoEm < :fim
               and p.forma = :forma
-              and p.status = :statusDaParcela
+              and (p.status = :statusDaParcela
+                   or (p.forma = :fiado and p.status = :pendente))
               and (:usuarioId is null or v.usuarioId = :usuarioId)
             """)
     TotaisDeVendas totaisPorFormaEntre(@Param("status") StatusVenda status,
             @Param("forma") FormaPagamento forma,
             @Param("statusDaParcela") StatusPagamento statusDaParcela,
+            @Param("fiado") FormaPagamento fiado,
+            @Param("pendente") StatusPagamento pendente,
             @Param("inicio") Instant inicio, @Param("fim") Instant fim,
             @Param("usuarioId") UUID usuarioId);
 }

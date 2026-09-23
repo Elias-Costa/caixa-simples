@@ -80,12 +80,12 @@ produto, cliente, caixa, Venda, faturamento, usuários, configuração e estoque
 | `contas` | Implementado | `Conta`, `Usuario`, `Credencial`, login por JWT, política de senha, provisionamento de conta, a pergunta que os outros módulos fazem à conta em operação, como se o controle de estoque está ligado, e a gestão de usuários: o administrador cria operador ou administrador com login próprio, lista e inativa pela API e pelo PWA, com mais de um usuário só no plano mais alto e a conta nunca sem administrador. A configuração liga o controle de estoque e só o desliga antes do primeiro movimento; o menu reage imediatamente à mudança. O filtro que resolve o token lê o usuário no banco a cada requisição, então inativar vale na requisição seguinte, e o perfil que vale é o do banco, não o do token. O primeiro login do administrador marca a Conta e publica o primeiro acesso na mesma transação que copia o catálogo sugerido. Quem está autenticado pergunta em `/api/auth/eu` e recebe o próprio nome, o negócio, o tipo dele e se o estoque está ligado: é o cabeçalho de toda tela |
 | `cadastro` | Implementado | `Produto` com atributos `JSONB`, busca por nome ou código para o balcão, `Cliente` como vertical slice, catálogo sugerido por tipo de negócio e copiado no primeiro login do administrador, e o agregado inteiro: `MovimentoEstoque` como membro, com a baixa por venda, o estorno por cancelamento e o ajuste manual gravando movimento e saldo na mesma transação, o estoque mínimo de cada produto e a resposta de quais estão com estoque baixo. A API e o PWA permitem cadastrar, editar, inativar e listar produtos ativos, buscar produto para o PDV e cadastrar, editar, inativar, reativar e listar clientes. Só o administrador escreve produto; os dois perfis consultam produtos e cadastram clientes no balcão |
 | `caixa` | Implementado | `SessaoCaixa`: abertura, sangria, suprimento, fechamento com conferência, histórico por operador e por dia, consulta da sessão aberta do usuário atual e extrato de uma sessão com a Venda de origem nos movimentos. A API e o PWA permitem operar e conferir o caixa, com o esperado visível antes de informar o contado. O dinheiro em espécie de cada venda concluída entra na gaveta por evento, uma vez só; o cancelamento o estorna. O caixa é de quem o abriu: o operador só lança, fecha e consulta a própria sessão e só pede o próprio histórico; o administrador toca qualquer sessão da conta, inclusive para fechar o caixa de outro operador |
-| `pagamentos` | Implementado | Strategy por forma de pagamento: dinheiro com troco calculado no domínio, Pix e cartão lançados à mão pelo operador. Sem provedor de Pix ainda |
-| `vendas` | Implementado para o PDV online | agregado `Venda`, com `ItemVenda` e `Pagamento` como membros: abrir a comanda num caixa aberto, lançar e remover itens com o preço copiado do produto, desconto por item e por venda só pelo administrador, total recalculado a cada operação, pagamento dividido entre formas com o troco vindo do módulo de pagamentos, conclusão como passo explícito, que exige o caixa ainda aberto e publica o evento `VendaConcluida` pelo outbox, e cancelamento, que desfaz a comanda aberta ou a venda concluída e, só no segundo caso, publica `VendaCancelada` para o caixa e o estoque desfazerem o que fizeram. A API e o PWA leem a comanda com itens e parcelas, listam as vendas da sessão, retomam ou cancelam a ABERTA e exibem o comprovante não fiscal para imprimir ou compartilhar. A venda é de quem a iniciou: o operador só toca as próprias e só vende no próprio caixa, e o administrador toca qualquer uma. O vínculo de cliente entra depois |
+| `pagamentos` | Implementado | Strategy por forma de pagamento: dinheiro com troco calculado no domínio, Pix e cartão lançados à mão pelo operador e FIADO pendente para Venda vinculada a Cliente (RF33). Sem provedor de Pix ainda |
+| `vendas` | Implementado para o PDV online | Agregado `Venda`, com `ItemVenda`, `Pagamento` e `Recebimento` como membros. A comanda copia o preço, permite divisão de formas e desconto pelo ADMIN. O Cliente ativo pode ser vinculado à Venda; só o ADMIN registra FIADO e conclui a Venda com sua parcela pendente. Qualquer perfil recebe a dívida na própria SessaoCaixa, em lançamentos parciais; o saldo vem das parcelas e dos recebimentos. O comprovante da Venda mostra o valor pendente e cada recebimento tem comprovante próprio (RF33). Conclusão e cancelamento publicam eventos para caixa e estoque; recebimento publica evento para caixa. O operador só altera suas Vendas, salvo o recebimento de fiado da Conta |
 | `estoque` | Implementado para o PWA online | o ouvinte da venda concluída: quando a conta ligou o controle de estoque, cada produto vendido vira uma baixa, pedida ao cadastro, dono do agregado; serviço no meio dos itens não gera nada, e o evento entregue de novo não baixa em dobro. E os casos de uso que uma pessoa aciona: ajuste manual com motivo obrigatório, perda, quebra ou contagem, com a diferença carregando o sinal; estoque mínimo por produto; e o alerta de estoque baixo como consulta, a lista dos produtos ativos no mínimo ou abaixo. A API e o PWA listam saldos e mínimos, ajustam o saldo, definem o mínimo e mostram o alerta; a contagem na tela mostra a diferença antes de gravar. A Conta com controle desligado recebe 409 e o operador, 403. O ouvinte da venda cancelada devolve cada produto que a venda baixou, uma vez só |
-| `relatorios` | Implementado | faturamento do dia e de um período, produtos mais vendidos e fluxo de caixa de um período, com o dia delimitado no fuso do balcão. A API e o PWA exibem o faturamento de hoje por padrão e permitem escolher um período; os outros relatórios e os filtros ainda não têm tela. Faturamento e ranking contam as mesmas vendas, as concluídas, pelo instante em que concluíram; o ranking é por quantidade, com o valor, o nome e a unidade ao lado; o fluxo de caixa é o da gaveta, só dinheiro em espécie, com entradas, saídas e saldo pelo dia em que cada movimento foi lançado. Filtros combináveis: o faturamento por forma de pagamento e por operador, juntos ou separados, e o ranking por operador; uma venda paga metade em dinheiro e metade em Pix se reparte entre as duas formas pelo valor de cada parcela, e as três formas somadas dão o faturamento inteiro. O módulo só lê: enxerga as tabelas de venda, item, produto, pagamento e movimento de caixa por mapeamentos próprios, imutáveis, com as colunas que cada relatório usa, e os repositórios nem têm método de escrita. As somas e as junções são do banco. Os três relatórios são do administrador, inclusive filtrados por operador |
+| `relatorios` | Implementado | Faturamento do dia e de um período, produtos mais vendidos e fluxo de caixa da gaveta. Venda concluída com FIADO conta no faturamento no dia da conclusão; recebimento em dinheiro conta no fluxo no dia da entrada, sem faturar outra vez (RF33). Filtros combináveis de faturamento por forma e operador incluem a parcela FIADO pendente. O módulo lê mapeamentos imutáveis de venda, item, produto, pagamento e movimento de caixa, e os três relatórios são do administrador |
 
-**Schema.** Treze migrations Flyway, de `V1` a `V13`: conta, usuário e credencial; produto; cliente;
+**Schema.** Quatorze migrations Flyway, de `V1` a `V14`: conta, usuário e credencial; produto; cliente;
 catálogo de referência; o agregado de caixa, com a regra de uma sessão aberta por operador; o
 agregado de venda, com a venda, seus itens e seus pagamentos; o outbox de eventos de domínio do
 Spring Modulith, cujo DDL foi gerado a partir da entidade do framework em vez de escrito de
@@ -93,7 +93,8 @@ memória; o movimento de estoque, o membro que o agregado de produto esperava de
 estoque mínimo de cada produto, o limiar do alerta de estoque baixo; o estorno no caixa, o
 quarto tipo de movimento, com as restrições da quinta recriadas para o receber; e o que o
 comprovante precisava e a venda não guardava, o troco de cada parcela e o instante da conclusão;
-e a marca do catálogo inicial aplicado na Conta, gravada junto da cópia dos itens.
+e a marca do catálogo inicial aplicado na Conta, gravada junto da cópia dos itens. A `V14`
+inclui FIADO, `recebimento` e o movimento RECEBIMENTO da gaveta.
 
 **Superfície HTTP.** A autenticação usa `POST /api/auth/login`, que devolve o
 token, e `GET /api/auth/eu`, que diz quem está autenticado e em que negócio, para o cabeçalho de
@@ -117,8 +118,12 @@ itens, total e parcelas; `POST /api/vendas/{id}/itens` e
 `DELETE /api/vendas/{id}/itens/{itemId}` montam a comanda;
 `PUT /api/vendas/{id}/desconto` é só do administrador;
 `POST /api/vendas/{id}/pagamentos` devolve o troco;
+`PUT /api/vendas/{id}/cliente` vincula Cliente ativo;
 `POST /api/vendas/{id}/conclusao` e `POST /api/vendas/{id}/cancelamento` mudam o status;
-`GET /api/vendas/{id}/comprovante` traz o dado não fiscal para a tela.
+`GET /api/vendas/{id}/comprovante` traz o dado não fiscal para a tela. Para RF33,
+`GET /api/fiado/clientes/{clienteId}/saldo` e `GET /api/fiado/dividas` mostram a dívida;
+`POST /api/vendas/{id}/recebimentos` registra cada entrada e
+`GET /api/vendas/{id}/recebimentos/{recebimentoId}/comprovante` traz seu comprovante.
 O caixa oferece `GET` e `POST /api/caixa/sessoes`,
 `GET /api/caixa/sessoes/aberta`, `GET /api/caixa/sessoes/{id}`,
 `POST /api/caixa/sessoes/{id}/sangrias`,
@@ -150,12 +155,17 @@ direto ao servidor recebe a mesma página, e o roteador do cliente escolhe a tel
 que não existe nunca recebe a página, e sim 401 sem token e 404 com token. Todo dado sai por
 `/api`, com token. O aplicativo tem hoje o login, a sessão guardada no dispositivo, o shell com o
 nome do negócio e de quem opera, a navegação por perfil e as telas de produtos, clientes, caixa,
-Venda e faturamento. Nelas se listam e alteram os cadastros, com pares livres de chave e valor para os atributos do
+Venda, fiado e faturamento. Nelas se listam e alteram os cadastros, com pares livres de chave e valor para os atributos do
 produto. No caixa, quem opera abre a sessão, lança sangria e suprimento, vê o extrato e o histórico
 do dia e fecha com o saldo esperado à vista e a diferença apurada. No PDV, a busca aceita nome,
 código e multiplicador de quantidade; a comanda mostra o total, o que já foi pago e o que falta,
 admite pagamento dividido e exibe o troco. Uma venda simples em dinheiro fecha em até seis toques.
 O comprovante usa a impressão do navegador e o compartilhamento do dispositivo quando disponível.
+Na Venda, o Cliente ativo selecionado aparece na faixa de contexto do shell com seu saldo devedor;
+a tela Fiado lista as dívidas e registra recebimentos parciais na SessaoCaixa aberta de quem recebe.
+O comprovante da Venda indica o valor pendente e cada recebimento pode ser impresso ou compartilhado.
+R23 continua em andamento porque RNF08 ainda exige instalar e abrir o PWA pelo ícone em um tablet
+real; o mantenedor autorizou executar R24 sem esse dispositivo (D53), sem aprovar RNF08.
 O faturamento abre no dia do balcão e permite consultar um período escolhido pelo administrador.
 Um cliente HTTP só envia o token da sessão aberta nesta aba, troca-o pelo renovado quando a resposta
 pertence à mesma sessão e traduz todo erro no mesmo objeto, lido do Problem Details. Respostas de
@@ -187,7 +197,7 @@ Atalhos para avaliar o código sem percorrer o repositório inteiro.
 | O servidor entregando o aplicativo | [PwaConfiguration.java](src/main/java/br/com/caixasimples/shared/web/PwaConfiguration.java) | Fallback de página única escrito à mão, com o porquê de cada caso: rota do cliente recebe o shell, arquivo que não existe e rota da API que não existe recebem 404, e os cabeçalhos de cache são explícitos porque o cache heurístico do navegador seguraria uma página antiga. Fora de `/api` tudo é público, e a razão está em [SecurityConfiguration.java](src/main/java/br/com/caixasimples/contas/internal/SecurityConfiguration.java) |
 | O cliente HTTP do aplicativo | [cliente.ts](frontend/src/api/cliente.ts) | Um lugar só envia o token, aceita a renovação da sessão que fez a chamada e traduz o Problem Details em um erro com status, detalhe e mensagem por campo; nenhuma tela precisa lembrar disso. A sessão no dispositivo, e o que acontece na abertura sem rede ou na troca entre abas, está em [SessaoProvider.tsx](frontend/src/sessao/SessaoProvider.tsx); a navegação por perfil, que esconde o que a API recusaria mas não decide autorização, em [menu.ts](frontend/src/shell/menu.ts) |
 | Raiz de agregado sem framework | [SessaoCaixa.java](src/main/java/br/com/caixasimples/caixa/domain/SessaoCaixa.java) | Regra de negócio e invariantes isoladas de Spring e de JPA |
-| Invariante viva, recalculada a cada operação | [Venda.java](src/main/java/br/com/caixasimples/vendas/domain/Venda.java) | O total nunca fica negativo, nunca diverge dos itens e nunca fica abaixo do já pago; a venda só conclui com os pagamentos confirmados iguais ao total. Cada operação que quebraria uma regra é recusada antes de tocar no agregado, e o estado remontado do banco passa pela mesma conferência |
+| Invariante viva, recalculada a cada operação | [Venda.java](src/main/java/br/com/caixasimples/vendas/domain/Venda.java) | O total nunca fica negativo nem diverge dos itens; a Venda CONCLUIDA é coberta por pagamentos confirmados e FIADO pendente. Recebimentos não excedem o fiado; o estado remontado do banco passa pela mesma conferência |
 | Pergunta entre módulos sem expor o agregado | [VendaService.java](src/main/java/br/com/caixasimples/vendas/application/VendaService.java) | A venda copia o preço do cadastro por chamada à camada de aplicação dele, recebendo um record e nunca a raiz alheia; confere o caixa por uma interface que ela mesma declara; e, ao concluir ou cancelar, publica o evento em vez de chamar quem reage |
 | Comprovante como dado, não como desenho | [Comprovante.java](src/main/java/br/com/caixasimples/vendas/application/Comprovante.java) | O servidor garante o dado certo, com as linhas arredondadas pelo domínio e as parcelas gravadas; quem desenha, imprime e compartilha é a tela, que precisa fazer isso também sem conexão. O porquê de não haver PDF nem HTML está escrito no lugar |
 | Efeito colateral entre módulos por evento | [VendaConcluidaListener.java](src/main/java/br/com/caixasimples/caixa/internal/VendaConcluidaListener.java) | O caixa reage à venda concluída sem que a venda o conheça: só o dinheiro em espécie entra na gaveta, a reentrega do outbox não duplica, e o tenant é definido antes de a transação abrir, com o porquê escrito no lugar. [VendaCanceladaListener.java](src/main/java/br/com/caixasimples/caixa/internal/VendaCanceladaListener.java) é o oposto exato: o estorno espelha o que entrou, e quem sabe quanto foi é a sessão, não o evento |
@@ -338,8 +348,8 @@ são somas; os filtros entraram como parâmetro opcional nas consultas que já e
   porque a tabela de venda ainda não existia. Vale até para tabela que não é do projeto: a do
   outbox do Modulith, na `V8`, foi gerada a partir da entidade do framework, e a suíte prova que o
   gerado bate, porque o contexto não subiria se não batesse.
-- **Repositório só para raiz de agregado.** Membro de agregado (item de venda, movimento de caixa,
-  movimento de estoque) entra e sai pela raiz, o que impede alterar um item sem recalcular o total
+- **Repositório só para raiz de agregado.** Membro de agregado (item de venda, pagamento,
+  recebimento, movimento de caixa ou de estoque) entra e sai pela raiz, o que impede alterar um item sem recalcular o total
   que a raiz garante.
 - **Soft delete**, nunca exclusão física, para preservar o histórico de vendas antigas.
 - **Dinheiro é um value object `Money`**, `numeric(12,2)` no banco, com arredondamento a duas casas
@@ -350,13 +360,10 @@ são somas; os filtros entraram como parâmetro opcional nas consultas que já e
 - **DDD onde existe invariante para proteger.** `SessaoCaixa`, `Produto` e `Venda` têm domínio
   rico. `Cliente`, que não tem invariante, é um vertical slice em um arquivo só. A régua: se
   acrescentar um campo exigir tocar em mais de três ou quatro arquivos, é cerimônia demais.
-- **Regra de negócio entra com o caso de uso, não com a tabela.** O agregado de venda nasceu com
-  schema, entidades e repositório e sem caminho de escrita, porque um construtor público sem as
-  regras do total seria uma porta lateral. A montagem da comanda trouxe as regras do total; a
-  conclusão trouxe as dos pagamentos; o cancelamento trouxe o estado final. O que ainda não tem
-  regra, como o vínculo de cliente, continua sem método público, e os testes que precisam de um
-  estado específico gravam pelo mesmo método que a entidade usa para remontar o agregado a
-  partir do banco.
+- **Regra de negócio entra com o caso de uso, não com a tabela.** A montagem da comanda trouxe as
+  regras do total; a conclusão trouxe as dos pagamentos; o cancelamento trouxe o estado final;
+  o fiado trouxe o vínculo de Cliente e recebimentos pela raiz da Venda. Testes que precisam de um
+  estado específico usam o mesmo método que a entidade usa para remontar o agregado do banco.
 - **Concluir é um passo, não um efeito.** Registrar a parcela que fecha a conta não conclui a
   venda; quem finaliza chama a operação que diz isso. Um método de registrar pagamento que às vezes
   mudasse o status seria comportamento escondido no nome, e o evento de venda concluída nasce de
@@ -424,8 +431,10 @@ de uso, provada por teste negativo, e nunca dependente de um valor que o cliente
 - **Os listeners da venda agem na conta do evento, não na de quem publicou.** Eles rodam em outra
   thread, sem o tenant da requisição, e uma reentrega pode partir do outbox horas depois; a conta
   vai dentro do evento, lida do contexto autenticado no ato da publicação, e há teste, para os
-  quatro ouvintes, que publica como uma conta e prova que o efeito cai na conta do evento e que
-  a outra não o vê. A tabela do outbox não tem coluna de conta, porque é do framework e nenhum
+  ouvintes de conclusão e cancelamento, que publica como uma conta e prova que o efeito cai na
+  conta do evento e que a outra não o vê. `FiadoServiceTest` prova o recebimento no caixa da
+  Conta e o 404 ao tentar receber a Venda pela Conta alheia. A tabela do outbox não tem coluna de
+  conta, porque é do framework e nenhum
   código de negócio a lê.
 - **A pergunta sobre a conta não aceita conta.** A tabela de contas é a única sem filtro
   automático, porque o id dela é o tenant; em troca, o serviço que responde por ela lê a conta do
@@ -478,7 +487,7 @@ monetários são `numeric(12,2)` e timestamps são `timestamptz` gravados em UTC
 
 | Agregado | Raiz | Membros | O que a raiz garante | Estado |
 |---|---|---|---|---|
-| **Venda** | `Venda` | `ItemVenda`, `Pagamento` | `valor_total` reflete a soma dos itens menos o desconto; numa venda concluída, a soma dos pagamentos confirmados é igual ao total | Implementado: as duas regras vivas a cada operação, e conferidas de novo ao remontar o agregado do banco. Cancelada é estado final, alcançado da comanda aberta ou da venda concluída, com itens e parcelas intactos |
+| **Venda** | `Venda` | `ItemVenda`, `Pagamento`, `Recebimento` | `valor_total` reflete a soma dos itens menos o desconto; numa Venda concluída, pagamentos confirmados e FIADO pendente cobrem o total, e os recebimentos não excedem o FIADO | Implementado: regras conferidas também ao remontar o agregado do banco. CANCELADA é estado final, com itens, parcelas e recebimentos preservados |
 | **Caixa** | `SessaoCaixa` | `MovimentoCaixa` | `valor_fechamento_esperado` reflete o valor de abertura mais a soma assinada dos movimentos | Implementado |
 | **Produto** | `Produto` | `MovimentoEstoque` | `estoque_atual` reflete a soma dos movimentos, atualizado na mesma transação | Implementado para os três tipos, a saída por venda, a entrada do cancelamento e o ajuste manual: o único método que escreve o saldo exige o movimento junto, o ajuste sem motivo não passa pela raiz, e não se devolve o que não saiu |
 | Entidade única | `Conta`, `Usuario`, `Cliente` | nenhum | são agregados de uma entidade só; a marca do primeiro acesso da Conta só avança uma vez | Implementado |
@@ -543,14 +552,14 @@ editar um agregado através de outro.
   que deixasse o total menor que as parcelas lançadas também. Uma parcela pendente, à espera de um
   provedor, reserva o lugar dela na conta; uma recusada não ocupa lugar. Parcela lançada não se
   desfaz: o valor errado se corrige cancelando a venda.
-- **A venda só conclui com os pagamentos confirmados exatamente iguais ao total**, e nunca sem
+- **A Venda só conclui quando os pagamentos confirmados e o FIADO pendente cobrem exatamente o total**, e nunca sem
   item. O troco é calculado pelo módulo de pagamentos, devolvido a quem chamou para a tela mostrar
   no ato, e gravado na parcela, para o comprovante sair igual numa reimpressão. Zero fora de
   dinheiro, e o banco recusa troco em Pix ou cartão.
 - **A venda guarda dois instantes:** quando a comanda abriu e quando os pagamentos fecharam a
   conta. O segundo é a data do comprovante, porque numa comanda os dois podem estar horas
   distantes; nasce na conclusão, e o cancelamento não o apaga. É também o que delimita o dia do
-  faturamento: a venda conta no dia em que o dinheiro entrou, e uma comanda aberta às 23h50 e paga
+  faturamento: a venda conta no dia da conclusão, inclusive com FIADO pendente, e uma comanda aberta às 23h50 e paga
   às 00h10 é do dia seguinte. A sessão de caixa, por sua vez, é do dia em que abriu, porque um
   expediente pode atravessar a meia-noite e continua sendo um só.
 - **As tabelas de venda, item de venda, produto, pagamento e movimento de caixa têm um segundo
@@ -647,7 +656,7 @@ src
 │   │   ├── estoque/        application, web, internal
 │   │   └── relatorios/     application, web, internal
 │   └── resources
-│       └── db/migration/   V1 a V13, imutáveis depois de publicadas
+│       └── db/migration/   V1 a V14, imutáveis depois de publicadas
 ├── test/java/br/com/caixasimples
 │   ├── ModularityTests     fitness function das fronteiras
 │   ├── TesteDeIntegracao   base com Testcontainers, herdada pelos testes de banco

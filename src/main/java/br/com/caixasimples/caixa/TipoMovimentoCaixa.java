@@ -25,5 +25,6 @@ public enum TipoMovimentoCaixa {
     VENDA,
     SANGRIA,
     SUPRIMENTO,
-    ESTORNO
+    ESTORNO,
+    RECEBIMENTO
 }

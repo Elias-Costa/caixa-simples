@@ -1,6 +1,7 @@
 package br.com.caixasimples.vendas.web;
 
 import br.com.caixasimples.vendas.application.VendaNaoEncontradaException;
+import br.com.caixasimples.cadastro.application.ConsultaDeClienteParaVenda.ClienteNaoEncontradoParaVendaException;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
@@ -13,8 +14,9 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @Order(Ordered.HIGHEST_PRECEDENCE)
 class VendaNaoEncontradaHandler {
 
-    @ExceptionHandler(VendaNaoEncontradaException.class)
-    ProblemDetail naoEncontrada(VendaNaoEncontradaException excecao) {
+    @ExceptionHandler({VendaNaoEncontradaException.class,
+            ClienteNaoEncontradoParaVendaException.class})
+    ProblemDetail naoEncontrada(RuntimeException excecao) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, excecao.getMessage());
     }
 }

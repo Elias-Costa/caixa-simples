@@ -78,6 +78,10 @@ class PagamentoEntity {
         return new Pagamento(id, forma, Money.de(valor), status, Money.de(troco), criadoEm);
     }
 
+    void atualizarStatus(br.com.caixasimples.pagamentos.StatusPagamento novoStatus) {
+        this.status = novoStatus;
+    }
+
     UUID getId() {
         return id;
     }

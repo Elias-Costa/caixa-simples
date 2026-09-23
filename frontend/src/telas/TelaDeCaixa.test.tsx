@@ -61,7 +61,7 @@ describe('caixa na tela', () => {
     }
     const movimentos = [{
       id: 'm-1', tipo: 'VENDA' as const, valor: 5, motivo: null,
-      vendaId: 'v-1', criadoEm: '2026-09-22T14:00:00Z',
+      vendaId: 'v-1', recebimentoId: null, criadoEm: '2026-09-22T14:00:00Z',
     }]
     vi.spyOn(caixa, 'abertaDoOperadorAtual').mockImplementation(async () => fechada ? undefined : aberta)
     vi.spyOn(caixa, 'historico').mockImplementation(async () => [fechada ? sessaoFechada : aberta])

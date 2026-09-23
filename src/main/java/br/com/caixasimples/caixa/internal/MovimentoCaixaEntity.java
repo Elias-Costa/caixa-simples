@@ -47,6 +47,9 @@ class MovimentoCaixaEntity {
     @Column(name = "venda_id")
     private UUID vendaId;
 
+    @Column(name = "recebimento_id", updatable = false)
+    private UUID recebimentoId;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private TipoMovimentoCaixa tipo;
@@ -71,6 +74,7 @@ class MovimentoCaixaEntity {
         this.valor = movimento.valor().valor();
         this.motivo = movimento.motivo();
         this.vendaId = movimento.vendaId();
+        this.recebimentoId = movimento.recebimentoId();
         this.criadoEm = movimento.criadoEm();
     }
 
@@ -84,7 +88,8 @@ class MovimentoCaixaEntity {
      * contando o que de fato aconteceu na gaveta.
      */
     MovimentoCaixa paraDominio() {
-        return new MovimentoCaixa(id, tipo, Money.de(valor), motivo, vendaId, criadoEm);
+        return new MovimentoCaixa(id, tipo, Money.de(valor), motivo, vendaId, recebimentoId,
+                criadoEm);
     }
 
     /**

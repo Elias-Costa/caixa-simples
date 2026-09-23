@@ -4,6 +4,7 @@ import br.com.caixasimples.caixa.StatusSessaoCaixa;
 import br.com.caixasimples.caixa.application.SessaoCaixaService;
 import br.com.caixasimples.vendas.CaixaParaVenda;
 import java.util.UUID;
+import java.util.Optional;
 import org.springframework.stereotype.Component;
 
 /**
@@ -34,5 +35,10 @@ class CaixaParaVendaAdapter implements CaixaParaVenda {
     @Override
     public boolean estaAberto(UUID sessaoCaixaId) {
         return sessoes.consultar(sessaoCaixaId).status() == StatusSessaoCaixa.ABERTA;
+    }
+
+    @Override
+    public Optional<UUID> sessaoAbertaDoOperadorAtual() {
+        return sessoes.abertaDoOperadorAtual().map(SessaoCaixaService.ResumoDeSessao::id);
     }
 }

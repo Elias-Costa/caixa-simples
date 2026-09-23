@@ -103,9 +103,10 @@ public record ResultadoPagamento(FormaPagamento forma, Money valor, StatusPagame
     public static ResultadoPagamento registradoAMao(SolicitacaoPagamento solicitacao) {
         Objects.requireNonNull(solicitacao, "solicitacao de pagamento nao pode ser nula");
 
-        if (solicitacao.forma() == FormaPagamento.DINHEIRO) {
-            throw new IllegalArgumentException("pagamento em dinheiro tem regra propria de troco; "
-                    + "use a fabrica emDinheiro");
+        if (solicitacao.forma() != FormaPagamento.PIX
+                && solicitacao.forma() != FormaPagamento.CARTAO) {
+            throw new IllegalArgumentException("pagamento manual confirmado exige PIX ou CARTAO; "
+                    + "DINHEIRO e FIADO tem regras proprias");
         }
         if (solicitacao.valorRecebido() != null) {
             throw new IllegalArgumentException("a forma " + solicitacao.forma() + " nao devolve "
@@ -115,5 +116,18 @@ public record ResultadoPagamento(FormaPagamento forma, Money valor, StatusPagame
 
         return new ResultadoPagamento(solicitacao.forma(), solicitacao.valor(),
                 StatusPagamento.CONFIRMADO, Money.ZERO);
+    }
+
+    /** Fiado reserva o valor da parcela, mas o dinheiro ainda não entrou. */
+    public static ResultadoPagamento fiado(SolicitacaoPagamento solicitacao) {
+        Objects.requireNonNull(solicitacao, "solicitacao de pagamento nao pode ser nula");
+        if (solicitacao.forma() != FormaPagamento.FIADO) {
+            throw new IllegalArgumentException("a fabrica de fiado exige a forma FIADO");
+        }
+        if (solicitacao.valorRecebido() != null) {
+            throw new IllegalArgumentException("fiado nao aceita valor recebido em especie");
+        }
+        return new ResultadoPagamento(FormaPagamento.FIADO, solicitacao.valor(),
+                StatusPagamento.PENDENTE, Money.ZERO);
     }
 }

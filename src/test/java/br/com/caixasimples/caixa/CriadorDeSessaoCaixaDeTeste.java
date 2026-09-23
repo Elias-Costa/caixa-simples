@@ -47,7 +47,7 @@ public class CriadorDeSessaoCaixaDeTeste {
         Money esperado = valorAbertura;
         for (MovimentoCaixa movimento : movimentos) {
             esperado = switch (movimento.tipo()) {
-                case VENDA, SUPRIMENTO -> esperado.somar(movimento.valor());
+                case VENDA, SUPRIMENTO, RECEBIMENTO -> esperado.somar(movimento.valor());
                 case SANGRIA, ESTORNO -> esperado.subtrair(movimento.valor());
             };
         }

@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 /**
- * Pix e cartão lançados à mão pela porta pública do módulo, com a aplicação de pé (RF26).
+ * Pix, cartão e FIADO pela porta pública do módulo, com a aplicação de pé (RF26, RF33).
  *
  * <p>Prova a fiação, que nenhum teste de unidade alcança: as duas estratégias têm visibilidade de
  * pacote e só chegam ao serviço porque o Spring as registrou. A conta que elas fazem já está
@@ -28,8 +28,8 @@ class PagamentoManualTest extends TesteDeIntegracao {
     private PaymentService pagamentos;
 
     @Test
-    @DisplayName("as três formas de pagamento resolvem pela mesma interface")
-    void asTresFormasResolvemPelaMesmaInterface() {
+    @DisplayName("as quatro formas de pagamento resolvem pela mesma interface")
+    void asQuatroFormasResolvemPelaMesmaInterface() {
         // O critério do desenho (RF09): quem paga chama sempre o mesmo método, e a forma escolhe a
         // estratégia sem que nenhuma condição sobre ela exista em código de negócio.
         Money valor = Money.de("30.00");
@@ -40,6 +40,21 @@ class PagamentoManualTest extends TesteDeIntegracao {
                 .isEqualTo(FormaPagamento.PIX);
         assertThat(pagamentos.pagar(SolicitacaoPagamento.de(FormaPagamento.CARTAO, valor)).forma())
                 .isEqualTo(FormaPagamento.CARTAO);
+        assertThat(pagamentos.pagar(SolicitacaoPagamento.de(FormaPagamento.FIADO, valor)).forma())
+                .isEqualTo(FormaPagamento.FIADO);
+    }
+
+    @Test
+    void fiadoNascePendenteESemTroco() {
+        ResultadoPagamento resultado = pagamentos.pagar(
+                SolicitacaoPagamento.de(FormaPagamento.FIADO, Money.de("42.50")));
+        assertThat(resultado.status()).isEqualTo(StatusPagamento.PENDENTE);
+        assertThat(resultado.troco()).isEqualTo(Money.ZERO);
+        assertThatIllegalArgumentException().isThrownBy(() -> pagamentos.pagar(
+                new SolicitacaoPagamento(FormaPagamento.FIADO, Money.de("42.50"),
+                        Money.de("42.50"))));
+        assertThatIllegalArgumentException().isThrownBy(() -> ResultadoPagamento.registradoAMao(
+                SolicitacaoPagamento.de(FormaPagamento.FIADO, Money.de("42.50"))));
     }
 
     @Test

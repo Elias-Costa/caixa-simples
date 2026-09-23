@@ -19,6 +19,7 @@ export function itensDoMenu(identidade: Identidade): ItemDoMenu[] {
     { rotulo: 'Caixa', caminho: '/caixa' },
     { rotulo: 'Produtos', caminho: '/produtos' },
     { rotulo: 'Clientes', caminho: '/clientes' },
+    { rotulo: 'Fiado', caminho: '/fiado' },
   ]
   if (identidade.perfil !== 'ADMIN') return itens
 

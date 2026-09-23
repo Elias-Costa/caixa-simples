@@ -126,11 +126,12 @@ class SessaoCaixaController {
     }
 
     record MovimentoNaResposta(UUID id, String tipo, BigDecimal valor, String motivo,
-            UUID vendaId, Instant criadoEm) {
+            UUID vendaId, UUID recebimentoId, Instant criadoEm) {
 
         static MovimentoNaResposta de(MovimentoCaixa movimento) {
             return new MovimentoNaResposta(movimento.id(), movimento.tipo().name(),
                     movimento.valor().valor(), movimento.motivo(), movimento.vendaId(),
+                    movimento.recebimentoId(),
                     movimento.criadoEm());
         }
     }

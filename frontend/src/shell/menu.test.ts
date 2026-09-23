@@ -14,8 +14,8 @@ const base: Identidade = {
 const rotulos = (identidade: Identidade) => itensDoMenu(identidade).map((item) => item.rotulo)
 
 describe('itensDoMenu', () => {
-  it('operador vê só venda, caixa, produtos e clientes', () => {
-    expect(rotulos(base)).toEqual(['Vender', 'Caixa', 'Produtos', 'Clientes'])
+  it('operador vê venda, caixa, cadastro e cobrança do fiado', () => {
+    expect(rotulos(base)).toEqual(['Vender', 'Caixa', 'Produtos', 'Clientes', 'Fiado'])
   })
 
   it('operador não vê estoque nem com o controle ligado na conta', () => {
@@ -28,6 +28,7 @@ describe('itensDoMenu', () => {
       'Caixa',
       'Produtos',
       'Clientes',
+      'Fiado',
       'Relatórios',
       'Usuários',
       'Configuração',

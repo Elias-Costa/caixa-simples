@@ -15,10 +15,11 @@ export type SessaoCaixa = {
 
 export type MovimentoCaixa = {
   id: string
-  tipo: 'VENDA' | 'SANGRIA' | 'SUPRIMENTO' | 'ESTORNO'
+  tipo: 'VENDA' | 'SANGRIA' | 'SUPRIMENTO' | 'ESTORNO' | 'RECEBIMENTO'
   valor: number
   motivo: string | null
   vendaId: string | null
+  recebimentoId: string | null
   criadoEm: string
 }
 

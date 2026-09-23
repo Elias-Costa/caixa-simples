@@ -44,7 +44,7 @@ import java.util.UUID;
  */
 public record Comprovante(UUID vendaId, UUID usuarioId, Instant concluidoEm, List<Linha> linhas,
         Money somaDosItens, Money descontoDaVenda, Money valorTotal, List<Parcela> parcelas,
-        Money troco) {
+        Money troco, Money valorFiado, Money saldoDevedor) {
 
     /**
      * Uma linha do comprovante: um item da venda com o nome que o produto tem hoje.

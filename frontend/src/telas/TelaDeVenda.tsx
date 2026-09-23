@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
-import { cadastro, type Produto } from '../api/cadastro'
+import { cadastro, type Cliente, type Produto } from '../api/cadastro'
 import { caixa, type SessaoCaixa } from '../api/caixa'
+import { fiado } from '../api/fiado'
 import { vendas, type Comprovante, type FormaPagamento, type ResumoDaVenda, type Venda } from '../api/vendas'
+import { useContextoDoShell } from '../shell/ContextoDoShell'
 import { useSessao } from '../sessao/useSessao'
 import { erroDeCadastro } from './erroDeCadastro'
 
@@ -30,6 +32,10 @@ function textoDoComprovante(comprovante: Comprovante, negocio: string, operador:
     `Total: ${moeda.format(comprovante.valorTotal)}`,
     ...comprovante.parcelas.map((parcela) =>
       `${parcela.forma}: ${moeda.format(parcela.valor)}`),
+    ...(comprovante.valorFiado > 0 ? [
+      `Valor fiado: ${moeda.format(comprovante.valorFiado)}`,
+      `Valor pendente: ${moeda.format(comprovante.saldoDevedor)}`,
+    ] : []),
     `Troco: ${moeda.format(comprovante.troco)}`,
     `Venda: ${comprovante.vendaId}`,
   ].join('\n')
@@ -37,9 +43,11 @@ function textoDoComprovante(comprovante: Comprovante, negocio: string, operador:
 
 export function TelaDeVenda() {
   const { identidade } = useSessao()
+  const { definirFaixa } = useContextoDoShell()
   const buscaRef = useRef<HTMLInputElement>(null)
   const [sessao, setSessao] = useState<SessaoCaixa>()
   const [historico, setHistorico] = useState<ResumoDaVenda[]>([])
+  const [clientes, setClientes] = useState<Cliente[]>([])
   const [atual, setAtual] = useState<Venda>()
   const [comprovante, setComprovante] = useState<Comprovante>()
   const [busca, setBusca] = useState('')
@@ -65,6 +73,23 @@ export function TelaDeVenda() {
       .finally(() => { if (vivo) setCarregando(false) })
     return () => { vivo = false }
   }, [])
+
+  useEffect(() => {
+    let vivo = true
+    cadastro.clientes().then((lista) => { if (vivo) setClientes(lista) })
+      .catch((falha) => { if (vivo) setErro(erroDeCadastro(falha)) })
+    return () => { vivo = false }
+  }, [])
+
+  useEffect(() => {
+    const clienteId = atual?.clienteId
+    if (!clienteId) { definirFaixa(null); return }
+    let vivo = true
+    fiado.saldo(clienteId).then(({ saldoDevedor }) => {
+      if (vivo) definirFaixa(`Cliente: ${clientes.find((c) => c.id === clienteId)?.nome ?? clienteId} · Saldo devedor: ${moeda.format(saldoDevedor)}`)
+    }).catch((falha) => { if (vivo) setErro(erroDeCadastro(falha)) })
+    return () => { vivo = false; definirFaixa(null) }
+  }, [atual?.clienteId, atual?.saldoDevedor, clientes, definirFaixa])
 
   useEffect(() => {
     if (!sessao || !busca.trim()) return
@@ -114,6 +139,14 @@ export function TelaDeVenda() {
     if (!atual) return
     setOcupado(true); setErro(undefined)
     try { await vendas.descontar(atual.id, numero(descontoVenda)); await atualizar(atual.id) }
+    catch (falha) { setErro(erroDeCadastro(falha)) }
+    finally { setOcupado(false) }
+  }
+
+  async function vincularCliente(clienteId: string) {
+    if (!atual || !clienteId) return
+    setOcupado(true); setErro(undefined)
+    try { await vendas.vincularCliente(atual.id, clienteId); await atualizar(atual.id) }
     catch (falha) { setErro(erroDeCadastro(falha)) }
     finally { setOcupado(false) }
   }
@@ -222,11 +255,18 @@ export function TelaDeVenda() {
         <section className="pdv__painel">
           <div className="pdv__topo"><h3>Comanda</h3>
             <button className="botao botao--secundario" type="button" onClick={() => {
-              setAtual(undefined); setComprovante(undefined); setTroco(undefined); buscaRef.current?.focus()
+              setAtual(undefined); setComprovante(undefined); setTroco(undefined); setForma('DINHEIRO'); buscaRef.current?.focus()
             }}>Nova venda</button>
           </div>
           {!atual ? <p>Busque e escolha o primeiro produto para iniciar.</p> : <>
             <p>Venda {atual.id.slice(0, 8)} · {atual.status}</p>
+            {atual.status === 'ABERTA' ? <label>Cliente (para fiado)
+              <select value={atual.clienteId ?? ''} disabled={ocupado}
+                onChange={(evento) => void vincularCliente(evento.target.value)}>
+                <option value="">Selecione um Cliente</option>
+                {clientes.map((cliente) => <option key={cliente.id} value={cliente.id}>{cliente.nome}</option>)}
+              </select>
+            </label> : atual.clienteId && <p>Cliente: {clientes.find((c) => c.id === atual.clienteId)?.nome ?? atual.clienteId}</p>}
             {atual.itens.length === 0 ? <p>Nenhum item lançado.</p> : <ul className="pdv__itens">
               {atual.itens.map((item) => <li key={item.id}>
                 <span>{item.quantidade} × {item.nome} · {moeda.format(item.subtotal)}
@@ -244,6 +284,7 @@ export function TelaDeVenda() {
             </form>}
             <p className="pdv__total">Total: {moeda.format(atual.total)}</p>
             <p>Pago: {moeda.format(atual.pago)} · Falta: {moeda.format(atual.faltaPagar)}</p>
+            {atual.saldoDevedor > 0 && <p><strong>Saldo devedor desta Venda: {moeda.format(atual.saldoDevedor)}</strong></p>}
             {atual.parcelas.length > 0 && <ul className="pdv__parcelas">
               {atual.parcelas.map((parcela) => <li key={parcela.id}>{parcela.forma}: {moeda.format(parcela.valor)}
                 {parcela.troco > 0 && ` · troco ${moeda.format(parcela.troco)}`}</li>)}
@@ -256,6 +297,9 @@ export function TelaDeVenda() {
                   <select value={forma} onChange={(evento) => setForma(evento.target.value as FormaPagamento)}>
                     <option value="DINHEIRO">Dinheiro</option><option value="PIX">Pix manual</option>
                     <option value="CARTAO">Cartão manual</option>
+                    {identidade?.perfil === 'ADMIN' && atual.clienteId &&
+                      !atual.parcelas.some((parcela) => parcela.forma === 'FIADO') &&
+                      <option value="FIADO">Fiado</option>}
                   </select>
                 </label>
                 <label>Valor da parcela
@@ -271,7 +315,7 @@ export function TelaDeVenda() {
                   <button className="botao botao--secundario" disabled={ocupado}>Registrar parcela</button>
                   {atual.parcelas.length === 0 && (!valorPagamento || numero(valorPagamento) === atual.faltaPagar)
                     && <button className="botao" type="button" disabled={ocupado}
-                    onClick={(evento) => void pagar(evento, true)}>Receber e concluir</button>}
+                    onClick={(evento) => void pagar(evento, true)}>{forma === 'FIADO' ? 'Registrar fiado e concluir' : 'Receber e concluir'}</button>}
                 </div>
               </form>}
               {atual.faltaPagar === 0 && atual.itens.length > 0 && <button className="botao" type="button"
@@ -311,6 +355,10 @@ export function TelaDeVenda() {
       <p><strong>Total: {moeda.format(comprovante.valorTotal)}</strong></p>
       <ul>{comprovante.parcelas.map((parcela, indice) => <li key={indice}>
         {parcela.forma}: {moeda.format(parcela.valor)}</li>)}</ul>
+      {comprovante.valorFiado > 0 && <>
+        <p>Valor fiado: {moeda.format(comprovante.valorFiado)}</p>
+        <p><strong>Valor pendente: {moeda.format(comprovante.saldoDevedor)}</strong></p>
+      </>}
       <p>Troco: {moeda.format(comprovante.troco)}</p>
       <p>Venda: {comprovante.vendaId}</p>
       <div className="comprovante__acoes">

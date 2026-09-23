@@ -257,22 +257,49 @@ public class SessaoCaixa {
      *                               sessão, ou se já foi estornada
      */
     public void estornarVenda(UUID vendaId) {
+        estornarVenda(vendaId, Money.ZERO);
+    }
+
+    /** Estorna também o dinheiro de fiado recebido, inclusive quando entrou em outra sessão. */
+    public void estornarVenda(UUID vendaId, Money valorDeRecebimentos) {
         Objects.requireNonNull(vendaId, "vendaId nao pode ser nulo");
+        Objects.requireNonNull(valorDeRecebimentos, "valor de recebimentos nao pode ser nulo");
+        if (valorDeRecebimentos.isNegativo()) {
+            throw new IllegalArgumentException("valor de recebimentos nao pode ser negativo");
+        }
 
         MovimentoCaixa entrada = movimentos.stream()
                 .filter(movimento -> movimento.tipo() == TipoMovimentoCaixa.VENDA)
                 .filter(movimento -> vendaId.equals(movimento.vendaId()))
                 .findFirst()
-                .orElseThrow(() -> new IllegalStateException(
-                        "venda " + vendaId + " nao entrou na sessao de caixa " + id
-                                + " e nao tem o que estornar. So se devolve o que entrou."));
+                .orElse(null);
+        if (entrada == null && valorDeRecebimentos.equals(Money.ZERO)) {
+            throw new IllegalStateException("venda " + vendaId + " nao entrou na sessao de caixa "
+                    + id + " e nao tem o que estornar. So se devolve o que entrou.");
+        }
         if (jaEstornouVenda(vendaId)) {
             throw new IllegalStateException(
                     "venda " + vendaId + " ja foi estornada na sessao de caixa " + id
                             + " e nao sai de novo. O dinheiro de uma venda volta uma vez so.");
         }
 
-        registrar(TipoMovimentoCaixa.ESTORNO, entrada.valor(), null, vendaId);
+        Money valorDaVenda = entrada == null ? Money.ZERO : entrada.valor();
+        registrar(TipoMovimentoCaixa.ESTORNO, valorDaVenda.somar(valorDeRecebimentos), null,
+                vendaId);
+    }
+
+    /** Cada recebimento em dinheiro entra uma vez, mesmo após reentrega do evento. */
+    public void registrarRecebimento(UUID vendaId, UUID recebimentoId, Money valor) {
+        Objects.requireNonNull(vendaId, "vendaId nao pode ser nulo");
+        Objects.requireNonNull(recebimentoId, "recebimentoId nao pode ser nulo");
+        if (jaRegistrouRecebimento(recebimentoId)) {
+            throw new IllegalStateException("recebimento ja lancado nesta sessao: " + recebimentoId);
+        }
+        registrar(TipoMovimentoCaixa.RECEBIMENTO, valor, null, vendaId, recebimentoId);
+    }
+
+    public boolean jaRegistrouRecebimento(UUID recebimentoId) {
+        return movimentos.stream().anyMatch(m -> recebimentoId.equals(m.recebimentoId()));
     }
 
     /**
@@ -341,6 +368,11 @@ public class SessaoCaixa {
      * {@link #sangrar}, {@link #suprir}, {@link #registrarVenda} ou {@link #estornarVenda}.
      */
     private void registrar(TipoMovimentoCaixa tipo, Money valor, String motivo, UUID vendaId) {
+        registrar(tipo, valor, motivo, vendaId, null);
+    }
+
+    private void registrar(TipoMovimentoCaixa tipo, Money valor, String motivo, UUID vendaId,
+            UUID recebimentoId) {
         if (status != StatusSessaoCaixa.ABERTA) {
             // Depois do fechamento a diferença já está gravada; um movimento novo a tornaria
             // mentirosa sem que nada a recalculasse.
@@ -350,14 +382,14 @@ public class SessaoCaixa {
                             + " conferida.");
         }
 
-        MovimentoCaixa movimento = MovimentoCaixa.novo(tipo, valor, motivo, vendaId);
+        MovimentoCaixa movimento = MovimentoCaixa.novo(tipo, valor, motivo, vendaId, recebimentoId);
         movimentos.add(movimento);
 
         // O switch é exaustivo de propósito: acrescentar um valor em TipoMovimentoCaixa quebra a
         // compilação aqui, que é exatamente onde alguém precisa decidir se o dinheiro entra ou sai.
         // Um campo de sinal dentro do enum faria a mesma conta em silêncio, com o valor errado.
         this.valorFechamentoEsperado = switch (tipo) {
-            case VENDA, SUPRIMENTO -> valorFechamentoEsperado.somar(movimento.valor());
+            case VENDA, SUPRIMENTO, RECEBIMENTO -> valorFechamentoEsperado.somar(movimento.valor());
             case SANGRIA, ESTORNO -> valorFechamentoEsperado.subtrair(movimento.valor());
         };
     }

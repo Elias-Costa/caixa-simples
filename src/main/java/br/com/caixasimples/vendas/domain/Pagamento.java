@@ -84,4 +84,8 @@ public record Pagamento(UUID id, FormaPagamento forma, Money valor, StatusPagame
     static Pagamento novo(FormaPagamento forma, Money valor, StatusPagamento status, Money troco) {
         return new Pagamento(UUID.randomUUID(), forma, valor, status, troco, Instant.now());
     }
+
+    Pagamento comStatus(StatusPagamento novoStatus) {
+        return new Pagamento(id, forma, valor, novoStatus, troco, criadoEm);
+    }
 }

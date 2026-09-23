@@ -148,7 +148,7 @@ class FluxoDeCaixaServiceTest extends TesteDeIntegracao {
                 () -> fluxo.doPeriodo(DIA, DIA));
 
         assertThat(vazio).isEqualTo(new FluxoDeCaixa(DIA, DIA, Money.ZERO, Money.ZERO, Money.ZERO,
-                Money.ZERO, Money.ZERO, Money.ZERO, Money.ZERO));
+                Money.ZERO, Money.ZERO, Money.ZERO, Money.ZERO, Money.ZERO));
 
         conta.comoUsuario(() ->
                 assertThatIllegalArgumentException()

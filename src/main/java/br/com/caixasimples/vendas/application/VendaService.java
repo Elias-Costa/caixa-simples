@@ -1,6 +1,8 @@
 package br.com.caixasimples.vendas.application;
 
 import br.com.caixasimples.cadastro.application.ProdutoService;
+import br.com.caixasimples.cadastro.application.ConsultaDeClienteParaVenda;
+import br.com.caixasimples.pagamentos.FormaPagamento;
 import br.com.caixasimples.cadastro.application.ProdutoService.ProdutoParaComprovante;
 import br.com.caixasimples.cadastro.application.ProdutoService.ProdutoParaVenda;
 import br.com.caixasimples.pagamentos.StatusPagamento;
@@ -15,8 +17,10 @@ import br.com.caixasimples.vendas.CaixaParaVenda;
 import br.com.caixasimples.vendas.StatusVenda;
 import br.com.caixasimples.vendas.VendaCancelada;
 import br.com.caixasimples.vendas.VendaConcluida;
+import br.com.caixasimples.vendas.FiadoRecebido;
 import br.com.caixasimples.vendas.domain.ItemVenda;
 import br.com.caixasimples.vendas.domain.Pagamento;
+import br.com.caixasimples.vendas.domain.Recebimento;
 import br.com.caixasimples.vendas.domain.Venda;
 import br.com.caixasimples.vendas.internal.VendaEntity;
 import br.com.caixasimples.vendas.internal.VendaRepository;
@@ -41,7 +45,7 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>Cada caso de uso é sempre a mesma sequência: carrega a linha, deixa a raiz do agregado
  * decidir, grava o que ela decidiu. Nenhuma regra de dinheiro mora aqui. É {@link Venda} que sabe
  * que desconto não passa do valor, que o total nunca fica negativo, que parcela não passa do que
- * falta pagar, que a venda só conclui com os pagamentos confirmados iguais ao total, que venda
+ * falta pagar, que a venda só conclui com pagamentos confirmados e FIADO pendente cobrindo o total, que venda
  * que não está ABERTA não se monta nem se paga, e que CANCELADA é final.
  *
  * <p><strong>Duas regras moram neste arquivo, e as duas por dependerem de outro módulo.</strong>
@@ -104,11 +108,9 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p><strong>Não há como desfazer uma parcela lançada.</strong> Uma parcela com o valor errado se
  * corrige cancelando a venda e abrindo outra. <strong>O cancelamento não registra motivo, nem
- * quem cancelou, nem quando:</strong> nenhum requisito pede; quem pode cancelar é quem pode
- * tocar a venda, o operador dela ou o administrador. <strong>Não há cliente na venda
- * ainda.</strong> Vincular cliente (RF03) é operação própria, porque numa comanda ele costuma ser
- * identificado depois do primeiro item, e chega junto de uma consulta pública do cadastro que
- * confirme que o cliente é desta conta.
+ * quem cancelou, nem quando:</strong> nenhum requisito pede. Vincular Cliente ativo (RF03, RF33)
+ * é operação própria e consulta a API pública do cadastro. Receber fiado é permitido a qualquer
+ * perfil da Conta, mas só ADMIN registra e conclui Venda com FIADO.
  *
  */
 @Service
@@ -116,14 +118,17 @@ public class VendaService {
 
     private final VendaRepository vendas;
     private final ProdutoService produtos;
+    private final ConsultaDeClienteParaVenda clientes;
     private final CaixaParaVenda caixa;
     private final PaymentService pagamentos;
     private final ApplicationEventPublisher eventos;
 
-    VendaService(VendaRepository vendas, ProdutoService produtos, CaixaParaVenda caixa,
+    VendaService(VendaRepository vendas, ProdutoService produtos, ConsultaDeClienteParaVenda clientes,
+            CaixaParaVenda caixa,
             PaymentService pagamentos, ApplicationEventPublisher eventos) {
         this.vendas = vendas;
         this.produtos = produtos;
+        this.clientes = clientes;
         this.caixa = caixa;
         this.pagamentos = pagamentos;
         this.eventos = eventos;
@@ -257,6 +262,9 @@ public class VendaService {
     @Transactional
     public Money registrarPagamento(UUID vendaId, SolicitacaoPagamento solicitacao) {
         Objects.requireNonNull(solicitacao, "solicitacao de pagamento nao pode ser nula");
+        if (solicitacao.forma() == FormaPagamento.FIADO) {
+            UsuarioContext.exigirAdmin();
+        }
         VendaEntity linha = buscar(vendaId);
         Venda venda = linha.paraDominio();
         UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
@@ -271,7 +279,7 @@ public class VendaService {
     }
 
     /**
-     * Fecha a venda (RF09): a raiz confere que os pagamentos confirmados cobrem o total e vira o
+     * Fecha a venda (RF09, RF33): a raiz confere que os pagamentos confirmados e o FIADO pendente cobrem o total e vira o
      * status para CONCLUIDA; depois de gravada, o evento {@link VendaConcluida} é publicado.
      *
      * <p>O evento sai na mesma transação que grava a venda: o registro de publicação anota a
@@ -290,6 +298,9 @@ public class VendaService {
         VendaEntity linha = buscar(vendaId);
         Venda venda = linha.paraDominio();
         UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
+        if (venda.getPagamentos().stream().anyMatch(p -> p.forma() == FormaPagamento.FIADO)) {
+            UsuarioContext.exigirAdmin();
+        }
 
         if (!caixa.estaAberto(venda.getSessaoCaixaId())) {
             throw new IllegalStateException(
@@ -347,6 +358,94 @@ public class VendaService {
         }
     }
 
+    /** O Cliente é conferido no cadastro da Conta antes de entrar na comanda. */
+    @Transactional
+    public void vincularCliente(UUID vendaId, UUID clienteId) {
+        VendaEntity linha = buscar(vendaId);
+        Venda venda = linha.paraDominio();
+        UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
+        clientes.exigirAtivo(clienteId);
+        venda.vincularCliente(clienteId);
+        linha.atualizarCom(venda);
+        vendas.save(linha);
+    }
+
+    /** Recebe parte ou toda a dívida na sessão ABERTA da pessoa autenticada. */
+    @Transactional
+    public RecebimentoRegistrado receber(UUID vendaId, Money valor, FormaPagamento forma) {
+        UsuarioContext.exigirAtual();
+        UUID sessaoId = caixa.sessaoAbertaDoOperadorAtual().orElseThrow(() ->
+                new IllegalStateException("abra o proprio caixa antes de receber fiado"));
+        VendaEntity linha = vendas.findLockedById(vendaId)
+                .orElseThrow(() -> new VendaNaoEncontradaException(vendaId));
+        Venda venda = linha.paraDominio();
+        Recebimento recebimento = venda.receber(sessaoId, valor, forma);
+        linha.atualizarCom(venda);
+        vendas.save(linha);
+        eventos.publishEvent(new FiadoRecebido(TenantContext.exigirAtual(), vendaId,
+                recebimento.id(), sessaoId, recebimento.valor(), recebimento.forma()));
+        return new RecebimentoRegistrado(recebimento.id(), venda.saldoDevedor());
+    }
+
+    /** Dívida de um Cliente da Conta, calculada das Vendas e dos recebimentos. */
+    @Transactional(readOnly = true)
+    public Money saldoDevedorDoCliente(UUID clienteId) {
+        UsuarioContext.exigirAtual();
+        clientes.nomeDe(clienteId);
+        return vendas.findByClienteIdAndStatus(clienteId, StatusVenda.CONCLUIDA).stream()
+                .map(VendaEntity::paraDominio).map(Venda::saldoDevedor)
+                .reduce(Money.ZERO, Money::somar);
+    }
+
+    /** Vendas com dívida e Cliente identificado, para a cobrança no balcão. */
+    @Transactional(readOnly = true)
+    public List<DividaParaTela> dividasEmAberto() {
+        UsuarioContext.exigirAtual();
+        return vendas.findByStatus(StatusVenda.CONCLUIDA).stream()
+                .map(VendaEntity::paraDominio)
+                .filter(venda -> !venda.saldoDevedor().equals(Money.ZERO))
+                .map(venda -> new DividaParaTela(venda.getId(), venda.getClienteId(),
+                        clientes.nomeDe(venda.getClienteId()), venda.getConcluidoEm(),
+                        venda.saldoDevedor()))
+                .toList();
+    }
+
+    /** Dados imutáveis do lançamento para imprimir ou compartilhar. */
+    @Transactional(readOnly = true)
+    public ComprovanteDeRecebimento comprovanteDeRecebimento(UUID vendaId, UUID recebimentoId) {
+        UsuarioContext.exigirAtual();
+        Venda venda = buscar(vendaId).paraDominio();
+        Recebimento alvo = venda.getRecebimentos().stream()
+                .filter(r -> r.id().equals(recebimentoId)).findFirst()
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "recebimento nao pertence a venda: " + recebimentoId));
+        Money totalRecebidoAteAqui = Money.ZERO;
+        for (Recebimento recebimento : venda.getRecebimentos()) {
+            totalRecebidoAteAqui = totalRecebidoAteAqui.somar(recebimento.valor());
+            if (recebimento.id().equals(recebimentoId)) {
+                break;
+            }
+        }
+        Money fiado = venda.getPagamentos().stream()
+                .filter(p -> p.forma() == FormaPagamento.FIADO)
+                .map(Pagamento::valor).findFirst().orElse(Money.ZERO);
+        return new ComprovanteDeRecebimento(vendaId, alvo.id(), venda.getClienteId(),
+                clientes.nomeDe(venda.getClienteId()), alvo.sessaoCaixaId(), alvo.criadoEm(),
+                alvo.forma(), alvo.valor(), fiado.subtrair(totalRecebidoAteAqui));
+    }
+
+    public record RecebimentoRegistrado(UUID id, Money saldoDevedor) {
+    }
+
+    public record DividaParaTela(UUID vendaId, UUID clienteId, String nomeCliente,
+            Instant concluidoEm, Money saldoDevedor) {
+    }
+
+    public record ComprovanteDeRecebimento(UUID vendaId, UUID recebimentoId, UUID clienteId,
+            String nomeCliente, UUID sessaoCaixaId, Instant recebidoEm, FormaPagamento forma,
+            Money valor, Money saldoApos) {
+    }
+
     /**
      * Monta o comprovante não-fiscal (RF11) de uma venda CONCLUIDA: itens com o nome de hoje,
      * descontos, parcelas confirmadas e troco. É dado; quem imprime e compartilha é a tela.
@@ -397,17 +496,21 @@ public class VendaService {
                 .reduce(Money.ZERO, Money::somar);
 
         List<Comprovante.Parcela> parcelas = venda.getPagamentos().stream()
-                .filter(parcela -> parcela.status() == StatusPagamento.CONFIRMADO)
+                .filter(parcela -> parcela.status() == StatusPagamento.CONFIRMADO
+                        || parcela.forma() == FormaPagamento.FIADO)
                 .map(parcela -> new Comprovante.Parcela(parcela.forma(), parcela.valor(),
                         parcela.troco()))
                 .toList();
         Money troco = parcelas.stream()
                 .map(Comprovante.Parcela::troco)
                 .reduce(Money.ZERO, Money::somar);
+        Money valorFiado = venda.getPagamentos().stream()
+                .filter(parcela -> parcela.forma() == FormaPagamento.FIADO)
+                .map(Pagamento::valor).reduce(Money.ZERO, Money::somar);
 
         return new Comprovante(venda.getId(), venda.getUsuarioId(), venda.getConcluidoEm(),
                 linhas, somaDosItens, venda.getValorDesconto(), venda.getValorTotal(), parcelas,
-                troco);
+                troco, valorFiado, venda.saldoDevedor());
     }
 
     /** Devolve a comanda inteira após recarga da tela, incluindo parcelas já lançadas. */
@@ -447,21 +550,26 @@ public class VendaService {
                 .filter(parcela -> parcela.status() != StatusPagamento.RECUSADO)
                 .map(Pagamento::valor).reduce(Money.ZERO, Money::somar);
         return new VendaParaTela(venda.getId(), venda.getSessaoCaixaId(), venda.getUsuarioId(),
+                venda.getClienteId(), venda.saldoDevedor(),
                 venda.getStatus(), venda.getCriadoEm(), venda.getValorDesconto(),
                 venda.getValorTotal(), pago, venda.getValorTotal().subtrair(pago), itens,
                 venda.getPagamentos().stream().map(parcela -> new ParcelaParaTela(parcela.id(),
                         parcela.forma(), parcela.valor(), parcela.status(), parcela.troco()))
-                        .toList());
+                        .toList(),
+                venda.getRecebimentos().stream().map(recebimento -> new RecebimentoParaTela(
+                        recebimento.id(), recebimento.sessaoCaixaId(), recebimento.valor(),
+                        recebimento.forma(), recebimento.criadoEm())).toList());
     }
 
     public record ResumoDaVenda(UUID id, UUID sessaoCaixaId, UUID usuarioId,
             StatusVenda status, Money total, Instant criadoEm) {
     }
 
-    public record VendaParaTela(UUID id, UUID sessaoCaixaId, UUID usuarioId,
+    public record VendaParaTela(UUID id, UUID sessaoCaixaId, UUID usuarioId, UUID clienteId,
+            Money saldoDevedor,
             StatusVenda status, Instant criadoEm, Money descontoDaVenda, Money total,
             Money pago, Money faltaPagar, List<ItemParaTela> itens,
-            List<ParcelaParaTela> parcelas) {
+            List<ParcelaParaTela> parcelas, List<RecebimentoParaTela> recebimentos) {
     }
 
     public record ItemParaTela(UUID id, UUID produtoId, String nome, BigDecimal quantidade,
@@ -470,6 +578,10 @@ public class VendaService {
 
     public record ParcelaParaTela(UUID id, br.com.caixasimples.pagamentos.FormaPagamento forma,
             Money valor, StatusPagamento status, Money troco) {
+    }
+
+    public record RecebimentoParaTela(UUID id, UUID sessaoCaixaId, Money valor,
+            FormaPagamento forma, Instant criadoEm) {
     }
 
     /**
@@ -506,8 +618,13 @@ public class VendaService {
                         parcela.status()))
                 .toList();
 
+        List<VendaCancelada.Recebimento> recebimentos = venda.getRecebimentos().stream()
+                .map(recebimento -> new VendaCancelada.Recebimento(recebimento.id(),
+                        recebimento.sessaoCaixaId(), recebimento.forma(),
+                        recebimento.valor())).toList();
+
         return new VendaCancelada(contaId, venda.getId(), venda.getSessaoCaixaId(),
-                venda.getUsuarioId(), itens, parcelas);
+                venda.getUsuarioId(), itens, parcelas, recebimentos);
     }
 
     private VendaEntity buscar(UUID vendaId) {

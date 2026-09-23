@@ -1,9 +1,11 @@
+import { useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router'
 import { useRegisterSW } from 'virtual:pwa-register/react'
 import type { Perfil } from '../sessao/Identidade'
 import { useSessao } from '../sessao/useSessao'
 import { itensDoMenu } from './menu'
 import { useOnline } from './useOnline'
+import { ContextoDoShellReact } from './ContextoDoShell'
 
 /**
  * A moldura de toda tela: quem está operando e em que negócio, a navegação e os avisos que
@@ -13,6 +15,7 @@ export function Shell() {
   const { identidade, sair } = useSessao()
   const navegar = useNavigate()
   const online = useOnline()
+  const [faixaDeContexto, definirFaixa] = useState<string | null>(null)
   const {
     needRefresh: [precisaAtualizar],
     updateServiceWorker,
@@ -52,6 +55,7 @@ export function Shell() {
           </button>
         </div>
       )}
+      {faixaDeContexto && <div className="faixa" role="status">{faixaDeContexto}</div>}
 
       <nav className="navegacao" aria-label="Principal">
         {itensDoMenu(identidade).map((item) => (
@@ -68,7 +72,7 @@ export function Shell() {
       </nav>
 
       <main className="conteudo">
-        <Outlet />
+        <ContextoDoShellReact.Provider value={{ definirFaixa }}><Outlet /></ContextoDoShellReact.Provider>
       </main>
     </div>
   )

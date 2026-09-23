@@ -112,6 +112,18 @@ public class ClienteService {
         return clientes.findByAtivoFalse().stream().map(ClienteEntity::paraCliente).toList();
     }
 
+    /** O vínculo de uma Venda nova exige Cliente desta Conta e ainda ativo. */
+    @Transactional(readOnly = true)
+    public boolean consultarSeAtivo(UUID id) {
+        return buscar(id).isAtivo();
+    }
+
+    /** Histórico de fiado também pode consultar o nome de um Cliente inativo. */
+    @Transactional(readOnly = true)
+    public Cliente consultar(UUID id) {
+        return buscar(id).paraCliente();
+    }
+
     private ClienteEntity buscar(UUID id) {
         Objects.requireNonNull(id, "id do cliente nao pode ser nulo");
         return clientes.findById(id).orElseThrow(() -> new ClienteNaoEncontradoException(id));

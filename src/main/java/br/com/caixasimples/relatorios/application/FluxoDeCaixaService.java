@@ -83,7 +83,7 @@ public class FluxoDeCaixaService {
             // Exaustivo de propósito, espelhando o switch de SessaoCaixa: acrescentar um valor em
             // TipoMovimentoCaixa quebra a compilação aqui, e não a soma.
             boolean entra = switch (total.getKey()) {
-                case VENDA, SUPRIMENTO -> true;
+                case VENDA, SUPRIMENTO, RECEBIMENTO -> true;
                 case SANGRIA, ESTORNO -> false;
             };
             if (entra) {
@@ -96,6 +96,7 @@ public class FluxoDeCaixaService {
         return new FluxoDeCaixa(inicio, fim,
                 porTipo.get(TipoMovimentoCaixa.VENDA), porTipo.get(TipoMovimentoCaixa.SUPRIMENTO),
                 porTipo.get(TipoMovimentoCaixa.SANGRIA), porTipo.get(TipoMovimentoCaixa.ESTORNO),
+                porTipo.get(TipoMovimentoCaixa.RECEBIMENTO),
                 entradas, saidas, entradas.subtrair(saidas));
     }
 
@@ -103,8 +104,8 @@ public class FluxoDeCaixaService {
      * A resposta do caso de uso. Aninhada no serviço, como {@code FaturamentoService.Faturamento},
      * por ser o formato de resposta deste caso de uso e de mais nenhum.
      *
-     * <p>Os quatro totais por tipo e os três consolidados saem juntos: os consolidados são o que
-     * o requisito pede, e os quatro são o que a tela precisa para explicar de onde eles vieram.
+     * <p>Os cinco totais por tipo e os três consolidados saem juntos: os consolidados são o que
+     * o requisito pede, e os cinco são o que a tela precisa para explicar de onde eles vieram.
      * Todos zero, nunca nulos, quando o período não teve movimento.
      *
      * @param inicio      o primeiro dia do período, no fuso do balcão
@@ -113,12 +114,14 @@ public class FluxoDeCaixaService {
      * @param suprimentos o reforço de troco que entrou
      * @param sangrias    o dinheiro retirado da gaveta
      * @param estornos    o dinheiro devolvido por vendas canceladas
-     * @param entradas    vendas mais suprimentos
+     * @param recebimentos dinheiro recebido de fiado (RF33)
+     * @param entradas    vendas, recebimentos e suprimentos
      * @param saidas      sangrias mais estornos
      * @param saldo       entradas menos saídas; pode ser negativo, num período em que saiu mais
      *                    do que entrou
      */
     public record FluxoDeCaixa(LocalDate inicio, LocalDate fim, Money vendas, Money suprimentos,
-            Money sangrias, Money estornos, Money entradas, Money saidas, Money saldo) {
+            Money sangrias, Money estornos, Money recebimentos, Money entradas, Money saidas,
+            Money saldo) {
     }
 }

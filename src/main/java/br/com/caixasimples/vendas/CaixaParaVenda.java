@@ -25,4 +25,7 @@ public interface CaixaParaVenda {
      *         e a regra do próprio caixa é do caixa, que a aplica ao responder
      */
     boolean estaAberto(UUID sessaoCaixaId);
+
+    /** Sessão ABERTA de quem está recebendo agora, independentemente de quem fez a Venda. */
+    java.util.Optional<UUID> sessaoAbertaDoOperadorAtual();
 }
