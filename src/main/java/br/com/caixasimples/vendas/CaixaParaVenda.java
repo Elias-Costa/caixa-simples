@@ -26,6 +26,9 @@ public interface CaixaParaVenda {
      */
     boolean estaAberto(UUID sessaoCaixaId);
 
+    /** Consulta interna para confirmação financeira sem identidade de operador no webhook. */
+    boolean estaAbertoParaConfirmacaoPix(UUID sessaoCaixaId);
+
     /** Sessão ABERTA de quem está recebendo agora, independentemente de quem fez a Venda. */
     java.util.Optional<UUID> sessaoAbertaDoOperadorAtual();
 }

@@ -4,7 +4,7 @@ import { QRCodeSVG } from 'qrcode.react'
 import { cadastro, type Cliente, type Produto } from '../api/cadastro'
 import { caixa, type SessaoCaixa } from '../api/caixa'
 import { fiado } from '../api/fiado'
-import { vendas, type Comprovante, type FormaPagamento, type ResumoDaVenda, type Venda } from '../api/vendas'
+import { vendas, type Comprovante, type ConciliacaoPix, type FormaPagamento, type ResumoDaVenda, type Venda } from '../api/vendas'
 import { useContextoDoShell } from '../shell/ContextoDoShell'
 import { useSessao } from '../sessao/useSessao'
 import { erroDeCadastro } from './erroDeCadastro'
@@ -60,6 +60,8 @@ export function TelaDeVenda() {
   const buscaRef = useRef<HTMLInputElement>(null)
   const [sessao, setSessao] = useState<SessaoCaixa>()
   const [historico, setHistorico] = useState<ResumoDaVenda[]>([])
+  const [conciliacoes, setConciliacoes] = useState<ConciliacaoPix[]>([])
+  const [conciliacaoSelecionada, setConciliacaoSelecionada] = useState<Venda>()
   const [clientes, setClientes] = useState<Cliente[]>([])
   const [atual, setAtual] = useState<Venda>()
   const [comprovante, setComprovante] = useState<Comprovante>()
@@ -75,6 +77,7 @@ export function TelaDeVenda() {
   const [erro, setErro] = useState<string>()
   const [ocupado, setOcupado] = useState(false)
   const [carregando, setCarregando] = useState(true)
+  const pixPendente = atual?.parcelas.some((parcela) => parcela.pix && parcela.status === 'PENDENTE') ?? false
 
   useEffect(() => {
     let vivo = true
@@ -93,6 +96,14 @@ export function TelaDeVenda() {
       .catch((falha) => { if (vivo) setErro(erroDeCadastro(falha)) })
     return () => { vivo = false }
   }, [])
+
+  useEffect(() => {
+    if (identidade?.perfil !== 'ADMIN') return
+    let vivo = true
+    vendas.conciliacoesPix().then((lista) => { if (vivo) setConciliacoes(lista) })
+      .catch((falha) => { if (vivo) setErro(erroDeCadastro(falha)) })
+    return () => { vivo = false }
+  }, [identidade?.perfil])
 
   useEffect(() => {
     const clienteId = atual?.clienteId
@@ -115,10 +126,34 @@ export function TelaDeVenda() {
     return () => { vivo = false; window.clearTimeout(espera) }
   }, [busca, sessao])
 
+  useEffect(() => {
+    if (!atual?.id || !pixPendente) return
+    const vendaId = atual.id
+    let vivo = true
+    const intervalo = window.setInterval(() => {
+      if (!navigator.onLine || document.visibilityState !== 'visible') return
+      vendas.consultar(vendaId).then((venda) => {
+        if (!vivo) return
+        setAtual((anterior) => anterior?.id === vendaId ? venda : anterior)
+        if (venda.status === 'CONCLUIDA' && sessao) {
+          void vendas.daSessao(sessao.id).then((lista) => { if (vivo) setHistorico(lista) })
+        }
+      }).catch(() => { /* o aviso de rede do shell permanece visível */ })
+    }, 5000)
+    return () => { vivo = false; window.clearInterval(intervalo) }
+  }, [atual?.id, pixPendente, sessao])
+
   async function atualizar(id: string) {
     const venda = await vendas.consultar(id)
     setAtual(venda)
     if (sessao) setHistorico(await vendas.daSessao(sessao.id))
+    if (identidade?.perfil === 'ADMIN') setConciliacoes(await vendas.conciliacoesPix())
+  }
+
+  async function consultarConciliacao(id: string) {
+    setErro(undefined)
+    try { setConciliacaoSelecionada(await vendas.consultar(id)) }
+    catch (falha) { setErro(erroDeCadastro(falha)) }
   }
 
   async function adicionar(produto: Produto) {
@@ -257,6 +292,21 @@ export function TelaDeVenda() {
   return <section className="pdv">
     <h2 className="titulo">Venda</h2>
     {erro && <p className="mensagem-erro" role="alert">{erro}</p>}
+    {identidade?.perfil === 'ADMIN' && conciliacoes.length > 0 &&
+      <section className="pdv__painel" aria-label="Conciliações Pix">
+        <h3>Pix recebido: conciliação necessária</h3>
+        <p>Essas Vendas não foram concluídas pelo pagamento tardio. Confira o recebimento e faça a devolução fora do sistema, quando couber.</p>
+        <ul>{conciliacoes.map((pendencia) => <li key={pendencia.vendaId}>
+          <button type="button" className="botao botao--secundario" onClick={() => void consultarConciliacao(pendencia.vendaId)}>
+            Venda {pendencia.vendaId.slice(0, 8)} · {pendencia.status} · Pix {moeda.format(pendencia.valorPix)}
+          </button>
+        </li>)}</ul>
+        {conciliacaoSelecionada && <div>
+          <p>Venda {conciliacaoSelecionada.id} · {conciliacaoSelecionada.status}</p>
+          <ul>{conciliacaoSelecionada.parcelas.filter((parcela) => parcela.pix).map((parcela) =>
+            <li key={parcela.id}>Pix {parcela.pix?.txid}: {moeda.format(parcela.valor)} · {parcela.status}</li>)}</ul>
+        </div>}
+      </section>}
     {carregando ? <p>Carregando...</p> : !sessao ? <p>Abra sua SessaoCaixa para vender. <Link to="/caixa">Ir ao caixa</Link></p>
       : <div className="pdv__grade">
         <section className="pdv__painel">

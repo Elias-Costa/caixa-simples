@@ -2,8 +2,12 @@ package br.com.caixasimples.vendas.application;
 
 import br.com.caixasimples.pagamentos.application.PixCobrancaService;
 import br.com.caixasimples.pagamentos.application.PixIndisponivelException;
+import br.com.caixasimples.pagamentos.StatusPagamento;
 import br.com.caixasimples.pagamentos.domain.CobrancaPix;
+import br.com.caixasimples.pagamentos.domain.ConsultaPix;
+import br.com.caixasimples.shared.ContaId;
 import br.com.caixasimples.shared.Money;
+import br.com.caixasimples.shared.TenantContext;
 import br.com.caixasimples.vendas.domain.Pagamento;
 import java.time.Instant;
 import java.util.UUID;
@@ -24,6 +28,9 @@ public class VendaPixService {
         vendas.verificarAcesso(vendaId);
         // A chave e as credenciais precisam estar configuradas antes de reservar a parcela.
         Pagamento parcela = vendas.reservarPix(vendaId, tentativaId, valor, pix.chaveRecebedora());
+        if (parcela.status() != StatusPagamento.PENDENTE) {
+            return parcela;
+        }
         CobrancaPix cobranca = parcela.cobrancaPix();
         if (cobranca.estado() == CobrancaPix.Estado.DISPONIVEL
                 && Instant.now().isBefore(cobranca.expiraEm())) {
@@ -39,5 +46,27 @@ public class VendaPixService {
         } catch (PixIndisponivelException erro) {
             return vendas.atualizarCobrancaPix(vendaId, tentativaId, cobranca.incerta());
         }
+    }
+
+    /** O txid do aviso só localiza uma parcela da Conta; o estado vem da reconsulta. */
+    public void receberNotificacao(ContaId contaId, String txid) {
+        TenantContext.executarComo(contaId, () -> {
+            vendas.pixPorTxid(txid).ifPresent(alvo -> {
+                Pagamento parcela = alvo.parcela();
+                if (parcela.status() == StatusPagamento.CONFIRMADO) {
+                    return;
+                }
+                ConsultaPix consulta = pix.consultar(parcela.cobrancaPix());
+                if (!consulta.txid().equals(txid)
+                        || !consulta.chaveRecebedora().equals(parcela.cobrancaPix().chaveRecebedora())
+                        || !consulta.valor().equals(parcela.valor())) {
+                    throw new PixIndisponivelException("consulta Pix diverge da parcela reservada");
+                }
+                if (consulta.pago()) {
+                    vendas.confirmarPix(alvo.vendaId(), parcela.id(), txid,
+                            consulta.valor(), consulta.chaveRecebedora());
+                }
+            });
+        });
     }
 }

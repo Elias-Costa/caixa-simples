@@ -17,9 +17,9 @@ import java.util.UUID;
  * (RF09): metade em dinheiro e metade no cartão são dois registros deste tipo, cada um com o seu
  * valor.
  *
- * <p>É um {@code record} porque parcela lançada não se edita, e também não se desfaz: uma parcela
- * lançada com o valor errado se corrige cancelando a venda. A confirmação de uma parcela PENDENTE,
- * quando existir, é uma troca de registro feita pela raiz, não uma mutação daqui.
+ * <p>É um {@code record} porque o valor da parcela lançada não se edita nem se desfaz: uma parcela
+ * lançada com o valor errado se corrige cancelando a venda. A confirmação de uma parcela PENDENTE
+ * troca o registro pela raiz, sem mutação direta do membro.
  *
  * <p>Os dois enums vêm da raiz do módulo de pagamentos, que é a API pública dele. O módulo de
  * vendas nomeia a forma e o estado da parcela, mas quem sabe como cada forma é paga, com troco ou
@@ -39,8 +39,8 @@ import java.util.UUID;
  * @param id       gerado na aplicação e nunca pelo banco (RNF01)
  * @param forma    como esta parcela foi paga
  * @param valor    o valor desta parcela, não o total da venda; zero vale, negativo não
- * @param status   PENDENTE só para cobrança gerada por provedor; o que o operador lança à mão
- *                 nasce CONFIRMADO
+ * @param status   Pix integrado nasce PENDENTE e passa a CONFIRMADO após reconsulta do PSP;
+ *                 o que o operador lança à mão nasce CONFIRMADO
  * @param troco    o que voltou para o cliente nesta parcela; zero fora de dinheiro e quando o
  *                 cliente pagou o valor exato, nunca nulo
  * @param criadoEm momento do lançamento, em UTC
@@ -76,9 +76,8 @@ public record Pagamento(UUID id, FormaPagamento forma, Money valor, StatusPagame
                     "so dinheiro devolve troco; parcela em " + forma + " veio com troco de "
                             + troco);
         }
-        if (cobrancaPix != null && (forma != FormaPagamento.PIX
-                || status != StatusPagamento.PENDENTE)) {
-            throw new IllegalArgumentException("cobranca Pix exige parcela PIX PENDENTE");
+        if (cobrancaPix != null && forma != FormaPagamento.PIX) {
+            throw new IllegalArgumentException("cobranca Pix exige parcela PIX");
         }
     }
 

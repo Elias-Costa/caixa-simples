@@ -2,6 +2,7 @@ package br.com.caixasimples.pagamentos.internal;
 
 import br.com.caixasimples.pagamentos.application.PixIndisponivelException;
 import br.com.caixasimples.pagamentos.domain.CobrancaPix;
+import br.com.caixasimples.pagamentos.domain.ConsultaPix;
 import br.com.caixasimples.pagamentos.domain.PixGateway;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.TenantContext;
@@ -54,6 +55,67 @@ class EfiPixGateway implements PixGateway {
             throw new PixIndisponivelException("consulta Pix interrompida", erro);
         } catch (Exception erro) {
             throw new PixIndisponivelException("resultado da cobranca Pix incerto", erro);
+        }
+    }
+
+    @Override
+    public ConsultaPix consultar(CobrancaPix cobranca) {
+        Configuracao config = configuracao();
+        if (!config.chave().equals(cobranca.chaveRecebedora())) {
+            throw new PixIndisponivelException("chave Pix da Conta mudou durante a tentativa");
+        }
+        try {
+            HttpClient http = cliente(config);
+            HttpResponse<String> resposta = enviar(http, config.base(), "GET",
+                    "/v2/cob/" + cobranca.txid(), token(http, config), null);
+            if (resposta.statusCode() != 200) {
+                throw new PixIndisponivelException("consulta da cobranca Pix indisponivel");
+            }
+            return interpretarConsulta(JSON.readTree(resposta.body()));
+        } catch (PixIndisponivelException erro) {
+            throw erro;
+        } catch (InterruptedException erro) {
+            Thread.currentThread().interrupt();
+            throw new PixIndisponivelException("consulta Pix interrompida", erro);
+        } catch (Exception erro) {
+            throw new PixIndisponivelException("consulta Pix incerta", erro);
+        }
+    }
+
+    static ConsultaPix interpretarConsulta(JsonNode dados) {
+        try {
+            String txid = dados.path("txid").asText("");
+            String chave = dados.path("chave").asText("");
+            BigDecimal valor = new BigDecimal(dados.path("valor").path("original").asText());
+            String status = dados.path("status").asText("");
+            if (txid.isBlank() || chave.isBlank() || valor.signum() <= 0) {
+                throw new PixIndisponivelException("consulta Pix sem correlacao verificavel");
+            }
+            if ("CONCLUIDA".equals(status)) {
+                JsonNode recebidos = dados.path("pix");
+                if (!recebidos.isArray() || recebidos.isEmpty()) {
+                    throw new PixIndisponivelException("cobranca concluida sem Pix recebido verificavel");
+                }
+                BigDecimal soma = BigDecimal.ZERO;
+                for (JsonNode recebido : recebidos) {
+                    if (!txid.equals(recebido.path("txid").asText())) {
+                        throw new PixIndisponivelException("Pix recebido com txid divergente");
+                    }
+                    soma = soma.add(new BigDecimal(recebido.path("valor").asText()));
+                }
+                if (soma.compareTo(valor) < 0) {
+                    throw new PixIndisponivelException("Pix recebido nao cobre a cobranca");
+                }
+                return new ConsultaPix(txid, chave, Money.de(valor), true);
+            }
+            if (!"ATIVA".equals(status) && !status.startsWith("REMOVIDA_")) {
+                throw new PixIndisponivelException("estado da cobranca Pix desconhecido");
+            }
+            return new ConsultaPix(txid, chave, Money.de(valor), false);
+        } catch (PixIndisponivelException erro) {
+            throw erro;
+        } catch (Exception erro) {
+            throw new PixIndisponivelException("consulta Pix com dados invalidos", erro);
         }
     }
 

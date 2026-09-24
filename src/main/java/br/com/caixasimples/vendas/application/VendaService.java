@@ -47,7 +47,8 @@ import org.springframework.transaction.annotation.Transactional;
  * decidir, grava o que ela decidiu. Nenhuma regra de dinheiro mora aqui. É {@link Venda} que sabe
  * que desconto não passa do valor, que o total nunca fica negativo, que parcela não passa do que
  * falta pagar, que a venda só conclui com pagamentos confirmados e FIADO pendente cobrindo o total, que venda
- * que não está ABERTA não se monta nem se paga, e que CANCELADA é final.
+ * que não está ABERTA não se monta nem recebe parcela nova, e que CANCELADA é final para
+ * operações de venda. Um Pix externo comprovado ainda pode atualizar sua parcela já existente.
  *
  * <p><strong>Duas regras moram neste arquivo, e as duas por dependerem de outro módulo.</strong>
  * A primeira é que venda só começa, só conclui e, quando CONCLUIDA, só cancela em sessão de caixa
@@ -316,11 +317,72 @@ public class VendaService {
                 .orElseThrow(() -> new VendaNaoEncontradaException(vendaId));
         Venda venda = linha.paraDominio();
         UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
+        Pagamento atual = venda.getPagamentos().stream().filter(p -> p.id().equals(tentativaId))
+                .findFirst().orElseThrow();
+        if (atual.status() == StatusPagamento.CONFIRMADO) {
+            return atual;
+        }
         venda.atualizarCobrancaPix(tentativaId, cobranca);
         linha.atualizarCom(venda);
         vendas.save(linha);
         return venda.getPagamentos().stream().filter(p -> p.id().equals(tentativaId))
                 .findFirst().orElseThrow();
+    }
+
+    /** Localiza somente uma cobrança já reservada na Conta resolvida pela URL autenticada. */
+    @Transactional(readOnly = true)
+    public java.util.Optional<PixParaConfirmar> pixPorTxid(String txid) {
+        return vendas.findByPixTxid(txid).flatMap(linha -> linha.paraDominio()
+                .getPagamentos().stream().filter(p -> p.cobrancaPix() != null
+                        && p.cobrancaPix().txid().equals(txid))
+                .findFirst().map(p -> new PixParaConfirmar(linha.getId(), p)));
+    }
+
+    public record PixParaConfirmar(UUID vendaId, Pagamento parcela) {
+    }
+
+    /** Casos financeiros tardios que o ADMIN precisa conciliar fora do sistema. */
+    @Transactional(readOnly = true)
+    public List<ConciliacaoPix> conciliacoesPix() {
+        UsuarioContext.exigirAdmin();
+        return vendas.findComPixIntegrado(StatusPagamento.CONFIRMADO).stream()
+                .map(VendaEntity::paraDominio)
+                .filter(venda -> venda.getStatus() == StatusVenda.CANCELADA
+                        || venda.getStatus() == StatusVenda.ABERTA
+                        && !caixa.estaAbertoParaConfirmacaoPix(venda.getSessaoCaixaId()))
+                .map(venda -> new ConciliacaoPix(venda.getId(), venda.getSessaoCaixaId(),
+                        venda.getStatus(), venda.getPagamentos().stream()
+                                .filter(p -> p.cobrancaPix() != null
+                                        && p.status() == StatusPagamento.CONFIRMADO)
+                                .map(Pagamento::valor).reduce(Money.ZERO, Money::somar)))
+                .toList();
+    }
+
+    public record ConciliacaoPix(UUID vendaId, UUID sessaoCaixaId, StatusVenda status,
+            Money valorPix) {
+    }
+
+    /** Serializa a confirmação com toda transição da raiz e publica um único fato de conclusão. */
+    @Transactional
+    public void confirmarPix(UUID vendaId, UUID pagamentoId, String txid, Money valor,
+            String chave) {
+        VendaEntity linha = vendas.findLockedById(vendaId)
+                .orElseThrow(() -> new VendaNaoEncontradaException(vendaId));
+        Venda venda = linha.paraDominio();
+        boolean novaConfirmacao = venda.confirmarPix(pagamentoId, txid, valor, chave);
+        if (!novaConfirmacao) {
+            return;
+        }
+        boolean concluir = venda.prontaParaConclusao()
+                && caixa.estaAbertoParaConfirmacaoPix(venda.getSessaoCaixaId());
+        if (concluir) {
+            venda.concluir();
+        }
+        linha.atualizarCom(venda);
+        vendas.save(linha);
+        if (concluir) {
+            eventos.publishEvent(eventoDe(venda));
+        }
     }
 
     /**
@@ -340,7 +402,8 @@ public class VendaService {
      */
     @Transactional
     public void concluir(UUID vendaId) {
-        VendaEntity linha = buscar(vendaId);
+        VendaEntity linha = vendas.findLockedById(vendaId)
+                .orElseThrow(() -> new VendaNaoEncontradaException(vendaId));
         Venda venda = linha.paraDominio();
         UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
         if (venda.getPagamentos().stream().anyMatch(p -> p.forma() == FormaPagamento.FIADO)) {

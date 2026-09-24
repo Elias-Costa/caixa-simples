@@ -12,6 +12,13 @@ export type ResumoDaVenda = {
   criadoEm: string
 }
 
+export type ConciliacaoPix = {
+  vendaId: string
+  sessaoCaixaId: string
+  status: StatusVenda
+  valorPix: number
+}
+
 export type ItemDaVenda = {
   id: string
   produtoId: string
@@ -74,6 +81,7 @@ export const vendas = {
     chamarApi<{ id: string }>('/api/vendas', { metodo: 'POST', corpo: { sessaoCaixaId } }),
   daSessao: (sessaoCaixaId: string) =>
     chamarApi<ResumoDaVenda[]>(`/api/vendas?sessaoCaixaId=${encodeURIComponent(sessaoCaixaId)}`),
+  conciliacoesPix: () => chamarApi<ConciliacaoPix[]>('/api/vendas/conciliacoes-pix'),
   consultar: (id: string) => chamarApi<Venda>(`/api/vendas/${id}`),
   vincularCliente: (id: string, clienteId: string) =>
     chamarApi<void>(`/api/vendas/${id}/cliente`, { metodo: 'PUT', corpo: { clienteId } }),

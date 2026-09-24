@@ -66,6 +66,29 @@ class VendaTest {
     }
 
     @Test
+    void confirmacaoPixRecusaDivergenciaENaoReabreVendaCancelada() {
+        Venda venda = new Venda(SESSAO, OPERADOR);
+        venda.adicionarItem(CAFE, BigDecimal.ONE, Money.de("10.00"), Money.ZERO);
+        UUID tentativa = UUID.randomUUID();
+        CobrancaPix cobranca = CobrancaPix.aguardando(tentativa, "chave-a",
+                Instant.now().plusSeconds(900));
+        venda.reservarPix(tentativa, Money.de("10.00"), cobranca);
+        assertThatIllegalStateException().isThrownBy(() -> venda.confirmarPix(tentativa,
+                cobranca.txid(), Money.de("9.00"), "chave-a"));
+        assertThatIllegalStateException().isThrownBy(() -> venda.confirmarPix(tentativa,
+                cobranca.txid(), Money.de("10.00"), "chave-b"));
+        assertThat(venda.getPagamentos().getFirst().status()).isEqualTo(StatusPagamento.PENDENTE);
+
+        venda.cancelar();
+        assertThat(venda.confirmarPix(tentativa, cobranca.txid(), Money.de("10.00"),
+                "chave-a")).isTrue();
+        assertThat(venda.confirmarPix(tentativa, cobranca.txid(), Money.de("10.00"),
+                "chave-a")).isFalse();
+        assertThat(venda.getStatus()).isEqualTo(StatusVenda.CANCELADA);
+        assertThat(venda.getPagamentos().getFirst().status()).isEqualTo(StatusPagamento.CONFIRMADO);
+    }
+
+    @Test
     @DisplayName("nasce ABERTA, vazia, com total e desconto zero e sem cliente")
     void nasceAbertaEVazia() {
         Venda venda = new Venda(SESSAO, OPERADOR);

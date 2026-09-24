@@ -4,9 +4,11 @@ import java.util.UUID;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
 import jakarta.persistence.LockModeType;
 import java.util.Optional;
 import br.com.caixasimples.vendas.StatusVenda;
+import br.com.caixasimples.pagamentos.StatusPagamento;
 
 /**
  * Repositório da raiz de agregado {@code Venda}.
@@ -33,4 +35,12 @@ public interface VendaRepository extends JpaRepository<VendaEntity, UUID> {
     /** Serializa recebimentos parciais da mesma dívida antes de conferir o saldo. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<VendaEntity> findLockedById(UUID id);
+
+    /** Encontra somente a raiz da Conta atual pela correlação persistida da parcela. */
+    @Query("select v from VendaEntity v join v.pagamentos p where p.pixTxid = :txid")
+    Optional<VendaEntity> findByPixTxid(String txid);
+
+    @Query("select distinct v from VendaEntity v join v.pagamentos p "
+            + "where p.pixTxid is not null and p.status = :status")
+    List<VendaEntity> findComPixIntegrado(StatusPagamento status);
 }

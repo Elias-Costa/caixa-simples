@@ -23,9 +23,11 @@ import org.springframework.stereotype.Component;
 class CaixaParaVendaAdapter implements CaixaParaVenda {
 
     private final SessaoCaixaService sessoes;
+    private final SessaoCaixaRepository linhas;
 
-    CaixaParaVendaAdapter(SessaoCaixaService sessoes) {
+    CaixaParaVendaAdapter(SessaoCaixaService sessoes, SessaoCaixaRepository linhas) {
         this.sessoes = sessoes;
+        this.linhas = linhas;
     }
 
     /**
@@ -40,5 +42,12 @@ class CaixaParaVendaAdapter implements CaixaParaVenda {
     @Override
     public Optional<UUID> sessaoAbertaDoOperadorAtual() {
         return sessoes.abertaDoOperadorAtual().map(SessaoCaixaService.ResumoDeSessao::id);
+    }
+
+    @Override
+    public boolean estaAbertoParaConfirmacaoPix(UUID sessaoCaixaId) {
+        return linhas.findLinhaById(sessaoCaixaId)
+                .map(linha -> linha.status() == StatusSessaoCaixa.ABERTA)
+                .orElse(false);
     }
 }

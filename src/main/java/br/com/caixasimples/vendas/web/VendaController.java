@@ -55,6 +55,11 @@ class VendaController {
         return vendas.vendasDaSessao(sessaoCaixaId).stream().map(ResumoNaResposta::de).toList();
     }
 
+    @GetMapping("/conciliacoes-pix")
+    List<ConciliacaoPixNaResposta> conciliacoesPix() {
+        return vendas.conciliacoesPix().stream().map(ConciliacaoPixNaResposta::de).toList();
+    }
+
     @GetMapping("/{id}")
     VendaNaResposta consultar(@PathVariable UUID id) {
         return VendaNaResposta.de(vendas.consultar(id));
@@ -196,6 +201,14 @@ class VendaController {
         static ResumoNaResposta de(VendaService.ResumoDaVenda resumo) {
             return new ResumoNaResposta(resumo.id(), resumo.sessaoCaixaId(), resumo.usuarioId(),
                     resumo.status(), resumo.total().valor(), resumo.criadoEm());
+        }
+    }
+
+    record ConciliacaoPixNaResposta(UUID vendaId, UUID sessaoCaixaId, StatusVenda status,
+            BigDecimal valorPix) {
+        static ConciliacaoPixNaResposta de(VendaService.ConciliacaoPix pendencia) {
+            return new ConciliacaoPixNaResposta(pendencia.vendaId(), pendencia.sessaoCaixaId(),
+                    pendencia.status(), pendencia.valorPix().valor());
         }
     }
 

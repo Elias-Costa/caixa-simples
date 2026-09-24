@@ -107,15 +107,17 @@ import java.util.UUID;
  *
  * <p>{@link #cancelar} é a única outra transição de estado, e serve às duas situações do balcão:
  * abandonar uma comanda ABERTA, com ou sem parcela lançada, e desfazer uma venda CONCLUIDA
- * (RF12). CANCELADA é estado final: não se cancela de novo, não se monta, não se paga, não se
- * conclui. Nada mais é conferido aqui: o que o cancelamento desfaz fora do agregado, o dinheiro
+ * (RF12). CANCELADA é estado final para operações de venda: não se cancela de novo, não se monta,
+ * não se lança nova parcela nem se conclui. A única exceção é registrar na parcela Pix integrada
+ * já existente um recebimento comprovado pelo PSP, sem reabrir a Venda. Nada mais é conferido
+ * aqui: o que o cancelamento desfaz fora do agregado, o dinheiro
  * na gaveta e o estoque, é anunciado pelo caso de uso, e só quando a venda estava CONCLUIDA,
  * porque só a conclusão tinha produzido efeito fora do módulo.
  *
  * <p><strong>As parcelas ficam como estão.</strong> Uma parcela CONFIRMADO de uma venda cancelada
  * continua CONFIRMADO: ela foi paga de fato, e o status da venda é o fato novo. A devolução do
- * valor ao cliente acontece no balcão; o sistema não registra estorno de Pix nem de cartão,
- * porque as duas formas são lançadas à mão e não há provedor a quem pedir.
+ * valor ao cliente acontece fora do sistema; o sistema ainda não registra devolução de Pix
+ * integrado. Pix e cartão manuais não têm provedor a quem pedir estorno.
  *
  * <p>A Venda nasce sem Cliente; o vínculo é uma operação própria porque ele costuma ser
  * identificado depois do primeiro item. Recebimentos parciais ficam imutáveis no agregado e
@@ -461,6 +463,38 @@ public class Venda {
             }
         }
         throw new IllegalStateException("tentativa Pix pendente nao encontrada nesta venda");
+    }
+
+    /** Registra um Pix já comprovado pelo PSP, inclusive após cancelamento da comanda. */
+    public boolean confirmarPix(UUID pagamentoId, String txid, Money valor, String chave) {
+        for (int i = 0; i < pagamentos.size(); i++) {
+            Pagamento atual = pagamentos.get(i);
+            if (!atual.id().equals(pagamentoId)) {
+                continue;
+            }
+            CobrancaPix cobranca = atual.cobrancaPix();
+            if (cobranca == null || !cobranca.txid().equals(txid)
+                    || !cobranca.chaveRecebedora().equals(chave)
+                    || !atual.valor().equals(valor)) {
+                throw new IllegalStateException("consulta Pix diverge da parcela reservada");
+            }
+            if (atual.status() == StatusPagamento.CONFIRMADO) {
+                return false;
+            }
+            if (atual.status() != StatusPagamento.PENDENTE) {
+                throw new IllegalStateException("parcela Pix nao esta pendente");
+            }
+            pagamentos.set(i, atual.comStatus(StatusPagamento.CONFIRMADO));
+            return true;
+        }
+        throw new IllegalStateException("tentativa Pix nao encontrada nesta venda");
+    }
+
+    /** A conclusão continua explícita no caso de uso, após conferir a SessaoCaixa. */
+    public boolean prontaParaConclusao() {
+        return status == StatusVenda.ABERTA && !itens.isEmpty()
+                && (parcelaFiado() == null || clienteId != null)
+                && somaDaCobertura().equals(valorTotal);
     }
 
     /**

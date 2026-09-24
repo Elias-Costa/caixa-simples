@@ -35,6 +35,7 @@ class SecurityConfiguration {
                 .formLogin(form -> form.disable())
                 .authorizeHttpRequests(rotas -> rotas
                         .requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/webhooks/pix/**").permitAll()
                         .requestMatchers("/api/**").authenticated()
                         // Fora de /api só existe o aplicativo: o shell, os scripts, o manifest, o
                         // service worker e os ícones, que são públicos por natureza. Todo dado

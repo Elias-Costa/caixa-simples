@@ -80,12 +80,12 @@ produto, cliente, caixa, Venda, faturamento, usuários, configuração e estoque
 | `contas` | Implementado | `Conta`, `Usuario`, `Credencial`, login por JWT, política de senha, provisionamento de conta, a pergunta que os outros módulos fazem à conta em operação, como se o controle de estoque está ligado, e a gestão de usuários: o administrador cria operador ou administrador com login próprio, lista e inativa pela API e pelo PWA, com mais de um usuário só no plano mais alto e a conta nunca sem administrador. A configuração liga o controle de estoque e só o desliga antes do primeiro movimento; o menu reage imediatamente à mudança. O filtro que resolve o token lê o usuário no banco a cada requisição, então inativar vale na requisição seguinte, e o perfil que vale é o do banco, não o do token. O primeiro login do administrador marca a Conta e publica o primeiro acesso na mesma transação que copia o catálogo sugerido. Quem está autenticado pergunta em `/api/auth/eu` e recebe o próprio nome, o negócio, o tipo dele e se o estoque está ligado: é o cabeçalho de toda tela |
 | `cadastro` | Implementado | `Produto` com atributos `JSONB`, busca por nome ou código para o balcão, `Cliente` como vertical slice, catálogo sugerido por tipo de negócio e copiado no primeiro login do administrador, e o agregado inteiro: `MovimentoEstoque` como membro, com a baixa por venda, o estorno por cancelamento e o ajuste manual gravando movimento e saldo na mesma transação, o estoque mínimo de cada produto e a resposta de quais estão com estoque baixo. A API e o PWA permitem cadastrar, editar, inativar e listar produtos ativos, buscar produto para o PDV e cadastrar, editar, inativar, reativar e listar clientes. Só o administrador escreve produto; os dois perfis consultam produtos e cadastram clientes no balcão |
 | `caixa` | Implementado | `SessaoCaixa`: abertura, sangria, suprimento, fechamento com conferência, histórico por operador e por dia, consulta da sessão aberta do usuário atual e extrato de uma sessão com a Venda de origem nos movimentos. A API e o PWA permitem operar e conferir o caixa, com o esperado visível antes de informar o contado. O dinheiro em espécie de cada venda concluída entra na gaveta por evento, uma vez só; o cancelamento o estorna. O caixa é de quem o abriu: o operador só lança, fecha e consulta a própria sessão e só pede o próprio histórico; o administrador toca qualquer sessão da conta, inclusive para fechar o caixa de outro operador |
-| `pagamentos` | R27 implementado | Strategy por forma: dinheiro com troco, cartão manual, FIADO pendente e Pix integrado pendente. `PixGateway` usa um adapter Efí por Conta; a cobrança é criada com `txid` estável e só a confirmação futura poderá quitar a parcela (RF25, D58). Credenciais de homologação ainda não foram exercitadas nesta sessão |
-| `vendas` | Implementado para o PDV online | Agregado `Venda`, com `ItemVenda`, `Pagamento` e `Recebimento` como membros. A comanda copia o preço, permite divisão de formas e desconto pelo ADMIN. O Cliente ativo pode ser vinculado à Venda; só o ADMIN registra FIADO e conclui a Venda com sua parcela pendente. Qualquer perfil recebe a dívida na própria SessaoCaixa, em lançamentos parciais; o saldo vem das parcelas e dos recebimentos. O comprovante da Venda mostra o valor pendente e cada recebimento tem comprovante próprio (RF33). Conclusão e cancelamento publicam eventos para caixa e estoque; recebimento publica evento para caixa. O operador só altera suas Vendas, salvo o recebimento de fiado da Conta |
+| `pagamentos` | Implementado para cobrança e confirmação Pix | Strategy por forma: dinheiro com troco, cartão manual, FIADO pendente e Pix integrado. `PixGateway` usa um adapter Efí por Conta para criar e reconsultar a cobrança pelo `txid`; só o Pix comprovado na consulta quita a parcela (RF25). Credenciais de homologação ainda não foram exercitadas |
+| `vendas` | Implementado para o PDV online | Agregado `Venda`, com `ItemVenda`, `Pagamento` e `Recebimento` como membros. A comanda copia o preço, permite divisão de formas e desconto pelo ADMIN. O Cliente ativo pode ser vinculado à Venda; só o ADMIN registra FIADO e conclui a Venda com sua parcela pendente. Qualquer perfil recebe a dívida na própria SessaoCaixa, em lançamentos parciais; o saldo vem das parcelas e dos recebimentos. O comprovante da Venda mostra o valor pendente e cada recebimento tem comprovante próprio (RF33). Confirmação Pix reconsultada conclui uma vez quando a cobertura e a SessaoCaixa permitem; Pix tardio fica visível para conciliação do ADMIN. Conclusão e cancelamento publicam eventos para caixa e estoque; recebimento publica evento para caixa. O operador só altera suas Vendas, salvo o recebimento de fiado da Conta |
 | `estoque` | Implementado para o PWA online | o ouvinte da venda concluída: quando a conta ligou o controle de estoque, cada produto vendido vira uma baixa, pedida ao cadastro, dono do agregado; serviço no meio dos itens não gera nada, e o evento entregue de novo não baixa em dobro. E os casos de uso que uma pessoa aciona: ajuste manual com motivo obrigatório, perda, quebra ou contagem, com a diferença carregando o sinal; estoque mínimo por produto; e o alerta de estoque baixo como consulta, a lista dos produtos ativos no mínimo ou abaixo. A API e o PWA listam saldos e mínimos, ajustam o saldo, definem o mínimo e mostram o alerta; a contagem na tela mostra a diferença antes de gravar. A Conta com controle desligado recebe 409 e o operador, 403. O ouvinte da venda cancelada devolve cada produto que a venda baixou, uma vez só |
 | `relatorios` | Implementado | Faturamento do dia e de um período, produtos mais vendidos e fluxo de caixa da gaveta. Venda concluída com FIADO conta no faturamento no dia da conclusão; recebimento em dinheiro conta no fluxo no dia da entrada, sem faturar outra vez (RF33). Filtros combináveis de faturamento por forma e operador incluem a parcela FIADO pendente. O módulo lê mapeamentos imutáveis de venda, item, produto, pagamento e movimento de caixa, e os três relatórios são do administrador |
 
-**Schema.** Quinze migrations Flyway, de `V1` a `V15`: conta, usuário e credencial; produto; cliente;
+**Schema.** Dezesseis migrations Flyway, de `V1` a `V16`: conta, usuário e credencial; produto; cliente;
 catálogo de referência; o agregado de caixa, com a regra de uma sessão aberta por operador; o
 agregado de venda, com a venda, seus itens e seus pagamentos; o outbox de eventos de domínio do
 Spring Modulith, cujo DDL foi gerado a partir da entidade do framework em vez de escrito de
@@ -95,7 +95,8 @@ quarto tipo de movimento, com as restrições da quinta recriadas para o receber
 comprovante precisava e a venda não guardava, o troco de cada parcela e o instante da conclusão;
 e a marca do catálogo inicial aplicado na Conta, gravada junto da cópia dos itens. A `V14`
 inclui FIADO, `recebimento` e o movimento RECEBIMENTO da gaveta. A `V15` guarda `txid`, chave
-recebedora, vencimento, copia e cola e estado da cobrança Pix na parcela da Venda.
+recebedora, vencimento, copia e cola e estado da cobrança Pix na parcela da Venda. A `V16`
+conserva esses dados quando a parcela integrada passa a CONFIRMADO.
 
 **Superfície HTTP.** A autenticação usa `POST /api/auth/login`, que devolve o
 token, e `GET /api/auth/eu`, que diz quem está autenticado e em que negócio, para o cabeçalho de
@@ -122,6 +123,11 @@ itens, total e parcelas; `POST /api/vendas/{id}/itens` e
 `POST /api/vendas/{id}/pagamentos/pix` recebe `tentativaId` e valor, devolve parcela PENDENTE e
 estado da cobrança; o PWA mostra QR Code e copia e cola; `GET /api/vendas/{id}` permite retomar
 o mesmo QR e não expõe outra Conta;
+`POST /api/webhooks/pix/{identificador}/pix?hmac=...` recebe o aviso do PSP sem JWT de operador,
+sob mTLS, identifica a configuração da Conta pelo identificador opaco e segredo, e reconsulta a
+cobrança antes de alterar a Venda. `GET /api/vendas/conciliacoes-pix` mostra somente ao ADMIN os
+Pix pagos que chegaram após a SessaoCaixa fechar ou após a Venda ser cancelada, sem apresentar
+essas Vendas como concluídas;
 `PUT /api/vendas/{id}/cliente` vincula Cliente ativo;
 `POST /api/vendas/{id}/conclusao` e `POST /api/vendas/{id}/cancelamento` mudam o status;
 `GET /api/vendas/{id}/comprovante` traz o dado não fiscal para a tela. Para RF33,
@@ -151,6 +157,18 @@ Os casos de uso de produto, cliente, caixa, pagamento, venda, estoque, relatóri
 exercitados por teste de integração, inclusive a autorização por perfil, que é
 verificada dentro de cada caso de uso e não por rota: a camada `web` de cada módulo nasce junto
 com a tela do PWA que vai consumi-la, para o contrato HTTP ser exercitado pela interface.
+
+**Configuração do webhook Pix (RF25, RNF05).** Cada Conta recebedora usa as variáveis de
+credencial Efí com prefixo `CAIXA_SIMPLES_EFI_<UUID_DA_CONTA_SEM_HIFENS>_`, mais `WEBHOOK_ID`
+(identificador opaco exclusivo) e `WEBHOOK_SECRET` (valor aleatório forte). Registre na Efí uma
+URL HTTPS no formato `/api/webhooks/pix/{identificador}/pix?hmac={segredo}&ignorar=`; `ignorar=`
+evita que o PSP acrescente outro `/pix`. Nenhum desses valores é enviado pelo navegador. O
+servidor TLS que entrega a rota precisa solicitar e validar certificado de cliente contra a
+cadeia oficial da Efí e disponibilizá-lo como atributo servlet
+`jakarta.servlet.request.X509Certificate`; sem HTTPS e certificado, a aplicação responde 403.
+O backend não pode ser acessado por um caminho que contorne essa validação. A validação real
+do webhook depende de credenciais de homologação e de endereço HTTPS alcançável; os testes
+exercitam o callback simulado e a consulta por gateway de teste.
 
 **Aplicativo.** Fora de `/api` o servidor entrega o PWA, público por natureza: a página, os
 scripts com hash no nome, o manifest, o service worker e os ícones, copiados do build do
@@ -197,6 +215,7 @@ Atalhos para avaliar o código sem percorrer o repositório inteiro.
 | Cadastro HTTP consumido pelas telas | [ProdutoController.java](src/main/java/br/com/caixasimples/cadastro/web/ProdutoController.java) e [ClienteController.java](src/main/java/br/com/caixasimples/cadastro/web/ClienteController.java) | A API conserva a Conta e o perfil fora do corpo, faz inativação lógica e devolve 404 para id de outra Conta; [TelaDeProdutos.tsx](frontend/src/telas/TelaDeProdutos.tsx) e [TelaDeClientes.tsx](frontend/src/telas/TelaDeClientes.tsx) exercitam o contrato no PWA |
 | Caixa HTTP e conferência no PWA | [SessaoCaixaController.java](src/main/java/br/com/caixasimples/caixa/web/SessaoCaixaController.java) e [TelaDeCaixa.tsx](frontend/src/telas/TelaDeCaixa.tsx) | A sessão aberta vem do usuário autenticado, o histórico preserva o filtro por perfil, e só a consulta de uma sessão carrega os movimentos com a Venda de origem |
 | Venda HTTP e PDV | [VendaController.java](src/main/java/br/com/caixasimples/vendas/web/VendaController.java) e [TelaDeVenda.tsx](frontend/src/telas/TelaDeVenda.tsx) | A comanda é recuperada após recarga, o pagamento dividido mostra o troco e a tela apresenta o comprovante não fiscal para imprimir ou compartilhar |
+| Callback Pix e conciliação | [WebhookPixController.java](src/main/java/br/com/caixasimples/vendas/web/WebhookPixController.java) e [VendaPixService.java](src/main/java/br/com/caixasimples/vendas/application/VendaPixService.java) | O aviso autenticado localiza a parcela da Conta, reconsulta o PSP e deixa a raiz confirmar uma vez; a lista de conciliação mostra ao ADMIN dinheiro recebido após fechamento ou cancelamento |
 | Faturamento HTTP e no PWA | [FaturamentoController.java](src/main/java/br/com/caixasimples/relatorios/web/FaturamentoController.java) e [TelaDeRelatorios.tsx](frontend/src/telas/TelaDeRelatorios.tsx) | A tela começa no dia do balcão e consulta um período escolhido; o caso de uso restringe ambas as consultas ao administrador e à Conta autenticada |
 | Estoque HTTP e no PWA | [EstoqueController.java](src/main/java/br/com/caixasimples/estoque/web/EstoqueController.java) e [TelaDeEstoque.tsx](frontend/src/telas/TelaDeEstoque.tsx) | A API exige controle ligado e perfil ADMIN; a tela mostra saldo, mínimo e alerta e calcula a diferença da contagem antes do ajuste |
 | O servidor entregando o aplicativo | [PwaConfiguration.java](src/main/java/br/com/caixasimples/shared/web/PwaConfiguration.java) | Fallback de página única escrito à mão, com o porquê de cada caso: rota do cliente recebe o shell, arquivo que não existe e rota da API que não existe recebem 404, e os cabeçalhos de cache são explícitos porque o cache heurístico do navegador seguraria uma página antiga. Fora de `/api` tudo é público, e a razão está em [SecurityConfiguration.java](src/main/java/br/com/caixasimples/contas/internal/SecurityConfiguration.java) |
@@ -294,7 +313,8 @@ uso hoje:
 - **Strategy** por forma de pagamento, resolvido por mapa e sem `switch` em código de negócio:
   dinheiro, Pix integrado, cartão e FIADO têm uma classe cada. A parcela Pix nasce PENDENTE.
 - **Adapter** de Pix atrás de `PixGateway`: Efí usa OAuth e certificado por Conta, cria cobrança
-  com `txid` derivado do UUID da parcela e compara os dados do PSP antes de mostrar o copia e cola.
+  com `txid` derivado do UUID da parcela e compara os dados do PSP antes de mostrar o copia e cola
+  ou confirmar um Pix recebido. O webhook só fornece a correlação para a reconsulta.
 - **Value object** para dinheiro, com o arredondamento visível em quem o chama.
 - **Domain Events com outbox** para a venda concluída, e a cancelada, avisarem o caixa e o
   estoque sem acoplar os três: a publicação é gravada na mesma transação que conclui ou cancela
@@ -429,6 +449,8 @@ de uso, provada por teste negativo, e nunca dependente de um valor que o cliente
   acesso aplica a cada Conta uma cópia própria do catálogo sugerido.
   O caixa HTTP também prova que a Conta B não encontra a sessão da Conta A, recebe histórico vazio
   e não deduz um caixa aberto alheio.
+  O callback Pix autenticado pela configuração da Conta B não encontra o `txid` persistido na
+  Conta A; a lista de conciliação também devolve somente Vendas da Conta autenticada.
 - **Os listeners da venda agem na conta do evento, não na de quem publicou.** Eles rodam em outra
   thread, sem o tenant da requisição, e uma reentrega pode partir do outbox horas depois; a conta
   vai dentro do evento, lida do contexto autenticado no ato da publicação, e há teste, para os
@@ -614,7 +636,9 @@ isolamento, raiz de agregado tocada exige teste que tenta violar a invariante e 
 caso de uso restrito por perfil exige teste de autorização negativa, que chama como operador e
 espera a recusa. Todo teste que chama um caso de uso executa como alguém: a fixture de conta
 define o tenant e o usuário juntos, como o filtro do token faz numa requisição de verdade, e um
-caso de uso chamado sem usuário falha fechado.
+caso de uso chamado sem usuário falha fechado. A exceção é a entrada do webhook Pix: ela não
+representa uma pessoa, resolve a Conta pela configuração autenticada da URL e só pode confirmar
+uma parcela já persistida depois de reconsultar o PSP.
 
 Os eventos de domínio são testados com o outbox de verdade: o teste publica, espera cada listener
 terminar em outra thread e confere o movimento no caixa e a baixa no estoque, e depois o estorno
@@ -657,7 +681,7 @@ src
 │   │   ├── estoque/        application, web, internal
 │   │   └── relatorios/     application, web, internal
 │   └── resources
-│       └── db/migration/   V1 a V15, imutáveis depois de publicadas
+│       └── db/migration/   V1 a V16, imutáveis depois de publicadas
 ├── test/java/br/com/caixasimples
 │   ├── ModularityTests     fitness function das fronteiras
 │   ├── TesteDeIntegracao   base com Testcontainers, herdada pelos testes de banco

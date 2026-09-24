@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cadastro } from '../api/cadastro'
 import { caixa } from '../api/caixa'
 import { fiado } from '../api/fiado'
@@ -9,6 +9,7 @@ import { SessaoContext } from '../sessao/contexto'
 import { TelaDeVenda } from './TelaDeVenda'
 
 afterEach(() => { vi.restoreAllMocks(); sessionStorage.clear() })
+beforeEach(() => { vi.spyOn(vendas, 'conciliacoesPix').mockResolvedValue([]) })
 
 const aberta = {
   id: 'sessao-1', usuarioId: 'usuario-1', valorAbertura: 0, valorFechamentoEsperado: 0,
@@ -42,6 +43,17 @@ function mostrar(perfil: 'ADMIN' | 'OPERADOR' = 'OPERADOR') {
 }
 
 describe('PDV no tablet', () => {
+  it('mostra ao ADMIN o Pix tardio que exige conciliação', async () => {
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(undefined)
+    vi.spyOn(vendas, 'conciliacoesPix').mockResolvedValue([{ vendaId: 'venda-antiga',
+      sessaoCaixaId: 'sessao-fechada', status: 'ABERTA', valorPix: 12.5 }])
+    vi.spyOn(vendas, 'consultar').mockResolvedValue({ ...comanda, id: 'venda-antiga' })
+    mostrar('ADMIN')
+    expect(await screen.findByText(/Pix recebido: conciliação necessária/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Venda venda-an.*Pix/ }))
+    await waitFor(() => expect(vendas.consultar).toHaveBeenCalledWith('venda-antiga'))
+  })
+
   it('mostra Pix integrado pendente e não oferece conclusão antes da confirmação', async () => {
     let cobrada = false
     const parcela = { id: '00000000-0000-4000-8000-000000000001', forma: 'PIX' as const,

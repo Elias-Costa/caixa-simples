@@ -1,6 +1,7 @@
 package br.com.caixasimples.pagamentos.application;
 
 import br.com.caixasimples.pagamentos.domain.CobrancaPix;
+import br.com.caixasimples.pagamentos.domain.ConsultaPix;
 import br.com.caixasimples.pagamentos.domain.PixGateway;
 import br.com.caixasimples.shared.Money;
 import org.springframework.stereotype.Service;
@@ -20,5 +21,9 @@ public class PixCobrancaService {
 
     public String criarCobranca(CobrancaPix cobranca, Money valor) {
         return gateway.criarCobranca(cobranca, valor);
+    }
+
+    public ConsultaPix consultar(CobrancaPix cobranca) {
+        return gateway.consultar(cobranca);
     }
 }
