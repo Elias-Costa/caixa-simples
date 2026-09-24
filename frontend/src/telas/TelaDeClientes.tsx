@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { cadastro, type Cliente, type DadosDoCliente } from '../api/cadastro'
+import { listarGestos } from '../offline/fila'
 import { erroDeCadastro } from './erroDeCadastro'
 
 export function TelaDeClientes() {
@@ -11,6 +12,7 @@ export function TelaDeClientes() {
   const [carregando, setCarregando] = useState(true)
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [pendentes, setPendentes] = useState(0)
   const formularioRef = useRef<HTMLFormElement>(null)
 
   const carregar = useCallback(async () => {
@@ -24,6 +26,10 @@ export function TelaDeClientes() {
     } catch (falha) {
       setErro(erroDeCadastro(falha))
     } finally {
+      if ('indexedDB' in globalThis) {
+        void listarGestos().then((gestos) => setPendentes(gestos.filter((gesto) =>
+          gesto.tipo.startsWith('cliente.') && gesto.estado !== 'sent').length)).catch(() => undefined)
+      }
       setCarregando(false)
     }
   }, [])
@@ -90,6 +96,7 @@ export function TelaDeClientes() {
       <button className="botao" type="button" onClick={novo}>Novo cliente</button>
     </div>
     {erro && <p className="mensagem-erro" role="alert">{erro}</p>}
+    {pendentes > 0 && <p role="status">{pendentes === 1 ? 'Uma alteração de cliente guardada' : `${pendentes} alterações de cliente guardadas`} neste dispositivo, aguardando sincronização.</p>}
     {carregando ? <p>Carregando...</p> : <>
       <h3>Ativos</h3>
       {ativos.length === 0 ? <p>Nenhum cliente ativo.</p> : <ul className="cadastro__lista">

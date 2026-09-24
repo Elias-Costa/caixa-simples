@@ -39,6 +39,10 @@ interface BancoDaFila extends DBSchema {
     value: GestoGravado
     indexes: { porDono: string }
   }
+  retratos: {
+    key: string
+    value: { chave: string; conta: string; tipo: string; dados: unknown }
+  }
 }
 
 const NOME_DO_BANCO = 'caixa-simples-offline'
@@ -51,7 +55,7 @@ const MUDANCAS_PERMITIDAS: Record<EstadoDoGesto, EstadoDoGesto[]> = {
   needs_review: [],
 }
 
-function donoDaSessao(): { dono: string; sessao: string } {
+function donoDaSessao(): { dono: string; conta: string; sessao: string } {
   const sessao = sessaoAtual()
   const identidade = lerIdentidade()
   if (!sessao || sessaoDaAba() !== sessao || !identidade) {
@@ -59,7 +63,7 @@ function donoDaSessao(): { dono: string; sessao: string } {
   }
   const token = lerTokenDaSessao(sessao)
   if (!token || tokenExpirado(token)) throw new Error('Entre novamente para usar a fila')
-  return { dono: `${identidade.contaId}\u0000${identidade.usuarioId}`, sessao }
+  return { dono: `${identidade.contaId}\u0000${identidade.usuarioId}`, conta: identidade.contaId, sessao }
 }
 
 function conferirDono(dono: string, sessao: string): void {
@@ -74,12 +78,41 @@ function chaveDoGesto(dono: string, operacaoId: string): string {
 }
 
 async function abrirBanco() {
-  return openDB<BancoDaFila>(NOME_DO_BANCO, 1, {
-    upgrade(banco) {
-      const gestos = banco.createObjectStore('gestos', { keyPath: 'chave' })
-      gestos.createIndex('porDono', 'dono')
+  return openDB<BancoDaFila>(NOME_DO_BANCO, 2, {
+    upgrade(banco, versaoAnterior) {
+      if (versaoAnterior < 1) {
+        const gestos = banco.createObjectStore('gestos', { keyPath: 'chave' })
+        gestos.createIndex('porDono', 'dono')
+      }
+      if (versaoAnterior < 2) banco.createObjectStore('retratos', { keyPath: 'chave' })
     },
   })
+}
+
+/** O catálogo recebido da API pertence à Conta; os gestos pendentes continuam do usuário. */
+export async function guardarRetrato<T>(tipo: string, dados: T): Promise<void> {
+  const { dono, conta, sessao } = donoDaSessao()
+  const banco = await abrirBanco()
+  try {
+    conferirDono(dono, sessao)
+    await banco.put('retratos', { chave: `${conta}\u0000${tipo}`, conta, tipo, dados: structuredClone(dados) })
+    conferirDono(dono, sessao)
+  } finally {
+    banco.close()
+  }
+}
+
+export async function lerRetrato<T>(tipo: string): Promise<T | null> {
+  const { dono, conta, sessao } = donoDaSessao()
+  const banco = await abrirBanco()
+  try {
+    conferirDono(dono, sessao)
+    const retrato = await banco.get('retratos', `${conta}\u0000${tipo}`)
+    conferirDono(dono, sessao)
+    return retrato ? structuredClone(retrato.dados) as T : null
+  } finally {
+    banco.close()
+  }
 }
 
 /** A tela só pode avançar depois que esta promessa confirmar a gravação no IndexedDB. */

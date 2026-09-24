@@ -1,9 +1,11 @@
 import { chamarApi } from './cliente'
+import { criarCadastroLocal } from '../offline/cadastroLocal'
 
 export type TipoProduto = 'PRODUTO' | 'SERVICO'
 
 export type Produto = {
   id: string
+  versao?: number | null
   tipo: TipoProduto
   nome: string
   preco: number
@@ -13,17 +15,18 @@ export type Produto = {
   atributos: Record<string, unknown>
 }
 
-export type DadosDoProduto = Omit<Produto, 'id'>
+export type DadosDoProduto = Omit<Produto, 'id' | 'versao'>
 
 export type Cliente = {
   id: string
+  versao?: number
   nome: string
   contato: string | null
 }
 
-export type DadosDoCliente = Omit<Cliente, 'id'>
+export type DadosDoCliente = Omit<Cliente, 'id' | 'versao'>
 
-export const cadastro = {
+const remoto = {
   produtos: () => chamarApi<Produto[]>('/api/produtos'),
   buscarProdutos: (termo: string) =>
     chamarApi<Produto[]>(`/api/produtos/busca?termo=${encodeURIComponent(termo)}`),
@@ -47,3 +50,5 @@ export const cadastro = {
   reativarCliente: (id: string) =>
     chamarApi<void>(`/api/clientes/${id}/reativar`, { metodo: 'POST' }),
 }
+
+export const cadastro = criarCadastroLocal(remoto)

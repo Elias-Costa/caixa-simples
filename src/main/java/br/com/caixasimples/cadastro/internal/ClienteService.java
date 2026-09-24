@@ -5,6 +5,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
@@ -106,10 +107,20 @@ public class ClienteService {
         return clientes.findByAtivoTrue().stream().map(ClienteEntity::paraCliente).toList();
     }
 
+    @Transactional(readOnly = true)
+    public List<ClienteComVersao> listarAtivosComVersao() {
+        return clientes.findByAtivoTrue().stream().map(ClienteEntity::paraClienteComVersao).toList();
+    }
+
     /** A tela mostra os inativos em separado para permitir reativar sem expor exclusão física. */
     @Transactional(readOnly = true)
     public List<Cliente> listarInativos() {
         return clientes.findByAtivoFalse().stream().map(ClienteEntity::paraCliente).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<ClienteComVersao> listarInativosComVersao() {
+        return clientes.findByAtivoFalse().stream().map(ClienteEntity::paraClienteComVersao).toList();
     }
 
     /** O vínculo de uma Venda nova exige Cliente desta Conta e ainda ativo. */
@@ -150,6 +161,9 @@ public class ClienteService {
     public record Cliente(UUID id, String nome, String contato) {
     }
 
+    public record ClienteComVersao(UUID id, String nome, String contato, long versao) {
+    }
+
     /**
      * Não existe cliente com esse id <strong>nesta conta</strong>.
      *
@@ -185,6 +199,10 @@ class ClienteEntity {
     @TenantId
     @Column(name = "conta_id", nullable = false, updatable = false)
     private UUID contaId;
+
+    @Version
+    @Column(nullable = false)
+    private Long versao;
 
     @Column(nullable = false)
     private String nome;
@@ -264,6 +282,10 @@ class ClienteEntity {
 
     ClienteService.Cliente paraCliente() {
         return new ClienteService.Cliente(id, nome, contato);
+    }
+
+    ClienteService.ClienteComVersao paraClienteComVersao() {
+        return new ClienteService.ClienteComVersao(id, nome, contato, versao);
     }
 }
 

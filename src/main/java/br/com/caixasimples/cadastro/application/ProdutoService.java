@@ -146,6 +146,17 @@ public class ProdutoService {
         return produtos.findByAtivoTrue().stream().map(ProdutoEntity::paraDominio).toList();
     }
 
+    /** A revisão vai junto da lista para o dispositivo guardar a versão que leu. */
+    @Transactional(readOnly = true)
+    public List<ProdutoComVersao> listarAtivosComVersao() {
+        return produtos.findByAtivoTrue().stream()
+                .map(linha -> new ProdutoComVersao(linha.paraDominio(), linha.getVersao()))
+                .toList();
+    }
+
+    public record ProdutoComVersao(Produto produto, long versao) {
+    }
+
     /**
      * Busca durante a venda (RF06): o que o operador digita no balcão, seja nome ou código.
      *
@@ -167,6 +178,12 @@ public class ProdutoService {
      */
     @Transactional(readOnly = true)
     public List<Produto> buscarPorNomeOuCodigo(String termo) {
+        return buscarPorNomeOuCodigoComVersao(termo).stream()
+                .map(ProdutoComVersao::produto).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<ProdutoComVersao> buscarPorNomeOuCodigoComVersao(String termo) {
         if (termo == null || termo.isBlank()) {
             throw new IllegalArgumentException(
                     "informe nome ou codigo para buscar; o catalogo inteiro e listarAtivos");
@@ -185,7 +202,9 @@ public class ProdutoService {
             }
         }
 
-        return encontrados.stream().map(ProdutoEntity::paraDominio).toList();
+        return encontrados.stream()
+                .map(linha -> new ProdutoComVersao(linha.paraDominio(), linha.getVersao()))
+                .toList();
     }
 
     /**

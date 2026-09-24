@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { cadastro, type DadosDoProduto, type Produto, type TipoProduto } from '../api/cadastro'
 import { useSessao } from '../sessao/useSessao'
+import { listarGestos } from '../offline/fila'
 import { erroDeCadastro } from './erroDeCadastro'
 
 type Atributo = { chave: string; valor: string; original?: unknown; textoOriginal?: string }
@@ -67,6 +68,7 @@ export function TelaDeProdutos() {
   const [carregando, setCarregando] = useState(true)
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [pendentes, setPendentes] = useState(0)
   const formularioRef = useRef<HTMLFormElement>(null)
 
   const carregar = useCallback(async () => {
@@ -76,6 +78,10 @@ export function TelaDeProdutos() {
     } catch (falha) {
       setErro(erroDeCadastro(falha))
     } finally {
+      if ('indexedDB' in globalThis) {
+        void listarGestos().then((gestos) => setPendentes(gestos.filter((gesto) =>
+          gesto.tipo.startsWith('produto.') && gesto.estado !== 'sent').length)).catch(() => undefined)
+      }
       setCarregando(false)
     }
   }, [])
@@ -154,6 +160,7 @@ export function TelaDeProdutos() {
       </div>
 
       {erro && <p className="mensagem-erro" role="alert">{erro}</p>}
+      {pendentes > 0 && <p role="status">{pendentes === 1 ? 'Uma alteração de item guardada' : `${pendentes} alterações de item guardadas`} neste dispositivo, aguardando sincronização.</p>}
       {carregando ? <p>Carregando...</p> : produtos.length === 0 ? <p>Nenhum item ativo.</p> : (
         <ul className="cadastro__lista">
           {produtos.map((produto) => (

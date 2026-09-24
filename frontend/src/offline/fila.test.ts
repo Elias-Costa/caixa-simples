@@ -1,5 +1,5 @@
 import 'fake-indexeddb/auto'
-import { deleteDB } from 'idb'
+import { deleteDB, openDB } from 'idb'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { gravarIdentidade, gravarToken } from '../sessao/armazenamento'
 import type { Identidade } from '../sessao/Identidade'
@@ -28,6 +28,25 @@ beforeEach(async () => {
 })
 
 describe('fila local de gestos', () => {
+  it('atualiza o banco local existente sem perder gestos ao criar os retratos', async () => {
+    const antigo = await openDB('caixa-simples-offline', 1, {
+      upgrade(banco) {
+        const gestos = banco.createObjectStore('gestos', { keyPath: 'chave' })
+        gestos.createIndex('porDono', 'dono')
+      },
+    })
+    const operacaoId = '00000000-0000-4000-8000-000000000009'
+    await antigo.put('gestos', {
+      chave: `conta-a\u0000ana\u0000${operacaoId}`, dono: 'conta-a\u0000ana', operacaoId,
+      registroId: produto.registroId, tipo: produto.tipo, payload: produto.payload,
+      dependeDe: [], estado: 'queued', criadoEm: new Date().toISOString(),
+    })
+    antigo.close()
+
+    entrar(ana)
+    expect(await listarGestos()).toEqual([expect.objectContaining({ operacaoId, estado: 'queued' })])
+  })
+
   it('confirma cada gesto no IndexedDB e o recupera após novo login na mesma Conta', async () => {
     entrar(ana)
     const payload = { nome: 'Café', preco: 7 }

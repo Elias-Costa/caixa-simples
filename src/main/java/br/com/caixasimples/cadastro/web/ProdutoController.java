@@ -38,13 +38,15 @@ class ProdutoController {
 
     @GetMapping
     List<ProdutoNaLista> listar() {
-        return produtos.listarAtivos().stream().map(ProdutoNaLista::de).toList();
+        return produtos.listarAtivosComVersao().stream()
+                .map(item -> ProdutoNaLista.de(item.produto(), item.versao())).toList();
     }
 
     /** RF06: código exato primeiro; depois nomes que contêm o termo. */
     @GetMapping("/busca")
     List<ProdutoNaLista> buscar(@RequestParam String termo) {
-        return produtos.buscarPorNomeOuCodigo(termo).stream().map(ProdutoNaLista::de).toList();
+        return produtos.buscarPorNomeOuCodigoComVersao(termo).stream()
+                .map(item -> ProdutoNaLista.de(item.produto(), item.versao())).toList();
     }
 
     @PostMapping
@@ -85,12 +87,12 @@ class ProdutoController {
     }
 
     record ProdutoNaLista(UUID id, TipoProduto tipo, String nome, BigDecimal preco, String codigo,
-            String categoria, String unidade, Map<String, Object> atributos) {
+            String categoria, String unidade, Map<String, Object> atributos, long versao) {
 
-        static ProdutoNaLista de(Produto produto) {
+        static ProdutoNaLista de(Produto produto, long versao) {
             return new ProdutoNaLista(produto.getId(), produto.getTipo(), produto.getNome(),
                     produto.getPreco().valor(), produto.getCodigo(), produto.getCategoria(),
-                    produto.getUnidade(), produto.getAtributos());
+                    produto.getUnidade(), produto.getAtributos(), versao);
         }
     }
 

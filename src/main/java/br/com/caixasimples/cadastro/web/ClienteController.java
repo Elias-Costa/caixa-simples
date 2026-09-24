@@ -1,7 +1,7 @@
 package br.com.caixasimples.cadastro.web;
 
 import br.com.caixasimples.cadastro.internal.ClienteService;
-import br.com.caixasimples.cadastro.internal.ClienteService.Cliente;
+import br.com.caixasimples.cadastro.internal.ClienteService.ClienteComVersao;
 import br.com.caixasimples.cadastro.internal.ClienteService.DadosDoCliente;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -29,13 +29,13 @@ class ClienteController {
     }
 
     @GetMapping
-    List<Cliente> listar() {
-        return clientes.listarAtivos();
+    List<ClienteComVersao> listar() {
+        return clientes.listarAtivosComVersao();
     }
 
     @GetMapping("/inativos")
-    List<Cliente> listarInativos() {
-        return clientes.listarInativos();
+    List<ClienteComVersao> listarInativos() {
+        return clientes.listarInativosComVersao();
     }
 
     @PostMapping

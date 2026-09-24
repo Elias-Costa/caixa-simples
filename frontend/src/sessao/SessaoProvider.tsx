@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { chamarApi, ErroDaApi, SessaoAlterada } from '../api/cliente'
+import { cadastro } from '../api/cadastro'
 import { SessaoContext, type Sessao } from './contexto'
 import type { Identidade } from './Identidade'
 import {
@@ -32,6 +33,13 @@ function identidadeInicial(): Identidade | null {
   if (!sessao || (sessaoDaAba() && sessaoDaAba() !== sessao)) return null
   fixarSessaoDaAba(sessao)
   return lerIdentidade()
+}
+
+async function prepararCadastroLocal(atual: Identidade): Promise<void> {
+  if (!('indexedDB' in globalThis) || !atual.contaId || !atual.usuarioId) return
+  // O primeiro login ADMIN já copiou o catálogo no servidor. Guardar as listas recebidas evita
+  // aplicar os modelos outra vez e permite consultar Clientes quando o balcão abre sem rede.
+  await Promise.all([cadastro.produtos(), cadastro.clientes(), cadastro.clientesInativos()])
 }
 
 export function SessaoProvider({ children }: { children: ReactNode }) {
@@ -68,6 +76,11 @@ export function SessaoProvider({ children }: { children: ReactNode }) {
       throw new SessaoAlterada()
     }
     atualizarIdentidade(atual, sessaoCriada)
+    try {
+      await prepararCadastroLocal(atual)
+    } catch {
+      // A falha da cópia local não invalida uma autenticação que o servidor já aceitou.
+    }
   }, [atualizarIdentidade])
 
   // Outra aba pode trocar a Conta no armazenamento compartilhado. Esta aba deixa de exibir
@@ -96,6 +109,7 @@ export function SessaoProvider({ children }: { children: ReactNode }) {
       .then((atual) => {
         if (descartado || tentativa !== tentativaDeEntrada.current || sessaoAtual() !== sessao) return
         if (sessao) atualizarIdentidade(atual, sessao)
+        void prepararCadastroLocal(atual).catch(() => undefined)
       })
       .catch((falha: unknown) => {
         if (descartado || tentativa !== tentativaDeEntrada.current || sessaoAtual() !== sessao) return

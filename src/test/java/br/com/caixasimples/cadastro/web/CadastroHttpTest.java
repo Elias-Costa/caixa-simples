@@ -55,6 +55,7 @@ class CadastroHttpTest extends TesteDeIntegracao {
         http.perform(get("/api/produtos").with(adminA))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].id").value(id.toString()))
+                .andExpect(jsonPath("$[0].versao").value(0))
                 .andExpect(jsonPath("$[0].atributos.gramas").value(250));
         http.perform(post("/api/produtos").with(adminA)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -71,6 +72,7 @@ class CadastroHttpTest extends TesteDeIntegracao {
                 .andExpect(status().isNoContent());
         http.perform(get("/api/produtos").with(adminA))
                 .andExpect(jsonPath("$[0].nome").value("Café da casa"))
+                .andExpect(jsonPath("$[0].versao").value(1))
                 .andExpect(jsonPath("$[0].atributos.torra").value("escura"));
         http.perform(post("/api/produtos/{id}/inativar", id).with(adminA))
                 .andExpect(status().isNoContent());
@@ -112,7 +114,8 @@ class CadastroHttpTest extends TesteDeIntegracao {
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString())
                 .get("id").asText());
         http.perform(get("/api/clientes").with(operador))
-                .andExpect(jsonPath("$[0].nome").value("Dona Marta"));
+                .andExpect(jsonPath("$[0].nome").value("Dona Marta"))
+                .andExpect(jsonPath("$[0].versao").value(0));
         http.perform(get("/api/clientes").with(outraConta))
                 .andExpect(jsonPath("$").isEmpty());
         http.perform(put("/api/clientes/{id}", id).with(outraConta)
@@ -128,7 +131,8 @@ class CadastroHttpTest extends TesteDeIntegracao {
         http.perform(get("/api/clientes").with(operador))
                 .andExpect(jsonPath("$").isEmpty());
         http.perform(get("/api/clientes/inativos").with(operador))
-                .andExpect(jsonPath("$[0].nome").value("Marta"));
+                .andExpect(jsonPath("$[0].nome").value("Marta"))
+                .andExpect(jsonPath("$[0].versao").value(2));
         http.perform(get("/api/clientes/inativos").with(outraConta))
                 .andExpect(jsonPath("$").isEmpty());
         http.perform(post("/api/clientes/{id}/reativar", id).with(operador))

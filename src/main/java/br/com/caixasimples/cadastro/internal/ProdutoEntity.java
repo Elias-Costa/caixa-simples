@@ -16,6 +16,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -50,6 +51,10 @@ public class ProdutoEntity {
     @TenantId
     @Column(name = "conta_id", nullable = false, updatable = false)
     private UUID contaId;
+
+    @Version
+    @Column(nullable = false)
+    private Long versao;
 
     @Column(nullable = false)
     private String nome;
@@ -186,6 +191,10 @@ public class ProdutoEntity {
 
     public UUID getId() {
         return id;
+    }
+
+    public Long getVersao() {
+        return versao;
     }
 
     /** Existe para o teste de isolamento poder afirmar de que conta a linha é. */
