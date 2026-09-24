@@ -352,8 +352,8 @@ class VendaServiceTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("conclui venda dividida entre dinheiro e Pix, com o troco calculado e as parcelas gravadas (RF09, RF10)")
-    void concluiVendaDivididaEntreDinheiroEPix(ApplicationEvents eventos) {
+    @DisplayName("conclui venda dividida entre dinheiro e Cartao, com o troco calculado e as parcelas gravadas (RF09, RF10)")
+    void concluiVendaDivididaEntreDinheiroECartao(ApplicationEvents eventos) {
         ContaCriada conta = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
         UUID sessaoId = abrirCaixa(conta);
         UUID cafeId = cadastrar(conta, "Cafe coado", Money.de("4.50"));
@@ -367,16 +367,16 @@ class VendaServiceTest extends TesteDeIntegracao {
         });
         // 9,00 + 29,93 = 38,93.
 
-        Money trocoDoPix = conta.comoUsuario(() ->
+        Money trocoDoCartao = conta.comoUsuario(() ->
                 vendaService.registrarPagamento(vendaId,
-                        SolicitacaoPagamento.de(FormaPagamento.PIX, Money.de("20.00"))));
+                        SolicitacaoPagamento.de(FormaPagamento.CARTAO, Money.de("20.00"))));
         Money trocoDoDinheiro = conta.comoUsuario(() ->
                 vendaService.registrarPagamento(vendaId,
                         SolicitacaoPagamento.emDinheiro(Money.de("18.93"), Money.de("50.00"))));
 
         // O troco vem do Strategy de verdade, o registrado pelo Spring: volta a quem chamou e
         // fica gravado na parcela, para o comprovante.
-        assertThat(trocoDoPix).isEqualTo(Money.ZERO);
+        assertThat(trocoDoCartao).isEqualTo(Money.ZERO);
         assertThat(trocoDoDinheiro).isEqualTo(Money.de("31.07"));
 
         conta.comoUsuario(() -> {
@@ -401,7 +401,7 @@ class VendaServiceTest extends TesteDeIntegracao {
                     .extracting(Pagamento::forma, Pagamento::valor, Pagamento::status,
                             Pagamento::troco)
                     .containsExactly(
-                            tuple(FormaPagamento.PIX, Money.de("20.00"),
+                            tuple(FormaPagamento.CARTAO, Money.de("20.00"),
                                     StatusPagamento.CONFIRMADO, Money.ZERO),
                             tuple(FormaPagamento.DINHEIRO, Money.de("18.93"),
                                     StatusPagamento.CONFIRMADO, Money.de("31.07")));
@@ -415,7 +415,7 @@ class VendaServiceTest extends TesteDeIntegracao {
         assertThatIllegalStateException()
                 .isThrownBy(() -> conta.comoUsuario(() ->
                         vendaService.registrarPagamento(vendaId,
-                                SolicitacaoPagamento.de(FormaPagamento.PIX, Money.de("1.00")))))
+                                SolicitacaoPagamento.de(FormaPagamento.CARTAO, Money.de("1.00")))))
                 .withMessageContaining("CONCLUIDA");
         assertThatIllegalStateException()
                 .isThrownBy(() -> conta.comoUsuario(() ->
@@ -442,14 +442,14 @@ class VendaServiceTest extends TesteDeIntegracao {
                     assertThat(evento.parcelas())
                             .extracting(Parcela::forma, Parcela::valor, Parcela::status)
                             .containsExactly(
-                                    tuple(FormaPagamento.PIX, Money.de("20.00"),
+                                    tuple(FormaPagamento.CARTAO, Money.de("20.00"),
                                             StatusPagamento.CONFIRMADO),
                                     tuple(FormaPagamento.DINHEIRO, Money.de("18.93"),
                                             StatusPagamento.CONFIRMADO));
                 });
 
         // E o caixa reagiu, em outra thread, pelo outbox: entrou na gaveta o dinheiro, 18,93, e
-        // não o total da venda; o Pix nunca esteve lá.
+        // não o total da venda; o Cartao nunca esteve lá.
         await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
                 conta.comoUsuario(() ->
                         assertThat(sessoes.findById(sessaoId).orElseThrow().paraDominio()
@@ -505,7 +505,7 @@ class VendaServiceTest extends TesteDeIntegracao {
         conta.comoUsuario(() -> {
             vendaService.adicionarItem(vendaId, paoId, BigDecimal.ONE, Money.ZERO);
             vendaService.registrarPagamento(vendaId,
-                    SolicitacaoPagamento.de(FormaPagamento.PIX, Money.de("20.00")));
+                    SolicitacaoPagamento.de(FormaPagamento.CARTAO, Money.de("20.00")));
         });
 
         assertThatIllegalArgumentException()
@@ -547,7 +547,7 @@ class VendaServiceTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("a regra da forma de pagamento atravessa o serviço: valor recebido em Pix é recusado")
+    @DisplayName("a regra da forma de pagamento atravessa o serviço: valor recebido em Cartao é recusado")
     void regraDaEstrategiaAtravessaOServico() {
         ContaCriada conta = criador.criar("Empório do Bairro", SENHA_DE_TESTE);
         UUID sessaoId = abrirCaixa(conta);
@@ -558,12 +558,12 @@ class VendaServiceTest extends TesteDeIntegracao {
         conta.comoUsuario(() ->
                 vendaService.adicionarItem(vendaId, cafeId, BigDecimal.ONE, Money.ZERO));
 
-        // Quem recusa é a estratégia de Pix, encontrada pelo serviço de pagamentos; a venda não é
+        // Quem recusa é a estratégia de Cartao, encontrada pelo serviço de pagamentos; a venda não é
         // tocada.
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> conta.comoUsuario(() ->
                         vendaService.registrarPagamento(vendaId, new SolicitacaoPagamento(
-                                FormaPagamento.PIX, Money.de("4.50"), Money.de("10.00")))))
+                                FormaPagamento.CARTAO, Money.de("4.50"), Money.de("10.00")))))
                 .withMessageContaining("nao aceita valor recebido");
 
         conta.comoUsuario(() ->
@@ -590,7 +590,7 @@ class VendaServiceTest extends TesteDeIntegracao {
         assertThatExceptionOfType(VendaNaoEncontradaException.class).isThrownBy(() ->
                 contaB.comoUsuario(() ->
                         vendaService.registrarPagamento(vendaDaContaA,
-                                SolicitacaoPagamento.de(FormaPagamento.PIX, Money.de("50.00")))));
+                                SolicitacaoPagamento.de(FormaPagamento.CARTAO, Money.de("50.00")))));
         assertThatExceptionOfType(VendaNaoEncontradaException.class).isThrownBy(() ->
                 contaB.comoUsuario(() ->
                         vendaService.concluir(vendaDaContaA)));
@@ -619,9 +619,9 @@ class VendaServiceTest extends TesteDeIntegracao {
         conta.comoUsuario(() -> {
             vendaService.adicionarItem(vendaId, cafeId, new BigDecimal("2"), Money.ZERO);
             vendaService.adicionarItem(vendaId, queijoId, new BigDecimal("0.750"), Money.ZERO);
-            // 9,00 + 29,93 = 38,93, pagos 20,00 em Pix e 18,93 em dinheiro.
+            // 9,00 + 29,93 = 38,93, pagos 20,00 em Cartao e 18,93 em dinheiro.
             vendaService.registrarPagamento(vendaId,
-                    SolicitacaoPagamento.de(FormaPagamento.PIX, Money.de("20.00")));
+                    SolicitacaoPagamento.de(FormaPagamento.CARTAO, Money.de("20.00")));
             vendaService.registrarPagamento(vendaId,
                     SolicitacaoPagamento.emDinheiro(Money.de("18.93"), Money.de("50.00")));
             vendaService.concluir(vendaId);
@@ -646,7 +646,7 @@ class VendaServiceTest extends TesteDeIntegracao {
             assertThat(gravada.getPagamentos())
                     .extracting(Pagamento::forma, Pagamento::valor, Pagamento::status)
                     .containsExactly(
-                            tuple(FormaPagamento.PIX, Money.de("20.00"),
+                            tuple(FormaPagamento.CARTAO, Money.de("20.00"),
                                     StatusPagamento.CONFIRMADO),
                             tuple(FormaPagamento.DINHEIRO, Money.de("18.93"),
                                     StatusPagamento.CONFIRMADO));
@@ -667,7 +667,7 @@ class VendaServiceTest extends TesteDeIntegracao {
                             .extracting(VendaCancelada.Parcela::forma,
                                     VendaCancelada.Parcela::valor)
                             .containsExactly(
-                                    tuple(FormaPagamento.PIX, Money.de("20.00")),
+                                    tuple(FormaPagamento.CARTAO, Money.de("20.00")),
                                     tuple(FormaPagamento.DINHEIRO, Money.de("18.93")));
                 });
 
@@ -789,7 +789,7 @@ class VendaServiceTest extends TesteDeIntegracao {
                     Money.de("1.93"));
             vendaService.aplicarDesconto(vendaId, Money.de("2.00"));
             vendaService.registrarPagamento(vendaId,
-                    SolicitacaoPagamento.de(FormaPagamento.PIX, Money.de("15.00")));
+                    SolicitacaoPagamento.de(FormaPagamento.CARTAO, Money.de("15.00")));
             vendaService.registrarPagamento(vendaId,
                     SolicitacaoPagamento.emDinheiro(Money.de("20.00"), Money.de("50.00")));
             vendaService.concluir(vendaId);
@@ -835,7 +835,7 @@ class VendaServiceTest extends TesteDeIntegracao {
                 .extracting(Comprovante.Parcela::forma, Comprovante.Parcela::valor,
                         Comprovante.Parcela::troco)
                 .containsExactly(
-                        tuple(FormaPagamento.PIX, Money.de("15.00"), Money.ZERO),
+                        tuple(FormaPagamento.CARTAO, Money.de("15.00"), Money.ZERO),
                         tuple(FormaPagamento.DINHEIRO, Money.de("20.00"), Money.de("30.00")));
         assertThat(comprovante.troco()).isEqualTo(Money.de("30.00"));
     }

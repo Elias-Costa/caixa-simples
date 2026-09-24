@@ -2,11 +2,13 @@ package br.com.caixasimples.vendas.web;
 
 import br.com.caixasimples.pagamentos.FormaPagamento;
 import br.com.caixasimples.pagamentos.StatusPagamento;
+import br.com.caixasimples.pagamentos.domain.CobrancaPix;
 import br.com.caixasimples.pagamentos.domain.SolicitacaoPagamento;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.vendas.application.Comprovante;
 import br.com.caixasimples.vendas.application.VendaService.ComprovanteDeRecebimento;
 import br.com.caixasimples.vendas.application.VendaService;
+import br.com.caixasimples.vendas.application.VendaPixService;
 import br.com.caixasimples.vendas.application.VendaService.VendaParaTela;
 import br.com.caixasimples.vendas.StatusVenda;
 import jakarta.validation.Valid;
@@ -35,9 +37,11 @@ import org.springframework.web.bind.annotation.RestController;
 class VendaController {
 
     private final VendaService vendas;
+    private final VendaPixService pix;
 
-    VendaController(VendaService vendas) {
+    VendaController(VendaService vendas, VendaPixService pix) {
         this.vendas = vendas;
+        this.pix = pix;
     }
 
     @PostMapping
@@ -91,6 +95,12 @@ class VendaController {
         Money troco = vendas.registrarPagamento(id, new SolicitacaoPagamento(pedido.forma(),
                 Money.de(pedido.valor()), recebido));
         return new Troco(troco.valor());
+    }
+
+    @PostMapping("/{id}/pagamentos/pix")
+    ParcelaNaResposta cobrarPix(@PathVariable UUID id,
+            @Valid @RequestBody PedidoDePix pedido) {
+        return ParcelaNaResposta.de(pix.cobrar(id, pedido.tentativaId(), Money.de(pedido.valor())));
     }
 
     @PostMapping("/{id}/conclusao")
@@ -155,6 +165,11 @@ class VendaController {
             BigDecimal valorRecebido) {
     }
 
+    record PedidoDePix(@NotNull UUID tentativaId,
+            @NotNull @DecimalMin("0.01") @Digits(integer = 10, fraction = 2)
+            BigDecimal valor) {
+    }
+
     record Criada(UUID id) {
     }
 
@@ -217,10 +232,23 @@ class VendaController {
     }
 
     record ParcelaNaResposta(UUID id, FormaPagamento forma, BigDecimal valor,
-            StatusPagamento status, BigDecimal troco) {
+            StatusPagamento status, BigDecimal troco, PixNaResposta pix) {
         static ParcelaNaResposta de(VendaService.ParcelaParaTela parcela) {
             return new ParcelaNaResposta(parcela.id(), parcela.forma(), parcela.valor().valor(),
-                    parcela.status(), parcela.troco().valor());
+                    parcela.status(), parcela.troco().valor(), PixNaResposta.de(parcela.cobrancaPix()));
+        }
+
+        static ParcelaNaResposta de(br.com.caixasimples.vendas.domain.Pagamento parcela) {
+            return new ParcelaNaResposta(parcela.id(), parcela.forma(), parcela.valor().valor(),
+                    parcela.status(), parcela.troco().valor(), PixNaResposta.de(parcela.cobrancaPix()));
+        }
+    }
+
+    record PixNaResposta(String txid, Instant expiraEm, String copiaECola,
+            CobrancaPix.Estado estado) {
+        static PixNaResposta de(CobrancaPix cobranca) {
+            return cobranca == null ? null : new PixNaResposta(cobranca.txid(),
+                    cobranca.expiraEm(), cobranca.copiaECola(), cobranca.estado());
         }
     }
 

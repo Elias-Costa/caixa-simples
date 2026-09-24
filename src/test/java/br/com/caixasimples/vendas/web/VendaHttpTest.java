@@ -99,7 +99,7 @@ class VendaHttpTest extends TesteDeIntegracao {
                 .andExpect(status().isNoContent());
         http.perform(post("/api/vendas/{id}/pagamentos", venda).with(admin)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"forma\":\"PIX\",\"valor\":5.00}"))
+                .content("{\"forma\":\"CARTAO\",\"valor\":5.00}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.troco").value(0.0));
         http.perform(post("/api/vendas/{id}/pagamentos", venda).with(admin)
                 .contentType(MediaType.APPLICATION_JSON)

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
+import { QRCodeSVG } from 'qrcode.react'
 import { cadastro, type Cliente, type Produto } from '../api/cadastro'
 import { caixa, type SessaoCaixa } from '../api/caixa'
 import { fiado } from '../api/fiado'
@@ -14,6 +15,18 @@ const dataHora = new Intl.DateTimeFormat('pt-BR', {
 })
 
 function numero(texto: string): number { return Number(texto.replace(',', '.')) }
+
+function tentativaPix(vendaId: string, valor: number): string {
+  const chave = `caixa-simples-pix-${vendaId}`
+  const guardada = sessionStorage.getItem(chave)
+  if (guardada) {
+    const tentativa = JSON.parse(guardada) as { id: string; valor: number }
+    if (tentativa.valor === valor) return tentativa.id
+  }
+  const id = crypto.randomUUID()
+  sessionStorage.setItem(chave, JSON.stringify({ id, valor }))
+  return id
+}
 
 /** O multiplicador na busca usa o mesmo estado do campo visível, para evitar duas quantidades. */
 function separarMultiplicador(texto: string): { termo: string; quantidade?: string } {
@@ -159,11 +172,32 @@ export function TelaDeVenda() {
       ? (valorRecebido ? numero(valorRecebido) : valor) : undefined
     setOcupado(true); setErro(undefined)
     try {
+      if (forma === 'PIX') {
+        const parcela = await vendas.cobrarPix(atual.id, tentativaPix(atual.id, valor), valor)
+        if (parcela.pix?.estado === 'DISPONIVEL') {
+          sessionStorage.removeItem(`caixa-simples-pix-${atual.id}`)
+        }
+        setValorPagamento('')
+        await atualizar(atual.id)
+        return
+      }
       const resultado = await vendas.pagar(atual.id, forma, valor, recebido)
       setTroco(resultado.troco)
       setValorPagamento(''); setValorRecebido('')
       if (concluirJunto) await concluir(atual.id)
       else await atualizar(atual.id)
+    } catch (falha) {
+      setErro(erroDeCadastro(falha))
+      await atualizar(atual.id).catch(() => undefined)
+    } finally { setOcupado(false) }
+  }
+
+  async function retentarPix(parcelaId: string, valor: number) {
+    if (!atual) return
+    setOcupado(true); setErro(undefined)
+    try {
+      await vendas.cobrarPix(atual.id, parcelaId, valor)
+      await atualizar(atual.id)
     } catch (falha) {
       setErro(erroDeCadastro(falha))
       await atualizar(atual.id).catch(() => undefined)
@@ -283,11 +317,31 @@ export function TelaDeVenda() {
               <button className="botao botao--secundario" disabled={ocupado}>Aplicar</button>
             </form>}
             <p className="pdv__total">Total: {moeda.format(atual.total)}</p>
-            <p>Pago: {moeda.format(atual.pago)} · Falta: {moeda.format(atual.faltaPagar)}</p>
+            <p>Parcelas lançadas: {moeda.format(atual.pago)} · Falta lançar: {moeda.format(atual.faltaPagar)}</p>
             {atual.saldoDevedor > 0 && <p><strong>Saldo devedor desta Venda: {moeda.format(atual.saldoDevedor)}</strong></p>}
             {atual.parcelas.length > 0 && <ul className="pdv__parcelas">
               {atual.parcelas.map((parcela) => <li key={parcela.id}>{parcela.forma}: {moeda.format(parcela.valor)}
-                {parcela.troco > 0 && ` · troco ${moeda.format(parcela.troco)}`}</li>)}
+                {parcela.troco > 0 && ` · troco ${moeda.format(parcela.troco)}`}
+                {parcela.pix && <div>
+                  <strong>Pix {parcela.status === 'PENDENTE' ? 'aguardando confirmação' : parcela.status.toLowerCase()}</strong>
+                  {' · '}cobrança {parcela.pix.estado.toLowerCase()}
+                  {' · '}vence {dataHora.format(new Date(parcela.pix.expiraEm))}
+                  {Date.now() >= Date.parse(parcela.pix.expiraEm) &&
+                    <p>Prazo do QR encerrado. Aguarde a conciliação antes de tentar outro Pix.</p>}
+                  {parcela.pix.copiaECola && Date.now() < Date.parse(parcela.pix.expiraEm) &&
+                    <>
+                      <div className="pdv__qr" role="img" aria-label="QR Pix da cobrança">
+                        <QRCodeSVG value={parcela.pix.copiaECola} size={220} />
+                      </div>
+                      <p>Pix copia e cola: <code className="pdv__codigo-pix">{parcela.pix.copiaECola}</code>
+                        {' '}<button type="button" className="botao botao--secundario"
+                          onClick={() => void navigator.clipboard?.writeText(parcela.pix?.copiaECola ?? '')}>Copiar</button></p>
+                    </>}
+                  {parcela.status === 'PENDENTE' && parcela.pix.estado !== 'DISPONIVEL' &&
+                    <button type="button" className="botao botao--secundario" disabled={ocupado}
+                      onClick={() => void retentarPix(parcela.id, parcela.valor)}>Retentar cobrança</button>}
+                </div>}
+              </li>)}
             </ul>}
             {troco !== undefined && <p role="status">Troco: {moeda.format(troco)}</p>}
             {atual.status === 'ABERTA' && <>
@@ -295,7 +349,7 @@ export function TelaDeVenda() {
                 <h4>Pagamento</h4>
                 <label>Forma
                   <select value={forma} onChange={(evento) => setForma(evento.target.value as FormaPagamento)}>
-                    <option value="DINHEIRO">Dinheiro</option><option value="PIX">Pix manual</option>
+                    <option value="DINHEIRO">Dinheiro</option><option value="PIX">Pix integrado</option>
                     <option value="CARTAO">Cartão manual</option>
                     {identidade?.perfil === 'ADMIN' && atual.clienteId &&
                       !atual.parcelas.some((parcela) => parcela.forma === 'FIADO') &&
@@ -313,14 +367,15 @@ export function TelaDeVenda() {
                 </label>}
                 <div className="pdv__acoes">
                   <button className="botao botao--secundario" disabled={ocupado}>Registrar parcela</button>
-                  {atual.parcelas.length === 0 && (!valorPagamento || numero(valorPagamento) === atual.faltaPagar)
+                  {forma !== 'PIX' && atual.parcelas.length === 0 && (!valorPagamento || numero(valorPagamento) === atual.faltaPagar)
                     && <button className="botao" type="button" disabled={ocupado}
                     onClick={(evento) => void pagar(evento, true)}>{forma === 'FIADO' ? 'Registrar fiado e concluir' : 'Receber e concluir'}</button>}
                 </div>
               </form>}
-              {atual.faltaPagar === 0 && atual.itens.length > 0 && <button className="botao" type="button"
+              {atual.faltaPagar === 0 && atual.itens.length > 0 && !atual.parcelas.some((p) => p.pix && p.status === 'PENDENTE') && <button className="botao" type="button"
                 disabled={ocupado} onClick={() => void concluirPendente()}>Concluir venda</button>}
-              <button className="botao botao--secundario" type="button" disabled={ocupado}
+              <button className="botao botao--secundario" type="button"
+                disabled={ocupado || atual.parcelas.some((p) => p.pix != null)}
                 onClick={() => void cancelar()}>Cancelar venda</button>
             </>}
           </>}

@@ -321,6 +321,9 @@ body {
 .pdv__itens li { border-bottom: 1px solid var(--cor-borda); padding: 8px 0; }
 .pdv__total { font-size: 1.4rem; font-weight: 700; margin-bottom: 4px; }
 .pdv__pagamento { border-top: 1px solid var(--cor-borda); margin-top: var(--espaco); padding-top: var(--espaco); }
+.pdv__qr { display: inline-flex; max-width: 100%; padding: 12px; margin-top: 8px; background: #fff; border: 1px solid var(--cor-borda); }
+.pdv__qr svg { max-width: 100%; height: auto; }
+.pdv__codigo-pix { overflow-wrap: anywhere; }
 .pdv__historico { grid-column: 1 / -1; }
 .pdv__desconto { display: flex; align-items: end; gap: 8px; flex-wrap: wrap; }
 .comprovante { max-width: 540px; margin: 24px auto; padding: 24px; background: #fff; border: 1px solid var(--cor-borda); }

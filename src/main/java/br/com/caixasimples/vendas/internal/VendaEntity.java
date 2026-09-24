@@ -206,7 +206,10 @@ public class VendaEntity {
 
         for (Pagamento parcela : venda.getPagamentos()) {
             pagamentos.stream().filter(linha -> linha.getId().equals(parcela.id()))
-                    .findFirst().ifPresent(linha -> linha.atualizarStatus(parcela.status()));
+                    .findFirst().ifPresent(linha -> {
+                        linha.atualizarStatus(parcela.status());
+                        linha.atualizarCobranca(parcela.cobrancaPix());
+                    });
         }
 
         Set<UUID> recebimentosGravados = recebimentos.stream()

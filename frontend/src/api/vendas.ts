@@ -28,6 +28,8 @@ export type ParcelaDaVenda = {
   valor: number
   status: 'PENDENTE' | 'CONFIRMADO' | 'RECUSADO'
   troco: number
+  pix?: null | { txid: string; expiraEm: string; copiaECola: string | null;
+    estado: 'AGUARDANDO' | 'DISPONIVEL' | 'INCERTA' }
 }
 
 export type Venda = ResumoDaVenda & {
@@ -86,6 +88,10 @@ export const vendas = {
   pagar: (id: string, forma: FormaPagamento, valor: number, valorRecebido?: number) =>
     chamarApi<{ troco: number }>(`/api/vendas/${id}/pagamentos`, {
       metodo: 'POST', corpo: { forma, valor, valorRecebido },
+    }),
+  cobrarPix: (id: string, tentativaId: string, valor: number) =>
+    chamarApi<ParcelaDaVenda>(`/api/vendas/${id}/pagamentos/pix`, {
+      metodo: 'POST', corpo: { tentativaId, valor },
     }),
   concluir: (id: string) =>
     chamarApi<void>(`/api/vendas/${id}/conclusao`, { metodo: 'POST' }),

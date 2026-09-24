@@ -33,11 +33,8 @@ import java.util.Objects;
  * é a soma desses valores. A diferença que volta ao cliente, portanto, não carrega fração de
  * centavo vinda de arredondamento adiado.
  *
- * <p><strong>Não tem identificador de transação do provedor</strong>, e a ausência é deliberada.
- * A entidade de pagamento tem essa coluna, mas nenhuma forma implementada até aqui produz o
- * identificador: dinheiro não tem, e Pix e cartão registrados à mão tampouco. O campo entra quando
- * houver um provedor de verdade produzindo o valor, pelo mesmo critério que manteve a
- * multiplicação fora de {@code Money} até existir o primeiro uso real.
+ * <p>O identificador da cobrança Pix nasce depois, quando a Venda cria a parcela com UUID; este
+ * resultado descreve apenas forma, valor, status inicial e troco.
  *
  * @param troco o que volta para o cliente; zero nas formas que não devolvem dinheiro
  */
@@ -77,9 +74,8 @@ public record ResultadoPagamento(FormaPagamento forma, Money valor, StatusPagame
     }
 
     /**
-     * Pagamento lançado à mão pelo operador, sem integração externa: o Pix conferido na
-     * notificação de recebimento ou o cartão passado na maquininha e digitado aqui em seguida
-     * (RF26).
+     * Pagamento lançado à mão pelo operador: cartão passado na maquininha (RF26) ou Pix manual
+     * histórico. A estratégia Pix integrada usa {@link #pixPendente}, não esta fábrica.
      *
      * <p><strong>Nasce CONFIRMADO</strong> porque quem lança já viu o dinheiro entrar. Não há
      * segundo momento a esperar, e é isso que permite a venda fechar na hora. Uma cobrança de Pix
@@ -128,6 +124,15 @@ public record ResultadoPagamento(FormaPagamento forma, Money valor, StatusPagame
             throw new IllegalArgumentException("fiado nao aceita valor recebido em especie");
         }
         return new ResultadoPagamento(FormaPagamento.FIADO, solicitacao.valor(),
+                StatusPagamento.PENDENTE, Money.ZERO);
+    }
+
+    public static ResultadoPagamento pixPendente(SolicitacaoPagamento solicitacao) {
+        Objects.requireNonNull(solicitacao);
+        if (solicitacao.forma() != FormaPagamento.PIX || solicitacao.valorRecebido() != null) {
+            throw new IllegalArgumentException("Pix integrado exige PIX sem valor recebido em especie");
+        }
+        return new ResultadoPagamento(FormaPagamento.PIX, solicitacao.valor(),
                 StatusPagamento.PENDENTE, Money.ZERO);
     }
 }

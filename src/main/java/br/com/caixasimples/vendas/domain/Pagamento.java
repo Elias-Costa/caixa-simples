@@ -2,6 +2,7 @@ package br.com.caixasimples.vendas.domain;
 
 import br.com.caixasimples.pagamentos.FormaPagamento;
 import br.com.caixasimples.pagamentos.StatusPagamento;
+import br.com.caixasimples.pagamentos.domain.CobrancaPix;
 import br.com.caixasimples.shared.Money;
 import java.time.Instant;
 import java.util.Objects;
@@ -32,9 +33,8 @@ import java.util.UUID;
  * pagamentos já recusa valor recebido nas duas formas; a guarda aqui espelha a restrição da
  * coluna, para uma linha gravada por fora do código não virar uma parcela que o domínio recusaria.
  *
- * <p><strong>Não tem identificador de transação do provedor</strong>, e a ausência é deliberada:
- * nenhuma forma implementada produz o valor, já que dinheiro não tem e Pix e cartão lançados à
- * mão tampouco. O campo entra com o primeiro provedor de verdade.
+ * <p>O Pix integrado leva {@link CobrancaPix}: txid, chave, vencimento e código para retomar a
+ * tentativa. Uma linha histórica de Pix manual continua sem esses dados.
  *
  * @param id       gerado na aplicação e nunca pelo banco (RNF01)
  * @param forma    como esta parcela foi paga
@@ -46,7 +46,12 @@ import java.util.UUID;
  * @param criadoEm momento do lançamento, em UTC
  */
 public record Pagamento(UUID id, FormaPagamento forma, Money valor, StatusPagamento status,
-        Money troco, Instant criadoEm) {
+        Money troco, Instant criadoEm, CobrancaPix cobrancaPix) {
+
+    public Pagamento(UUID id, FormaPagamento forma, Money valor, StatusPagamento status,
+            Money troco, Instant criadoEm) {
+        this(id, forma, valor, status, troco, criadoEm, null);
+    }
 
     public Pagamento {
         Objects.requireNonNull(id, "id nao pode ser nulo");
@@ -71,6 +76,10 @@ public record Pagamento(UUID id, FormaPagamento forma, Money valor, StatusPagame
                     "so dinheiro devolve troco; parcela em " + forma + " veio com troco de "
                             + troco);
         }
+        if (cobrancaPix != null && (forma != FormaPagamento.PIX
+                || status != StatusPagamento.PENDENTE)) {
+            throw new IllegalArgumentException("cobranca Pix exige parcela PIX PENDENTE");
+        }
     }
 
     /**
@@ -85,7 +94,16 @@ public record Pagamento(UUID id, FormaPagamento forma, Money valor, StatusPagame
         return new Pagamento(UUID.randomUUID(), forma, valor, status, troco, Instant.now());
     }
 
+    static Pagamento pixPendente(UUID id, Money valor, CobrancaPix cobranca) {
+        return new Pagamento(id, FormaPagamento.PIX, valor, StatusPagamento.PENDENTE,
+                Money.ZERO, Instant.now(), Objects.requireNonNull(cobranca));
+    }
+
+    Pagamento comCobranca(CobrancaPix cobranca) {
+        return new Pagamento(id, forma, valor, status, troco, criadoEm, cobranca);
+    }
+
     Pagamento comStatus(StatusPagamento novoStatus) {
-        return new Pagamento(id, forma, valor, novoStatus, troco, criadoEm);
+        return new Pagamento(id, forma, valor, novoStatus, troco, criadoEm, cobrancaPix);
     }
 }

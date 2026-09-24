@@ -80,12 +80,12 @@ produto, cliente, caixa, Venda, faturamento, usuários, configuração e estoque
 | `contas` | Implementado | `Conta`, `Usuario`, `Credencial`, login por JWT, política de senha, provisionamento de conta, a pergunta que os outros módulos fazem à conta em operação, como se o controle de estoque está ligado, e a gestão de usuários: o administrador cria operador ou administrador com login próprio, lista e inativa pela API e pelo PWA, com mais de um usuário só no plano mais alto e a conta nunca sem administrador. A configuração liga o controle de estoque e só o desliga antes do primeiro movimento; o menu reage imediatamente à mudança. O filtro que resolve o token lê o usuário no banco a cada requisição, então inativar vale na requisição seguinte, e o perfil que vale é o do banco, não o do token. O primeiro login do administrador marca a Conta e publica o primeiro acesso na mesma transação que copia o catálogo sugerido. Quem está autenticado pergunta em `/api/auth/eu` e recebe o próprio nome, o negócio, o tipo dele e se o estoque está ligado: é o cabeçalho de toda tela |
 | `cadastro` | Implementado | `Produto` com atributos `JSONB`, busca por nome ou código para o balcão, `Cliente` como vertical slice, catálogo sugerido por tipo de negócio e copiado no primeiro login do administrador, e o agregado inteiro: `MovimentoEstoque` como membro, com a baixa por venda, o estorno por cancelamento e o ajuste manual gravando movimento e saldo na mesma transação, o estoque mínimo de cada produto e a resposta de quais estão com estoque baixo. A API e o PWA permitem cadastrar, editar, inativar e listar produtos ativos, buscar produto para o PDV e cadastrar, editar, inativar, reativar e listar clientes. Só o administrador escreve produto; os dois perfis consultam produtos e cadastram clientes no balcão |
 | `caixa` | Implementado | `SessaoCaixa`: abertura, sangria, suprimento, fechamento com conferência, histórico por operador e por dia, consulta da sessão aberta do usuário atual e extrato de uma sessão com a Venda de origem nos movimentos. A API e o PWA permitem operar e conferir o caixa, com o esperado visível antes de informar o contado. O dinheiro em espécie de cada venda concluída entra na gaveta por evento, uma vez só; o cancelamento o estorna. O caixa é de quem o abriu: o operador só lança, fecha e consulta a própria sessão e só pede o próprio histórico; o administrador toca qualquer sessão da conta, inclusive para fechar o caixa de outro operador |
-| `pagamentos` | Implementado | Strategy por forma de pagamento: dinheiro com troco calculado no domínio, Pix e cartão lançados à mão pelo operador e FIADO pendente para Venda vinculada a Cliente (RF33). Sem provedor de Pix ainda |
+| `pagamentos` | R27 implementado | Strategy por forma: dinheiro com troco, cartão manual, FIADO pendente e Pix integrado pendente. `PixGateway` usa um adapter Efí por Conta; a cobrança é criada com `txid` estável e só a confirmação futura poderá quitar a parcela (RF25, D58). Credenciais de homologação ainda não foram exercitadas nesta sessão |
 | `vendas` | Implementado para o PDV online | Agregado `Venda`, com `ItemVenda`, `Pagamento` e `Recebimento` como membros. A comanda copia o preço, permite divisão de formas e desconto pelo ADMIN. O Cliente ativo pode ser vinculado à Venda; só o ADMIN registra FIADO e conclui a Venda com sua parcela pendente. Qualquer perfil recebe a dívida na própria SessaoCaixa, em lançamentos parciais; o saldo vem das parcelas e dos recebimentos. O comprovante da Venda mostra o valor pendente e cada recebimento tem comprovante próprio (RF33). Conclusão e cancelamento publicam eventos para caixa e estoque; recebimento publica evento para caixa. O operador só altera suas Vendas, salvo o recebimento de fiado da Conta |
 | `estoque` | Implementado para o PWA online | o ouvinte da venda concluída: quando a conta ligou o controle de estoque, cada produto vendido vira uma baixa, pedida ao cadastro, dono do agregado; serviço no meio dos itens não gera nada, e o evento entregue de novo não baixa em dobro. E os casos de uso que uma pessoa aciona: ajuste manual com motivo obrigatório, perda, quebra ou contagem, com a diferença carregando o sinal; estoque mínimo por produto; e o alerta de estoque baixo como consulta, a lista dos produtos ativos no mínimo ou abaixo. A API e o PWA listam saldos e mínimos, ajustam o saldo, definem o mínimo e mostram o alerta; a contagem na tela mostra a diferença antes de gravar. A Conta com controle desligado recebe 409 e o operador, 403. O ouvinte da venda cancelada devolve cada produto que a venda baixou, uma vez só |
 | `relatorios` | Implementado | Faturamento do dia e de um período, produtos mais vendidos e fluxo de caixa da gaveta. Venda concluída com FIADO conta no faturamento no dia da conclusão; recebimento em dinheiro conta no fluxo no dia da entrada, sem faturar outra vez (RF33). Filtros combináveis de faturamento por forma e operador incluem a parcela FIADO pendente. O módulo lê mapeamentos imutáveis de venda, item, produto, pagamento e movimento de caixa, e os três relatórios são do administrador |
 
-**Schema.** Quatorze migrations Flyway, de `V1` a `V14`: conta, usuário e credencial; produto; cliente;
+**Schema.** Quinze migrations Flyway, de `V1` a `V15`: conta, usuário e credencial; produto; cliente;
 catálogo de referência; o agregado de caixa, com a regra de uma sessão aberta por operador; o
 agregado de venda, com a venda, seus itens e seus pagamentos; o outbox de eventos de domínio do
 Spring Modulith, cujo DDL foi gerado a partir da entidade do framework em vez de escrito de
@@ -94,7 +94,8 @@ estoque mínimo de cada produto, o limiar do alerta de estoque baixo; o estorno 
 quarto tipo de movimento, com as restrições da quinta recriadas para o receber; e o que o
 comprovante precisava e a venda não guardava, o troco de cada parcela e o instante da conclusão;
 e a marca do catálogo inicial aplicado na Conta, gravada junto da cópia dos itens. A `V14`
-inclui FIADO, `recebimento` e o movimento RECEBIMENTO da gaveta.
+inclui FIADO, `recebimento` e o movimento RECEBIMENTO da gaveta. A `V15` guarda `txid`, chave
+recebedora, vencimento, copia e cola e estado da cobrança Pix na parcela da Venda.
 
 **Superfície HTTP.** A autenticação usa `POST /api/auth/login`, que devolve o
 token, e `GET /api/auth/eu`, que diz quem está autenticado e em que negócio, para o cabeçalho de
@@ -117,7 +118,10 @@ para listar as vendas de uma SessaoCaixa e iniciar uma comanda. `GET /api/vendas
 itens, total e parcelas; `POST /api/vendas/{id}/itens` e
 `DELETE /api/vendas/{id}/itens/{itemId}` montam a comanda;
 `PUT /api/vendas/{id}/desconto` é só do administrador;
-`POST /api/vendas/{id}/pagamentos` devolve o troco;
+`POST /api/vendas/{id}/pagamentos` devolve o troco para as formas sem Pix integrado;
+`POST /api/vendas/{id}/pagamentos/pix` recebe `tentativaId` e valor, devolve parcela PENDENTE e
+estado da cobrança; o PWA mostra QR Code e copia e cola; `GET /api/vendas/{id}` permite retomar
+o mesmo QR e não expõe outra Conta;
 `PUT /api/vendas/{id}/cliente` vincula Cliente ativo;
 `POST /api/vendas/{id}/conclusao` e `POST /api/vendas/{id}/cancelamento` mudam o status;
 `GET /api/vendas/{id}/comprovante` traz o dado não fiscal para a tela. Para RF33,
@@ -164,8 +168,9 @@ O comprovante usa a impressão do navegador e o compartilhamento do dispositivo 
 Na Venda, o Cliente ativo selecionado aparece na faixa de contexto do shell com seu saldo devedor;
 a tela Fiado lista as dívidas e registra recebimentos parciais na SessaoCaixa aberta de quem recebe.
 O comprovante da Venda indica o valor pendente e cada recebimento pode ser impresso ou compartilhado.
-R23 continua em andamento porque RNF08 ainda exige instalar e abrir o PWA pelo ícone em um tablet
-real; o mantenedor autorizou executar R24 sem esse dispositivo (D53), sem aprovar RNF08.
+O mantenedor confirmou a instalação e abertura do PWA pelo ícone em desktop e tablet real (RNF08);
+o R23 e o portão da Fase 1 estão concluídos. O R24 foi executado antes desse teste físico pela
+exceção D53.
 O faturamento abre no dia do balcão e permite consultar um período escolhido pelo administrador.
 Um cliente HTTP só envia o token da sessão aberta nesta aba, troca-o pelo renovado quando a resposta
 pertence à mesma sessão e traduz todo erro no mesmo objeto, lido do Problem Details. Respostas de
@@ -287,8 +292,9 @@ uso hoje:
 - **Repository apenas por raiz de agregado.** Não existe `MovimentoCaixaRepository`,
   `ItemVendaRepository` nem `PagamentoRepository`: membro de agregado entra e sai pela raiz.
 - **Strategy** por forma de pagamento, resolvido por mapa e sem `switch` em código de negócio:
-  dinheiro, Pix e cartão têm uma classe cada, e a regra de cada forma mora no domínio, não no
-  componente do Spring.
+  dinheiro, Pix integrado, cartão e FIADO têm uma classe cada. A parcela Pix nasce PENDENTE.
+- **Adapter** de Pix atrás de `PixGateway`: Efí usa OAuth e certificado por Conta, cria cobrança
+  com `txid` derivado do UUID da parcela e compara os dados do PSP antes de mostrar o copia e cola.
 - **Value object** para dinheiro, com o arredondamento visível em quem o chama.
 - **Domain Events com outbox** para a venda concluída, e a cancelada, avisarem o caixa e o
   estoque sem acoplar os três: a publicação é gravada na mesma transação que conclui ou cancela
@@ -316,13 +322,7 @@ uso hoje:
 
 ### Padrões decididos, ainda não escritos
 
-Um só está amarrado a um requisito e a um passo que ainda não começou, e aparece aqui como
-desenho, não como código: **Adapter** para trocar de provedor de Pix sem tocar na regra de negócio.
-
-Não foi criado por antecipação, e essa é a política do projeto: uma abstração se justifica com
-dois usos reais, não com um previsto. O Strategy de pagamento seguiu essa regra: a interface
-nasceu junto da primeira implementação, e a fábrica que Pix e cartão compartilham só existe porque
-os dois a usam. **Specification** esteve nesta lista, para os filtros combináveis dos relatórios,
+**Specification** esteve nesta lista, para os filtros combináveis dos relatórios,
 e saiu quando chegou a hora: o executor que o Spring Data oferece traz `update` e `delete` para
 dentro de um repositório que não pode escrever, e não agrega, enquanto as consultas dos relatórios
 são somas; os filtros entraram como parâmetro opcional nas consultas que já existiam.
@@ -377,12 +377,13 @@ são somas; os filtros entraram como parâmetro opcional nas consultas que já e
   nunca apagando o original: o histórico continua contando que entrou e saiu. O estorno no caixa
   espelha o valor da venda, e é a sessão que sabe quanto foi, não quem cancela. Uma venda
   concluída só cancela com a sessão em que nasceu ainda aberta, porque a gaveta de uma sessão
-  fechada já foi conferida; a comanda aberta cancela sem perguntar, porque nunca tocou a gaveta,
-  e é a saída para a comanda que ficou presa quando o caixa fechou antes. Pix e cartão
-  confirmados ficam como estão: não há provedor a quem pedir estorno, e a devolução ao cliente
-  acontece no balcão. O estorno pode deixar o esperado negativo se houve sangria no meio, pelo
-  mesmo motivo do saldo de estoque negativo: o cancelamento já aconteceu, e recusar só deixaria
-  o caixa sem refletir o fato.
+  fechada já foi conferida; a comanda aberta sem cobrança Pix integrada cancela sem perguntar,
+  porque nunca tocou a gaveta, e é a saída para a comanda que ficou presa quando o caixa fechou
+  antes. Pix manual histórico e cartão confirmados ficam como estão: não há provedor a quem pedir
+  estorno, e a devolução ao cliente acontece no balcão. Uma Venda com cobrança Pix integrada
+  aguarda a política de cancelamento de R29. O estorno pode deixar o esperado negativo se houve
+  sangria no meio, pelo mesmo motivo do saldo de estoque negativo: o cancelamento já aconteceu,
+  e recusar só deixaria o caixa sem refletir o fato.
 - **O preço nunca vem de quem chama.** Lançar um item recebe o id do produto, e o caso de uso
   consulta o preço vigente no cadastro na hora de gravar. Um preço vindo do pedido seria uma porta
   para vender por qualquer valor; a cópia feita ali é o que impede uma venda passada de mudar quando
@@ -636,7 +637,7 @@ Como há dois ouvintes por evento, quem conta publicações concluídas filtra p
 | Build | Maven, via wrapper versionado |
 | Testes | JUnit 5, AssertJ e Testcontainers |
 | Frontend | PWA em React 19, Vite 8 e TypeScript, com React Router, service worker gerado por Workbox e Vitest; empacotado no jar pelo Maven, com o Node fixado no `pom.xml` |
-| Infraestrutura | *planejada*: contêiner em AWS |
+| Infraestrutura | validação local sem clientes (R25); hospedagem pública a escolher antes do deploy (R38) |
 
 A escolha de versão não é acidental. Spring Boot 3.x perde suporte OSS em junho de 2026, então um
 projeto novo não deveria nascer nele; o Spring Modulith 2.1.x é a linha compatível com o Boot 4.1.
@@ -656,7 +657,7 @@ src
 │   │   ├── estoque/        application, web, internal
 │   │   └── relatorios/     application, web, internal
 │   └── resources
-│       └── db/migration/   V1 a V14, imutáveis depois de publicadas
+│       └── db/migration/   V1 a V15, imutáveis depois de publicadas
 ├── test/java/br/com/caixasimples
 │   ├── ModularityTests     fitness function das fronteiras
 │   ├── TesteDeIntegracao   base com Testcontainers, herdada pelos testes de banco

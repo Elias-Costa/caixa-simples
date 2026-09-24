@@ -6,6 +6,7 @@ import br.com.caixasimples.pagamentos.FormaPagamento;
 import br.com.caixasimples.cadastro.application.ProdutoService.ProdutoParaComprovante;
 import br.com.caixasimples.cadastro.application.ProdutoService.ProdutoParaVenda;
 import br.com.caixasimples.pagamentos.StatusPagamento;
+import br.com.caixasimples.pagamentos.domain.CobrancaPix;
 import br.com.caixasimples.pagamentos.application.PaymentService;
 import br.com.caixasimples.pagamentos.domain.ResultadoPagamento;
 import br.com.caixasimples.pagamentos.domain.SolicitacaoPagamento;
@@ -262,6 +263,9 @@ public class VendaService {
     @Transactional
     public Money registrarPagamento(UUID vendaId, SolicitacaoPagamento solicitacao) {
         Objects.requireNonNull(solicitacao, "solicitacao de pagamento nao pode ser nula");
+        if (solicitacao.forma() == FormaPagamento.PIX) {
+            throw new IllegalArgumentException("Pix integrado exige a rota de cobranca com tentativaId");
+        }
         if (solicitacao.forma() == FormaPagamento.FIADO) {
             UsuarioContext.exigirAdmin();
         }
@@ -276,6 +280,47 @@ public class VendaService {
         linha.atualizarCom(venda);
         vendas.save(linha);
         return resultado.troco();
+    }
+
+    /** Reserva a mesma parcela na raiz uma vez, inclusive após perda da resposta HTTP. */
+    @Transactional
+    public Pagamento reservarPix(UUID vendaId, UUID tentativaId, Money valor, String chave) {
+        VendaEntity linha = vendas.findLockedById(vendaId)
+                .orElseThrow(() -> new VendaNaoEncontradaException(vendaId));
+        Venda venda = linha.paraDominio();
+        UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
+        ResultadoPagamento resultado = pagamentos.pagar(
+                SolicitacaoPagamento.de(FormaPagamento.PIX, valor));
+        if (resultado.status() != StatusPagamento.PENDENTE) {
+            throw new IllegalStateException("estrategia Pix nao reservou parcela pendente");
+        }
+        CobrancaPix aguardando = CobrancaPix.aguardando(tentativaId, chave,
+                Instant.now().plusSeconds(900));
+        Pagamento parcela = venda.reservarPix(tentativaId, valor, aguardando);
+        linha.atualizarCom(venda);
+        vendas.save(linha);
+        return parcela;
+    }
+
+    /** Autoriza a Venda antes de buscar configuração Pix da Conta. */
+    @Transactional(readOnly = true)
+    public void verificarAcesso(UUID vendaId) {
+        Venda venda = buscar(vendaId).paraDominio();
+        UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
+    }
+
+    /** Atualiza apenas os dados da cobrança; a Venda continua ABERTA e a parcela PENDENTE. */
+    @Transactional
+    public Pagamento atualizarCobrancaPix(UUID vendaId, UUID tentativaId, CobrancaPix cobranca) {
+        VendaEntity linha = vendas.findLockedById(vendaId)
+                .orElseThrow(() -> new VendaNaoEncontradaException(vendaId));
+        Venda venda = linha.paraDominio();
+        UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
+        venda.atualizarCobrancaPix(tentativaId, cobranca);
+        linha.atualizarCom(venda);
+        vendas.save(linha);
+        return venda.getPagamentos().stream().filter(p -> p.id().equals(tentativaId))
+                .findFirst().orElseThrow();
     }
 
     /**
@@ -339,6 +384,9 @@ public class VendaService {
         VendaEntity linha = buscar(vendaId);
         Venda venda = linha.paraDominio();
         UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
+        if (venda.getPagamentos().stream().anyMatch(p -> p.cobrancaPix() != null)) {
+            throw new IllegalStateException("cancelamento com Pix integrado exige remover ou conciliar a cobranca");
+        }
 
         boolean estavaConcluida = venda.getStatus() == StatusVenda.CONCLUIDA;
         if (estavaConcluida && !caixa.estaAberto(venda.getSessaoCaixaId())) {
@@ -554,7 +602,8 @@ public class VendaService {
                 venda.getStatus(), venda.getCriadoEm(), venda.getValorDesconto(),
                 venda.getValorTotal(), pago, venda.getValorTotal().subtrair(pago), itens,
                 venda.getPagamentos().stream().map(parcela -> new ParcelaParaTela(parcela.id(),
-                        parcela.forma(), parcela.valor(), parcela.status(), parcela.troco()))
+                        parcela.forma(), parcela.valor(), parcela.status(), parcela.troco(),
+                        parcela.cobrancaPix()))
                         .toList(),
                 venda.getRecebimentos().stream().map(recebimento -> new RecebimentoParaTela(
                         recebimento.id(), recebimento.sessaoCaixaId(), recebimento.valor(),
@@ -577,7 +626,7 @@ public class VendaService {
     }
 
     public record ParcelaParaTela(UUID id, br.com.caixasimples.pagamentos.FormaPagamento forma,
-            Money valor, StatusPagamento status, Money troco) {
+            Money valor, StatusPagamento status, Money troco, CobrancaPix cobrancaPix) {
     }
 
     public record RecebimentoParaTela(UUID id, UUID sessaoCaixaId, Money valor,

@@ -217,7 +217,7 @@ class BaixaDeEstoqueListenerTest extends TesteDeIntegracao {
             vendaService.adicionarItem(vendaId, encomendaId, BigDecimal.ONE, Money.ZERO);
             // 12 x 5,00 + 1 x 5,00 = 65,00.
             vendaService.registrarPagamento(vendaId,
-                    SolicitacaoPagamento.de(FormaPagamento.PIX, Money.de("65.00")));
+                    SolicitacaoPagamento.de(FormaPagamento.CARTAO, Money.de("65.00")));
             vendaService.concluir(vendaId);
         });
 

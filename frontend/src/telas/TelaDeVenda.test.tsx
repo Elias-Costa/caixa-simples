@@ -8,7 +8,7 @@ import { vendas, type Comprovante, type Venda } from '../api/vendas'
 import { SessaoContext } from '../sessao/contexto'
 import { TelaDeVenda } from './TelaDeVenda'
 
-afterEach(() => vi.restoreAllMocks())
+afterEach(() => { vi.restoreAllMocks(); sessionStorage.clear() })
 
 const aberta = {
   id: 'sessao-1', usuarioId: 'usuario-1', valorAbertura: 0, valorFechamentoEsperado: 0,
@@ -42,6 +42,36 @@ function mostrar(perfil: 'ADMIN' | 'OPERADOR' = 'OPERADOR') {
 }
 
 describe('PDV no tablet', () => {
+  it('mostra Pix integrado pendente e não oferece conclusão antes da confirmação', async () => {
+    let cobrada = false
+    const parcela = { id: '00000000-0000-4000-8000-000000000001', forma: 'PIX' as const,
+      valor: 12.5, status: 'PENDENTE' as const, troco: 0,
+      pix: { txid: '00000000000040008000000000000001',
+        expiraEm: '2099-09-22T12:15:00Z', copiaECola: 'codigo-pix',
+        estado: 'DISPONIVEL' as const } }
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([{ id: comanda.id,
+      sessaoCaixaId: comanda.sessaoCaixaId, usuarioId: comanda.usuarioId,
+      status: 'ABERTA', total: comanda.total, criadoEm: comanda.criadoEm }])
+    vi.spyOn(vendas, 'consultar').mockImplementation(async () => cobrada
+      ? { ...comanda, pago: 12.5, faltaPagar: 0, parcelas: [parcela] } : comanda)
+    const cobrar = vi.spyOn(vendas, 'cobrarPix').mockImplementation(async () => {
+      cobrada = true; return parcela
+    })
+    mostrar()
+
+    fireEvent.click(await screen.findByRole('button', { name: /ABERTA.*retomar ou cancelar/ }))
+    fireEvent.change(await screen.findByLabelText('Forma'), { target: { value: 'PIX' } })
+    expect(screen.queryByRole('button', { name: 'Receber e concluir' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Registrar parcela' }))
+    await waitFor(() => expect(cobrar).toHaveBeenCalledWith('venda-1', expect.any(String), 12.5))
+    expect(await screen.findByText(/Pix aguardando confirmação/)).toBeInTheDocument()
+    expect(screen.getByText(/codigo-pix/)).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'QR Pix da cobrança' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Concluir venda' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cancelar venda' })).toBeDisabled()
+  })
+
   it('conclui a venda simples em dinheiro em menos de seis toques e exibe o comprovante', async () => {
     let concluida = false
     vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)

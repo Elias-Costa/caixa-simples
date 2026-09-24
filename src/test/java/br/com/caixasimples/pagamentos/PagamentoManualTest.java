@@ -58,12 +58,12 @@ class PagamentoManualTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("Pix lançado à mão nasce CONFIRMADO, sem esperar provedor")
-    void pixManualNasceConfirmado() {
+    @DisplayName("Pix integrado nasce PENDENTE, aguardando confirmação do provedor")
+    void pixIntegradoNascePendente() {
         ResultadoPagamento resultado =
                 pagamentos.pagar(SolicitacaoPagamento.de(FormaPagamento.PIX, Money.de("42.50")));
 
-        assertThat(resultado.status()).isEqualTo(StatusPagamento.CONFIRMADO);
+        assertThat(resultado.status()).isEqualTo(StatusPagamento.PENDENTE);
         assertThat(resultado.valor()).isEqualTo(Money.de("42.50"));
         assertThat(resultado.troco()).isEqualTo(Money.ZERO);
     }

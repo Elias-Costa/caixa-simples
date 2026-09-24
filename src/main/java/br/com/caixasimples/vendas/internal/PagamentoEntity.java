@@ -2,6 +2,7 @@ package br.com.caixasimples.vendas.internal;
 
 import br.com.caixasimples.pagamentos.FormaPagamento;
 import br.com.caixasimples.pagamentos.StatusPagamento;
+import br.com.caixasimples.pagamentos.domain.CobrancaPix;
 import br.com.caixasimples.shared.ContaId;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.vendas.domain.Pagamento;
@@ -56,6 +57,22 @@ class PagamentoEntity {
     @Column(name = "criado_em", nullable = false, updatable = false)
     private Instant criadoEm;
 
+    @Column(name = "pix_txid", length = 35)
+    private String pixTxid;
+
+    @Column(name = "pix_chave_recebedora")
+    private String pixChaveRecebedora;
+
+    @Column(name = "pix_expira_em")
+    private Instant pixExpiraEm;
+
+    @Column(name = "pix_copia_e_cola", columnDefinition = "text")
+    private String pixCopiaECola;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "pix_estado")
+    private CobrancaPix.Estado pixEstado;
+
     protected PagamentoEntity() {
         // exigido pelo JPA
     }
@@ -67,6 +84,7 @@ class PagamentoEntity {
         this.status = pagamento.status();
         this.troco = pagamento.troco().valor();
         this.criadoEm = pagamento.criadoEm();
+        atualizarCobranca(pagamento.cobrancaPix());
     }
 
     static PagamentoEntity de(Pagamento pagamento) {
@@ -75,7 +93,21 @@ class PagamentoEntity {
 
     /** Não há {@code atualizarCom} aqui: parcela lançada não se edita. */
     Pagamento paraDominio() {
-        return new Pagamento(id, forma, Money.de(valor), status, Money.de(troco), criadoEm);
+        CobrancaPix cobranca = pixTxid == null ? null
+                : new CobrancaPix(pixTxid, pixChaveRecebedora, pixExpiraEm,
+                        pixCopiaECola, pixEstado);
+        return new Pagamento(id, forma, Money.de(valor), status, Money.de(troco), criadoEm,
+                cobranca);
+    }
+
+    void atualizarCobranca(CobrancaPix cobranca) {
+        if (cobranca != null) {
+            this.pixTxid = cobranca.txid();
+            this.pixChaveRecebedora = cobranca.chaveRecebedora();
+            this.pixExpiraEm = cobranca.expiraEm();
+            this.pixCopiaECola = cobranca.copiaECola();
+            this.pixEstado = cobranca.estado();
+        }
     }
 
     void atualizarStatus(br.com.caixasimples.pagamentos.StatusPagamento novoStatus) {

@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.tuple;
 
 import br.com.caixasimples.pagamentos.FormaPagamento;
 import br.com.caixasimples.pagamentos.StatusPagamento;
+import br.com.caixasimples.pagamentos.domain.CobrancaPix;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.vendas.StatusVenda;
 import java.math.BigDecimal;
@@ -39,6 +40,30 @@ class VendaTest {
 
     private static final BigDecimal DOIS = new BigDecimal("2");
     private static final BigDecimal SETECENTOS_E_CINQUENTA_GRAMAS = new BigDecimal("0.750");
+
+    @Test
+    void pixPendenteReservaSaldoMasQrNaoConcluiVenda() {
+        Venda venda = new Venda(SESSAO, OPERADOR);
+        venda.adicionarItem(CAFE, BigDecimal.ONE, Money.de("10.00"), Money.ZERO);
+        UUID tentativa = UUID.randomUUID();
+        CobrancaPix cobranca = CobrancaPix.aguardando(tentativa, "chave-teste",
+                Instant.now().plusSeconds(900));
+
+        Pagamento primeira = venda.reservarPix(tentativa, Money.de("10.00"), cobranca);
+        assertThat(venda.reservarPix(tentativa, Money.de("10.00"), cobranca))
+                .isEqualTo(primeira);
+        assertThat(venda.getPagamentos()).hasSize(1);
+        assertThatIllegalStateException().isThrownBy(() -> venda.reservarPix(tentativa,
+                Money.de("9.00"), cobranca));
+        venda.atualizarCobrancaPix(tentativa, cobranca.disponivel("codigo-copia-e-cola"));
+        venda.atualizarCobrancaPix(tentativa, cobranca.incerta());
+        assertThat(venda.getPagamentos().get(0).cobrancaPix().estado())
+                .isEqualTo(CobrancaPix.Estado.DISPONIVEL);
+        assertThat(venda.getPagamentos().get(0).cobrancaPix().copiaECola())
+                .isEqualTo("codigo-copia-e-cola");
+        assertThat(venda.getPagamentos().get(0).status()).isEqualTo(StatusPagamento.PENDENTE);
+        assertThatIllegalStateException().isThrownBy(venda::concluir);
+    }
 
     @Test
     @DisplayName("nasce ABERTA, vazia, com total e desconto zero e sem cliente")

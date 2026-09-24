@@ -5,7 +5,8 @@
  * o contrário. A anotação abaixo diz o contrário para este pacote: quem precisa pagar uma parcela,
  * como o módulo de vendas ao registrar um pagamento, chama {@code PaymentService} daqui, e é ele
  * que encontra a estratégia da forma pedida. {@code internal} continua oculto, então as
- * implementações de cada forma não vazam para fora do módulo.
+ * implementações de cada forma não vazam para fora do módulo. {@code PixCobrancaService}
+ * expõe a criação da cobrança da parcela que a Venda já reservou.
  *
  * <p>Vale o mesmo critério de fronteira de sempre: chamada direta faz pergunta, efeito colateral
  * entre módulos é evento. Pagar uma parcela é pergunta, porque {@code PaymentService} não abre

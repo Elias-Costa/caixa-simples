@@ -1,6 +1,7 @@
 package br.com.caixasimples.vendas.domain;
 
 import br.com.caixasimples.pagamentos.FormaPagamento;
+import br.com.caixasimples.pagamentos.domain.CobrancaPix;
 import br.com.caixasimples.pagamentos.StatusPagamento;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.vendas.StatusVenda;
@@ -418,6 +419,48 @@ public class Venda {
             throw new IllegalStateException("a venda aceita uma unica parcela FIADO");
         }
         pagamentos.add(Pagamento.novo(forma, valor, status, troco));
+    }
+
+    /** Reserva uma tentativa Pix identificada antes de chamar o provedor. */
+    public Pagamento reservarPix(UUID pagamentoId, Money valor, CobrancaPix cobranca) {
+        Objects.requireNonNull(pagamentoId, "id da tentativa Pix nao pode ser nulo");
+        Objects.requireNonNull(cobranca, "cobranca Pix nao pode ser nula");
+        Pagamento existente = pagamentos.stream().filter(p -> p.id().equals(pagamentoId))
+                .findFirst().orElse(null);
+        if (existente != null) {
+            if (existente.forma() != FormaPagamento.PIX || !existente.valor().equals(valor)
+                    || existente.cobrancaPix() == null
+                    || !existente.cobrancaPix().txid().equals(cobranca.txid())) {
+                throw new IllegalStateException("tentativa Pix reutilizada com dados diferentes");
+            }
+            return existente;
+        }
+        exigirAberta();
+        if (valor == null || valor.valor().signum() <= 0 || saldoAPagar().subtrair(valor).isNegativo()) {
+            throw new IllegalArgumentException("valor da parcela Pix deve ser positivo e caber no saldo");
+        }
+        Pagamento pagamento = Pagamento.pixPendente(pagamentoId, valor, cobranca);
+        pagamentos.add(pagamento);
+        return pagamento;
+    }
+
+    /** Só atualiza a cobrança da parcela já reservada; nunca confirma dinheiro por QR gerado. */
+    public void atualizarCobrancaPix(UUID pagamentoId, CobrancaPix cobranca) {
+        for (int i = 0; i < pagamentos.size(); i++) {
+            Pagamento atual = pagamentos.get(i);
+            if (atual.id().equals(pagamentoId) && atual.cobrancaPix() != null
+                    && atual.status() == StatusPagamento.PENDENTE
+                    && atual.cobrancaPix().txid().equals(cobranca.txid())) {
+                if (atual.cobrancaPix().estado() == CobrancaPix.Estado.DISPONIVEL
+                        && cobranca.estado() == CobrancaPix.Estado.INCERTA) {
+                    // Uma chamada concorrente pode falhar depois de outra ter obtido o QR.
+                    return;
+                }
+                pagamentos.set(i, atual.comCobranca(cobranca));
+                return;
+            }
+        }
+        throw new IllegalStateException("tentativa Pix pendente nao encontrada nesta venda");
     }
 
     /**
