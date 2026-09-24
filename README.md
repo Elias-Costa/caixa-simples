@@ -80,8 +80,8 @@ produto, cliente, caixa, Venda, faturamento, usuários, configuração e estoque
 | `contas` | Implementado | `Conta`, `Usuario`, `Credencial`, login por JWT, política de senha, provisionamento de conta, a pergunta que os outros módulos fazem à conta em operação, como se o controle de estoque está ligado, e a gestão de usuários: o administrador cria operador ou administrador com login próprio, lista e inativa pela API e pelo PWA, com mais de um usuário só no plano mais alto e a conta nunca sem administrador. A configuração liga o controle de estoque e só o desliga antes do primeiro movimento; o menu reage imediatamente à mudança. O filtro que resolve o token lê o usuário no banco a cada requisição, então inativar vale na requisição seguinte, e o perfil que vale é o do banco, não o do token. O primeiro login do administrador marca a Conta e publica o primeiro acesso na mesma transação que copia o catálogo sugerido. Quem está autenticado pergunta em `/api/auth/eu` e recebe o próprio nome, o negócio, o tipo dele e se o estoque está ligado: é o cabeçalho de toda tela |
 | `cadastro` | Implementado | `Produto` com atributos `JSONB`, busca por nome ou código para o balcão, `Cliente` como vertical slice, catálogo sugerido por tipo de negócio e copiado no primeiro login do administrador, e o agregado inteiro: `MovimentoEstoque` como membro, com a baixa por venda, o estorno por cancelamento e o ajuste manual gravando movimento e saldo na mesma transação, o estoque mínimo de cada produto e a resposta de quais estão com estoque baixo. A API e o PWA permitem cadastrar, editar, inativar e listar produtos ativos, buscar produto para o PDV e cadastrar, editar, inativar, reativar e listar clientes. Só o administrador escreve produto; os dois perfis consultam produtos e cadastram clientes no balcão |
 | `caixa` | Implementado | `SessaoCaixa`: abertura, sangria, suprimento, fechamento com conferência, histórico por operador e por dia, consulta da sessão aberta do usuário atual e extrato de uma sessão com a Venda de origem nos movimentos. A API e o PWA permitem operar e conferir o caixa, com o esperado visível antes de informar o contado. O dinheiro em espécie de cada venda concluída entra na gaveta por evento, uma vez só; o cancelamento o estorna. O caixa é de quem o abriu: o operador só lança, fecha e consulta a própria sessão e só pede o próprio histórico; o administrador toca qualquer sessão da conta, inclusive para fechar o caixa de outro operador |
-| `pagamentos` | Implementado para cobrança e confirmação Pix | Strategy por forma: dinheiro com troco, cartão manual, FIADO pendente e Pix integrado. `PixGateway` usa um adapter Efí por Conta para criar e reconsultar a cobrança pelo `txid`; só o Pix comprovado na consulta quita a parcela (RF25). Credenciais de homologação ainda não foram exercitadas |
-| `vendas` | Implementado para o PDV online | Agregado `Venda`, com `ItemVenda`, `Pagamento` e `Recebimento` como membros. A comanda copia o preço, permite divisão de formas e desconto pelo ADMIN. O Cliente ativo pode ser vinculado à Venda; só o ADMIN registra FIADO e conclui a Venda com sua parcela pendente. Qualquer perfil recebe a dívida na própria SessaoCaixa, em lançamentos parciais; o saldo vem das parcelas e dos recebimentos. O comprovante da Venda mostra o valor pendente e cada recebimento tem comprovante próprio (RF33). Confirmação Pix reconsultada conclui uma vez quando a cobertura e a SessaoCaixa permitem; Pix tardio fica visível para conciliação do ADMIN. Conclusão e cancelamento publicam eventos para caixa e estoque; recebimento publica evento para caixa. O operador só altera suas Vendas, salvo o recebimento de fiado da Conta |
+| `pagamentos` | Implementado para cobrança, confirmação e cancelamento Pix | Strategy por forma: dinheiro com troco, cartão manual, FIADO pendente e Pix integrado. `PixGateway` usa um adapter Efí por Conta para criar, remover e reconsultar a cobrança pelo `txid`; só o Pix comprovado na consulta quita a parcela (RF25). Credenciais de homologação ainda não foram exercitadas |
+| `vendas` | Implementado para o PDV online | Agregado `Venda`, com `ItemVenda`, `Pagamento` e `Recebimento` como membros. A comanda copia o preço, permite divisão de formas e desconto pelo ADMIN. O Cliente ativo pode ser vinculado à Venda; só o ADMIN registra FIADO e conclui a Venda com sua parcela pendente. Qualquer perfil recebe a dívida na própria SessaoCaixa, em lançamentos parciais; o saldo vem das parcelas e dos recebimentos. O comprovante da Venda mostra o valor pendente e cada recebimento tem comprovante próprio (RF33). Confirmação Pix reconsultada conclui uma vez quando a cobertura e a SessaoCaixa permitem; Pix tardio fica visível para conciliação do ADMIN. O cancelamento recusa o Pix pendente só após remoção comprovada no PSP e mantém o Pix pago para devolução manual. Conclusão e cancelamento publicam eventos para caixa e estoque; recebimento publica evento para caixa. O operador só altera suas Vendas, salvo o recebimento de fiado da Conta |
 | `estoque` | Implementado para o PWA online | o ouvinte da venda concluída: quando a conta ligou o controle de estoque, cada produto vendido vira uma baixa, pedida ao cadastro, dono do agregado; serviço no meio dos itens não gera nada, e o evento entregue de novo não baixa em dobro. E os casos de uso que uma pessoa aciona: ajuste manual com motivo obrigatório, perda, quebra ou contagem, com a diferença carregando o sinal; estoque mínimo por produto; e o alerta de estoque baixo como consulta, a lista dos produtos ativos no mínimo ou abaixo. A API e o PWA listam saldos e mínimos, ajustam o saldo, definem o mínimo e mostram o alerta; a contagem na tela mostra a diferença antes de gravar. A Conta com controle desligado recebe 409 e o operador, 403. O ouvinte da venda cancelada devolve cada produto que a venda baixou, uma vez só |
 | `relatorios` | Implementado | Faturamento do dia e de um período, produtos mais vendidos e fluxo de caixa da gaveta. Venda concluída com FIADO conta no faturamento no dia da conclusão; recebimento em dinheiro conta no fluxo no dia da entrada, sem faturar outra vez (RF33). Filtros combináveis de faturamento por forma e operador incluem a parcela FIADO pendente. O módulo lê mapeamentos imutáveis de venda, item, produto, pagamento e movimento de caixa, e os três relatórios são do administrador |
 
@@ -96,7 +96,7 @@ comprovante precisava e a venda não guardava, o troco de cada parcela e o insta
 e a marca do catálogo inicial aplicado na Conta, gravada junto da cópia dos itens. A `V14`
 inclui FIADO, `recebimento` e o movimento RECEBIMENTO da gaveta. A `V15` guarda `txid`, chave
 recebedora, vencimento, copia e cola e estado da cobrança Pix na parcela da Venda. A `V16`
-conserva esses dados quando a parcela integrada passa a CONFIRMADO.
+conserva esses dados quando a parcela integrada passa a CONFIRMADO ou RECUSADO.
 
 **Superfície HTTP.** A autenticação usa `POST /api/auth/login`, que devolve o
 token, e `GET /api/auth/eu`, que diz quem está autenticado e em que negócio, para o cabeçalho de
@@ -130,6 +130,9 @@ Pix pagos que chegaram após a SessaoCaixa fechar ou após a Venda ser cancelada
 essas Vendas como concluídas;
 `PUT /api/vendas/{id}/cliente` vincula Cliente ativo;
 `POST /api/vendas/{id}/conclusao` e `POST /api/vendas/{id}/cancelamento` mudam o status;
+no cancelamento com Pix pendente, o servidor pede remoção à Efí e reconsulta antes de gravar,
+respondendo 503 quando não consegue comprovar que a cobrança parou de aceitar pagamento; repetir
+um cancelamento de Venda com Pix integrado já cancelada não repete o efeito;
 `GET /api/vendas/{id}/comprovante` traz o dado não fiscal para a tela. Para RF33,
 `GET /api/fiado/clientes/{clienteId}/saldo` e `GET /api/fiado/dividas` mostram a dívida;
 `POST /api/vendas/{id}/recebimentos` registra cada entrada e
@@ -314,7 +317,10 @@ uso hoje:
   dinheiro, Pix integrado, cartão e FIADO têm uma classe cada. A parcela Pix nasce PENDENTE.
 - **Adapter** de Pix atrás de `PixGateway`: Efí usa OAuth e certificado por Conta, cria cobrança
   com `txid` derivado do UUID da parcela e compara os dados do PSP antes de mostrar o copia e cola
-  ou confirmar um Pix recebido. O webhook só fornece a correlação para a reconsulta.
+  ou confirmar um Pix recebido. Ao cancelar, pede a remoção da cobrança ainda pendente e reconsulta
+  antes de recusar a parcela; o PWA não reapresenta QR de cobrança removida. Pix pago continua
+  confirmado e requer devolução fora do sistema.
+  O webhook só fornece a correlação para a reconsulta.
 - **Value object** para dinheiro, com o arredondamento visível em quem o chama.
 - **Domain Events com outbox** para a venda concluída, e a cancelada, avisarem o caixa e o
   estoque sem acoplar os três: a publicação é gravada na mesma transação que conclui ou cancela
@@ -400,8 +406,10 @@ são somas; os filtros entraram como parâmetro opcional nas consultas que já e
   fechada já foi conferida; a comanda aberta sem cobrança Pix integrada cancela sem perguntar,
   porque nunca tocou a gaveta, e é a saída para a comanda que ficou presa quando o caixa fechou
   antes. Pix manual histórico e cartão confirmados ficam como estão: não há provedor a quem pedir
-  estorno, e a devolução ao cliente acontece no balcão. Uma Venda com cobrança Pix integrada
-  aguarda a política de cancelamento de R29. O estorno pode deixar o esperado negativo se houve
+  estorno, e a devolução ao cliente acontece no balcão. Uma Venda com Pix integrado pendente só
+  cancela após o PSP comprovar que a cobrança foi removida; falha ou resposta incerta mantém a
+  Venda e permite repetir. Se o Pix já foi pago, a parcela segue CONFIRMADO e o PWA avisa que a
+  devolução é manual e ainda exige conciliação. O estorno pode deixar o esperado negativo se houve
   sangria no meio, pelo mesmo motivo do saldo de estoque negativo: o cancelamento já aconteceu,
   e recusar só deixaria o caixa sem refletir o fato.
 - **O preço nunca vem de quem chama.** Lançar um item recebe o id do produto, e o caso de uso
@@ -450,7 +458,8 @@ de uso, provada por teste negativo, e nunca dependente de um valor que o cliente
   O caixa HTTP também prova que a Conta B não encontra a sessão da Conta A, recebe histórico vazio
   e não deduz um caixa aberto alheio.
   O callback Pix autenticado pela configuração da Conta B não encontra o `txid` persistido na
-  Conta A; a lista de conciliação também devolve somente Vendas da Conta autenticada.
+  Conta A; a lista de conciliação também devolve somente Vendas da Conta autenticada. O teste
+  HTTP de cancelamento recusa a tentativa da Conta B antes de chamar o PSP da Conta A.
 - **Os listeners da venda agem na conta do evento, não na de quem publicou.** Eles rodam em outra
   thread, sem o tenant da requisição, e uma reentrega pode partir do outbox horas depois; a conta
   vai dentro do evento, lida do contexto autenticado no ato da publicação, e há teste, para os

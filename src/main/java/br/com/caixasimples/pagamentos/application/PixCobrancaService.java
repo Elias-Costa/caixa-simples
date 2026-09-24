@@ -26,4 +26,8 @@ public class PixCobrancaService {
     public ConsultaPix consultar(CobrancaPix cobranca) {
         return gateway.consultar(cobranca);
     }
+
+    public void removerCobranca(CobrancaPix cobranca) {
+        gateway.removerCobranca(cobranca);
+    }
 }

@@ -82,6 +82,37 @@ class EfiPixGateway implements PixGateway {
         }
     }
 
+    @Override
+    public void removerCobranca(CobrancaPix cobranca) {
+        Configuracao config = configuracao();
+        if (!config.chave().equals(cobranca.chaveRecebedora())) {
+            throw new PixIndisponivelException("chave Pix da Conta mudou durante a tentativa");
+        }
+        try {
+            HttpClient http = cliente(config);
+            remover(http, config.base(), token(http, config), cobranca);
+        } catch (PixIndisponivelException erro) {
+            throw erro;
+        } catch (InterruptedException erro) {
+            Thread.currentThread().interrupt();
+            throw new PixIndisponivelException("remocao Pix interrompida", erro);
+        } catch (Exception erro) {
+            throw new PixIndisponivelException("remocao Pix incerta", erro);
+        }
+    }
+
+    static void remover(HttpClient http, String base, String token, CobrancaPix cobranca)
+            throws Exception {
+        HttpResponse<String> resposta = enviar(http, base, "PATCH", "/v2/cob/" + cobranca.txid(),
+                token, "{\"status\":\"REMOVIDA_PELO_USUARIO_RECEBEDOR\"}");
+        // Um PATCH repetido pode receber 400/409 se a cobrança já foi removida ou paga.
+        // Em ambos os casos a decisão pertence ao GET que o caso de uso faz em seguida.
+        if (resposta.statusCode() != 200 && resposta.statusCode() != 400
+                && resposta.statusCode() != 409) {
+            throw new PixIndisponivelException("remocao da cobranca Pix indisponivel");
+        }
+    }
+
     static ConsultaPix interpretarConsulta(JsonNode dados) {
         try {
             String txid = dados.path("txid").asText("");
@@ -108,10 +139,15 @@ class EfiPixGateway implements PixGateway {
                 }
                 return new ConsultaPix(txid, chave, Money.de(valor), true);
             }
-            if (!"ATIVA".equals(status) && !status.startsWith("REMOVIDA_")) {
+            if (!"ATIVA".equals(status) && !"REMOVIDA_PELO_USUARIO_RECEBEDOR".equals(status)
+                    && !"REMOVIDA_PELO_PSP".equals(status)) {
                 throw new PixIndisponivelException("estado da cobranca Pix desconhecido");
             }
-            return new ConsultaPix(txid, chave, Money.de(valor), false);
+            if (!dados.path("pix").isMissingNode() && !dados.path("pix").isEmpty()) {
+                throw new PixIndisponivelException("cobranca sem confirmacao contem Pix recebido");
+            }
+            return new ConsultaPix(txid, chave, Money.de(valor), false,
+                    !"ATIVA".equals(status));
         } catch (PixIndisponivelException erro) {
             throw erro;
         } catch (Exception erro) {
@@ -220,9 +256,9 @@ class EfiPixGateway implements PixGateway {
         HttpRequest.Builder pedido = HttpRequest.newBuilder(URI.create(base + caminho))
                 .timeout(Duration.ofSeconds(15)).header("Authorization", "Bearer " + token)
                 .header("Accept", "application/json");
-        if ("PUT".equals(metodo)) {
+        if ("PUT".equals(metodo) || "PATCH".equals(metodo)) {
             pedido.header("Content-Type", "application/json")
-                    .PUT(HttpRequest.BodyPublishers.ofString(corpo));
+                    .method(metodo, HttpRequest.BodyPublishers.ofString(corpo));
         } else {
             pedido.GET();
         }

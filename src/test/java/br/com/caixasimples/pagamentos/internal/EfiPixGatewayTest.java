@@ -63,4 +63,31 @@ class EfiPixGatewayTest {
             servidor.stop(0);
         }
     }
+
+    @Test
+    void patchDeRemocaoUsaStatusDocumentadoEAceitaRepeticaoJaResolvida() throws Exception {
+        CobrancaPix cobranca = CobrancaPix.aguardando(UUID.randomUUID(), "chave-teste",
+                Instant.now().plusSeconds(900));
+        AtomicInteger chamadas = new AtomicInteger();
+        AtomicReference<String> corpo = new AtomicReference<>();
+        HttpServer servidor = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        servidor.createContext("/v2/cob/" + cobranca.txid(), troca -> {
+            corpo.set(new String(troca.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            int status = chamadas.incrementAndGet() == 1 ? 200 : 400;
+            byte[] bytes = "{}".getBytes(StandardCharsets.UTF_8);
+            troca.sendResponseHeaders(status, bytes.length);
+            try (var saida = troca.getResponseBody()) { saida.write(bytes); }
+        });
+        servidor.start();
+        try {
+            String base = "http://127.0.0.1:" + servidor.getAddress().getPort();
+            HttpClient http = HttpClient.newHttpClient();
+            EfiPixGateway.remover(http, base, "token", cobranca);
+            EfiPixGateway.remover(http, base, "token", cobranca);
+            assertThat(chamadas).hasValue(2);
+            assertThat(corpo.get()).contains("REMOVIDA_PELO_USUARIO_RECEBEDOR");
+        } finally {
+            servidor.stop(0);
+        }
+    }
 }

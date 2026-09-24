@@ -8,6 +8,9 @@ import br.com.caixasimples.cadastro.application.ProdutoService.ProdutoParaVenda;
 import br.com.caixasimples.pagamentos.StatusPagamento;
 import br.com.caixasimples.pagamentos.domain.CobrancaPix;
 import br.com.caixasimples.pagamentos.application.PaymentService;
+import br.com.caixasimples.pagamentos.application.PixCobrancaService;
+import br.com.caixasimples.pagamentos.application.PixIndisponivelException;
+import br.com.caixasimples.pagamentos.domain.ConsultaPix;
 import br.com.caixasimples.pagamentos.domain.ResultadoPagamento;
 import br.com.caixasimples.pagamentos.domain.SolicitacaoPagamento;
 import br.com.caixasimples.shared.ContaId;
@@ -123,16 +126,18 @@ public class VendaService {
     private final ConsultaDeClienteParaVenda clientes;
     private final CaixaParaVenda caixa;
     private final PaymentService pagamentos;
+    private final PixCobrancaService pix;
     private final ApplicationEventPublisher eventos;
 
     VendaService(VendaRepository vendas, ProdutoService produtos, ConsultaDeClienteParaVenda clientes,
             CaixaParaVenda caixa,
-            PaymentService pagamentos, ApplicationEventPublisher eventos) {
+            PaymentService pagamentos, PixCobrancaService pix, ApplicationEventPublisher eventos) {
         this.vendas = vendas;
         this.produtos = produtos;
         this.clientes = clientes;
         this.caixa = caixa;
         this.pagamentos = pagamentos;
+        this.pix = pix;
         this.eventos = eventos;
     }
 
@@ -439,16 +444,21 @@ public class VendaService {
      * @throws br.com.caixasimples.shared.AcessoNegadoException se a venda é de outro operador e
      *                                     quem chama não é ADMIN
      * @throws IllegalStateException       se a venda está CONCLUIDA e a sessão de caixa em que
-     *                                     nasceu não está mais ABERTA, ou se a venda já está
-     *                                     CANCELADA
+     *                                     nasceu não está mais ABERTA, ou se uma venda sem Pix
+     *                                     integrado já está CANCELADA
+     * @throws PixIndisponivelException    se o PSP não comprova que a cobrança pendente foi
+     *                                     removida ou paga; a Venda permanece no estado anterior
      */
     @Transactional
     public void cancelar(UUID vendaId) {
-        VendaEntity linha = buscar(vendaId);
+        VendaEntity linha = vendas.findLockedById(vendaId)
+                .orElseThrow(() -> new VendaNaoEncontradaException(vendaId));
         Venda venda = linha.paraDominio();
         UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
-        if (venda.getPagamentos().stream().anyMatch(p -> p.cobrancaPix() != null)) {
-            throw new IllegalStateException("cancelamento com Pix integrado exige remover ou conciliar a cobranca");
+        if (venda.getStatus() == StatusVenda.CANCELADA
+                && venda.getPagamentos().stream().anyMatch(p -> p.cobrancaPix() != null)) {
+            // A repetição não duplica o evento, e a parcela confirmada continua visível à conciliação.
+            return;
         }
 
         boolean estavaConcluida = venda.getStatus() == StatusVenda.CONCLUIDA;
@@ -457,6 +467,27 @@ public class VendaService {
                     "sessao de caixa " + venda.getSessaoCaixaId() + " nao esta ABERTA e nao"
                             + " devolve o dinheiro da venda " + vendaId + ". Uma venda concluida"
                             + " so cancela com o caixa em que nasceu ainda aberto.");
+        }
+
+        for (Pagamento parcela : venda.getPagamentos()) {
+            if (parcela.cobrancaPix() == null || parcela.status() != StatusPagamento.PENDENTE) {
+                continue;
+            }
+            pix.removerCobranca(parcela.cobrancaPix());
+            ConsultaPix consulta = pix.consultar(parcela.cobrancaPix());
+            if (!consulta.txid().equals(parcela.cobrancaPix().txid())
+                    || !consulta.chaveRecebedora().equals(parcela.cobrancaPix().chaveRecebedora())
+                    || !consulta.valor().equals(parcela.valor())) {
+                throw new PixIndisponivelException("consulta Pix diverge da parcela reservada");
+            }
+            if (consulta.pago()) {
+                venda.confirmarPix(parcela.id(), consulta.txid(), consulta.valor(),
+                        consulta.chaveRecebedora());
+            } else if (consulta.removida()) {
+                venda.recusarPix(parcela.id(), consulta.txid());
+            } else {
+                throw new PixIndisponivelException("cobranca Pix ainda pode ser paga");
+            }
         }
 
         venda.cancelar();

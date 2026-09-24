@@ -79,6 +79,10 @@ class VendaTest {
                 cobranca.txid(), Money.de("10.00"), "chave-b"));
         assertThat(venda.getPagamentos().getFirst().status()).isEqualTo(StatusPagamento.PENDENTE);
 
+        assertThatIllegalStateException().isThrownBy(venda::cancelar)
+                .withMessageContaining("cobranca Pix pendente");
+        venda.recusarPix(tentativa, cobranca.txid());
+        assertThat(venda.getPagamentos().getFirst().status()).isEqualTo(StatusPagamento.RECUSADO);
         venda.cancelar();
         assertThat(venda.confirmarPix(tentativa, cobranca.txid(), Money.de("10.00"),
                 "chave-a")).isTrue();

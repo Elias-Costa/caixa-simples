@@ -2,6 +2,7 @@ package br.com.caixasimples.vendas.web;
 
 import br.com.caixasimples.pagamentos.FormaPagamento;
 import br.com.caixasimples.pagamentos.StatusPagamento;
+import br.com.caixasimples.pagamentos.application.PixIndisponivelException;
 import br.com.caixasimples.pagamentos.domain.CobrancaPix;
 import br.com.caixasimples.pagamentos.domain.SolicitacaoPagamento;
 import br.com.caixasimples.shared.Money;
@@ -21,7 +22,10 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -42,6 +46,12 @@ class VendaController {
     VendaController(VendaService vendas, VendaPixService pix) {
         this.vendas = vendas;
         this.pix = pix;
+    }
+
+    @ExceptionHandler(PixIndisponivelException.class)
+    ProblemDetail pixIndisponivel(PixIndisponivelException erro) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE,
+                "Nao foi possivel confirmar a remocao da cobranca Pix. Tente cancelar novamente.");
     }
 
     @PostMapping

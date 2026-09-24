@@ -81,7 +81,50 @@ describe('PDV no tablet', () => {
     expect(screen.getByText(/codigo-pix/)).toBeInTheDocument()
     expect(screen.getByRole('img', { name: 'QR Pix da cobrança' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Concluir venda' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Cancelar venda' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Cancelar venda' })).toBeEnabled()
+  })
+
+  it('permite cancelar Venda concluída com Pix pago e mantém aviso de devolução manual', async () => {
+    let cancelada = false
+    const parcela = { id: 'parcela-pix', forma: 'PIX' as const, valor: 12.5,
+      status: 'CONFIRMADO' as const, troco: 0,
+      pix: { txid: '12345678901234567890123456789012',
+        expiraEm: '2026-09-22T12:15:00Z', copiaECola: 'codigo-pix',
+        estado: 'DISPONIVEL' as const } }
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([{ id: comanda.id,
+      sessaoCaixaId: comanda.sessaoCaixaId, usuarioId: comanda.usuarioId,
+      status: 'CONCLUIDA', total: comanda.total, criadoEm: comanda.criadoEm }])
+    vi.spyOn(vendas, 'consultar').mockImplementation(async () => ({ ...comanda,
+      status: cancelada ? 'CANCELADA' : 'CONCLUIDA', parcelas: [parcela],
+      pago: 12.5, faltaPagar: 0 }))
+    vi.spyOn(vendas, 'comprovante').mockResolvedValue(comprovante)
+    const cancelar = vi.spyOn(vendas, 'cancelar').mockImplementation(async () => { cancelada = true })
+    mostrar('ADMIN')
+
+    fireEvent.click(await screen.findByRole('button', { name: /CONCLUIDA.*R\$/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancelar venda' }))
+    await waitFor(() => expect(cancelar).toHaveBeenCalledOnce())
+    expect(await screen.findByText(/A devolução precisa ser feita fora do sistema/))
+      .toHaveTextContent('não verifica se ela aconteceu')
+  })
+
+  it('não oferece QR de uma cobrança Pix removida da Venda cancelada', async () => {
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([{ id: comanda.id,
+      sessaoCaixaId: comanda.sessaoCaixaId, usuarioId: comanda.usuarioId,
+      status: 'CANCELADA', total: comanda.total, criadoEm: comanda.criadoEm }])
+    vi.spyOn(vendas, 'consultar').mockResolvedValue({ ...comanda, status: 'CANCELADA',
+      parcelas: [{ id: 'parcela-pix', forma: 'PIX', valor: 12.5, status: 'RECUSADO',
+        troco: 0, pix: { txid: '12345678901234567890123456789012',
+          expiraEm: '2099-09-22T12:15:00Z', copiaECola: 'codigo-removido',
+          estado: 'DISPONIVEL' } }] })
+    mostrar()
+
+    fireEvent.click(await screen.findByRole('button', { name: /CANCELADA.*R\$/ }))
+    expect(await screen.findByText(/cobrança removida/)).toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: 'QR Pix da cobrança' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/codigo-removido/)).not.toBeInTheDocument()
   })
 
   it('conclui a venda simples em dinheiro em menos de seis toques e exibe o comprovante', async () => {

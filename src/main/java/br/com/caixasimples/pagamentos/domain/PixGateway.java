@@ -11,4 +11,7 @@ public interface PixGateway {
 
     /** Consulta o PSP; o aviso do webhook nunca decide o estado financeiro. */
     ConsultaPix consultar(CobrancaPix cobranca);
+
+    /** Solicita a remoção; só a reconsulta comprova que a cobrança não pode mais ser paga. */
+    void removerCobranca(CobrancaPix cobranca);
 }

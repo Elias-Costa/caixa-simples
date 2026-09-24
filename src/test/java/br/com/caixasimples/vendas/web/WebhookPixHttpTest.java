@@ -135,6 +135,8 @@ class WebhookPixHttpTest extends TesteDeIntegracao {
         cancelada.conta.comoUsuario(() -> transacoes.executeWithoutResult(estado -> {
             var linha = linhas.findById(cancelada.venda).orElseThrow();
             var venda = linha.paraDominio();
+            var parcela = venda.getPagamentos().getFirst();
+            venda.recusarPix(parcela.id(), parcela.cobrancaPix().txid());
             venda.cancelar();
             linha.atualizarCom(venda);
             linhas.save(linha);

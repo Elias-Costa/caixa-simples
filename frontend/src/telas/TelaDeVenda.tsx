@@ -295,7 +295,7 @@ export function TelaDeVenda() {
     {identidade?.perfil === 'ADMIN' && conciliacoes.length > 0 &&
       <section className="pdv__painel" aria-label="Conciliações Pix">
         <h3>Pix recebido: conciliação necessária</h3>
-        <p>Essas Vendas não foram concluídas pelo pagamento tardio. Confira o recebimento e faça a devolução fora do sistema, quando couber.</p>
+        <p>Confira o recebimento. Venda CANCELADA com Pix pago exige devolução fora do sistema; este aplicativo não verifica se ela aconteceu. Pix após fechamento de caixa também exige conciliação.</p>
         <ul>{conciliacoes.map((pendencia) => <li key={pendencia.vendaId}>
           <button type="button" className="botao botao--secundario" onClick={() => void consultarConciliacao(pendencia.vendaId)}>
             Venda {pendencia.vendaId.slice(0, 8)} · {pendencia.status} · Pix {moeda.format(pendencia.valorPix)}
@@ -344,6 +344,8 @@ export function TelaDeVenda() {
           </div>
           {!atual ? <p>Busque e escolha o primeiro produto para iniciar.</p> : <>
             <p>Venda {atual.id.slice(0, 8)} · {atual.status}</p>
+            {atual.status === 'CANCELADA' && atual.parcelas.some((p) => p.pix && p.status === 'CONFIRMADO') &&
+              <p role="status">Pix integrado recebido. A devolução precisa ser feita fora do sistema e ainda exige conciliação; este aplicativo não verifica se ela aconteceu.</p>}
             {atual.status === 'ABERTA' ? <label>Cliente (para fiado)
               <select value={atual.clienteId ?? ''} disabled={ocupado}
                 onChange={(evento) => void vincularCliente(evento.target.value)}>
@@ -374,11 +376,13 @@ export function TelaDeVenda() {
                 {parcela.troco > 0 && ` · troco ${moeda.format(parcela.troco)}`}
                 {parcela.pix && <div>
                   <strong>Pix {parcela.status === 'PENDENTE' ? 'aguardando confirmação' : parcela.status.toLowerCase()}</strong>
-                  {' · '}cobrança {parcela.pix.estado.toLowerCase()}
+                  {' · '}{parcela.status === 'RECUSADO' ? 'cobrança removida'
+                    : `cobrança ${parcela.pix.estado.toLowerCase()}`}
                   {' · '}vence {dataHora.format(new Date(parcela.pix.expiraEm))}
-                  {Date.now() >= Date.parse(parcela.pix.expiraEm) &&
+                  {parcela.status === 'PENDENTE' && Date.now() >= Date.parse(parcela.pix.expiraEm) &&
                     <p>Prazo do QR encerrado. Aguarde a conciliação antes de tentar outro Pix.</p>}
-                  {parcela.pix.copiaECola && Date.now() < Date.parse(parcela.pix.expiraEm) &&
+                  {parcela.status === 'PENDENTE' && parcela.pix.copiaECola
+                    && Date.now() < Date.parse(parcela.pix.expiraEm) &&
                     <>
                       <div className="pdv__qr" role="img" aria-label="QR Pix da cobrança">
                         <QRCodeSVG value={parcela.pix.copiaECola} size={220} />
@@ -425,9 +429,11 @@ export function TelaDeVenda() {
               {atual.faltaPagar === 0 && atual.itens.length > 0 && !atual.parcelas.some((p) => p.pix && p.status === 'PENDENTE') && <button className="botao" type="button"
                 disabled={ocupado} onClick={() => void concluirPendente()}>Concluir venda</button>}
               <button className="botao botao--secundario" type="button"
-                disabled={ocupado || atual.parcelas.some((p) => p.pix != null)}
+                disabled={ocupado}
                 onClick={() => void cancelar()}>Cancelar venda</button>
             </>}
+            {atual.status === 'CONCLUIDA' && <button className="botao botao--secundario" type="button"
+              disabled={ocupado} onClick={() => void cancelar()}>Cancelar venda</button>}
           </>}
         </section>
 

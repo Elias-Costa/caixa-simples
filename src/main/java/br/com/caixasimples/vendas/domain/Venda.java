@@ -114,8 +114,9 @@ import java.util.UUID;
  * na gaveta e o estoque, é anunciado pelo caso de uso, e só quando a venda estava CONCLUIDA,
  * porque só a conclusão tinha produzido efeito fora do módulo.
  *
- * <p><strong>As parcelas ficam como estão.</strong> Uma parcela CONFIRMADO de uma venda cancelada
- * continua CONFIRMADO: ela foi paga de fato, e o status da venda é o fato novo. A devolução do
+ * <p>Uma parcela CONFIRMADO de uma venda cancelada continua CONFIRMADO: ela foi paga de fato, e o
+ * status da venda é o fato novo. Uma cobrança Pix integrada ainda PENDENTE precisa ter sua remoção
+ * comprovada pelo provedor antes de virar RECUSADO e de a Venda ser cancelada. A devolução do
  * valor ao cliente acontece fora do sistema; o sistema ainda não registra devolução de Pix
  * integrado. Pix e cartão manuais não têm provedor a quem pedir estorno.
  *
@@ -481,13 +482,29 @@ public class Venda {
             if (atual.status() == StatusPagamento.CONFIRMADO) {
                 return false;
             }
-            if (atual.status() != StatusPagamento.PENDENTE) {
+            if (atual.status() != StatusPagamento.PENDENTE
+                    && !(status == StatusVenda.CANCELADA
+                            && atual.status() == StatusPagamento.RECUSADO)) {
                 throw new IllegalStateException("parcela Pix nao esta pendente");
             }
             pagamentos.set(i, atual.comStatus(StatusPagamento.CONFIRMADO));
             return true;
         }
         throw new IllegalStateException("tentativa Pix nao encontrada nesta venda");
+    }
+
+    /** A remoção comprovada libera a parcela reservada sem apagar sua tentativa. */
+    public void recusarPix(UUID pagamentoId, String txid) {
+        for (int i = 0; i < pagamentos.size(); i++) {
+            Pagamento atual = pagamentos.get(i);
+            if (atual.id().equals(pagamentoId) && atual.cobrancaPix() != null
+                    && atual.cobrancaPix().txid().equals(txid)
+                    && atual.status() == StatusPagamento.PENDENTE) {
+                pagamentos.set(i, atual.comStatus(StatusPagamento.RECUSADO));
+                return;
+            }
+        }
+        throw new IllegalStateException("tentativa Pix pendente nao encontrada nesta venda");
     }
 
     /** A conclusão continua explícita no caso de uso, após conferir a SessaoCaixa. */
@@ -547,7 +564,8 @@ public class Venda {
      * que o operador abandona e para a venda CONCLUIDA que o cliente devolve; a raiz não distingue
      * as duas, porque em ambas o que ela guarda é o mesmo: a venda deixa de valer.
      *
-     * <p>Itens e parcelas ficam como estão, de propósito. Uma venda cancelada continua contando o
+     * <p>Itens e parcelas confirmadas ficam como estão; uma parcela Pix pendente só vira RECUSADO
+     * depois de o caso de uso comprovar a remoção. Uma venda cancelada continua contando o
      * que tinha sido vendido e como tinha sido pago; é isso que permite ao caixa e ao estoque
      * desfazerem exatamente o que a conclusão fez. Quem anuncia o cancelamento para fora, e só
      * quando havia o que desfazer, é o caso de uso.
@@ -556,12 +574,16 @@ public class Venda {
      * cancela com a sessão em que nasceu ainda ABERTA mora no caso de uso, ao lado da regra
      * equivalente da conclusão.
      *
-     * @throws IllegalStateException se a venda já está CANCELADA
+     * @throws IllegalStateException se a venda já está CANCELADA ou ainda tem Pix pendente
      */
     public void cancelar() {
         if (status == StatusVenda.CANCELADA) {
             throw new IllegalStateException(
                     "venda " + id + " ja esta CANCELADA e nao cancela de novo.");
+        }
+        if (pagamentos.stream().anyMatch(p -> p.cobrancaPix() != null
+                && p.status() == StatusPagamento.PENDENTE)) {
+            throw new IllegalStateException("cobranca Pix pendente precisa ser removida antes do cancelamento");
         }
         this.status = StatusVenda.CANCELADA;
     }
