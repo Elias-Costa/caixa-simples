@@ -73,6 +73,9 @@ próximo começar. Os oito módulos estão declarados e têm suas fronteiras ver
 primeiro dia; sete já têm código de negócio dentro. O aplicativo, um PWA em `frontend/`, tem
 login, sessão no dispositivo, navegação por perfil e abertura sem rede. As telas de
 produto, cliente, caixa, Venda, faturamento, usuários, configuração e estoque já operam sobre a API.
+O PWA guarda uma fila local de gestos no IndexedDB, separada por Conta e usuário, e pede
+armazenamento persistente ao ser instalado. As telas ainda operam online; o envio da fila e os
+fluxos de cadastro, caixa e Venda sem rede serão acrescentados nas próximas etapas.
 
 | Módulo | Estado | O que existe hoje |
 |---|---|---|
@@ -346,6 +349,9 @@ uso hoje:
   combináveis entram nessas mesmas consultas como condição que some quando o parâmetro é nulo,
   e o filtro por forma de pagamento é uma consulta própria, que soma parcelas em vez de vendas.
 - **Fitness function de arquitetura**, que transforma a regra de fronteira em teste.
+- **Fila local no PWA** com UUID por gesto, dependências e estados explícitos no IndexedDB. A
+  gravação termina antes de devolver o gesto à tela, e a leitura usa a Conta e o usuário da sessão
+  guardada; um novo login dos mesmos recupera os gestos. Ainda não há envio ao servidor.
 
 ### Padrões decididos, ainda não escritos
 
@@ -670,7 +676,7 @@ Como há dois ouvintes por evento, quem conta publicações concluídas filtra p
 | Segurança | Spring Security e OAuth2 Resource Server, sem biblioteca de JWT de terceiro |
 | Build | Maven, via wrapper versionado |
 | Testes | JUnit 5, AssertJ e Testcontainers |
-| Frontend | PWA em React 19, Vite 8 e TypeScript, com React Router, service worker gerado por Workbox e Vitest; empacotado no jar pelo Maven, com o Node fixado no `pom.xml` |
+| Frontend | PWA em React 19, Vite 8 e TypeScript, com React Router, service worker gerado por Workbox, IndexedDB via `idb` e Vitest; empacotado no jar pelo Maven, com o Node fixado no `pom.xml` |
 | Infraestrutura | validação local sem clientes (R25); hospedagem pública a escolher antes do deploy (R38) |
 
 A escolha de versão não é acidental. Spring Boot 3.x perde suporte OSS em junho de 2026, então um
@@ -699,6 +705,7 @@ src
 frontend
 ├── src
 │   ├── api/                o cliente HTTP e as chamadas de cadastro, caixa, vendas, faturamento e estoque
+│   ├── offline/            fila de gestos no IndexedDB e pedido de armazenamento persistente
 │   ├── sessao/             token e identidade no dispositivo, provedor de sessão
 │   ├── shell/              cabeçalho, navegação por perfil, guardas de rota
 │   └── telas/              login, produto, cliente, caixa, Venda, faturamento, usuários, configuração e estoque
