@@ -93,8 +93,21 @@ public class Produto {
      */
     public Produto(String nome, Money preco, TipoProduto tipo, String codigo, String categoria,
             String unidade, Map<String, Object> atributos) {
-        this.id = UUID.randomUUID();
-        this.criadoEm = Instant.now();
+        this(UUID.randomUUID(), Instant.now(), nome, preco, tipo, codigo, categoria, unidade,
+                atributos);
+    }
+
+    /**
+     * O mesmo cadastro, com o id e o instante que o dispositivo gravou ao cadastrar o item sem
+     * rede (RNF01). As regras são as mesmas.
+     *
+     * @param id       o id gerado no dispositivo, que as Vendas registradas sem rede já usam
+     * @param criadoEm o instante do balcão em que o item foi cadastrado
+     */
+    public Produto(UUID id, Instant criadoEm, String nome, Money preco, TipoProduto tipo,
+            String codigo, String categoria, String unidade, Map<String, Object> atributos) {
+        this.id = Objects.requireNonNull(id, "id do produto nao pode ser nulo");
+        this.criadoEm = Objects.requireNonNull(criadoEm, "criadoEm nao pode ser nulo");
         this.nome = exigirTexto(nome, "nome");
         this.preco = exigirPreco(preco);
         this.tipo = Objects.requireNonNull(tipo, "tipo nao pode ser nulo");

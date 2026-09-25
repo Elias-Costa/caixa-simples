@@ -7,18 +7,15 @@ import br.com.caixasimples.shared.TenantContext;
 import br.com.caixasimples.vendas.VendaConcluida;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Async;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Ouve a venda concluída e dá baixa no estoque dos produtos vendidos (RF18).
  *
  * <p>É o segundo ouvinte do mesmo fato, ao lado do caixa, e o mesmo desenho: a venda publica, o
- * estoque reage, e vendas não conhece este módulo. O evento chega pelo registro de publicação,
- * depois do commit da venda; se esta classe falhar, a publicação fica incompleta e pode ser
- * reprocessada, em vez de o estoque ficar errado em silêncio.
+ * estoque reage, e vendas não conhece este módulo.
  *
  * <h2>Quem decide e quem executa</h2>
  *
@@ -26,24 +23,22 @@ import org.springframework.transaction.support.TransactionTemplate;
  * seus movimentos, é do cadastro, e nenhum outro módulo abre a entidade dele. O que é do estoque
  * é a política: a conta ligou o controle de estoque (RF17)? Então cada item da venda vira uma
  * baixa, pedida ao cadastro pela API pública dele. Com o controle desligado, que é como toda
- * conta nasce, nada acontece, e nem se abre transação.
+ * conta nasce, nada acontece.
  *
- * <p><strong>Um item por movimento, e a venda inteira numa transação só.</strong> Ou todos os
- * itens baixam, ou nenhum, e a publicação fica incompleta para o reprocessamento. Serviço no meio
- * dos itens não é erro: o cadastro reconhece e não baixa.
+ * <p><strong>Um item por movimento.</strong> Serviço no meio dos itens não é erro: o cadastro
+ * reconhece e não baixa.
  *
- * <p><strong>A mesma venda baixa uma vez.</strong> A entrega é garantida ao menos uma vez, então
- * o evento pode chegar de novo; antes de cada item, o cadastro responde se aquela venda já baixou
- * aquele produto, e a reentrega vira um não fazer nada, registrado em log. O cadastro recusa a
- * duplicata por conta própria também, para nenhum outro chamador baixar em dobro.
+ * <h2>Dentro da transação da conclusão</h2>
  *
- * <h2>Por que não a anotação de listener do Modulith</h2>
+ * <p>Roda na thread e na transação de quem concluiu a venda, e não depois do commit: a venda
+ * concluída e a baixa de todos os itens confirmam juntas ou não confirmam. É o que deixa a
+ * conclusão recebida do dispositivo sem rede saber, logo depois, se a venda levou mais do que o
+ * saldo registrava. Sem reentrega, porque o fato não passa pelo registro de publicação; a mesma
+ * venda continua sem baixar duas vezes, porque o cadastro recusa a duplicata.
  *
- * <p>Mesmo motivo do ouvinte do caixa: a anotação pronta abre uma transação antes do corpo do
- * método, e o Hibernate resolve o tenant na abertura da sessão, então ela nasceria presa ao
- * sentinela sem enxergar a conta do evento. Aqui as duas anotações estão por extenso, a conta do
- * evento entra no contexto primeiro e a transação é aberta depois, à mão. Tenant primeiro,
- * transação depois.
+ * <p>A conta é a de quem concluiu, a mesma que a transação já usa, e o ouvinte confere que o
+ * evento é dela. A transação é a de quem publicou; o {@link TransactionTemplate} só a abre quando o
+ * evento é publicado fora de uma.
  *
  * <p>O nome não é {@code VendaConcluidaListener}, como no caixa, porque duas classes com o mesmo
  * nome simples colidem no registro de beans do Spring, mesmo em pacotes diferentes. Fica em
@@ -66,35 +61,30 @@ class BaixaDeEstoqueListener {
     }
 
     /**
-     * Roda depois do commit da transação que concluiu a venda, em outra thread.
+     * Roda quando a venda é concluída, antes do commit.
      *
-     * @throws ProdutoNaoEncontradoException se um produto do evento não existe na conta do
-     *         evento; a publicação fica incompleta no registro
+     * @throws ProdutoNaoEncontradoException se um produto do evento não existe nesta conta; a
+     *         conclusão falha junto
+     * @throws IllegalStateException se a venda já deu baixa num produto ou se o evento é de outra
+     *         conta; a conclusão falha junto
      */
-    @Async
-    @TransactionalEventListener
+    @EventListener
     public void darBaixa(VendaConcluida evento) {
-        // Tenant primeiro, transação depois. Ver o javadoc da classe.
-        TenantContext.executarComo(evento.contaId(), () -> {
+        if (!TenantContext.exigirAtual().equals(evento.contaId())) {
+            throw new IllegalStateException(
+                    "venda " + evento.vendaId() + " concluida em outra conta; o estoque nao baixa");
+        }
+
+        transacao.executeWithoutResult(status -> {
             if (!contas.estoqueHabilitado()) {
-                // A conta não controla estoque: nada a baixar, e nem se abre transação.
+                // A conta não controla estoque: nada a baixar.
                 log.debug("conta {} sem controle de estoque; venda {} nao gera movimento",
                         evento.contaId(), evento.vendaId());
                 return;
             }
-
-            transacao.executeWithoutResult(status -> {
-                for (VendaConcluida.Item item : evento.itens()) {
-                    if (produtos.jaDeuBaixaPorVenda(item.produtoId(), evento.vendaId())) {
-                        // Reentrega do registro de publicação: o estoque já saiu.
-                        log.info("venda {} ja deu baixa no produto {}; reentrega ignorada",
-                                evento.vendaId(), item.produtoId());
-                        continue;
-                    }
-                    produtos.darBaixaPorVenda(item.produtoId(), item.quantidade(),
-                            evento.vendaId());
-                }
-            });
+            for (VendaConcluida.Item item : evento.itens()) {
+                produtos.darBaixaPorVenda(item.produtoId(), item.quantidade(), evento.vendaId());
+            }
         });
     }
 }

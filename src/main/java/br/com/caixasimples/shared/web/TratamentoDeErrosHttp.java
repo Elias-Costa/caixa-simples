@@ -7,6 +7,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -78,6 +79,21 @@ class TratamentoDeErrosHttp extends ResponseEntityExceptionHandler {
     @ExceptionHandler(IllegalStateException.class)
     ProblemDetail estadoInvalido(IllegalStateException excecao) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, excecao.getMessage());
+    }
+
+    /**
+     * Duas operações alteraram a mesma raiz ao mesmo tempo, e a versão gravada recusou a segunda:
+     * por exemplo, duas vendas concluídas juntas que mexem na mesma sessão de caixa ou no mesmo
+     * produto, cujo dinheiro e cuja baixa entram na transação da conclusão.
+     *
+     * <p>É conflito com o estado atual, como o 409 acima, e a resposta para quem chamou é a mesma:
+     * recarregar e repetir. Nada foi gravado pela operação recusada.
+     */
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    ProblemDetail alteradoAoMesmoTempo() {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT,
+                "O registro foi alterado por outra operacao ao mesmo tempo; recarregue e tente"
+                        + " de novo.");
     }
 
     /**

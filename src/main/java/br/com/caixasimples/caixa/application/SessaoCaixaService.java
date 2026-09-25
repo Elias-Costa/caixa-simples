@@ -81,13 +81,26 @@ public class SessaoCaixaService {
      */
     @Transactional
     public UUID abrir(Money valorAbertura) {
+        return abrir(UUID.randomUUID(), valorAbertura, Instant.now());
+    }
+
+    /**
+     * A mesma abertura, com o id e o instante que o dispositivo gravou ao abrir o caixa sem rede
+     * (RNF01). A regra de uma sessão aberta por operador vale igual: se o operador abriu outro
+     * caixa com rede enquanto este estava no dispositivo, esta abertura é recusada. Um id que já
+     * existe é recusado pela chave primária, porque a linha nova é inserida e nunca mesclada.
+     *
+     * @throws OperadorJaTemCaixaAbertoException se o operador já tem uma sessão ABERTA
+     */
+    @Transactional
+    public UUID abrir(UUID id, Money valorAbertura, Instant abertaEm) {
         UUID usuarioId = UsuarioContext.exigirAtual().usuarioId();
 
         if (sessoes.existsByUsuarioIdAndStatus(usuarioId, StatusSessaoCaixa.ABERTA)) {
             throw new OperadorJaTemCaixaAbertoException(usuarioId);
         }
 
-        SessaoCaixa sessao = new SessaoCaixa(usuarioId, valorAbertura);
+        SessaoCaixa sessao = new SessaoCaixa(id, usuarioId, valorAbertura, abertaEm);
         return sessoes.save(SessaoCaixaEntity.de(sessao)).getId();
     }
 
@@ -103,11 +116,17 @@ public class SessaoCaixaService {
      */
     @Transactional
     public void registrarSangria(UUID sessaoId, Money valor, String motivo) {
+        registrarSangria(sessaoId, valor, motivo, Instant.now());
+    }
+
+    /** A mesma sangria, com o instante do balcão em que ela foi registrada sem rede. */
+    @Transactional
+    public void registrarSangria(UUID sessaoId, Money valor, String motivo, Instant criadoEm) {
         SessaoCaixaEntity linha = buscar(sessaoId);
         SessaoCaixa sessao = linha.paraDominio();
         UsuarioContext.exigirDonoOuAdmin(sessao.getUsuarioId());
 
-        sessao.sangrar(valor, motivo);
+        sessao.sangrar(valor, motivo, criadoEm);
 
         linha.atualizarCom(sessao);
         sessoes.save(linha);
@@ -124,11 +143,17 @@ public class SessaoCaixaService {
      */
     @Transactional
     public void registrarSuprimento(UUID sessaoId, Money valor, String motivo) {
+        registrarSuprimento(sessaoId, valor, motivo, Instant.now());
+    }
+
+    /** O mesmo suprimento, com o instante do balcão em que ele foi registrado sem rede. */
+    @Transactional
+    public void registrarSuprimento(UUID sessaoId, Money valor, String motivo, Instant criadoEm) {
         SessaoCaixaEntity linha = buscar(sessaoId);
         SessaoCaixa sessao = linha.paraDominio();
         UsuarioContext.exigirDonoOuAdmin(sessao.getUsuarioId());
 
-        sessao.suprir(valor, motivo);
+        sessao.suprir(valor, motivo, criadoEm);
 
         linha.atualizarCom(sessao);
         sessoes.save(linha);
@@ -152,11 +177,21 @@ public class SessaoCaixaService {
      */
     @Transactional
     public Money fechar(UUID sessaoId, Money valorContado) {
+        return fechar(sessaoId, valorContado, Instant.now());
+    }
+
+    /**
+     * O mesmo fechamento, com o instante do balcão em que a gaveta foi contada sem rede. A
+     * diferença sai do estado que o servidor tem ao receber o fechamento, inclusive dos movimentos
+     * que o dispositivo não conhecia.
+     */
+    @Transactional
+    public Money fechar(UUID sessaoId, Money valorContado, Instant fechadaEm) {
         SessaoCaixaEntity linha = buscar(sessaoId);
         SessaoCaixa sessao = linha.paraDominio();
         UsuarioContext.exigirDonoOuAdmin(sessao.getUsuarioId());
 
-        Money diferenca = sessao.fechar(valorContado);
+        Money diferenca = sessao.fechar(valorContado, fechadaEm);
 
         linha.atualizarCom(sessao);
         sessoes.save(linha);

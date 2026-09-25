@@ -20,6 +20,7 @@ import br.com.caixasimples.vendas.VendaCancelada;
 import br.com.caixasimples.vendas.VendaConcluida;
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -94,8 +95,9 @@ class VendaCanceladaListenerTest extends TesteDeIntegracao {
                 new VendaConcluida.Parcela(FormaPagamento.DINHEIRO, Money.de("8.93"),
                         StatusPagamento.CONFIRMADO));
 
-        publicar(new VendaConcluida(conta.contaId(), vendaId, sessaoId, conta.usuarioId(),
-                List.of(new VendaConcluida.Item(UUID.randomUUID(), new BigDecimal("2"))), pagas));
+        concluir(conta, new VendaConcluida(conta.contaId(), vendaId, sessaoId, conta.usuarioId(),
+                List.of(new VendaConcluida.Item(UUID.randomUUID(), new BigDecimal("2"))), pagas,
+                Instant.now()));
         await().atMost(ESPERA).untilAsserted(() ->
                 assertThat(esperadoDe(conta, sessaoId)).isEqualTo(Money.de("68.93")));
 
@@ -153,8 +155,9 @@ class VendaCanceladaListenerTest extends TesteDeIntegracao {
         List<VendaConcluida.Parcela> pagas = List.of(new VendaConcluida.Parcela(
                 FormaPagamento.DINHEIRO, Money.de("30.00"), StatusPagamento.CONFIRMADO));
 
-        publicar(new VendaConcluida(conta.contaId(), vendaId, sessaoId, conta.usuarioId(),
-                List.of(new VendaConcluida.Item(UUID.randomUUID(), BigDecimal.ONE)), pagas));
+        concluir(conta, new VendaConcluida(conta.contaId(), vendaId, sessaoId, conta.usuarioId(),
+                List.of(new VendaConcluida.Item(UUID.randomUUID(), BigDecimal.ONE)), pagas,
+                Instant.now()));
         await().atMost(ESPERA).untilAsserted(() ->
                 assertThat(esperadoDe(conta, sessaoId)).isEqualTo(Money.de("30.00")));
 
@@ -191,9 +194,10 @@ class VendaCanceladaListenerTest extends TesteDeIntegracao {
         List<VendaConcluida.Parcela> pagas = List.of(new VendaConcluida.Parcela(
                 FormaPagamento.DINHEIRO, Money.de("12.00"), StatusPagamento.CONFIRMADO));
 
-        publicar(new VendaConcluida(contaA.contaId(), vendaDaContaA, sessaoDaContaA,
+        concluir(contaA, new VendaConcluida(contaA.contaId(), vendaDaContaA, sessaoDaContaA,
                 contaA.usuarioId(),
-                List.of(new VendaConcluida.Item(UUID.randomUUID(), BigDecimal.ONE)), pagas));
+                List.of(new VendaConcluida.Item(UUID.randomUUID(), BigDecimal.ONE)), pagas,
+                Instant.now()));
         await().atMost(ESPERA).untilAsserted(() ->
                 assertThat(esperadoDe(contaA, sessaoDaContaA)).isEqualTo(Money.de("12.00")));
 
@@ -262,6 +266,14 @@ class VendaCanceladaListenerTest extends TesteDeIntegracao {
                 .toList();
         return new VendaCancelada(conta.contaId(), vendaId, sessaoId, conta.usuarioId(),
                 List.of(new VendaCancelada.Item(UUID.randomUUID(), BigDecimal.ONE)), parcelas);
+    }
+
+    /**
+     * A conclusão é ouvida dentro da transação de quem publica, então a conta vai no contexto
+     * antes de a transação abrir, como numa requisição.
+     */
+    private void concluir(ContaCriada conta, VendaConcluida evento) {
+        conta.comoUsuario(() -> publicar(evento));
     }
 
     private void publicar(Object evento) {

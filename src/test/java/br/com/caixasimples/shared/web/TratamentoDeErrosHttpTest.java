@@ -96,6 +96,21 @@ class TratamentoDeErrosHttpTest extends TesteDeIntegracao {
     }
 
     @Test
+    @DisplayName("versão recusada por alteração simultânea vira 409, sem a mensagem interna")
+    void alteracaoSimultaneaVira409() throws Exception {
+        String corpo = http.perform(get("/api/teste/erros/alterado-ao-mesmo-tempo")
+                        .with(autenticado))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentTypeCompatibleWith(PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString(
+                        "tente de novo")))
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(corpo).doesNotContain(ControllerDeErrosDeTeste.MENSAGEM_INTERNA);
+    }
+
+    @Test
     @DisplayName("violação de validação vira 400 com a mensagem por campo")
     void validacaoVira400ComCampos() throws Exception {
         http.perform(post("/api/teste/erros/validacao").with(autenticado)

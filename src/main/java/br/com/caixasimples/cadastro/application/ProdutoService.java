@@ -9,6 +9,7 @@ import br.com.caixasimples.cadastro.internal.ProdutoRepository;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.UsuarioContext;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -87,11 +88,24 @@ public class ProdutoService {
      */
     @Transactional
     public UUID cadastrar(TipoProduto tipo, DadosDoProduto dados) {
+        return cadastrar(UUID.randomUUID(), tipo, dados, Instant.now());
+    }
+
+    /**
+     * O mesmo cadastro, com o id e o instante que o dispositivo gravou ao cadastrar o item sem
+     * rede (RNF01). Um id que já existe é recusado pela chave primária, porque a linha nova é
+     * inserida e nunca mesclada sobre outra: a entidade tem versão, e a versão vazia diz que ela é
+     * nova.
+     *
+     * @throws br.com.caixasimples.shared.AcessoNegadoException se quem chama não é ADMIN
+     */
+    @Transactional
+    public UUID cadastrar(UUID id, TipoProduto tipo, DadosDoProduto dados, Instant criadoEm) {
         UsuarioContext.exigirAdmin();
         Objects.requireNonNull(dados, "dados do produto nao podem ser nulos");
 
-        Produto produto = new Produto(dados.nome(), dados.preco(), tipo, dados.codigo(),
-                dados.categoria(), dados.unidade(), dados.atributos());
+        Produto produto = new Produto(id, criadoEm, dados.nome(), dados.preco(), tipo,
+                dados.codigo(), dados.categoria(), dados.unidade(), dados.atributos());
 
         return produtos.save(ProdutoEntity.de(produto)).getId();
     }
@@ -466,6 +480,22 @@ public class ProdutoService {
         return produtos.findByAtivoTrueAndTipo(TipoProduto.PRODUTO).stream()
                 .map(ProdutoEntity::paraDominio)
                 .filter(Produto::estaComEstoqueBaixo)
+                .map(produto -> new EstoqueDoProduto(produto.getId(), produto.getNome(),
+                        produto.getCodigo(), produto.getUnidade(), produto.getEstoqueAtual(),
+                        produto.getEstoqueMinimo()))
+                .toList();
+    }
+
+    /**
+     * O saldo de cada produto pedido, ativo ou não, na mesma projeção do alerta. É a pergunta que
+     * a Venda recebida sem rede faz depois da baixa, para saber se vendeu o que o estoque não
+     * tinha. Um id que não existe nesta conta simplesmente não volta.
+     */
+    @Transactional(readOnly = true)
+    public List<EstoqueDoProduto> saldosDe(Collection<UUID> ids) {
+        Objects.requireNonNull(ids, "ids dos produtos nao podem ser nulos");
+        return produtos.findAllById(ids).stream()
+                .map(ProdutoEntity::paraDominio)
                 .map(produto -> new EstoqueDoProduto(produto.getId(), produto.getNome(),
                         produto.getCodigo(), produto.getUnidade(), produto.getEstoqueAtual(),
                         produto.getEstoqueMinimo()))

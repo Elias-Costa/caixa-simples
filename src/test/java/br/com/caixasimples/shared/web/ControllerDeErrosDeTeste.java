@@ -8,6 +8,7 @@ import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -60,6 +61,11 @@ class ControllerDeErrosDeTeste {
     @GetMapping("/estado")
     void estado() {
         throw new IllegalStateException(MENSAGEM_DE_ESTADO);
+    }
+
+    @GetMapping("/alterado-ao-mesmo-tempo")
+    void alteradoAoMesmoTempo() {
+        throw new OptimisticLockingFailureException(MENSAGEM_INTERNA);
     }
 
     @GetMapping("/inesperado")

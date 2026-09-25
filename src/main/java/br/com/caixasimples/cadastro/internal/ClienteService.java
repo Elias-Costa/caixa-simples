@@ -50,9 +50,20 @@ public class ClienteService {
      */
     @Transactional
     public UUID cadastrar(DadosDoCliente dados) {
+        return cadastrar(UUID.randomUUID(), dados, Instant.now());
+    }
+
+    /**
+     * O mesmo cadastro, com o id e o instante que o dispositivo gravou ao cadastrar o cliente sem
+     * rede (RNF01). Um id que já existe é recusado pela chave primária, porque a linha nova é
+     * inserida e nunca mesclada sobre outra.
+     */
+    @Transactional
+    public UUID cadastrar(UUID id, DadosDoCliente dados, Instant criadoEm) {
         Objects.requireNonNull(dados, "dados do cliente nao podem ser nulos");
 
-        return clientes.save(new ClienteEntity(dados.nome(), dados.contato())).getId();
+        return clientes.save(new ClienteEntity(id, dados.nome(), dados.contato(), criadoEm))
+                .getId();
     }
 
     /**
@@ -221,12 +232,12 @@ class ClienteEntity {
         // exigido pelo JPA
     }
 
-    ClienteEntity(String nome, String contato) {
-        this.id = UUID.randomUUID();
+    ClienteEntity(UUID id, String nome, String contato, Instant criadoEm) {
+        this.id = Objects.requireNonNull(id, "id do cliente nao pode ser nulo");
         this.nome = exigirNome(nome);
         this.contato = normalizarContato(contato);
         this.ativo = true;
-        this.criadoEm = Instant.now();
+        this.criadoEm = Objects.requireNonNull(criadoEm, "criadoEm nao pode ser nulo");
     }
 
     /**
@@ -278,6 +289,11 @@ class ClienteEntity {
 
     boolean isAtivo() {
         return ativo;
+    }
+
+    /** A revisão que o dispositivo guarda como a versão lida depois de um gesto sincronizado. */
+    Long getVersao() {
+        return versao;
     }
 
     ClienteService.Cliente paraCliente() {

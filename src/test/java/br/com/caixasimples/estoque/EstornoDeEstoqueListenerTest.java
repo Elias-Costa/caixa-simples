@@ -20,6 +20,7 @@ import br.com.caixasimples.vendas.VendaCancelada;
 import br.com.caixasimples.vendas.VendaConcluida;
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -43,12 +44,12 @@ import org.springframework.transaction.support.TransactionTemplate;
  * thread que não tem tenant nenhum. O caminho inteiro, do cancelamento pelo caso de uso ao saldo,
  * está em {@code VendaServiceTest}.
  *
- * <p>Para haver o que devolver, cada cenário publica antes a venda concluída, e espera a baixa.
- * Os eventos vão pagos em Pix, para o ouvinte do caixa não ter o que fazer e sair do caminho.
- * Todo evento é publicado dentro de uma transação, porque um listener transacional só é chamado
- * depois de um commit; o listener roda em outra thread, então cada asserção espera com
- * Awaitility. Há dois ouvintes de cada evento, então quem espera pela publicação concluída filtra
- * pelo ouvinte do estoque.
+ * <p>Para haver o que devolver, cada cenário publica antes a venda concluída, com a conta no
+ * contexto: a baixa roda dentro dessa publicação, na transação de quem publica. Os eventos vão
+ * pagos em Pix, para o ouvinte do caixa não ter o que fazer e sair do caminho. O cancelamento é
+ * publicado dentro de uma transação, porque o ouvinte dele só é chamado depois de um commit, em
+ * outra thread, então cada asserção sobre o estorno espera com Awaitility. Há dois ouvintes do
+ * cancelamento, então quem espera pela publicação concluída filtra pelo ouvinte do estoque.
  */
 class EstornoDeEstoqueListenerTest extends TesteDeIntegracao {
 
@@ -117,7 +118,7 @@ class EstornoDeEstoqueListenerTest extends TesteDeIntegracao {
         UUID queijoId = cadastrar(conta, "Queijo minas", TipoProduto.PRODUTO);
         UUID entregaId = cadastrar(conta, "Entrega", TipoProduto.SERVICO);
 
-        publicar(conclusao(conta, vendaId, sessaoId, List.of(
+        concluir(conta, conclusao(conta, vendaId, sessaoId, List.of(
                 new VendaConcluida.Item(cafeId, new BigDecimal("2")),
                 new VendaConcluida.Item(entregaId, BigDecimal.ONE),
                 new VendaConcluida.Item(queijoId, new BigDecimal("0.750")))));
@@ -157,12 +158,10 @@ class EstornoDeEstoqueListenerTest extends TesteDeIntegracao {
         UUID vendaId = vendas.criarAbertaEm(conta.contaId(), sessaoId, conta.usuarioId());
         UUID pomadaId = cadastrar(conta, "Pomada", TipoProduto.PRODUTO);
 
-        // A venda aconteceu com o controle desligado: nada saiu.
-        VendaConcluida conclusao = conclusao(conta, vendaId, sessaoId,
-                List.of(new VendaConcluida.Item(pomadaId, BigDecimal.ONE)));
-        publicar(conclusao);
-        await().atMost(ESPERA).untilAsserted(() ->
-                assertThat(publicacoesDaBaixa(conclusao)).hasSize(1));
+        // A venda aconteceu com o controle desligado: nada saiu. O ouvinte da conclusão roda
+        // dentro da publicação, então ao voltar dela a decisão de não baixar já foi tomada.
+        concluir(conta, conclusao(conta, vendaId, sessaoId,
+                List.of(new VendaConcluida.Item(pomadaId, BigDecimal.ONE))));
 
         criador.habilitarEstoque(conta.contaId());
         VendaCancelada cancelamento = cancelamento(conta, vendaId, sessaoId,
@@ -191,7 +190,7 @@ class EstornoDeEstoqueListenerTest extends TesteDeIntegracao {
         UUID vendaId = vendas.criarAbertaEm(conta.contaId(), sessaoId, conta.usuarioId());
         UUID arrozId = cadastrar(conta, "Arroz", TipoProduto.PRODUTO);
 
-        publicar(conclusao(conta, vendaId, sessaoId,
+        concluir(conta, conclusao(conta, vendaId, sessaoId,
                 List.of(new VendaConcluida.Item(arrozId, new BigDecimal("2")))));
         await().atMost(ESPERA).untilAsserted(() ->
                 conta.comoUsuario(() ->
@@ -229,7 +228,7 @@ class EstornoDeEstoqueListenerTest extends TesteDeIntegracao {
                 contaA.usuarioId());
         UUID escovaDaContaA = cadastrar(contaA, "Escova", TipoProduto.PRODUTO);
 
-        publicar(conclusao(contaA, vendaDaContaA, sessaoDaContaA,
+        concluir(contaA, conclusao(contaA, vendaDaContaA, sessaoDaContaA,
                 List.of(new VendaConcluida.Item(escovaDaContaA, BigDecimal.ONE))));
         await().atMost(ESPERA).untilAsserted(() ->
                 contaA.comoUsuario(() ->
@@ -273,7 +272,8 @@ class EstornoDeEstoqueListenerTest extends TesteDeIntegracao {
             List<VendaConcluida.Item> itens) {
         return new VendaConcluida(conta.contaId(), vendaId, sessaoId, conta.usuarioId(), itens,
                 List.of(new VendaConcluida.Parcela(FormaPagamento.PIX, Money.de("10.00"),
-                        StatusPagamento.CONFIRMADO)));
+                        StatusPagamento.CONFIRMADO)),
+                Instant.now());
     }
 
     /** O cancelamento da mesma venda, também paga em Pix. */
@@ -284,16 +284,20 @@ class EstornoDeEstoqueListenerTest extends TesteDeIntegracao {
                         StatusPagamento.CONFIRMADO)));
     }
 
+    /**
+     * A conclusão é ouvida dentro da transação de quem publica, então a conta vai no contexto
+     * antes de a transação abrir, como numa requisição.
+     */
+    private void concluir(ContaCriada conta, VendaConcluida evento) {
+        conta.comoUsuario(() -> publicar(evento));
+    }
+
     private void publicar(Object evento) {
         transacao.executeWithoutResult(status -> publicador.publishEvent(evento));
     }
 
     private List<? extends EventPublication> publicacoesDoEstoque(VendaCancelada evento) {
         return publicacoesEntreguesA(evento, "EstornoDeEstoqueListener");
-    }
-
-    private List<? extends EventPublication> publicacoesDaBaixa(VendaConcluida evento) {
-        return publicacoesEntreguesA(evento, "BaixaDeEstoqueListener");
     }
 
     /**

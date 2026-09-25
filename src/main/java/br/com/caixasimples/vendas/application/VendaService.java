@@ -75,7 +75,10 @@ import org.springframework.transaction.annotation.Transactional;
  * <p><strong>O preço vem do cadastro, nunca de quem chama.</strong> {@link #adicionarItem} recebe
  * o id do produto e consulta o preço vigente na hora de lançar; um preço vindo do payload seria
  * uma porta para vender por qualquer valor. É a cópia que faz uma venda passada não mudar quando o
- * produto é reajustado.
+ * produto é reajustado. A única exceção é o item de uma Venda registrada no dispositivo sem rede,
+ * em {@link #adicionarItemComPrecoVisto}: o cliente já pagou o preço que o operador viu, e esse
+ * valor fica. O preço vigente volta para quem chamou, e a divergência vira revisão para o
+ * administrador, nunca aceite silencioso.
  *
  * <p><strong>{@link #concluir} é um passo à parte de registrar a última parcela</strong>, e é um
  * dos dois pontos de onde sai algo deste módulo: depois de gravar a venda CONCLUIDA, publica
@@ -83,9 +86,18 @@ import org.springframework.transaction.annotation.Transactional;
  * de gravar a venda CANCELADA, e só quando ela estava CONCLUIDA: uma comanda ABERTA abandonada
  * nunca produziu efeito fora do módulo, e não há o que desfazer. Lançar e devolver o dinheiro no
  * caixa, dar baixa e estornar o estoque são efeitos de quem ouve os eventos; este serviço não
- * chama nenhum dos dois módulos. Os eventos carregam a conta, lida do contexto autenticado no
- * ato, porque o listener roda em outra thread e uma reentrega pode vir do registro de publicação
- * horas depois; sem a conta dentro dele, o caixa não acharia a sessão.
+ * chama nenhum dos dois módulos. Os ouvintes da conclusão rodam dentro da transação dela, então a
+ * Venda concluída, o dinheiro na gaveta e a baixa confirmam juntos; os do cancelamento rodam
+ * depois do commit, em outra thread. Os eventos carregam a conta, lida do contexto autenticado no
+ * ato, porque o ouvinte do cancelamento não tem a requisição e uma reentrega pode vir do registro
+ * de publicação horas depois; sem a conta dentro dele, o caixa não acharia a sessão.
+ *
+ * <p><strong>A Venda registrada no dispositivo sem rede</strong> chega com os ids que ele gerou e
+ * com os instantes do balcão (RNF01, RNF03), pelas formas de {@link #iniciar}, de
+ * {@link #registrarPagamento} e de {@link #concluir} que os recebem, e por
+ * {@link #adicionarItemComPrecoVisto}. As regras são as mesmas do caminho com rede. Um id que já
+ * existe nesta conta é recusado antes de gravar: a linha da venda não tem versão, e salvar uma
+ * venda, um item ou uma parcela com id já usado mesclaria o novo sobre o existente.
  *
  * <p><strong>Concluir exige o caixa em que a venda nasceu ainda ABERTO</strong>, pela mesma
  * pergunta que {@link #iniciar} faz: é nesse caixa que o dinheiro entra, e uma sessão FECHADA já
@@ -153,6 +165,18 @@ public class VendaService {
      */
     @Transactional
     public UUID iniciar(UUID sessaoCaixaId) {
+        return iniciar(UUID.randomUUID(), sessaoCaixaId, Instant.now());
+    }
+
+    /**
+     * A mesma abertura de comanda, com o id e o instante que o dispositivo gravou ao abri-la sem
+     * rede.
+     *
+     * @throws IllegalStateException além dos casos acima, se já existe venda com este id
+     */
+    @Transactional
+    public UUID iniciar(UUID vendaId, UUID sessaoCaixaId, Instant criadoEm) {
+        Objects.requireNonNull(vendaId, "id da venda nao pode ser nulo");
         Objects.requireNonNull(sessaoCaixaId, "id da sessao de caixa nao pode ser nulo");
         UUID usuarioId = UsuarioContext.exigirAtual().usuarioId();
 
@@ -161,8 +185,13 @@ public class VendaService {
                     "sessao de caixa " + sessaoCaixaId + " nao esta ABERTA e nao aceita venda"
                             + " nova. Abra um caixa antes de vender.");
         }
+        if (vendas.existsById(vendaId)) {
+            throw new IllegalStateException(
+                    "ja existe venda com o id " + vendaId + "; a venda existente nao e"
+                            + " substituida.");
+        }
 
-        Venda venda = new Venda(sessaoCaixaId, usuarioId);
+        Venda venda = new Venda(vendaId, sessaoCaixaId, usuarioId, criadoEm);
         return vendas.save(VendaEntity.de(venda)).getId();
     }
 
@@ -201,6 +230,55 @@ public class VendaService {
         linha.atualizarCom(venda);
         vendas.save(linha);
         return itemId;
+    }
+
+    /**
+     * Lança o item de uma Venda registrada no dispositivo sem rede, com o id que ele gerou, o
+     * instante do balcão e o preço que o operador viu na hora (RNF01).
+     *
+     * <p>As guardas são as de {@link #adicionarItem}: desconto só do administrador, a venda de quem
+     * chama, produto desta conta e ainda ativo. Produto inativado antes de a venda chegar ao
+     * servidor é recusado, porque a regra de não vender item fora do catálogo continua valendo e
+     * quem decide o que fazer com essa venda é o administrador.
+     *
+     * <p>O preço visto é o que fica, porque foi o que o cliente pagou. O preço vigente volta para
+     * quem chamou comparar: a diferença não é recusa, é revisão.
+     *
+     * @return o preço vigente do produto no cadastro, no momento em que o item chegou
+     * @throws VendaNaoEncontradaException se a venda não existe nesta conta
+     * @throws br.com.caixasimples.cadastro.application.ProdutoNaoEncontradoException se o
+     *         produto não existe nesta conta
+     * @throws IllegalStateException    se o produto está inativo, se a venda não está ABERTA, ou se
+     *                                  já existe item com este id nesta conta
+     * @throws IllegalArgumentException se quantidade, preço ou desconto violam as regras da raiz
+     */
+    @Transactional
+    public Money adicionarItemComPrecoVisto(UUID vendaId, UUID itemId, UUID produtoId,
+            BigDecimal quantidade, Money precoVisto, Money desconto, Instant criadoEm) {
+        if (desconto != null && !desconto.equals(Money.ZERO)) {
+            UsuarioContext.exigirAdmin();
+        }
+        VendaEntity linha = buscar(vendaId);
+        Venda venda = linha.paraDominio();
+        UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
+        Objects.requireNonNull(itemId, "id do item nao pode ser nulo");
+        if (vendas.existsByItensId(itemId)) {
+            throw new IllegalStateException(
+                    "ja existe item com o id " + itemId + "; o item existente nao e substituido.");
+        }
+
+        ProdutoParaVenda produto = produtos.consultarParaVenda(produtoId);
+        if (!produto.ativo()) {
+            throw new IllegalStateException(
+                    "produto " + produtoId + " foi inativado antes de a venda chegar ao servidor"
+                            + " e nao entra nela sem revisao do administrador");
+        }
+
+        venda.adicionarItem(itemId, produtoId, quantidade, precoVisto, desconto, criadoEm);
+
+        linha.atualizarCom(venda);
+        vendas.save(linha);
+        return produto.preco();
     }
 
     /**
@@ -268,6 +346,18 @@ public class VendaService {
      */
     @Transactional
     public Money registrarPagamento(UUID vendaId, SolicitacaoPagamento solicitacao) {
+        return registrarPagamento(vendaId, UUID.randomUUID(), solicitacao, Instant.now());
+    }
+
+    /**
+     * A mesma parcela, com o id e o instante que o dispositivo gravou ao lançá-la sem rede. O
+     * troco é recalculado aqui pela mesma regra, e não copiado do dispositivo.
+     *
+     * @throws IllegalStateException além dos casos acima, se já existe parcela com este id
+     */
+    @Transactional
+    public Money registrarPagamento(UUID vendaId, UUID pagamentoId,
+            SolicitacaoPagamento solicitacao, Instant criadoEm) {
         Objects.requireNonNull(solicitacao, "solicitacao de pagamento nao pode ser nula");
         if (solicitacao.forma() == FormaPagamento.PIX) {
             throw new IllegalArgumentException("Pix integrado exige a rota de cobranca com tentativaId");
@@ -278,10 +368,16 @@ public class VendaService {
         VendaEntity linha = buscar(vendaId);
         Venda venda = linha.paraDominio();
         UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
+        Objects.requireNonNull(pagamentoId, "id da parcela nao pode ser nulo");
+        if (vendas.existsByPagamentosId(pagamentoId)) {
+            throw new IllegalStateException(
+                    "ja existe parcela com o id " + pagamentoId + "; a parcela existente nao e"
+                            + " substituida.");
+        }
 
         ResultadoPagamento resultado = pagamentos.pagar(solicitacao);
-        venda.registrarPagamento(resultado.forma(), resultado.valor(), resultado.status(),
-                resultado.troco());
+        venda.registrarPagamento(pagamentoId, resultado.forma(), resultado.valor(),
+                resultado.status(), resultado.troco(), criadoEm);
 
         linha.atualizarCom(venda);
         vendas.save(linha);
@@ -407,6 +503,15 @@ public class VendaService {
      */
     @Transactional
     public void concluir(UUID vendaId) {
+        concluir(vendaId, Instant.now());
+    }
+
+    /**
+     * A mesma conclusão, com o instante do balcão em que a Venda foi concluída sem rede. É esse
+     * instante que decide o dia do faturamento e o do dinheiro na gaveta.
+     */
+    @Transactional
+    public void concluir(UUID vendaId, Instant concluidoEm) {
         VendaEntity linha = vendas.findLockedById(vendaId)
                 .orElseThrow(() -> new VendaNaoEncontradaException(vendaId));
         Venda venda = linha.paraDominio();
@@ -422,7 +527,7 @@ public class VendaService {
                             + " com o caixa em que nasceu ainda aberto.");
         }
 
-        venda.concluir();
+        venda.concluir(concluidoEm);
 
         linha.atualizarCom(venda);
         vendas.save(linha);
@@ -743,7 +848,7 @@ public class VendaService {
                 .toList();
 
         return new VendaConcluida(contaId, venda.getId(), venda.getSessaoCaixaId(),
-                venda.getUsuarioId(), itens, parcelas);
+                venda.getUsuarioId(), itens, parcelas, venda.getConcluidoEm());
     }
 
     /**

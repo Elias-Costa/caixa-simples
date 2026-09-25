@@ -32,6 +32,16 @@ public interface VendaRepository extends JpaRepository<VendaEntity, UUID> {
 
     List<VendaEntity> findByStatus(StatusVenda status);
 
+    /**
+     * Se algum item desta conta já usa este id. O item lançado no dispositivo sem rede chega com o
+     * id que ele gerou, e a pergunta vai pela raiz, sem repositório para o membro: salvar um item
+     * com id já usado mesclaria o novo sobre o existente, porque a linha não tem versão.
+     */
+    boolean existsByItensId(UUID itemId);
+
+    /** A mesma pergunta para a parcela lançada no dispositivo sem rede. */
+    boolean existsByPagamentosId(UUID pagamentoId);
+
     /** Serializa recebimentos parciais da mesma dívida antes de conferir o saldo. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<VendaEntity> findLockedById(UUID id);

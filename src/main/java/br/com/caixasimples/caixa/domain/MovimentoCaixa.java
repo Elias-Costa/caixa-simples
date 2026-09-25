@@ -58,16 +58,14 @@ public record MovimentoCaixa(UUID id, TipoMovimentoCaixa tipo, Money valor, Stri
     }
 
     /**
-     * Movimento novo: identidade e momento nascem aqui, como em todo registro do sistema (RNF01).
+     * Movimento novo: a identidade nasce aqui, como em todo registro do sistema (RNF01). O instante
+     * vem da raiz, que usa o relógio do servidor no caminho com rede e o do balcão quando o
+     * movimento foi registrado no dispositivo sem rede.
      */
-    static MovimentoCaixa novo(TipoMovimentoCaixa tipo, Money valor, String motivo, UUID vendaId) {
-        return novo(tipo, valor, motivo, vendaId, null);
-    }
-
     static MovimentoCaixa novo(TipoMovimentoCaixa tipo, Money valor, String motivo, UUID vendaId,
-            UUID recebimentoId) {
+            UUID recebimentoId, Instant criadoEm) {
         return new MovimentoCaixa(UUID.randomUUID(), tipo, valor, motivo, vendaId, recebimentoId,
-                Instant.now());
+                criadoEm);
     }
 
     private static String textoOpcional(String valor) {

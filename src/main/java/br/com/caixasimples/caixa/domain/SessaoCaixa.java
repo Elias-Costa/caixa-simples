@@ -78,6 +78,15 @@ import java.util.UUID;
  * <p><strong>A regra de <em>uma sessão aberta por operador</em> não mora aqui</strong>, e nem
  * poderia: uma sessão não enxerga as outras. Quem a aplica é
  * {@code caixa.application.SessaoCaixaService}, com o índice único parcial da migration V6 embaixo.
+ *
+ * <h2>Instantes do balcão</h2>
+ *
+ * <p>A abertura, a sangria, o suprimento, a entrada do dinheiro de uma venda e o fechamento têm
+ * uma forma que recebe o instante pronto, além da que usa o relógio do servidor. É por ela que
+ * chega o que o caixa registrou sem rede: o dia do histórico (RF16) e do fluxo de caixa (RF23) é
+ * o dia em que o dinheiro mexeu no balcão, não o dia em que o servidor soube disso. A sessão
+ * aberta sem rede chega também com o id que o dispositivo gerou (RNF01). As regras são as mesmas
+ * nas duas formas.
  */
 public class SessaoCaixa {
 
@@ -107,6 +116,17 @@ public class SessaoCaixa {
      * @throws IllegalArgumentException se {@code valorAbertura} é negativo
      */
     public SessaoCaixa(UUID usuarioId, Money valorAbertura) {
+        this(UUID.randomUUID(), usuarioId, valorAbertura, Instant.now());
+    }
+
+    /**
+     * A mesma abertura, com o id e o instante que o dispositivo gravou ao abrir o caixa sem rede.
+     *
+     * @param id       o id gerado no dispositivo, que os gestos seguintes da sessão usam
+     * @param abertaEm o instante do balcão em que o caixa abriu
+     * @throws IllegalArgumentException se {@code valorAbertura} é negativo
+     */
+    public SessaoCaixa(UUID id, UUID usuarioId, Money valorAbertura, Instant abertaEm) {
         Objects.requireNonNull(valorAbertura, "valorAbertura nao pode ser nulo");
         if (valorAbertura.isNegativo()) {
             // Abertura negativa envenenaria o esperado desde a primeira linha, e o erro só
@@ -116,10 +136,10 @@ public class SessaoCaixa {
                             + ". Abrir sem troco e zero, nunca um valor negativo.");
         }
 
-        this.id = UUID.randomUUID();
+        this.id = Objects.requireNonNull(id, "id da sessao de caixa nao pode ser nulo");
         this.usuarioId = Objects.requireNonNull(usuarioId, "usuarioId nao pode ser nulo");
         this.valorAbertura = valorAbertura;
-        this.abertaEm = Instant.now();
+        this.abertaEm = Objects.requireNonNull(abertaEm, "abertaEm nao pode ser nulo");
         this.valorFechamentoEsperado = valorAbertura;
         this.status = StatusSessaoCaixa.ABERTA;
         this.movimentos = new ArrayList<>();
@@ -167,6 +187,11 @@ public class SessaoCaixa {
      * @throws IllegalStateException    se a sessão já está FECHADA
      */
     public void sangrar(Money valor, String motivo) {
+        sangrar(valor, motivo, Instant.now());
+    }
+
+    /** A mesma sangria, com o instante do balcão em que o dinheiro saiu da gaveta. */
+    public void sangrar(Money valor, String motivo, Instant criadoEm) {
         exigirMotivo(motivo, TipoMovimentoCaixa.SANGRIA);
         Objects.requireNonNull(valor, "valor da sangria nao pode ser nulo");
 
@@ -178,7 +203,7 @@ public class SessaoCaixa {
                             + " que deveriam estar na gaveta. Nao se retira o que nao esta la.");
         }
 
-        registrar(TipoMovimentoCaixa.SANGRIA, valor, motivo, null);
+        registrar(TipoMovimentoCaixa.SANGRIA, valor, motivo, null, null, criadoEm);
     }
 
     /**
@@ -190,8 +215,13 @@ public class SessaoCaixa {
      * @throws IllegalStateException    se a sessão já está FECHADA
      */
     public void suprir(Money valor, String motivo) {
+        suprir(valor, motivo, Instant.now());
+    }
+
+    /** O mesmo suprimento, com o instante do balcão em que o troco entrou na gaveta. */
+    public void suprir(Money valor, String motivo, Instant criadoEm) {
         exigirMotivo(motivo, TipoMovimentoCaixa.SUPRIMENTO);
-        registrar(TipoMovimentoCaixa.SUPRIMENTO, valor, motivo, null);
+        registrar(TipoMovimentoCaixa.SUPRIMENTO, valor, motivo, null, null, criadoEm);
     }
 
     /**
@@ -217,13 +247,21 @@ public class SessaoCaixa {
      *                               nesta sessão
      */
     public void registrarVenda(Money valor, UUID vendaId) {
+        registrarVenda(valor, vendaId, Instant.now());
+    }
+
+    /**
+     * A mesma entrada, com o instante em que a venda foi concluída no balcão: é quando o dinheiro
+     * entrou na gaveta, mesmo que o servidor só saiba disso depois.
+     */
+    public void registrarVenda(Money valor, UUID vendaId, Instant criadoEm) {
         Objects.requireNonNull(vendaId, "vendaId nao pode ser nulo");
         if (jaRegistrouVenda(vendaId)) {
             throw new IllegalStateException(
                     "venda " + vendaId + " ja foi lancada na sessao de caixa " + id
                             + " e nao entra de novo. O dinheiro de uma venda conta uma vez so.");
         }
-        registrar(TipoMovimentoCaixa.VENDA, valor, null, vendaId);
+        registrar(TipoMovimentoCaixa.VENDA, valor, null, vendaId, null, criadoEm);
     }
 
     /**
@@ -285,7 +323,7 @@ public class SessaoCaixa {
 
         Money valorDaVenda = entrada == null ? Money.ZERO : entrada.valor();
         registrar(TipoMovimentoCaixa.ESTORNO, valorDaVenda.somar(valorDeRecebimentos), null,
-                vendaId);
+                vendaId, null, Instant.now());
     }
 
     /** Cada recebimento em dinheiro entra uma vez, mesmo após reentrega do evento. */
@@ -295,7 +333,8 @@ public class SessaoCaixa {
         if (jaRegistrouRecebimento(recebimentoId)) {
             throw new IllegalStateException("recebimento ja lancado nesta sessao: " + recebimentoId);
         }
-        registrar(TipoMovimentoCaixa.RECEBIMENTO, valor, null, vendaId, recebimentoId);
+        registrar(TipoMovimentoCaixa.RECEBIMENTO, valor, null, vendaId, recebimentoId,
+                Instant.now());
     }
 
     public boolean jaRegistrouRecebimento(UUID recebimentoId) {
@@ -333,7 +372,13 @@ public class SessaoCaixa {
      * @throws IllegalStateException    se a sessão já está FECHADA
      */
     public Money fechar(Money valorContado) {
+        return fechar(valorContado, Instant.now());
+    }
+
+    /** O mesmo fechamento, com o instante do balcão em que a gaveta foi contada. */
+    public Money fechar(Money valorContado, Instant fechadaEm) {
         Objects.requireNonNull(valorContado, "valorContado nao pode ser nulo");
+        Objects.requireNonNull(fechadaEm, "fechadaEm nao pode ser nulo");
 
         // A checagem de estado vem antes da do valor de propósito: sessão já fechada é recusada
         // independentemente do que se tenha contado, e a mensagem que interessa é essa.
@@ -353,7 +398,7 @@ public class SessaoCaixa {
 
         this.valorFechamentoContado = valorContado;
         this.diferenca = valorFechamentoEsperado.subtrair(valorContado);
-        this.fechadaEm = Instant.now();
+        this.fechadaEm = fechadaEm;
         this.status = StatusSessaoCaixa.FECHADA;
 
         return diferenca;
@@ -367,12 +412,8 @@ public class SessaoCaixa {
      * lançaria sangria sem motivo e com tipo arbitrário. Quem chega aqui já passou por
      * {@link #sangrar}, {@link #suprir}, {@link #registrarVenda} ou {@link #estornarVenda}.
      */
-    private void registrar(TipoMovimentoCaixa tipo, Money valor, String motivo, UUID vendaId) {
-        registrar(tipo, valor, motivo, vendaId, null);
-    }
-
     private void registrar(TipoMovimentoCaixa tipo, Money valor, String motivo, UUID vendaId,
-            UUID recebimentoId) {
+            UUID recebimentoId, Instant criadoEm) {
         if (status != StatusSessaoCaixa.ABERTA) {
             // Depois do fechamento a diferença já está gravada; um movimento novo a tornaria
             // mentirosa sem que nada a recalculasse.
@@ -382,7 +423,8 @@ public class SessaoCaixa {
                             + " conferida.");
         }
 
-        MovimentoCaixa movimento = MovimentoCaixa.novo(tipo, valor, motivo, vendaId, recebimentoId);
+        MovimentoCaixa movimento = MovimentoCaixa.novo(tipo, valor, motivo, vendaId, recebimentoId,
+                criadoEm);
         movimentos.add(movimento);
 
         // O switch é exaustivo de propósito: acrescentar um valor em TipoMovimentoCaixa quebra a

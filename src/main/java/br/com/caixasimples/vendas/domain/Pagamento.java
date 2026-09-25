@@ -82,15 +82,17 @@ public record Pagamento(UUID id, FormaPagamento forma, Money valor, StatusPagame
     }
 
     /**
-     * Parcela nova: identidade e momento nascem aqui, como em todo registro do sistema (RNF01).
+     * Parcela nova, criada pela raiz.
      *
      * <p>Visibilidade de pacote, para que só a raiz crie parcela: é ela que confere o valor contra
      * o que falta pagar. O status e o troco chegam prontos, decididos pelo módulo de pagamentos,
      * porque é a forma que sabe se a parcela nasce confirmada ou espera um provedor, e quanto
-     * volta para o cliente.
+     * volta para o cliente. A identidade e o instante chegam da raiz, como no item: gerados na
+     * hora no servidor, ou os do balcão quando a parcela foi lançada no dispositivo sem rede.
      */
-    static Pagamento novo(FormaPagamento forma, Money valor, StatusPagamento status, Money troco) {
-        return new Pagamento(UUID.randomUUID(), forma, valor, status, troco, Instant.now());
+    static Pagamento novo(UUID id, FormaPagamento forma, Money valor, StatusPagamento status,
+            Money troco, Instant criadoEm) {
+        return new Pagamento(id, forma, valor, status, troco, criadoEm);
     }
 
     static Pagamento pixPendente(UUID id, Money valor, CobrancaPix cobranca) {

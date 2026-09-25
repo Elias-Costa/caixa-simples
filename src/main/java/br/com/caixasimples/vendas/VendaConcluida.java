@@ -5,6 +5,7 @@ import br.com.caixasimples.pagamentos.StatusPagamento;
 import br.com.caixasimples.shared.ContaId;
 import br.com.caixasimples.shared.Money;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -18,15 +19,14 @@ import java.util.UUID;
  * decide o que entra na gaveta é o caixa, lendo as parcelas; quem decide o que baixa é o estoque,
  * lendo os itens. A venda não faz conta em nome de ninguém.
  *
- * <p><strong>Carrega a conta</strong>, ao contrário dos agregados, que nunca a expõem. O listener
- * roda em outra thread, sem o tenant da requisição, e uma reentrega pode vir horas depois, a
- * partir do registro de publicação: a conta precisa estar no evento, e o valor vem do contexto
- * autenticado no momento da publicação, nunca de quem chamou o caso de uso (RNF05).
+ * <p><strong>É ouvido dentro da transação que concluiu a venda.</strong> Os dois ouvintes rodam na
+ * thread e na transação de quem publicou, então a venda concluída, o dinheiro na gaveta e a baixa
+ * confirmam juntos ou não confirmam. É o que deixa a sangria registrada depois da venda, no mesmo
+ * lote vindo do dispositivo sem rede, encontrar o dinheiro dela no caixa.
  *
- * <p><strong>Vai e volta de JSON.</strong> O registro de publicação serializa o evento e o
- * remonta numa reentrega, então só entram aqui tipos que fazem esse caminho sem perda: records,
- * {@code UUID}, {@code BigDecimal} e enum. Mudar a forma deste record muda o contrato gravado no
- * outbox.
+ * <p><strong>Carrega a conta</strong>, ao contrário dos agregados, que nunca a expõem. O valor vem
+ * do contexto autenticado no momento da publicação, nunca de quem chamou o caso de uso (RNF05), e
+ * os ouvintes conferem que rodam nessa mesma conta.
  *
  * @param contaId       a conta a que a venda pertence
  * @param vendaId       a venda concluída
@@ -35,9 +35,11 @@ import java.util.UUID;
  * @param itens         o que foi vendido, na ordem em que entrou na comanda
  * @param parcelas      como foi pago, na ordem em que as parcelas foram lançadas, inclusive as
  *                      recusadas: o status diz o que cada uma vale
+ * @param concluidoEm   quando a venda foi concluída, o instante do balcão quando ela foi registrada
+ *                      sem rede; é quando o dinheiro entrou na gaveta
  */
 public record VendaConcluida(ContaId contaId, UUID vendaId, UUID sessaoCaixaId, UUID usuarioId,
-        List<Item> itens, List<Parcela> parcelas) {
+        List<Item> itens, List<Parcela> parcelas, Instant concluidoEm) {
 
     public VendaConcluida {
         Objects.requireNonNull(contaId, "contaId nao pode ser nulo");
@@ -46,6 +48,7 @@ public record VendaConcluida(ContaId contaId, UUID vendaId, UUID sessaoCaixaId, 
         Objects.requireNonNull(usuarioId, "usuarioId nao pode ser nulo");
         itens = List.copyOf(Objects.requireNonNull(itens, "itens nao pode ser nulo"));
         parcelas = List.copyOf(Objects.requireNonNull(parcelas, "parcelas nao pode ser nulo"));
+        Objects.requireNonNull(concluidoEm, "concluidoEm nao pode ser nulo");
     }
 
     /**

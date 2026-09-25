@@ -306,11 +306,12 @@ class VendaTest {
     @DisplayName("venda que não está ABERTA recusa item, remoção, desconto, pagamento e conclusão")
     void vendaForaDeAbertaNaoAceitaMontagem() {
         for (StatusVenda status : List.of(StatusVenda.CONCLUIDA, StatusVenda.CANCELADA)) {
-            ItemVenda item = ItemVenda.novo(CAFE, DOIS, Money.de("4.50"), Money.ZERO);
+            ItemVenda item = ItemVenda.novo(UUID.randomUUID(), CAFE, DOIS, Money.de("4.50"),
+                    Money.ZERO, Instant.now());
             // A CONCLUIDA precisa da parcela que a fecha, senão reconstituir a recusa. A CANCELADA
             // não tem regra de pagamento, e vai com a mesma parcela por simplicidade.
-            Pagamento parcela = Pagamento.novo(FormaPagamento.DINHEIRO, Money.de("9.00"),
-                    StatusPagamento.CONFIRMADO, Money.ZERO);
+            Pagamento parcela = Pagamento.novo(UUID.randomUUID(), FormaPagamento.DINHEIRO,
+                    Money.de("9.00"), StatusPagamento.CONFIRMADO, Money.ZERO, Instant.now());
             Venda venda = Venda.reconstituir(UUID.randomUUID(), SESSAO, OPERADOR, null, status,
                     Money.de("9.00"), Money.ZERO, Instant.now(), Instant.now(), List.of(item),
                     List.of(parcela));
@@ -528,7 +529,8 @@ class VendaTest {
     @Test
     @DisplayName("reconstituir recusa total divergente dos itens: o estado não vira agregado")
     void reconstituirRecusaTotalDivergente() {
-        ItemVenda item = ItemVenda.novo(CAFE, DOIS, Money.de("4.50"), Money.ZERO);
+        ItemVenda item = ItemVenda.novo(UUID.randomUUID(), CAFE, DOIS, Money.de("4.50"),
+                Money.ZERO, Instant.now());
 
         // 9,00 gravado como 10,00: a linha mente, e a raiz recusa em vez de remontar.
         assertThatIllegalStateException()
@@ -555,11 +557,12 @@ class VendaTest {
     @Test
     @DisplayName("reconstituir recusa venda CONCLUIDA cujos confirmados não batem com o total")
     void reconstituirRecusaConcluidaSemPagamentoQueFeche() {
-        ItemVenda item = ItemVenda.novo(CAFE, DOIS, Money.de("4.50"), Money.ZERO);
-        Pagamento parcial = Pagamento.novo(FormaPagamento.PIX, Money.de("5.00"),
-                StatusPagamento.CONFIRMADO, Money.ZERO);
-        Pagamento pendente = Pagamento.novo(FormaPagamento.PIX, Money.de("9.00"),
-                StatusPagamento.PENDENTE, Money.ZERO);
+        ItemVenda item = ItemVenda.novo(UUID.randomUUID(), CAFE, DOIS, Money.de("4.50"),
+                Money.ZERO, Instant.now());
+        Pagamento parcial = Pagamento.novo(UUID.randomUUID(), FormaPagamento.PIX,
+                Money.de("5.00"), StatusPagamento.CONFIRMADO, Money.ZERO, Instant.now());
+        Pagamento pendente = Pagamento.novo(UUID.randomUUID(), FormaPagamento.PIX,
+                Money.de("9.00"), StatusPagamento.PENDENTE, Money.ZERO, Instant.now());
 
         assertThatIllegalStateException()
                 .as("confirmados a menos")
@@ -590,9 +593,10 @@ class VendaTest {
     @Test
     @DisplayName("reconstituir recusa venda CONCLUIDA sem o instante da conclusão; nas outras ele é livre")
     void reconstituirRecusaConcluidaSemInstante() {
-        ItemVenda item = ItemVenda.novo(CAFE, DOIS, Money.de("4.50"), Money.ZERO);
-        Pagamento parcela = Pagamento.novo(FormaPagamento.PIX, Money.de("9.00"),
-                StatusPagamento.CONFIRMADO, Money.ZERO);
+        ItemVenda item = ItemVenda.novo(UUID.randomUUID(), CAFE, DOIS, Money.de("4.50"),
+                Money.ZERO, Instant.now());
+        Pagamento parcela = Pagamento.novo(UUID.randomUUID(), FormaPagamento.PIX,
+                Money.de("9.00"), StatusPagamento.CONFIRMADO, Money.ZERO, Instant.now());
 
         // A conta fecha, mas a linha não sabe quando: é estado que a raiz nunca produz.
         assertThatIllegalStateException()
@@ -714,6 +718,62 @@ class VendaTest {
                         StatusPagamento.CONFIRMADO, Money.ZERO))
                 .withMessageContaining("CANCELADA");
         assertThat(venda.getStatus()).isEqualTo(StatusVenda.CANCELADA);
+    }
+
+    @Test
+    @DisplayName("a venda registrada no dispositivo guarda os ids e os instantes do balcão")
+    void vendaDoDispositivoGuardaIdsEInstantes() {
+        UUID vendaId = UUID.randomUUID();
+        UUID itemId = UUID.randomUUID();
+        UUID parcelaId = UUID.randomUUID();
+        Instant abriu = Instant.parse("2026-09-20T13:00:00Z");
+        Instant lancou = Instant.parse("2026-09-20T13:01:00Z");
+        Instant pagou = Instant.parse("2026-09-20T13:02:00Z");
+        Instant concluiu = Instant.parse("2026-09-20T13:03:00Z");
+
+        Venda venda = new Venda(vendaId, SESSAO, OPERADOR, abriu);
+        assertThat(venda.adicionarItem(itemId, CAFE, DOIS, Money.de("4.50"), Money.ZERO, lancou))
+                .isEqualTo(itemId);
+        venda.registrarPagamento(parcelaId, FormaPagamento.DINHEIRO, Money.de("9.00"),
+                StatusPagamento.CONFIRMADO, Money.de("1.00"), pagou);
+        venda.concluir(concluiu);
+
+        assertThat(venda.getId()).isEqualTo(vendaId);
+        assertThat(venda.getCriadoEm()).isEqualTo(abriu);
+        assertThat(venda.getItens()).extracting(ItemVenda::id, ItemVenda::criadoEm)
+                .containsExactly(tuple(itemId, lancou));
+        assertThat(venda.getPagamentos()).extracting(Pagamento::id, Pagamento::criadoEm)
+                .containsExactly(tuple(parcelaId, pagou));
+        assertThat(venda.getConcluidoEm()).isEqualTo(concluiu);
+        assertThatInvarianteVale(venda);
+    }
+
+    @Test
+    @DisplayName("item ou parcela com id que já está na venda é recusado, e a conta não muda")
+    void idRepetidoDeItemOuParcelaERecusado() {
+        UUID itemId = UUID.randomUUID();
+        UUID parcelaId = UUID.randomUUID();
+        Venda venda = new Venda(UUID.randomUUID(), SESSAO, OPERADOR, Instant.now());
+        venda.adicionarItem(itemId, CAFE, DOIS, Money.de("4.50"), Money.ZERO, Instant.now());
+        venda.registrarPagamento(parcelaId, FormaPagamento.CARTAO, Money.de("4.00"),
+                StatusPagamento.CONFIRMADO, Money.ZERO, Instant.now());
+
+        // O gesto seguinte do dispositivo acha o item pelo id; dois itens com o mesmo id
+        // tornariam a remoção ambígua, e duas parcelas iguais contariam o dinheiro em dobro.
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> venda.adicionarItem(itemId, QUEIJO, BigDecimal.ONE,
+                        Money.de("7.00"), Money.ZERO, Instant.now()))
+                .withMessageContaining("ja esta na venda");
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> venda.registrarPagamento(parcelaId, FormaPagamento.CARTAO,
+                        Money.de("1.00"), StatusPagamento.CONFIRMADO, Money.ZERO,
+                        Instant.now()))
+                .withMessageContaining("ja esta na venda");
+
+        assertThat(venda.getItens()).hasSize(1);
+        assertThat(venda.getPagamentos()).hasSize(1);
+        assertThat(venda.getValorTotal()).isEqualTo(Money.de("9.00"));
+        assertThatInvarianteVale(venda);
     }
 
     /**

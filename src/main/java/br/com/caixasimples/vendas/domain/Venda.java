@@ -123,6 +123,15 @@ import java.util.UUID;
  * <p>A Venda nasce sem Cliente; o vínculo é uma operação própria porque ele costuma ser
  * identificado depois do primeiro item. Recebimentos parciais ficam imutáveis no agregado e
  * quitam a parcela FIADO quando somam seu valor (RF33).
+ *
+ * <h2>Identidade e instantes vindos do dispositivo</h2>
+ *
+ * <p>A Venda registrada no balcão sem rede chega ao servidor com os ids que o dispositivo gerou,
+ * da Venda, de cada item e de cada parcela, e com os instantes do balcão (RNF01, RNF03). Por isso
+ * a abertura, o item, a parcela e a conclusão têm uma forma que recebe id e instante prontos; a
+ * forma sem eles gera os dois na hora e é a do caminho com rede. As regras são as mesmas nas
+ * duas, e um id de item ou de parcela que já está nesta Venda é recusado, porque os gestos
+ * seguintes o usam para achar o que foi lançado.
  */
 public class Venda {
 
@@ -157,12 +166,23 @@ public class Venda {
      * @param usuarioId     o operador; referência entre agregados, sempre por id
      */
     public Venda(UUID sessaoCaixaId, UUID usuarioId) {
-        this.id = UUID.randomUUID();
+        this(UUID.randomUUID(), sessaoCaixaId, usuarioId, Instant.now());
+    }
+
+    /**
+     * Abre uma comanda com a identidade e o instante que o dispositivo gravou ao abri-la sem rede.
+     * Nasce igual à do construtor sem eles: ABERTA, vazia e sem cliente.
+     *
+     * @param id       o id gerado no dispositivo, que os gestos seguintes da Venda usam
+     * @param criadoEm o instante do balcão em que a comanda abriu
+     */
+    public Venda(UUID id, UUID sessaoCaixaId, UUID usuarioId, Instant criadoEm) {
+        this.id = Objects.requireNonNull(id, "id da venda nao pode ser nulo");
         this.sessaoCaixaId = Objects.requireNonNull(sessaoCaixaId,
                 "sessaoCaixaId nao pode ser nulo");
         this.usuarioId = Objects.requireNonNull(usuarioId, "usuarioId nao pode ser nulo");
         this.clienteId = null;
-        this.criadoEm = Instant.now();
+        this.criadoEm = Objects.requireNonNull(criadoEm, "criadoEm nao pode ser nulo");
         this.status = StatusVenda.ABERTA;
         this.concluidoEm = null;
         this.valorTotal = Money.ZERO;
@@ -295,9 +315,26 @@ public class Venda {
      */
     public UUID adicionarItem(UUID produtoId, BigDecimal quantidade, Money precoUnitario,
             Money desconto) {
-        exigirAberta();
+        return adicionarItem(UUID.randomUUID(), produtoId, quantidade, precoUnitario, desconto,
+                Instant.now());
+    }
 
-        ItemVenda item = ItemVenda.novo(produtoId, quantidade, precoUnitario, desconto);
+    /**
+     * O mesmo lançamento, com o id e o instante do item lançado no dispositivo sem rede.
+     *
+     * @throws IllegalArgumentException além dos casos acima, se já há item com este id na venda
+     */
+    public UUID adicionarItem(UUID itemId, UUID produtoId, BigDecimal quantidade,
+            Money precoUnitario, Money desconto, Instant criadoEm) {
+        exigirAberta();
+        Objects.requireNonNull(itemId, "itemId nao pode ser nulo");
+        if (itens.stream().anyMatch(existente -> existente.id().equals(itemId))) {
+            throw new IllegalArgumentException(
+                    "item " + itemId + " ja esta na venda " + id + " e nao entra de novo.");
+        }
+
+        ItemVenda item = ItemVenda.novo(itemId, produtoId, quantidade, precoUnitario, desconto,
+                criadoEm);
 
         if (item.subtotal().isNegativo()) {
             // A conta é feita antes de anexar, para que um item recusado não deixe rastro. Igual
@@ -402,7 +439,22 @@ public class Venda {
      */
     public void registrarPagamento(FormaPagamento forma, Money valor, StatusPagamento status,
             Money troco) {
+        registrarPagamento(UUID.randomUUID(), forma, valor, status, troco, Instant.now());
+    }
+
+    /**
+     * O mesmo lançamento, com o id e o instante da parcela lançada no dispositivo sem rede.
+     *
+     * @throws IllegalArgumentException além dos casos acima, se já há parcela com este id na venda
+     */
+    public void registrarPagamento(UUID pagamentoId, FormaPagamento forma, Money valor,
+            StatusPagamento status, Money troco, Instant criadoEm) {
         exigirAberta();
+        Objects.requireNonNull(pagamentoId, "id da parcela nao pode ser nulo");
+        if (pagamentos.stream().anyMatch(existente -> existente.id().equals(pagamentoId))) {
+            throw new IllegalArgumentException(
+                    "parcela " + pagamentoId + " ja esta na venda " + id + " e nao entra de novo.");
+        }
         Objects.requireNonNull(forma, "forma de pagamento nao pode ser nula");
         Objects.requireNonNull(valor, "valor do pagamento nao pode ser nulo");
         Objects.requireNonNull(status, "status do pagamento nao pode ser nulo");
@@ -421,7 +473,7 @@ public class Venda {
         if (forma == FormaPagamento.FIADO && parcelaFiado() != null) {
             throw new IllegalStateException("a venda aceita uma unica parcela FIADO");
         }
-        pagamentos.add(Pagamento.novo(forma, valor, status, troco));
+        pagamentos.add(Pagamento.novo(pagamentoId, forma, valor, status, troco, criadoEm));
     }
 
     /** Reserva uma tentativa Pix identificada antes de chamar o provedor. */
@@ -529,6 +581,17 @@ public class Venda {
      *                               pagamentos CONFIRMADO é diferente do total
      */
     public void concluir() {
+        concluir(Instant.now());
+    }
+
+    /**
+     * A mesma conclusão, gravando o instante do balcão em que a Venda foi concluída sem rede. É
+     * esse instante que decide o dia do faturamento (RF21), e não o da chegada ao servidor.
+     *
+     * @param concluidoEm quando os pagamentos fecharam a conta no balcão
+     */
+    public void concluir(Instant concluidoEm) {
+        Objects.requireNonNull(concluidoEm, "concluidoEm nao pode ser nulo");
         if (status != StatusVenda.ABERTA) {
             throw new IllegalStateException(
                     "venda " + id + " esta " + status + " e nao conclui de novo."
@@ -556,7 +619,7 @@ public class Venda {
         }
 
         this.status = StatusVenda.CONCLUIDA;
-        this.concluidoEm = Instant.now();
+        this.concluidoEm = concluidoEm;
     }
 
     /**

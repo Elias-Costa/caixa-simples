@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 import static org.assertj.core.api.Assertions.assertThatNoException;
+import static org.assertj.core.api.Assertions.tuple;
 
 import br.com.caixasimples.caixa.StatusSessaoCaixa;
 import br.com.caixasimples.caixa.TipoMovimentoCaixa;
@@ -369,5 +370,48 @@ class SessaoCaixaTest {
         assertThat(sessao.getDiferenca()).isEqualTo(Money.de("10.00"));
         assertThat(sessao.getValorFechamentoContado()).isEqualTo(Money.de("90.00"));
         assertThat(sessao.getFechadaEm()).isEqualTo(primeiroFechamento);
+    }
+
+    @Test
+    @DisplayName("a sessão do dispositivo guarda o id e os instantes do balcão, com as mesmas regras")
+    void sessaoDoDispositivoGuardaIdEInstantes() {
+        UUID sessaoId = UUID.randomUUID();
+        UUID vendaId = UUID.randomUUID();
+        Instant abriu = Instant.parse("2026-09-20T11:00:00Z");
+        Instant vendeu = Instant.parse("2026-09-20T12:00:00Z");
+        Instant sangrou = Instant.parse("2026-09-20T13:00:00Z");
+        Instant supriu = Instant.parse("2026-09-20T14:00:00Z");
+        Instant fechou = Instant.parse("2026-09-20T20:00:00Z");
+
+        SessaoCaixa sessao = new SessaoCaixa(sessaoId, OPERADOR, Money.de("20.00"), abriu);
+        sessao.registrarVenda(Money.de("20.00"), vendaId, vendeu);
+        // Só cabe porque a venda entrou antes: 20,00 de abertura mais 20,00 da venda.
+        sessao.sangrar(Money.de("35.00"), "Deposito", sangrou);
+        sessao.suprir(Money.de("5.00"), "Troco", supriu);
+        Money diferenca = sessao.fechar(Money.de("10.00"), fechou);
+
+        assertThat(sessao.getId()).isEqualTo(sessaoId);
+        assertThat(sessao.getAbertaEm()).isEqualTo(abriu);
+        assertThat(sessao.getMovimentos())
+                .extracting(MovimentoCaixa::tipo, MovimentoCaixa::criadoEm)
+                .containsExactly(
+                        tuple(TipoMovimentoCaixa.VENDA, vendeu),
+                        tuple(TipoMovimentoCaixa.SANGRIA, sangrou),
+                        tuple(TipoMovimentoCaixa.SUPRIMENTO, supriu));
+        assertThat(sessao.getValorFechamentoEsperado()).isEqualTo(Money.de("10.00"));
+        assertThat(diferenca).isEqualTo(Money.ZERO);
+        assertThat(sessao.getFechadaEm()).isEqualTo(fechou);
+    }
+
+    @Test
+    @DisplayName("com instante do balcão, a sangria que não cabe no esperado continua recusada")
+    void sangriaDoDispositivoSemSaldoERecusada() {
+        SessaoCaixa sessao = new SessaoCaixa(UUID.randomUUID(), OPERADOR, Money.de("20.00"),
+                Instant.now());
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> sessao.sangrar(Money.de("35.00"), "Deposito", Instant.now()));
+        assertThat(sessao.getMovimentos()).isEmpty();
+        assertThat(sessao.getValorFechamentoEsperado()).isEqualTo(Money.de("20.00"));
     }
 }

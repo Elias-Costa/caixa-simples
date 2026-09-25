@@ -87,15 +87,16 @@ public record ItemVenda(UUID id, UUID produtoId, BigDecimal quantidade, Money pr
     }
 
     /**
-     * Item novo: identidade e momento nascem aqui, como em todo registro do sistema (RNF01).
+     * Item novo, criado pela raiz.
      *
      * <p>Visibilidade de pacote, para que só a raiz crie item: é ela que confere o desconto contra
-     * o bruto e mantém o total em dia.
+     * o bruto e mantém o total em dia. A identidade e o instante chegam dela: gerados na hora
+     * quando o item é lançado no servidor, ou os do balcão quando ele foi lançado no dispositivo
+     * sem rede, com o id que os gestos seguintes daquele dispositivo já usam (RNF01, RNF03).
      */
-    static ItemVenda novo(UUID produtoId, BigDecimal quantidade, Money precoUnitario,
-            Money desconto) {
-        return new ItemVenda(UUID.randomUUID(), produtoId, quantidade, precoUnitario, desconto,
-                Instant.now());
+    static ItemVenda novo(UUID id, UUID produtoId, BigDecimal quantidade, Money precoUnitario,
+            Money desconto, Instant criadoEm) {
+        return new ItemVenda(id, produtoId, quantidade, precoUnitario, desconto, criadoEm);
     }
 
     /** Quantidade vezes preço unitário, já arredondado para centavos neste item. */
