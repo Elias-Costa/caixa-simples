@@ -17,6 +17,7 @@ import br.com.caixasimples.pagamentos.domain.SolicitacaoPagamento;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.TenantContext;
 import br.com.caixasimples.vendas.CriadorDeVendaDeTeste;
+import br.com.caixasimples.vendas.StatusVenda;
 import br.com.caixasimples.vendas.VendaConcluida;
 import br.com.caixasimples.vendas.VendaConcluida.Item;
 import br.com.caixasimples.vendas.VendaConcluida.Parcela;
@@ -36,10 +37,11 @@ import org.springframework.transaction.support.TransactionTemplate;
  * O estoque reagindo à venda concluída, dentro da transação de quem conclui.
  *
  * <p>Publica o evento diretamente, sem passar por {@code VendaService}, para provar só o que é do
- * estoque: a conta com o controle desligado não baixa nada, a ligada baixa um movimento por item
- * de produto, o mesmo fato não baixa duas vezes, e o evento de outra conta é recusado. O último
- * teste faz o caminho inteiro, da comanda ao saldo. A baixa acontece antes de a transação de quem
- * publica terminar, então cada asserção lê logo em seguida.
+ * estoque: a conta com o controle desligado não baixa nada, a ligada baixa um movimento por
+ * produto, o mesmo fato não baixa duas vezes, e o evento de outra conta é recusado. Os dois
+ * últimos testes fazem o caminho inteiro, da comanda ao saldo; o segundo lança o mesmo produto em
+ * duas linhas e cancela no fim. A baixa acontece antes de a transação de quem publica terminar,
+ * então cada asserção lê logo em seguida.
  */
 class BaixaDeEstoqueListenerTest extends TesteDeIntegracao {
 
@@ -92,8 +94,8 @@ class BaixaDeEstoqueListenerTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("com o controle ligado, cada item de produto vira uma baixa; serviço no meio não gera nada")
-    void comEstoqueLigadoBaixaUmMovimentoPorItem() {
+    @DisplayName("com o controle ligado, cada produto vira uma baixa; serviço no meio não gera nada")
+    void comEstoqueLigadoBaixaUmMovimentoPorProduto() {
         ContaCriada conta = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
         criador.habilitarEstoque(conta.contaId());
         UUID sessaoId = abrirCaixa(conta);
@@ -190,6 +192,43 @@ class BaixaDeEstoqueListenerTest extends TesteDeIntegracao {
             assertThat(saldoDe(paoId)).isEqualByComparingTo("-12");
             assertThat(saldoDe(encomendaId)).isEqualByComparingTo("0");
             assertThat(produtoService.jaDeuBaixaPorVenda(paoId, vendaId)).isTrue();
+        });
+    }
+
+    @Test
+    @DisplayName("o mesmo produto em duas linhas baixa uma vez, com a soma, e o cancelamento devolve a mesma soma")
+    void produtoRepetidoEmDuasLinhasBaixaUmaVezComASoma() {
+        ContaCriada conta = criador.criar("Padaria Aurora", SENHA_DE_TESTE);
+        criador.habilitarEstoque(conta.contaId());
+        UUID sessaoId = abrirCaixa(conta);
+        UUID paoId = cadastrar(conta, "Pao frances", TipoProduto.PRODUTO);
+
+        UUID vendaId = conta.comoUsuario(() -> vendaService.iniciar(sessaoId));
+        conta.comoUsuario(() -> {
+            // O balcão lança o mesmo produto duas vezes, e as linhas não se mesclam.
+            vendaService.adicionarItem(vendaId, paoId, new BigDecimal("10"), Money.ZERO);
+            vendaService.adicionarItem(vendaId, paoId, new BigDecimal("2"), Money.ZERO);
+            // 12 x 5,00 = 60,00, em dinheiro.
+            vendaService.registrarPagamento(vendaId,
+                    SolicitacaoPagamento.emDinheiro(Money.de("60.00"), Money.de("60.00")));
+            vendaService.concluir(vendaId);
+        });
+
+        // Uma baixa por linha faria o cadastro recusar a segunda, e a conclusão não teria
+        // passado: nem a venda, nem o dinheiro na gaveta, nem o saldo.
+        conta.comoUsuario(() -> {
+            assertThat(vendaService.consultar(vendaId).status()).isEqualTo(StatusVenda.CONCLUIDA);
+            assertThat(sessoesDeCaixa.consultar(sessaoId).valorFechamentoEsperado())
+                    .isEqualTo(Money.de("60.00"));
+            assertThat(saldoDe(paoId)).isEqualByComparingTo("-12");
+            assertThat(produtoService.jaDeuBaixaPorVenda(paoId, vendaId)).isTrue();
+        });
+
+        conta.comoUsuario(() -> vendaService.cancelar(vendaId));
+
+        conta.comoUsuario(() -> {
+            assertThat(saldoDe(paoId)).as("volta o total que saiu").isEqualByComparingTo("0");
+            assertThat(produtoService.jaEstornouPorCancelamento(paoId, vendaId)).isTrue();
         });
     }
 

@@ -278,7 +278,7 @@ public class ProdutoService {
     }
 
     /**
-     * Baixa de estoque de um item vendido (RF18). Grava o movimento de SAIDA e o saldo novo do
+     * Baixa de estoque de um produto vendido (RF18). Grava o movimento de SAIDA e o saldo novo do
      * produto na mesma transação, pelo caminho único que escreve {@code estoque_atual}.
      *
      * <p><strong>Em SERVICO não faz nada</strong>, e não é erro: vender um serviço é legítimo, só
@@ -289,13 +289,14 @@ public class ProdutoService {
      * <p><strong>A mesma venda não baixa duas vezes.</strong> A recusa aqui é a invariante em si,
      * para qualquer chamador: estoque baixado em dobro é uma falta que nunca existiu. A raiz não
      * carrega o histórico, então a pergunta vai ao repositório; a rede embaixo é o índice único da
-     * migration V9.
+     * migration V9. Por isso quem chama pede uma baixa por produto, com a quantidade somada de
+     * todas as linhas da venda em que ele aparece.
      *
      * <p>Não olha se o produto está ativo, de propósito: a venda aconteceu antes de qualquer
      * inativação, e o estoque que saiu, saiu.
      *
      * @param produtoId  o produto vendido, nesta conta
-     * @param quantidade o que a venda levou; positiva
+     * @param quantidade o total que a venda levou deste produto, somadas as linhas; positiva
      * @param vendaId    a venda que levou
      * @throws ProdutoNaoEncontradoException se o id não existe nesta conta
      * @throws IllegalStateException         se esta venda já deu baixa neste produto
@@ -340,7 +341,7 @@ public class ProdutoService {
     }
 
     /**
-     * Estorno de estoque de um item cuja venda foi cancelada (RF12): o oposto exato de
+     * Estorno de estoque de um produto cuja venda foi cancelada (RF12): o oposto exato de
      * {@link #darBaixaPorVenda}. Grava o movimento de ENTRADA e o saldo novo do produto na mesma
      * transação, pelo mesmo caminho único.
      *
@@ -357,7 +358,8 @@ public class ProdutoService {
      * estoque que volta, volta.
      *
      * @param produtoId  o produto da venda cancelada, nesta conta
-     * @param quantidade o que a venda tinha levado, e volta; positiva
+     * @param quantidade o total que a venda tinha levado deste produto, somadas as linhas, e volta;
+     *                   positiva
      * @param vendaId    a venda cancelada
      * @throws ProdutoNaoEncontradoException se o id não existe nesta conta
      * @throws IllegalStateException         se esta venda não deu baixa neste produto, ou se já

@@ -5,6 +5,10 @@ import br.com.caixasimples.cadastro.application.ProdutoService;
 import br.com.caixasimples.contas.application.ContaService;
 import br.com.caixasimples.shared.TenantContext;
 import br.com.caixasimples.vendas.VendaConcluida;
+import java.math.BigDecimal;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
@@ -21,12 +25,14 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <p><strong>Este módulo decide; o cadastro executa.</strong> O agregado Produto, com seu saldo e
  * seus movimentos, é do cadastro, e nenhum outro módulo abre a entidade dele. O que é do estoque
- * é a política: a conta ligou o controle de estoque (RF17)? Então cada item da venda vira uma
+ * é a política: a conta ligou o controle de estoque (RF17)? Então cada produto da venda vira uma
  * baixa, pedida ao cadastro pela API pública dele. Com o controle desligado, que é como toda
  * conta nasce, nada acontece.
  *
- * <p><strong>Um item por movimento.</strong> Serviço no meio dos itens não é erro: o cadastro
- * reconhece e não baixa.
+ * <p><strong>Um produto por movimento.</strong> O mesmo produto pode aparecer em mais de uma linha
+ * da venda, porque as linhas não se mesclam, e a venda baixa cada produto uma vez só: as linhas
+ * dele são somadas antes de pedir, e o cadastro recebe o total que a venda levou. Serviço no meio
+ * dos itens não é erro: o cadastro reconhece e não baixa.
  *
  * <h2>Dentro da transação da conclusão</h2>
  *
@@ -82,8 +88,14 @@ class BaixaDeEstoqueListener {
                         evento.contaId(), evento.vendaId());
                 return;
             }
+            // Pedir uma baixa por linha faria o cadastro recusar a segunda linha do mesmo
+            // produto, e a conclusão inteira falharia.
+            Map<UUID, BigDecimal> quantidadePorProduto = new LinkedHashMap<>();
             for (VendaConcluida.Item item : evento.itens()) {
-                produtos.darBaixaPorVenda(item.produtoId(), item.quantidade(), evento.vendaId());
+                quantidadePorProduto.merge(item.produtoId(), item.quantidade(), BigDecimal::add);
+            }
+            for (Map.Entry<UUID, BigDecimal> produto : quantidadePorProduto.entrySet()) {
+                produtos.darBaixaPorVenda(produto.getKey(), produto.getValue(), evento.vendaId());
             }
         });
     }

@@ -35,9 +35,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <p>Publica os eventos diretamente, sem passar por {@code VendaService}, para provar só o que é
  * do estoque: a conta com o controle desligado não devolve nada, a ligada devolve um movimento
- * por item de produto que tinha baixado, a conta que ligou o controle depois da venda não devolve
- * o que não saiu, o mesmo cancelamento não devolve duas vezes, e o evento de outra conta é
- * recusado. O caminho inteiro, do cancelamento pelo caso de uso ao saldo, está em
+ * por produto que tinha baixado, com as linhas do mesmo produto somadas, a conta que ligou o
+ * controle depois da venda não devolve o que não saiu, o mesmo cancelamento não devolve duas
+ * vezes, e o evento de outra conta é recusado. O caminho inteiro, do cancelamento pelo caso de uso ao saldo, está em
  * {@code VendaServiceTest}; a disputa com outra transação pelo mesmo produto, em
  * {@code CancelamentoERecebimentoSobConcorrenciaTest}.
  *
@@ -94,8 +94,8 @@ class EstornoDeEstoqueListenerTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("com o controle ligado, cada item que baixou volta; serviço no meio não gera nada")
-    void comEstoqueLigadoDevolveUmMovimentoPorItem() {
+    @DisplayName("com o controle ligado, cada produto que baixou volta; serviço no meio não gera nada")
+    void comEstoqueLigadoDevolveUmMovimentoPorProduto() {
         ContaCriada conta = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
         criador.habilitarEstoque(conta.contaId());
         UUID sessaoId = abrirCaixa(conta);
@@ -211,6 +211,30 @@ class EstornoDeEstoqueListenerTest extends TesteDeIntegracao {
                     .isFalse();
         });
         contaB.comoUsuario(() -> assertThat(produtos.findById(escovaDaContaA)).isEmpty());
+    }
+
+    @Test
+    @DisplayName("o mesmo produto em duas linhas volta uma vez, com a soma que saiu na baixa")
+    void produtoRepetidoVoltaUmaVezComASoma() {
+        ContaCriada conta = criador.criar("Mercearia da Esquina", SENHA_DE_TESTE);
+        criador.habilitarEstoque(conta.contaId());
+        UUID sessaoId = abrirCaixa(conta);
+        UUID vendaId = vendas.criarAbertaEm(conta.contaId(), sessaoId, conta.usuarioId());
+        UUID feijaoId = cadastrar(conta, "Feijao", TipoProduto.PRODUTO);
+        publicar(conta, conclusao(conta, vendaId, sessaoId, List.of(
+                new VendaConcluida.Item(feijaoId, new BigDecimal("2")),
+                new VendaConcluida.Item(feijaoId, BigDecimal.ONE))));
+        conta.comoUsuario(() -> assertThat(saldoDe(feijaoId)).isEqualByComparingTo("-3"));
+
+        // Uma devolução por linha faria o cadastro recusar a segunda, e o cancelamento falharia.
+        publicar(conta, cancelamento(conta, vendaId, sessaoId, List.of(
+                new VendaCancelada.Item(feijaoId, new BigDecimal("2")),
+                new VendaCancelada.Item(feijaoId, BigDecimal.ONE))));
+
+        conta.comoUsuario(() -> {
+            assertThat(saldoDe(feijaoId)).isEqualByComparingTo("0");
+            assertThat(produtoService.jaEstornouPorCancelamento(feijaoId, vendaId)).isTrue();
+        });
     }
 
     private UUID abrirCaixa(ContaCriada conta) {

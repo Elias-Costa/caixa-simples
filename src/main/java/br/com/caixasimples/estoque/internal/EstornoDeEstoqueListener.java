@@ -5,6 +5,10 @@ import br.com.caixasimples.cadastro.application.ProdutoService;
 import br.com.caixasimples.contas.application.ContaService;
 import br.com.caixasimples.shared.TenantContext;
 import br.com.caixasimples.vendas.VendaCancelada;
+import java.math.BigDecimal;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
@@ -19,15 +23,16 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <h2>Quem decide e quem executa</h2>
  *
  * <p><strong>Este módulo decide; o cadastro executa.</strong> A política é a mesma da baixa: a
- * conta ligou o controle de estoque (RF17)? Então cada item da venda cancelada vira um estorno,
- * pedido ao cadastro pela API pública dele. Com o controle desligado nada acontece. Uma conta que
- * desligou o controle depois da venda fica com a saída sem a entrada, e isso é aceito: quem
- * desliga o controle deixou de contar o saldo, e ao religar recomeça por uma contagem, como toda
- * conta que liga.
+ * conta ligou o controle de estoque (RF17)? Então cada produto da venda cancelada vira um estorno,
+ * pedido ao cadastro pela API pública dele, com as linhas do mesmo produto somadas como na baixa:
+ * a venda devolve cada produto uma vez só, o mesmo total que saiu. Com o controle desligado nada
+ * acontece. Uma conta que desligou o controle depois da venda fica com a saída sem a entrada, e
+ * isso é aceito: quem desliga o controle deixou de contar o saldo, e ao religar recomeça por uma
+ * contagem, como toda conta que liga.
  *
- * <p><strong>Só se devolve o que saiu.</strong> Antes de cada item, o cadastro responde se aquela
- * venda chegou a dar baixa naquele produto; uma conta que ligou o controle depois da venda não
- * tem baixa a devolver, e o item é pulado. Serviço no meio dos itens não é erro: o cadastro
+ * <p><strong>Só se devolve o que saiu.</strong> Antes de cada produto, o cadastro responde se
+ * aquela venda chegou a dar baixa nele; uma conta que ligou o controle depois da venda não tem
+ * baixa a devolver, e o produto é pulado. Serviço no meio dos itens não é erro: o cadastro
  * reconhece e não devolve.
  *
  * <h2>Dentro da transação do cancelamento</h2>
@@ -85,16 +90,22 @@ class EstornoDeEstoqueListener {
                         + " movimento", evento.contaId(), evento.vendaId());
                 return;
             }
+            // Pedir uma devolução por linha faria o cadastro recusar a segunda linha do mesmo
+            // produto, e o cancelamento inteiro falharia.
+            Map<UUID, BigDecimal> quantidadePorProduto = new LinkedHashMap<>();
             for (VendaCancelada.Item item : evento.itens()) {
-                if (!produtos.jaDeuBaixaPorVenda(item.produtoId(), evento.vendaId())) {
+                quantidadePorProduto.merge(item.produtoId(), item.quantidade(), BigDecimal::add);
+            }
+            for (Map.Entry<UUID, BigDecimal> produto : quantidadePorProduto.entrySet()) {
+                UUID produtoId = produto.getKey();
+                if (!produtos.jaDeuBaixaPorVenda(produtoId, evento.vendaId())) {
                     // A venda não tirou estoque deste produto, porque a conta ligou o
                     // controle depois dela ou porque o item é serviço: nada a devolver.
                     log.info("venda {} nao deu baixa no produto {}; nada a estornar",
-                            evento.vendaId(), item.produtoId());
+                            evento.vendaId(), produtoId);
                     continue;
                 }
-                produtos.estornarPorCancelamento(item.produtoId(), item.quantidade(),
-                        evento.vendaId());
+                produtos.estornarPorCancelamento(produtoId, produto.getValue(), evento.vendaId());
             }
         });
     }
