@@ -139,7 +139,8 @@ oferece `GET` e `POST /api/produtos`, `PUT /api/produtos/{id}` e
 O PDV busca produto em `GET /api/produtos/busca?termo=...` e usa `GET` e `POST /api/vendas`
 para listar as vendas de uma SessaoCaixa e iniciar uma comanda. `GET /api/vendas/{id}` devolve
 itens, total e parcelas; `POST /api/vendas/{id}/itens` e
-`DELETE /api/vendas/{id}/itens/{itemId}` montam a comanda;
+`DELETE /api/vendas/{id}/itens/{itemId}` montam a comanda; SessaoCaixa ou produto que não existe
+na Conta responde 404 ao iniciar a comanda ou lançar o item;
 `PUT /api/vendas/{id}/desconto` é só do administrador;
 `POST /api/vendas/{id}/pagamentos` devolve o troco para as formas sem Pix integrado;
 `POST /api/vendas/{id}/pagamentos/pix` recebe `tentativaId` e valor, devolve parcela PENDENTE e
@@ -522,7 +523,8 @@ de uso, provada por teste negativo, e nunca dependente de um valor que o cliente
   inclusive a lista de clientes inativos, e o 404 ao tentar editar pelo id alheio. O primeiro
   acesso aplica a cada Conta uma cópia própria do catálogo sugerido.
   O caixa HTTP também prova que a Conta B não encontra a sessão da Conta A, recebe histórico vazio
-  e não deduz um caixa aberto alheio.
+  e não deduz um caixa aberto alheio. O PDV HTTP responde 404 à Conta B que tenta abrir comanda na
+  SessaoCaixa da Conta A e à Conta que tenta lançar item com produto de outra.
   O callback Pix autenticado pela configuração da Conta B não encontra o `txid` persistido na
   Conta A; a lista de conciliação também devolve somente Vendas da Conta autenticada. O teste
   HTTP de cancelamento recusa a tentativa da Conta B antes de chamar o PSP da Conta A.

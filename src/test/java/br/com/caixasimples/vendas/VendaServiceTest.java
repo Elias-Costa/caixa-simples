@@ -14,7 +14,6 @@ import br.com.caixasimples.cadastro.application.ProdutoService;
 import br.com.caixasimples.cadastro.application.ProdutoService.DadosDoProduto;
 import br.com.caixasimples.cadastro.internal.ProdutoRepository;
 import br.com.caixasimples.caixa.TipoMovimentoCaixa;
-import br.com.caixasimples.caixa.application.SessaoCaixaNaoEncontradaException;
 import br.com.caixasimples.caixa.application.SessaoCaixaService;
 import br.com.caixasimples.caixa.domain.MovimentoCaixa;
 import br.com.caixasimples.caixa.internal.SessaoCaixaRepository;
@@ -142,7 +141,7 @@ class VendaServiceTest extends TesteDeIntegracao {
         // A sessão existe e está ABERTA, mas é da conta A: para a conta B, a linha não volta do
         // banco, e o id é indistinguível de um que nunca existiu. Sem isso, uma venda da conta B
         // poderia ficar pendurada no caixa da conta A só por conhecer o id.
-        assertThatExceptionOfType(SessaoCaixaNaoEncontradaException.class).isThrownBy(() ->
+        assertThatExceptionOfType(SessaoCaixaNaoEncontradaParaVendaException.class).isThrownBy(() ->
                 contaB.comoUsuario(() ->
                         vendaService.iniciar(sessaoDaContaA)));
     }

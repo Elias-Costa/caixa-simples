@@ -12,6 +12,7 @@ import br.com.caixasimples.sincronizacao.Aplicacao;
 import br.com.caixasimples.sincronizacao.AplicadorDeOperacoes;
 import br.com.caixasimples.sincronizacao.OperacaoRecebida;
 import br.com.caixasimples.sincronizacao.OperacaoRecusadaException;
+import br.com.caixasimples.vendas.SessaoCaixaNaoEncontradaParaVendaException;
 import br.com.caixasimples.vendas.application.VendaNaoEncontradaException;
 import br.com.caixasimples.vendas.application.VendaService;
 import br.com.caixasimples.vendas.domain.ItemVenda;
@@ -21,9 +22,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
-import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.TransactionException;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -95,29 +94,18 @@ class GestosDaVenda implements AplicadorDeOperacoes {
                 default -> throw new OperacaoRecusadaException(
                         "gesto de venda desconhecido: " + operacao.tipo());
             };
-        } catch (VendaNaoEncontradaException | ProdutoNaoEncontradoException
-                | ClienteNaoEncontradoParaVendaException
+        } catch (VendaNaoEncontradaException | SessaoCaixaNaoEncontradaParaVendaException
+                | ProdutoNaoEncontradoException | ClienteNaoEncontradoParaVendaException
                 | FormaDePagamentoNaoSuportadaException recusa) {
             throw new OperacaoRecusadaException(recusa.getMessage(), recusa);
         }
     }
 
-    /**
-     * A pergunta ao caixa atravessa a porta sem tradução, e a exceção de sessão inexistente é do
-     * módulo do caixa, que este módulo não nomeia. Por isso qualquer exceção do início vira recusa
-     * do gesto; falha de banco continua falha de banco, para o dispositivo repetir.
-     */
     private Aplicacao iniciar(OperacaoRecebida operacao) {
         Inicio inicio = operacao.payloadComo(json, Inicio.class);
         UUID sessaoCaixaId = operacao.exigir(inicio.sessaoCaixaId(), "sessaoCaixaId");
         Instant criadoEm = operacao.exigir(inicio.criadoEm(), "criadoEm");
-        try {
-            vendas.iniciar(operacao.registroId(), sessaoCaixaId, criadoEm);
-        } catch (DataAccessException | TransactionException falhaDeBanco) {
-            throw falhaDeBanco;
-        } catch (RuntimeException recusa) {
-            throw new OperacaoRecusadaException(recusa.getMessage(), recusa);
-        }
+        vendas.iniciar(operacao.registroId(), sessaoCaixaId, criadoEm);
         return Aplicacao.aplicada(null);
     }
 

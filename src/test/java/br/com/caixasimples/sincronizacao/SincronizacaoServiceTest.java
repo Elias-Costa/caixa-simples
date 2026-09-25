@@ -157,6 +157,25 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
     }
 
     @Test
+    @DisplayName("Venda sem rede na sessão de outra Conta: não é aplicada, com o motivo, e nada é gravado (RNF05)")
+    void vendaNaSessaoDeOutraConta() {
+        ContaCriada contaA = criador.criar("Cafeteria Aurora", SENHA);
+        ContaCriada contaB = criador.criar("Loja da Esquina", SENHA);
+        UUID sessaoDaContaA = contaA.comoUsuario(() -> sessoes.abrir(Money.ZERO));
+        UUID vendaId = UUID.randomUUID();
+        GestoDeTeste inicio = inicio(vendaId, sessaoDaContaA);
+
+        List<ResultadoDaOperacao> resultados = contaB.comoUsuario(() ->
+                sincronizacao.sincronizar(recebidas(List.of(inicio))));
+
+        assertThat(resultados).extracting(ResultadoDaOperacao::resultado)
+                .containsExactly(Resultado.NAO_APLICADA);
+        assertThat(resultados.get(0).detalhe())
+                .contains("sessao de caixa nao encontrada nesta conta: " + sessaoDaContaA);
+        contaB.comoUsuario(() -> assertThat(linhasDeVenda.findById(vendaId)).isEmpty());
+    }
+
+    @Test
     @DisplayName("Venda recusada não prende a sessão: a sangria de outro registro é tentada e o fechamento entra")
     void outroRegistroSoOrdena() {
         ContaCriada conta = criador.criar("Armazém da Praça", SENHA);

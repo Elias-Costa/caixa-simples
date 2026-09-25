@@ -1,9 +1,11 @@
 package br.com.caixasimples.vendas.web;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -26,6 +28,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import tools.jackson.databind.ObjectMapper;
 
@@ -210,6 +213,40 @@ class VendaHttpTest extends TesteDeIntegracao {
                 .andExpect(jsonPath("$.nomeCliente").value("Lia"));
     }
 
+    @Test
+    void sessaoOuProdutoQueNaoExisteNaContaResponde404() throws Exception {
+        ContaCriada contaA = criador.criar("PDV E", SENHA);
+        ContaCriada contaB = criador.criar("PDV F", SENHA);
+        UUID sessaoDaContaA = contaA.comoUsuario(() -> caixas.abrir(Money.ZERO));
+        UUID produtoDaContaB = produto(contaB);
+        UUID sessaoQueNaoExiste = UUID.randomUUID();
+        UUID produtoQueNaoExiste = UUID.randomUUID();
+        RequestPostProcessor adminA = autenticador.como(contaA);
+        RequestPostProcessor adminB = autenticador.como(contaB);
+
+        exigirNaoEncontrado(http.perform(post("/api/vendas").with(adminA)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"sessaoCaixaId\":\"" + sessaoQueNaoExiste + "\"}")),
+                sessaoQueNaoExiste);
+        // A sessão existe e está ABERTA, mas na Conta A: para a Conta B o id não existe (RNF05).
+        exigirNaoEncontrado(http.perform(post("/api/vendas").with(adminB)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"sessaoCaixaId\":\"" + sessaoDaContaA + "\"}")),
+                sessaoDaContaA);
+
+        UUID venda = criarVenda(adminA, sessaoDaContaA);
+        exigirNaoEncontrado(http.perform(post("/api/vendas/{id}/itens", venda).with(adminA)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"produtoId\":\"" + produtoQueNaoExiste
+                        + "\",\"quantidade\":1,\"desconto\":0}")), produtoQueNaoExiste);
+        exigirNaoEncontrado(http.perform(post("/api/vendas/{id}/itens", venda).with(adminA)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"produtoId\":\"" + produtoDaContaB
+                        + "\",\"quantidade\":1,\"desconto\":0}")), produtoDaContaB);
+        http.perform(get("/api/vendas/{id}", venda).with(adminA))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.itens").isEmpty());
+    }
+
     @Autowired br.com.caixasimples.vendas.application.VendaService vendaService;
 
     private UUID produto(ContaCriada conta) {
@@ -226,5 +263,13 @@ class VendaHttpTest extends TesteDeIntegracao {
 
     private UUID uuidDaResposta(String corpo) {
         return UUID.fromString(json.readTree(corpo).get("id").asText());
+    }
+
+    /** O 404 sai em Problem Details, com o id recusado no detalhe, e não como erro inesperado. */
+    private void exigirNaoEncontrado(ResultActions resposta, UUID id) throws Exception {
+        resposta.andExpect(status().isNotFound())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.detail").value(containsString(id.toString())));
     }
 }

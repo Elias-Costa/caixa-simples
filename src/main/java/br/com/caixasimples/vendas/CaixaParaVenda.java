@@ -19,10 +19,10 @@ public interface CaixaParaVenda {
 
     /**
      * @return se a sessão de caixa está ABERTA
-     * @throws RuntimeException se a sessão não existe nesta conta, ou se quem pergunta é um
-     *         operador e a sessão é de outro. A exceção é a do módulo dono e atravessa sem
-     *         tradução: um id de outra conta é indistinguível de um id que nunca existiu (RNF05),
-     *         e a regra do próprio caixa é do caixa, que a aplica ao responder
+     * @throws SessaoCaixaNaoEncontradaParaVendaException se a sessão não existe nesta conta; um id
+     *         de outra conta é indistinguível de um id que nunca existiu (RNF05)
+     * @throws br.com.caixasimples.shared.AcessoNegadoException se quem pergunta é um operador e a
+     *         sessão é de outro; a regra do próprio caixa é do caixa, que a aplica ao responder
      */
     boolean estaAberto(UUID sessaoCaixaId);
 

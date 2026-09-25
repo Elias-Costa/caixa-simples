@@ -158,9 +158,10 @@ public class VendaService {
      *
      * @return o id da venda criada, gerado na aplicação e nunca pelo banco (RNF01, RNF03)
      * @throws br.com.caixasimples.shared.UsuarioNaoResolvidoException se não há usuário no contexto
-     * @throws RuntimeException      se a sessão não existe nesta conta, ou se é de outro operador
-     *                               e quem chama não é ADMIN; a exceção é a do módulo do caixa e
-     *                               atravessa {@link CaixaParaVenda} sem tradução
+     * @throws br.com.caixasimples.vendas.SessaoCaixaNaoEncontradaParaVendaException se a sessão
+     *         não existe nesta conta
+     * @throws br.com.caixasimples.shared.AcessoNegadoException se a sessão é de outro operador e
+     *         quem chama não é ADMIN
      * @throws IllegalStateException se a sessão não está ABERTA
      */
     @Transactional
