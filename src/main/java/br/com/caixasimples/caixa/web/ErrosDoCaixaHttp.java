@@ -2,14 +2,22 @@ package br.com.caixasimples.caixa.web;
 
 import br.com.caixasimples.caixa.application.OperadorJaTemCaixaAbertoException;
 import br.com.caixasimples.caixa.application.SessaoCaixaNaoEncontradaException;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-/** Erros próprios do caixa, traduzidos no módulo que conhece a causa. */
+/**
+ * Erros próprios do caixa, traduzidos no módulo que conhece a causa.
+ *
+ * <p>Precedência máxima porque o tratador transversal responde a qualquer exceção, e entre os
+ * advices o primeiro que sabe tratar a exceção é o que responde.
+ */
 @RestControllerAdvice(basePackageClasses = SessaoCaixaController.class)
+@Order(Ordered.HIGHEST_PRECEDENCE)
 class ErrosDoCaixaHttp {
 
     @ExceptionHandler(SessaoCaixaNaoEncontradaException.class)
