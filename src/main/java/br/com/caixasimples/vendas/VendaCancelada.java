@@ -21,10 +21,13 @@ import java.util.UUID;
  *
  * <p>Tem a mesma forma que {@link VendaConcluida}, e com os próprios {@link Item} e
  * {@link Parcela}, pelos mesmos motivos: carrega o fato inteiro, e não só o que o primeiro ouvinte
- * precisa; carrega a conta, porque o ouvinte roda em outra thread e uma reentrega pode vir horas
- * depois do registro de publicação; e vai e volta de JSON, então só entram tipos que fazem esse
- * caminho sem perda. Os records aninhados não são compartilhados com o outro evento de propósito:
- * cada evento é um contrato gravado no outbox, e mudar um não pode mudar o outro.
+ * precisa; e carrega a conta, lida do contexto autenticado no momento da publicação, para os
+ * ouvintes conferirem que rodam nessa mesma conta. Os records aninhados não são compartilhados com
+ * o outro evento de propósito: cada evento é um contrato, e mudar um não pode mudar o outro.
+ *
+ * <p><strong>É ouvido dentro da transação que cancelou a venda</strong>, como a conclusão: a venda
+ * cancelada, o dinheiro fora da gaveta e os itens de volta ao estoque confirmam juntos ou não
+ * confirmam.
  *
  * @param contaId       a conta a que a venda pertence
  * @param vendaId       a venda cancelada
@@ -34,6 +37,8 @@ import java.util.UUID;
  * @param itens         o que tinha sido vendido, na ordem em que entrou na comanda
  * @param parcelas      como tinha sido pago, na ordem em que as parcelas foram lançadas, inclusive
  *                      as recusadas: o status diz o que cada uma valia
+ * @param recebimentos  o que entrou de um FIADO antes do cancelamento, em qualquer sessão; vazio
+ *                      quando a venda não teve fiado recebido
  */
 public record VendaCancelada(ContaId contaId, UUID vendaId, UUID sessaoCaixaId, UUID usuarioId,
         List<Item> itens, List<Parcela> parcelas, List<Recebimento> recebimentos) {
@@ -50,8 +55,8 @@ public record VendaCancelada(ContaId contaId, UUID vendaId, UUID sessaoCaixaId, 
         Objects.requireNonNull(usuarioId, "usuarioId nao pode ser nulo");
         itens = List.copyOf(Objects.requireNonNull(itens, "itens nao pode ser nulo"));
         parcelas = List.copyOf(Objects.requireNonNull(parcelas, "parcelas nao pode ser nulo"));
-        // Publicações anteriores ao fiado não tinham este campo no JSON do outbox.
-        recebimentos = recebimentos == null ? List.of() : List.copyOf(recebimentos);
+        recebimentos = List.copyOf(
+                Objects.requireNonNull(recebimentos, "recebimentos nao pode ser nulo"));
     }
 
     /**

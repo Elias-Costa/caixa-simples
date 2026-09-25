@@ -222,8 +222,8 @@ public class Produto {
      * inativado entre a venda e a baixa ainda deve o estoque que vendeu.
      *
      * <p><strong>Não sabe se a mesma venda já baixou.</strong> A raiz não carrega o histórico,
-     * então a pergunta de reentrega é feita ao repositório pelo caso de uso, que recusa a
-     * duplicata antes de chegar aqui; a rede embaixo é o índice único da migration V9.
+     * então a pergunta vai ao repositório pelo caso de uso, que recusa a duplicata antes de chegar
+     * aqui; a rede embaixo é o índice único da migration V9.
      *
      * @param quantidade o que a venda levou; positiva
      * @param vendaId    a venda que levou; referência entre agregados, sempre por id

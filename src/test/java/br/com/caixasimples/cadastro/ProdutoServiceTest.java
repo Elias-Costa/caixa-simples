@@ -418,8 +418,8 @@ class ProdutoServiceTest extends TesteDeIntegracao {
             assertThat(produtoService.jaDeuBaixaPorVenda(cafeId, vendaId)).isTrue();
         });
 
-        // A reentrega do evento pergunta antes e pula; quem chama sem perguntar é recusado, e o
-        // saldo não se move.
+        // A mesma venda não baixa duas vezes: a segunda chamada é recusada, e o saldo não se
+        // move.
         assertThatIllegalStateException()
                 .isThrownBy(() -> conta.comoUsuario(() ->
                         produtoService.darBaixaPorVenda(cafeId, new BigDecimal("2"), vendaId)))

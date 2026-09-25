@@ -1,10 +1,12 @@
 package br.com.caixasimples.caixa;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
-import static org.awaitility.Awaitility.await;
 
 import br.com.caixasimples.TesteDeIntegracao;
+import br.com.caixasimples.caixa.application.SessaoCaixaNaoEncontradaException;
 import br.com.caixasimples.caixa.application.SessaoCaixaService;
 import br.com.caixasimples.caixa.domain.MovimentoCaixa;
 import br.com.caixasimples.caixa.domain.SessaoCaixa;
@@ -19,7 +21,6 @@ import br.com.caixasimples.vendas.CriadorDeVendaDeTeste;
 import br.com.caixasimples.vendas.VendaCancelada;
 import br.com.caixasimples.vendas.VendaConcluida;
 import java.math.BigDecimal;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -30,28 +31,27 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.modulith.events.CompletedEventPublications;
 import org.springframework.modulith.events.EventPublication;
-import org.springframework.modulith.events.core.TargetEventPublication;
+import org.springframework.modulith.events.core.EventPublicationRegistry;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * O caixa reagindo à venda cancelada, com o registro de publicação de verdade no meio: o oposto
- * de {@code VendaConcluidaListenerTest}, no mesmo molde.
+ * O caixa reagindo à venda cancelada, dentro da transação de quem cancela: o oposto de
+ * {@code VendaConcluidaListenerTest}, no mesmo molde.
  *
  * <p>Publica os eventos diretamente, sem passar por {@code VendaService}, para provar só o que é
  * do caixa: o estorno espelha o que a venda tinha trazido, uma venda sem dinheiro não gera
- * movimento, a reentrega não devolve em dobro, e o ouvinte acha a sessão da conta do evento numa
- * thread que não tem tenant nenhum. O caminho inteiro, do cancelamento pelo caso de uso ao
- * estorno, está em {@code VendaServiceTest}.
+ * movimento, o mesmo cancelamento não estorna duas vezes, a falha do estorno desfaz a transação de
+ * quem publicou, e o evento de outra conta é recusado. O caminho inteiro, do cancelamento pelo caso
+ * de uso ao estorno, está em {@code VendaServiceTest}; a disputa com outra transação pela mesma
+ * sessão, em {@code CancelamentoERecebimentoSobConcorrenciaTest}.
  *
- * <p>Para haver o que estornar, cada cenário publica antes a venda concluída, e espera o dinheiro
- * entrar. Todo evento é publicado dentro de uma transação, porque um listener transacional só é
- * chamado depois de um commit. O listener roda em outra thread, então cada asserção espera com
- * Awaitility.
+ * <p>Para haver o que estornar, cada cenário publica antes a venda concluída. Os eventos são
+ * publicados com a conta no contexto, como numa requisição, e o estorno acontece antes de a
+ * transação de quem publica terminar, então cada asserção lê logo em seguida.
  */
 class VendaCanceladaListenerTest extends TesteDeIntegracao {
 
     private static final String SENHA_DE_TESTE = "uma senha longa de teste";
-    private static final Duration ESPERA = Duration.ofSeconds(10);
 
     @Autowired
     private ApplicationEventPublisher publicador;
@@ -67,6 +67,9 @@ class VendaCanceladaListenerTest extends TesteDeIntegracao {
 
     @Autowired
     private CompletedEventPublications publicacoesConcluidas;
+
+    @Autowired
+    private EventPublicationRegistry registroDePublicacoes;
 
     @Autowired
     private CriadorDeContaDeTeste criador;
@@ -95,28 +98,22 @@ class VendaCanceladaListenerTest extends TesteDeIntegracao {
                 new VendaConcluida.Parcela(FormaPagamento.DINHEIRO, Money.de("8.93"),
                         StatusPagamento.CONFIRMADO));
 
-        concluir(conta, new VendaConcluida(conta.contaId(), vendaId, sessaoId, conta.usuarioId(),
-                List.of(new VendaConcluida.Item(UUID.randomUUID(), new BigDecimal("2"))), pagas,
-                Instant.now()));
-        await().atMost(ESPERA).untilAsserted(() ->
-                assertThat(esperadoDe(conta, sessaoId)).isEqualTo(Money.de("68.93")));
+        publicar(conta, conclusaoDe(conta, vendaId, sessaoId, pagas));
+        assertThat(esperadoDe(conta, sessaoId)).isEqualTo(Money.de("68.93"));
 
-        publicar(cancelamentoDe(conta, vendaId, sessaoId, pagas));
+        publicar(conta, cancelamentoDe(conta, vendaId, sessaoId, pagas));
 
-        await().atMost(ESPERA).untilAsserted(() ->
-                conta.comoUsuario(() -> {
-                    SessaoCaixa sessao = sessoes.findById(sessaoId).orElseThrow().paraDominio();
-                    // Volta aos 50,00 da abertura: saíram os mesmos 18,93 que tinham entrado.
-                    assertThat(sessao.getValorFechamentoEsperado()).isEqualTo(Money.de("50.00"));
-                    assertThat(sessao.getMovimentos())
-                            .extracting(MovimentoCaixa::tipo, MovimentoCaixa::valor,
-                                    MovimentoCaixa::vendaId, MovimentoCaixa::motivo)
-                            .containsExactly(
-                                    tuple(TipoMovimentoCaixa.VENDA, Money.de("18.93"), vendaId,
-                                            null),
-                                    tuple(TipoMovimentoCaixa.ESTORNO, Money.de("18.93"),
-                                            vendaId, null));
-                }));
+        conta.comoUsuario(() -> {
+            SessaoCaixa sessao = sessoes.findById(sessaoId).orElseThrow().paraDominio();
+            // Volta aos 50,00 da abertura: saíram os mesmos 18,93 que tinham entrado.
+            assertThat(sessao.getValorFechamentoEsperado()).isEqualTo(Money.de("50.00"));
+            assertThat(sessao.getMovimentos())
+                    .extracting(MovimentoCaixa::tipo, MovimentoCaixa::valor,
+                            MovimentoCaixa::vendaId, MovimentoCaixa::motivo)
+                    .containsExactly(
+                            tuple(TipoMovimentoCaixa.VENDA, Money.de("18.93"), vendaId, null),
+                            tuple(TipoMovimentoCaixa.ESTORNO, Money.de("18.93"), vendaId, null));
+        });
     }
 
     @Test
@@ -126,18 +123,11 @@ class VendaCanceladaListenerTest extends TesteDeIntegracao {
         UUID sessaoId = abrirCaixa(conta, Money.de("30.00"));
         UUID vendaId = vendas.criarAbertaEm(conta.contaId(), sessaoId, conta.usuarioId());
 
-        VendaCancelada evento = cancelamentoDe(conta, vendaId, sessaoId, List.of(
+        publicar(conta, cancelamentoDe(conta, vendaId, sessaoId, List.of(
                 new VendaConcluida.Parcela(FormaPagamento.PIX, Money.de("4.50"),
                         StatusPagamento.CONFIRMADO),
                 new VendaConcluida.Parcela(FormaPagamento.CARTAO, Money.de("4.50"),
-                        StatusPagamento.CONFIRMADO)));
-
-        publicar(evento);
-
-        // Só dá para afirmar que nada aconteceu depois de o listener ter terminado, e o sinal de
-        // que terminou é a publicação concluída no registro.
-        await().atMost(ESPERA).untilAsserted(() ->
-                assertThat(publicacoesDoCaixa(evento)).hasSize(1));
+                        StatusPagamento.CONFIRMADO))));
 
         conta.comoUsuario(() -> {
             SessaoCaixa sessao = sessoes.findById(sessaoId).orElseThrow().paraDominio();
@@ -147,32 +137,24 @@ class VendaCanceladaListenerTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("o mesmo cancelamento entregue duas vezes estorna uma vez só, e as duas entregas terminam")
-    void reentregaNaoDuplicaOEstorno() {
+    @DisplayName("o mesmo cancelamento publicado de novo é recusado pela raiz, e o dinheiro sai uma vez")
+    void mesmoCancelamentoNaoEstornaDuasVezes() {
         ContaCriada conta = criador.criar("Mercearia da Rua", SENHA_DE_TESTE);
         UUID sessaoId = abrirCaixa(conta, Money.ZERO);
         UUID vendaId = vendas.criarAbertaEm(conta.contaId(), sessaoId, conta.usuarioId());
         List<VendaConcluida.Parcela> pagas = List.of(new VendaConcluida.Parcela(
                 FormaPagamento.DINHEIRO, Money.de("30.00"), StatusPagamento.CONFIRMADO));
 
-        concluir(conta, new VendaConcluida(conta.contaId(), vendaId, sessaoId, conta.usuarioId(),
-                List.of(new VendaConcluida.Item(UUID.randomUUID(), BigDecimal.ONE)), pagas,
-                Instant.now()));
-        await().atMost(ESPERA).untilAsserted(() ->
-                assertThat(esperadoDe(conta, sessaoId)).isEqualTo(Money.de("30.00")));
-
+        publicar(conta, conclusaoDe(conta, vendaId, sessaoId, pagas));
         VendaCancelada cancelamento = cancelamentoDe(conta, vendaId, sessaoId, pagas);
-        publicar(cancelamento);
-        await().atMost(ESPERA).untilAsserted(() ->
-                assertThat(esperadoDe(conta, sessaoId)).isEqualTo(Money.ZERO));
+        publicar(conta, cancelamento);
+        assertThat(esperadoDe(conta, sessaoId)).isEqualTo(Money.ZERO);
 
-        // A segunda publicação do mesmo fato é o que uma reentrega do registro faz. Ela também
-        // termina sem erro: fica concluída no registro em vez de presa como falha.
-        publicar(cancelamento);
-        await().atMost(ESPERA).untilAsserted(() ->
-                assertThat(publicacoesDoCaixa(cancelamento))
-                        .as("as duas entregas terminaram, nenhuma delas com erro")
-                        .hasSize(2));
+        // Sem registro de publicação não há reentrega; publicar de novo é defeito de quem
+        // publica, e a raiz recusa alto, desfazendo a transação que tentou.
+        assertThatIllegalStateException()
+                .isThrownBy(() -> publicar(conta, cancelamento))
+                .withMessageContaining("nao sai de novo");
 
         conta.comoUsuario(() -> {
             SessaoCaixa sessao = sessoes.findById(sessaoId).orElseThrow().paraDominio();
@@ -184,8 +166,31 @@ class VendaCanceladaListenerTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("o listener estorna na conta do evento, e a conta B não vê o movimento (RNF05)")
-    void estornaNaContaDoEventoENaoVazaParaOutra() {
+    @DisplayName("a falha do estorno sobe para quem publicou, e nada da transação fica")
+    void falhaDoEstornoDesfazATransacaoDeQuemPublicou() {
+        ContaCriada conta = criador.criar("Armazém Aurora", SENHA_DE_TESTE);
+        UUID sessaoId = abrirCaixa(conta, Money.ZERO);
+        UUID vendaId = vendas.criarAbertaEm(conta.contaId(), sessaoId, conta.usuarioId());
+        UUID sessaoQueNaoExiste = UUID.randomUUID();
+
+        // Na mesma transação: um suprimento que o caixa aceitaria e o cancelamento de uma venda
+        // cuja sessão não existe. O estorno falha, e o suprimento sai junto.
+        assertThatThrownBy(() -> conta.comoUsuario(() ->
+                transacao.executeWithoutResult(status -> {
+                    sessoesDeCaixa.registrarSuprimento(sessaoId, Money.de("7.00"), "Troco");
+                    publicador.publishEvent(cancelamentoDe(conta, vendaId, sessaoQueNaoExiste,
+                            List.of(new VendaConcluida.Parcela(FormaPagamento.DINHEIRO,
+                                    Money.de("3.00"), StatusPagamento.CONFIRMADO))));
+                })))
+                .isInstanceOf(SessaoCaixaNaoEncontradaException.class);
+
+        conta.comoUsuario(() -> assertThat(sessoes.findById(sessaoId).orElseThrow()
+                .paraDominio().getMovimentos()).isEmpty());
+    }
+
+    @Test
+    @DisplayName("o evento de outra conta é recusado, e a conta dele não perde nada (RNF05)")
+    void eventoDeOutraContaNaoEstorna() {
         ContaCriada contaA = criador.criar("Loja A", SENHA_DE_TESTE);
         ContaCriada contaB = criador.criar("Loja B", SENHA_DE_TESTE);
         UUID sessaoDaContaA = abrirCaixa(contaA, Money.ZERO);
@@ -193,68 +198,54 @@ class VendaCanceladaListenerTest extends TesteDeIntegracao {
                 contaA.usuarioId());
         List<VendaConcluida.Parcela> pagas = List.of(new VendaConcluida.Parcela(
                 FormaPagamento.DINHEIRO, Money.de("12.00"), StatusPagamento.CONFIRMADO));
+        publicar(contaA, conclusaoDe(contaA, vendaDaContaA, sessaoDaContaA, pagas));
 
-        concluir(contaA, new VendaConcluida(contaA.contaId(), vendaDaContaA, sessaoDaContaA,
-                contaA.usuarioId(),
-                List.of(new VendaConcluida.Item(UUID.randomUUID(), BigDecimal.ONE)), pagas,
-                Instant.now()));
-        await().atMost(ESPERA).untilAsserted(() ->
-                assertThat(esperadoDe(contaA, sessaoDaContaA)).isEqualTo(Money.de("12.00")));
+        // A transação de quem publica está na conta B: o ouvinte não troca de conta no meio
+        // dela, recusa.
+        assertThatIllegalStateException()
+                .isThrownBy(() -> publicar(contaB,
+                        cancelamentoDe(contaA, vendaDaContaA, sessaoDaContaA, pagas)))
+                .withMessageContaining("outra conta");
 
-        // Publicado como conta B de propósito: o listener roda em outra thread, sem tenant, e
-        // tem de usar a conta que está dentro do evento, não a de quem publicou.
-        contaB.comoUsuario(() ->
-                publicar(cancelamentoDe(contaA, vendaDaContaA, sessaoDaContaA, pagas)));
-
-        await().atMost(ESPERA).untilAsserted(() ->
-                assertThat(esperadoDe(contaA, sessaoDaContaA)).isEqualTo(Money.ZERO));
-
-        contaB.comoUsuario(() -> {
-            assertThat(sessoes.findById(sessaoDaContaA)).isEmpty();
-            assertThat(sessoes.findAll()).isEmpty();
-        });
+        assertThat(esperadoDe(contaA, sessaoDaContaA)).isEqualTo(Money.de("12.00"));
+        contaB.comoUsuario(() -> assertThat(sessoes.findAll()).isEmpty());
     }
 
     @Test
-    @DisplayName("a publicação atravessa o outbox: gravada, concluída e remontada do JSON igual ao original")
-    void publicacaoVaiEVoltaDoRegistro() {
+    @DisplayName("o cancelamento não passa pelo registro de publicação: não há entrega para acompanhar")
+    void naoPassaPeloRegistroDePublicacao() {
         ContaCriada conta = criador.criar("Empório do Bairro", SENHA_DE_TESTE);
         UUID sessaoId = abrirCaixa(conta, Money.ZERO);
         UUID vendaId = vendas.criarAbertaEm(conta.contaId(), sessaoId, conta.usuarioId());
+        List<VendaConcluida.Parcela> pagas = List.of(new VendaConcluida.Parcela(
+                FormaPagamento.DINHEIRO, Money.de("10.00"), StatusPagamento.CONFIRMADO));
+        publicar(conta, conclusaoDe(conta, vendaId, sessaoId, pagas));
+        VendaCancelada evento = cancelamentoDe(conta, vendaId, sessaoId, pagas);
 
-        // Sem dinheiro, para o ouvinte terminar sem tocar na sessão; e com zero à direita e
-        // quantidade fracionada, porque o JSON precisa devolver a mesma escala.
-        VendaCancelada evento = new VendaCancelada(conta.contaId(), vendaId, sessaoId,
-                conta.usuarioId(),
-                List.of(
-                        new VendaCancelada.Item(UUID.randomUUID(), new BigDecimal("0.750")),
-                        new VendaCancelada.Item(UUID.randomUUID(), new BigDecimal("2"))),
-                List.of(
-                        new VendaCancelada.Parcela(FormaPagamento.PIX, Money.de("10.00"),
-                                StatusPagamento.CONFIRMADO),
-                        new VendaCancelada.Parcela(FormaPagamento.CARTAO, Money.de("0.50"),
-                                StatusPagamento.PENDENTE)));
+        publicar(conta, evento);
 
-        publicar(evento);
-
-        // getEvent() desserializa o que está gravado em serialized_event, então a igualdade prova
-        // a ida e a volta pelo JSON, não só a gravação.
-        await().atMost(ESPERA).untilAsserted(() ->
-                assertThat(publicacoesConcluidas.findAll())
-                        .filteredOn(EventPublication::isCompleted)
-                        .extracting(EventPublication::getEvent)
-                        .contains(evento));
+        assertThat(publicacoesConcluidas.findAll()).extracting(EventPublication::getEvent)
+                .doesNotContain(evento);
+        assertThat(registroDePublicacoes.findIncompletePublications())
+                .extracting(EventPublication::getEvent)
+                .doesNotContain(evento);
     }
 
     private UUID abrirCaixa(ContaCriada conta, Money valorAbertura) {
-        return conta.comoUsuario(() ->
-                sessoesDeCaixa.abrir(valorAbertura));
+        return conta.comoUsuario(() -> sessoesDeCaixa.abrir(valorAbertura));
     }
 
     private Money esperadoDe(ContaCriada conta, UUID sessaoId) {
         return conta.comoUsuario(() ->
                 sessoes.findById(sessaoId).orElseThrow().paraDominio()
                         .getValorFechamentoEsperado());
+    }
+
+    private static VendaConcluida conclusaoDe(ContaCriada conta, UUID vendaId, UUID sessaoId,
+            List<VendaConcluida.Parcela> pagas) {
+        return new VendaConcluida(conta.contaId(), vendaId, sessaoId, conta.usuarioId(),
+                List.of(new VendaConcluida.Item(UUID.randomUUID(), BigDecimal.ONE)), pagas,
+                Instant.now());
     }
 
     /** O cancelamento da venda com as mesmas parcelas com que ela foi concluída. */
@@ -268,29 +259,9 @@ class VendaCanceladaListenerTest extends TesteDeIntegracao {
                 List.of(new VendaCancelada.Item(UUID.randomUUID(), BigDecimal.ONE)), parcelas);
     }
 
-    /**
-     * A conclusão é ouvida dentro da transação de quem publica, então a conta vai no contexto
-     * antes de a transação abrir, como numa requisição.
-     */
-    private void concluir(ContaCriada conta, VendaConcluida evento) {
-        conta.comoUsuario(() -> publicar(evento));
-    }
-
-    private void publicar(Object evento) {
-        transacao.executeWithoutResult(status -> publicador.publishEvent(evento));
-    }
-
-    /**
-     * As publicações deste evento entregues ao ouvinte do cancelamento no caixa. O identificador
-     * do alvo é a assinatura do método do listener, então o nome da classe basta para separar do
-     * ouvinte do estoque.
-     */
-    private List<? extends EventPublication> publicacoesDoCaixa(VendaCancelada evento) {
-        return publicacoesConcluidas.findAll().stream()
-                .filter(publicacao -> publicacao.getEvent().equals(evento))
-                .filter(publicacao -> publicacao instanceof TargetEventPublication alvo
-                        && alvo.getTargetIdentifier().getValue()
-                                .contains("VendaCanceladaListener"))
-                .toList();
+    /** Como numa requisição: a conta no contexto antes de a transação abrir. */
+    private void publicar(ContaCriada conta, Object evento) {
+        conta.comoUsuario(() ->
+                transacao.executeWithoutResult(status -> publicador.publishEvent(evento)));
     }
 }

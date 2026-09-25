@@ -1,7 +1,7 @@
 package br.com.caixasimples.estoque;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.awaitility.Awaitility.await;
+import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 
 import br.com.caixasimples.TesteDeIntegracao;
 import br.com.caixasimples.cadastro.TipoProduto;
@@ -19,7 +19,6 @@ import br.com.caixasimples.vendas.CriadorDeVendaDeTeste;
 import br.com.caixasimples.vendas.VendaCancelada;
 import br.com.caixasimples.vendas.VendaConcluida;
 import java.math.BigDecimal;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -28,33 +27,28 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.modulith.events.CompletedEventPublications;
-import org.springframework.modulith.events.EventPublication;
-import org.springframework.modulith.events.core.TargetEventPublication;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * O estoque reagindo à venda cancelada, com o registro de publicação de verdade no meio: o
- * oposto de {@code BaixaDeEstoqueListenerTest}, no mesmo molde.
+ * O estoque reagindo à venda cancelada, dentro da transação de quem cancela: o oposto de
+ * {@code BaixaDeEstoqueListenerTest}, no mesmo molde.
  *
  * <p>Publica os eventos diretamente, sem passar por {@code VendaService}, para provar só o que é
  * do estoque: a conta com o controle desligado não devolve nada, a ligada devolve um movimento
  * por item de produto que tinha baixado, a conta que ligou o controle depois da venda não devolve
- * o que não saiu, a reentrega não duplica, e o ouvinte acha o produto da conta do evento numa
- * thread que não tem tenant nenhum. O caminho inteiro, do cancelamento pelo caso de uso ao saldo,
- * está em {@code VendaServiceTest}.
+ * o que não saiu, o mesmo cancelamento não devolve duas vezes, e o evento de outra conta é
+ * recusado. O caminho inteiro, do cancelamento pelo caso de uso ao saldo, está em
+ * {@code VendaServiceTest}; a disputa com outra transação pelo mesmo produto, em
+ * {@code CancelamentoERecebimentoSobConcorrenciaTest}.
  *
- * <p>Para haver o que devolver, cada cenário publica antes a venda concluída, com a conta no
- * contexto: a baixa roda dentro dessa publicação, na transação de quem publica. Os eventos vão
- * pagos em Pix, para o ouvinte do caixa não ter o que fazer e sair do caminho. O cancelamento é
- * publicado dentro de uma transação, porque o ouvinte dele só é chamado depois de um commit, em
- * outra thread, então cada asserção sobre o estorno espera com Awaitility. Há dois ouvintes do
- * cancelamento, então quem espera pela publicação concluída filtra pelo ouvinte do estoque.
+ * <p>Para haver o que devolver, cada cenário publica antes a venda concluída. Os eventos vão pagos
+ * em Pix, para o ouvinte do caixa não ter o que fazer e sair do caminho, e são publicados com a
+ * conta no contexto, como numa requisição: a devolução acontece antes de a transação de quem
+ * publica terminar, então cada asserção lê logo em seguida.
  */
 class EstornoDeEstoqueListenerTest extends TesteDeIntegracao {
 
     private static final String SENHA_DE_TESTE = "uma senha longa de teste";
-    private static final Duration ESPERA = Duration.ofSeconds(10);
 
     @Autowired
     private ApplicationEventPublisher publicador;
@@ -70,9 +64,6 @@ class EstornoDeEstoqueListenerTest extends TesteDeIntegracao {
 
     @Autowired
     private ProdutoRepository produtos;
-
-    @Autowired
-    private CompletedEventPublications publicacoesConcluidas;
 
     @Autowired
     private CriadorDeContaDeTeste criador;
@@ -93,13 +84,8 @@ class EstornoDeEstoqueListenerTest extends TesteDeIntegracao {
         UUID vendaId = vendas.criarAbertaEm(conta.contaId(), sessaoId, conta.usuarioId());
         UUID shampooId = cadastrar(conta, "Shampoo", TipoProduto.PRODUTO);
 
-        VendaCancelada evento = cancelamento(conta, vendaId, sessaoId,
-                List.of(new VendaCancelada.Item(shampooId, new BigDecimal("2"))));
-
-        publicar(evento);
-
-        await().atMost(ESPERA).untilAsserted(() ->
-                assertThat(publicacoesDoEstoque(evento)).hasSize(1));
+        publicar(conta, cancelamento(conta, vendaId, sessaoId,
+                List.of(new VendaCancelada.Item(shampooId, new BigDecimal("2")))));
 
         conta.comoUsuario(() -> {
             assertThat(saldoDe(shampooId)).isEqualByComparingTo("0");
@@ -118,28 +104,23 @@ class EstornoDeEstoqueListenerTest extends TesteDeIntegracao {
         UUID queijoId = cadastrar(conta, "Queijo minas", TipoProduto.PRODUTO);
         UUID entregaId = cadastrar(conta, "Entrega", TipoProduto.SERVICO);
 
-        concluir(conta, conclusao(conta, vendaId, sessaoId, List.of(
+        publicar(conta, conclusao(conta, vendaId, sessaoId, List.of(
                 new VendaConcluida.Item(cafeId, new BigDecimal("2")),
                 new VendaConcluida.Item(entregaId, BigDecimal.ONE),
                 new VendaConcluida.Item(queijoId, new BigDecimal("0.750")))));
-        await().atMost(ESPERA).untilAsserted(() ->
-                conta.comoUsuario(() -> {
-                    assertThat(saldoDe(cafeId)).isEqualByComparingTo("-2");
-                    assertThat(saldoDe(queijoId)).isEqualByComparingTo("-0.750");
-                }));
+        conta.comoUsuario(() -> {
+            assertThat(saldoDe(cafeId)).isEqualByComparingTo("-2");
+            assertThat(saldoDe(queijoId)).isEqualByComparingTo("-0.750");
+        });
 
-        publicar(cancelamento(conta, vendaId, sessaoId, List.of(
+        publicar(conta, cancelamento(conta, vendaId, sessaoId, List.of(
                 new VendaCancelada.Item(cafeId, new BigDecimal("2")),
                 new VendaCancelada.Item(entregaId, BigDecimal.ONE),
                 new VendaCancelada.Item(queijoId, new BigDecimal("0.750")))));
 
-        await().atMost(ESPERA).untilAsserted(() ->
-                conta.comoUsuario(() -> {
-                    assertThat(saldoDe(cafeId)).isEqualByComparingTo("0");
-                    assertThat(saldoDe(queijoId)).isEqualByComparingTo("0");
-                }));
-
         conta.comoUsuario(() -> {
+            assertThat(saldoDe(cafeId)).isEqualByComparingTo("0");
+            assertThat(saldoDe(queijoId)).isEqualByComparingTo("0");
             assertThat(produtoService.jaEstornouPorCancelamento(cafeId, vendaId)).isTrue();
             assertThat(produtoService.jaEstornouPorCancelamento(queijoId, vendaId)).isTrue();
             assertThat(produtoService.jaDeuBaixaPorVenda(cafeId, vendaId))
@@ -158,19 +139,13 @@ class EstornoDeEstoqueListenerTest extends TesteDeIntegracao {
         UUID vendaId = vendas.criarAbertaEm(conta.contaId(), sessaoId, conta.usuarioId());
         UUID pomadaId = cadastrar(conta, "Pomada", TipoProduto.PRODUTO);
 
-        // A venda aconteceu com o controle desligado: nada saiu. O ouvinte da conclusão roda
-        // dentro da publicação, então ao voltar dela a decisão de não baixar já foi tomada.
-        concluir(conta, conclusao(conta, vendaId, sessaoId,
+        // A venda aconteceu com o controle desligado: nada saiu.
+        publicar(conta, conclusao(conta, vendaId, sessaoId,
                 List.of(new VendaConcluida.Item(pomadaId, BigDecimal.ONE))));
 
         criador.habilitarEstoque(conta.contaId());
-        VendaCancelada cancelamento = cancelamento(conta, vendaId, sessaoId,
-                List.of(new VendaCancelada.Item(pomadaId, BigDecimal.ONE)));
-        publicar(cancelamento);
-        await().atMost(ESPERA).untilAsserted(() ->
-                assertThat(publicacoesDoEstoque(cancelamento))
-                        .as("a entrega terminou sem erro: pular não é falhar")
-                        .hasSize(1));
+        publicar(conta, cancelamento(conta, vendaId, sessaoId,
+                List.of(new VendaCancelada.Item(pomadaId, BigDecimal.ONE))));
 
         conta.comoUsuario(() -> {
             assertThat(saldoDe(pomadaId))
@@ -182,34 +157,25 @@ class EstornoDeEstoqueListenerTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("o mesmo cancelamento entregue duas vezes devolve uma vez só, e as duas entregas terminam")
-    void reentregaNaoDuplicaOEstorno() {
+    @DisplayName("o mesmo cancelamento publicado de novo é recusado pelo cadastro, e o estoque volta uma vez")
+    void mesmoCancelamentoNaoDevolveDuasVezes() {
         ContaCriada conta = criador.criar("Mercearia Aurora", SENHA_DE_TESTE);
         criador.habilitarEstoque(conta.contaId());
         UUID sessaoId = abrirCaixa(conta);
         UUID vendaId = vendas.criarAbertaEm(conta.contaId(), sessaoId, conta.usuarioId());
         UUID arrozId = cadastrar(conta, "Arroz", TipoProduto.PRODUTO);
 
-        concluir(conta, conclusao(conta, vendaId, sessaoId,
+        publicar(conta, conclusao(conta, vendaId, sessaoId,
                 List.of(new VendaConcluida.Item(arrozId, new BigDecimal("2")))));
-        await().atMost(ESPERA).untilAsserted(() ->
-                conta.comoUsuario(() ->
-                        assertThat(saldoDe(arrozId)).isEqualByComparingTo("-2")));
-
-        VendaCancelada cancelamento = cancelamento(conta, vendaId, sessaoId,
+        VendaCancelada evento = cancelamento(conta, vendaId, sessaoId,
                 List.of(new VendaCancelada.Item(arrozId, new BigDecimal("2"))));
-        publicar(cancelamento);
-        await().atMost(ESPERA).untilAsserted(() ->
-                conta.comoUsuario(() ->
-                        assertThat(saldoDe(arrozId)).isEqualByComparingTo("0")));
+        publicar(conta, evento);
 
-        // A segunda publicação do mesmo fato é o que uma reentrega do registro faz. Ela também
-        // termina sem erro: fica concluída no registro em vez de presa como falha.
-        publicar(cancelamento);
-        await().atMost(ESPERA).untilAsserted(() ->
-                assertThat(publicacoesDoEstoque(cancelamento))
-                        .as("as duas entregas terminaram, nenhuma delas com erro")
-                        .hasSize(2));
+        // Sem registro de publicação não há reentrega; publicar de novo é defeito de quem
+        // publica, e o cadastro recusa alto, desfazendo a transação que tentou.
+        assertThatIllegalStateException()
+                .isThrownBy(() -> publicar(conta, evento))
+                .withMessageContaining("nao estorna de novo");
 
         conta.comoUsuario(() ->
                 assertThat(saldoDe(arrozId))
@@ -218,37 +184,33 @@ class EstornoDeEstoqueListenerTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("o ouvinte devolve na conta do evento, e a conta B não vê o produto nem o movimento (RNF05)")
-    void devolveNaContaDoEventoENaoVazaParaOutra() {
+    @DisplayName("o evento de outra conta é recusado, e o produto dele não se move (RNF05)")
+    void eventoDeOutraContaNaoDevolve() {
         ContaCriada contaA = criador.criar("Loja A", SENHA_DE_TESTE);
         ContaCriada contaB = criador.criar("Loja B", SENHA_DE_TESTE);
         criador.habilitarEstoque(contaA.contaId());
+        criador.habilitarEstoque(contaB.contaId());
         UUID sessaoDaContaA = abrirCaixa(contaA);
         UUID vendaDaContaA = vendas.criarAbertaEm(contaA.contaId(), sessaoDaContaA,
                 contaA.usuarioId());
         UUID escovaDaContaA = cadastrar(contaA, "Escova", TipoProduto.PRODUTO);
-
-        concluir(contaA, conclusao(contaA, vendaDaContaA, sessaoDaContaA,
+        publicar(contaA, conclusao(contaA, vendaDaContaA, sessaoDaContaA,
                 List.of(new VendaConcluida.Item(escovaDaContaA, BigDecimal.ONE))));
-        await().atMost(ESPERA).untilAsserted(() ->
-                contaA.comoUsuario(() ->
-                        assertThat(saldoDe(escovaDaContaA)).isEqualByComparingTo("-1")));
 
-        // Publicado como conta B de propósito: o ouvinte roda em outra thread, sem tenant, e tem
-        // de usar a conta que está dentro do evento, não a de quem publicou.
-        contaB.comoUsuario(() ->
-                publicar(cancelamento(contaA, vendaDaContaA, sessaoDaContaA,
-                        List.of(new VendaCancelada.Item(escovaDaContaA, BigDecimal.ONE)))));
+        // A transação de quem publica está na conta B: o ouvinte não troca de conta no meio
+        // dela, recusa.
+        assertThatIllegalStateException()
+                .isThrownBy(() -> publicar(contaB, cancelamento(contaA, vendaDaContaA,
+                        sessaoDaContaA,
+                        List.of(new VendaCancelada.Item(escovaDaContaA, BigDecimal.ONE)))))
+                .withMessageContaining("outra conta");
 
-        await().atMost(ESPERA).untilAsserted(() ->
-                contaA.comoUsuario(() ->
-                        assertThat(saldoDe(escovaDaContaA)).isEqualByComparingTo("0")));
-
-        contaB.comoUsuario(() -> {
-            assertThat(produtos.findById(escovaDaContaA)).isEmpty();
+        contaA.comoUsuario(() -> {
+            assertThat(saldoDe(escovaDaContaA)).isEqualByComparingTo("-1");
             assertThat(produtoService.jaEstornouPorCancelamento(escovaDaContaA, vendaDaContaA))
                     .isFalse();
         });
+        contaB.comoUsuario(() -> assertThat(produtos.findById(escovaDaContaA)).isEmpty());
     }
 
     private UUID abrirCaixa(ContaCriada conta) {
@@ -284,32 +246,9 @@ class EstornoDeEstoqueListenerTest extends TesteDeIntegracao {
                         StatusPagamento.CONFIRMADO)));
     }
 
-    /**
-     * A conclusão é ouvida dentro da transação de quem publica, então a conta vai no contexto
-     * antes de a transação abrir, como numa requisição.
-     */
-    private void concluir(ContaCriada conta, VendaConcluida evento) {
-        conta.comoUsuario(() -> publicar(evento));
-    }
-
-    private void publicar(Object evento) {
-        transacao.executeWithoutResult(status -> publicador.publishEvent(evento));
-    }
-
-    private List<? extends EventPublication> publicacoesDoEstoque(VendaCancelada evento) {
-        return publicacoesEntreguesA(evento, "EstornoDeEstoqueListener");
-    }
-
-    /**
-     * As publicações deste evento entregues ao ouvinte nomeado. O identificador do alvo é a
-     * assinatura do método do listener, então o nome da classe basta para separar do caixa.
-     */
-    private List<? extends EventPublication> publicacoesEntreguesA(Object evento,
-            String ouvinte) {
-        return publicacoesConcluidas.findAll().stream()
-                .filter(publicacao -> publicacao.getEvent().equals(evento))
-                .filter(publicacao -> publicacao instanceof TargetEventPublication alvo
-                        && alvo.getTargetIdentifier().getValue().contains(ouvinte))
-                .toList();
+    /** Como numa requisição: a conta no contexto antes de a transação abrir. */
+    private void publicar(ContaCriada conta, Object evento) {
+        conta.comoUsuario(() ->
+                transacao.executeWithoutResult(status -> publicador.publishEvent(evento)));
     }
 }

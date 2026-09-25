@@ -286,11 +286,10 @@ public class ProdutoService {
      * é aqui, com o produto na mão, que a distinção se faz. A raiz recusa a baixa em serviço por
      * conta própria; este método pergunta antes para não chegar lá.
      *
-     * <p><strong>A mesma venda não baixa duas vezes.</strong> O evento de venda concluída é
-     * entregue ao menos uma vez, e quem chama deve perguntar por {@link #jaDeuBaixaPorVenda} antes,
-     * e pular a reentrega. A recusa aqui é a invariante em si, para qualquer chamador: estoque
-     * baixado em dobro é uma falta que nunca existiu. A raiz não carrega o histórico, então a
-     * pergunta vai ao repositório; a rede embaixo é o índice único da migration V9.
+     * <p><strong>A mesma venda não baixa duas vezes.</strong> A recusa aqui é a invariante em si,
+     * para qualquer chamador: estoque baixado em dobro é uma falta que nunca existiu. A raiz não
+     * carrega o histórico, então a pergunta vai ao repositório; a rede embaixo é o índice único da
+     * migration V9.
      *
      * <p>Não olha se o produto está ativo, de propósito: a venda aconteceu antes de qualquer
      * inativação, e o estoque que saiu, saiu.
@@ -327,15 +326,13 @@ public class ProdutoService {
     }
 
     /**
-     * Se esta venda já deu baixa neste produto. É a pergunta que o ouvinte do evento faz antes de
-     * pedir a baixa, porque o evento pode chegar mais de uma vez e a reentrega tem de terminar sem
-     * erro. É também o que o ouvinte do cancelamento pergunta antes de pedir o estorno: uma conta
-     * que ligou o controle de estoque depois da venda não tem baixa a devolver.
+     * Se esta venda já deu baixa neste produto. É o que o ouvinte do cancelamento pergunta antes
+     * de pedir o estorno: uma conta que ligou o controle de estoque depois da venda não tem baixa a
+     * devolver.
      *
      * <p>Responde falso para um produto que não existe nesta conta, em vez de lançar: a pergunta
-     * é sobre o movimento, e a ausência do produto vai estourar logo em seguida, em
-     * {@link #darBaixaPorVenda}, com a exceção certa. Continua verdadeira depois do estorno: a
-     * baixa aconteceu, e o estorno é outro movimento.
+     * é sobre o movimento, e produto que não existe não teve baixa. Continua verdadeira depois do
+     * estorno: a baixa aconteceu, e o estorno é outro movimento.
      */
     @Transactional(readOnly = true)
     public boolean jaDeuBaixaPorVenda(UUID produtoId, UUID vendaId) {
@@ -352,11 +349,9 @@ public class ProdutoService {
      *
      * <p><strong>Só se devolve o que saiu, e uma vez só.</strong> Uma venda que não deu baixa
      * neste produto, porque a conta ligou o controle de estoque depois dela, não tem o que
-     * estornar, e a recusa é alta em vez de somar um estoque que nunca foi tirado. E o evento de
-     * cancelamento chega ao menos uma vez, então quem chama pergunta por
-     * {@link #jaEstornouPorCancelamento} antes e pula a reentrega; a recusa aqui é a invariante em
-     * si, para qualquer chamador. A raiz não carrega o histórico, então as duas perguntas vão ao
-     * repositório; a rede embaixo é o índice único da migration V9.
+     * estornar, e a recusa é alta em vez de somar um estoque que nunca foi tirado. O estorno em
+     * dobro também é recusado aqui, para qualquer chamador. A raiz não carrega o histórico, então
+     * as duas perguntas vão ao repositório; a rede embaixo é o índice único da migration V9.
      *
      * <p>Não olha se o produto está ativo, pelo mesmo motivo da baixa: a venda aconteceu, e o
      * estoque que volta, volta.
@@ -399,10 +394,10 @@ public class ProdutoService {
     }
 
     /**
-     * Se o cancelamento desta venda já devolveu o estoque deste produto. É a pergunta que o
-     * ouvinte do cancelamento faz antes de pedir o estorno, porque o evento pode chegar mais de
-     * uma vez e a reentrega tem de terminar sem erro. Falso para produto que não existe nesta
-     * conta, pelo mesmo motivo de {@link #jaDeuBaixaPorVenda}.
+     * Se o cancelamento desta venda já devolveu o estoque deste produto: a mesma pergunta que
+     * {@link #estornarPorCancelamento} faz antes de recusar o estorno em dobro, aberta a quem
+     * precisa conferir o histórico. Falso para produto que não existe nesta conta, pelo mesmo
+     * motivo de {@link #jaDeuBaixaPorVenda}.
      */
     @Transactional(readOnly = true)
     public boolean jaEstornouPorCancelamento(UUID produtoId, UUID vendaId) {

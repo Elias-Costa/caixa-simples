@@ -3,7 +3,6 @@ package br.com.caixasimples.vendas;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
-import static org.awaitility.Awaitility.await;
 
 import br.com.caixasimples.TesteDeIntegracao;
 import br.com.caixasimples.cadastro.TipoProduto;
@@ -29,7 +28,6 @@ import br.com.caixasimples.shared.TenantContext;
 import br.com.caixasimples.vendas.application.VendaNaoEncontradaException;
 import br.com.caixasimples.vendas.application.VendaService;
 import java.math.BigDecimal;
-import java.time.Duration;
 import java.time.LocalDate;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -77,10 +75,9 @@ class FiadoServiceTest extends TesteDeIntegracao {
         UUID clienteId = conta.comoUsuario(() -> clientes.cadastrar(new DadosDoCliente("Lia", null)));
         UUID produtoId = produto(conta);
         UUID vendaId = vendaFiada(conta, sessaoDaVenda, clienteId, produtoId);
-        await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
-                assertThat(conta.comoUsuario(() -> linhasDeProduto.findById(produtoId)
-                        .orElseThrow().paraDominio().getEstoqueAtual()))
-                        .isEqualByComparingTo("-1"));
+        assertThat(conta.comoUsuario(() -> linhasDeProduto.findById(produtoId)
+                .orElseThrow().paraDominio().getEstoqueAtual()))
+                .isEqualByComparingTo("-1");
         LocalDate hoje = LocalDate.now(FusoDeReferencia.DO_BALCAO);
 
         assertThat(conta.comoUsuario(() -> faturamento.doDia(hoje).total()))
@@ -100,9 +97,8 @@ class FiadoServiceTest extends TesteDeIntegracao {
         var primeiro = operador.comoUsuario(() ->
                 vendas.receber(vendaId, Money.de("7.00"), FormaPagamento.DINHEIRO));
         assertThat(primeiro.saldoDevedor()).isEqualTo(Money.de("13.00"));
-        await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
-                assertThat(operador.comoUsuario(() -> caixas.consultar(sessaoDoRecebimento)
-                        .valorFechamentoEsperado())).isEqualTo(Money.de("7.00")));
+        assertThat(operador.comoUsuario(() -> caixas.consultar(sessaoDoRecebimento)
+                .valorFechamentoEsperado())).isEqualTo(Money.de("7.00"));
         assertThat(operador.comoUsuario(() -> caixas.consultarExtrato(sessaoDoRecebimento)
                 .movimentos())).anySatisfy(movimento -> {
                     assertThat(movimento.tipo()).isEqualTo(TipoMovimentoCaixa.RECEBIMENTO);
@@ -127,17 +123,15 @@ class FiadoServiceTest extends TesteDeIntegracao {
                 outra.comoUsuario(() -> vendas.receber(vendaId, Money.de("1.00"),
                         FormaPagamento.PIX)));
         conta.comoUsuario(() -> vendas.cancelar(vendaId));
-        await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
-                assertThat(conta.comoUsuario(() -> caixas.consultar(sessaoDaVenda)
-                        .valorFechamentoEsperado())).isEqualTo(Money.de("-7.00")));
+        assertThat(conta.comoUsuario(() -> caixas.consultar(sessaoDaVenda)
+                .valorFechamentoEsperado())).isEqualTo(Money.de("-7.00"));
         assertThat(operador.comoUsuario(() -> caixas.consultar(sessaoDoRecebimento)
                 .valorFechamentoEsperado())).isEqualTo(Money.de("7.00"));
         assertThat(conta.comoUsuario(() -> faturamento.doDia(hoje).total()))
                 .isEqualTo(Money.ZERO);
-        await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
-                assertThat(conta.comoUsuario(() -> linhasDeProduto.findById(produtoId)
-                        .orElseThrow().paraDominio().getEstoqueAtual()))
-                        .isEqualByComparingTo("0"));
+        assertThat(conta.comoUsuario(() -> linhasDeProduto.findById(produtoId)
+                .orElseThrow().paraDominio().getEstoqueAtual()))
+                .isEqualByComparingTo("0");
     }
 
     @Test

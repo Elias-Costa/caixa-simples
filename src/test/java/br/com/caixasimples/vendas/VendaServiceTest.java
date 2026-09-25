@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 import static org.assertj.core.api.Assertions.tuple;
-import static org.awaitility.Awaitility.await;
 
 import br.com.caixasimples.TesteDeIntegracao;
 import br.com.caixasimples.cadastro.TipoProduto;
@@ -35,7 +34,6 @@ import br.com.caixasimples.vendas.domain.Pagamento;
 import br.com.caixasimples.vendas.domain.Venda;
 import br.com.caixasimples.vendas.internal.VendaRepository;
 import java.math.BigDecimal;
-import java.time.Duration;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -54,7 +52,7 @@ import org.springframework.test.context.event.RecordApplicationEvents;
  * exercitar o {@code atualizarCom} da entidade, inclusive a remoção de linha por
  * {@code orphanRemoval} e o acréscimo das parcelas, as três perguntas feitas a outros módulos, o
  * isolamento entre contas em cada uma delas e, na conclusão e no cancelamento, o evento
- * publicado e o dinheiro e o estoque indo e voltando pelo outbox.
+ * publicado e o dinheiro e o estoque indo e voltando na mesma transação.
  *
  * <p>Fica no pacote {@code vendas} e enxerga só o que um controller enxergaria: o serviço, o
  * domínio e a raiz do agregado. Os casos de uso de {@code caixa} e {@code cadastro} entram no
@@ -447,16 +445,15 @@ class VendaServiceTest extends TesteDeIntegracao {
                                             StatusPagamento.CONFIRMADO));
                 });
 
-        // E o caixa reagiu, em outra thread, pelo outbox: entrou na gaveta o dinheiro, 18,93, e
-        // não o total da venda; o Cartao nunca esteve lá.
-        await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
-                conta.comoUsuario(() ->
-                        assertThat(sessoes.findById(sessaoId).orElseThrow().paraDominio()
-                                .getMovimentos())
-                                .extracting(MovimentoCaixa::tipo, MovimentoCaixa::valor,
-                                        MovimentoCaixa::vendaId)
-                                .containsExactly(tuple(TipoMovimentoCaixa.VENDA,
-                                        Money.de("18.93"), vendaId))));
+        // E o caixa reagiu na transação da conclusão: entrou na gaveta o dinheiro, 18,93, e não o
+        // total da venda; o Cartao nunca esteve lá.
+        conta.comoUsuario(() ->
+                assertThat(sessoes.findById(sessaoId).orElseThrow().paraDominio()
+                        .getMovimentos())
+                        .extracting(MovimentoCaixa::tipo, MovimentoCaixa::valor,
+                                MovimentoCaixa::vendaId)
+                        .containsExactly(tuple(TipoMovimentoCaixa.VENDA,
+                                Money.de("18.93"), vendaId)));
     }
 
     @Test
@@ -605,7 +602,7 @@ class VendaServiceTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("cancelar a venda concluída devolve o dinheiro ao caixa e os produtos ao estoque, pelo outbox (RF12)")
+    @DisplayName("cancelar a venda concluída devolve o dinheiro ao caixa e os produtos ao estoque, na mesma transação (RF12)")
     void cancelarDesfazOCaixaEOEstoque(ApplicationEvents eventos) {
         ContaCriada conta = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
         criador.habilitarEstoque(conta.contaId());
@@ -627,12 +624,11 @@ class VendaServiceTest extends TesteDeIntegracao {
         });
 
         // A conclusão chegou aos dois ouvintes: é o estado que o cancelamento vai desfazer.
-        await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
-                conta.comoUsuario(() -> {
-                    assertThat(esperadoDe(sessaoId)).isEqualTo(Money.de("18.93"));
-                    assertThat(saldoDe(cafeId)).isEqualByComparingTo("-2");
-                    assertThat(saldoDe(queijoId)).isEqualByComparingTo("-0.750");
-                }));
+        conta.comoUsuario(() -> {
+            assertThat(esperadoDe(sessaoId)).isEqualTo(Money.de("18.93"));
+            assertThat(saldoDe(cafeId)).isEqualByComparingTo("-2");
+            assertThat(saldoDe(queijoId)).isEqualByComparingTo("-0.750");
+        });
 
         conta.comoUsuario(() -> vendaService.cancelar(vendaId));
 
@@ -670,24 +666,21 @@ class VendaServiceTest extends TesteDeIntegracao {
                                     tuple(FormaPagamento.DINHEIRO, Money.de("18.93")));
                 });
 
-        // O caixa refletiu: a VENDA fica, o ESTORNO a espelha, e o esperado volta ao anterior.
-        await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
-                conta.comoUsuario(() ->
-                        assertThat(sessoes.findById(sessaoId).orElseThrow().paraDominio()
-                                .getMovimentos())
-                                .extracting(MovimentoCaixa::tipo, MovimentoCaixa::valor,
-                                        MovimentoCaixa::vendaId)
-                                .containsExactly(
-                                        tuple(TipoMovimentoCaixa.VENDA, Money.de("18.93"),
-                                                vendaId),
-                                        tuple(TipoMovimentoCaixa.ESTORNO, Money.de("18.93"),
-                                                vendaId))));
+        // O caixa refletiu na mesma transação: a VENDA fica, o ESTORNO a espelha, e o esperado
+        // volta ao anterior.
+        conta.comoUsuario(() ->
+                assertThat(sessoes.findById(sessaoId).orElseThrow().paraDominio()
+                        .getMovimentos())
+                        .extracting(MovimentoCaixa::tipo, MovimentoCaixa::valor,
+                                MovimentoCaixa::vendaId)
+                        .containsExactly(
+                                tuple(TipoMovimentoCaixa.VENDA, Money.de("18.93"), vendaId),
+                                tuple(TipoMovimentoCaixa.ESTORNO, Money.de("18.93"), vendaId)));
         // E o estoque voltou ao valor anterior à venda.
-        await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
-                conta.comoUsuario(() -> {
-                    assertThat(saldoDe(cafeId)).isEqualByComparingTo("0");
-                    assertThat(saldoDe(queijoId)).isEqualByComparingTo("0");
-                }));
+        conta.comoUsuario(() -> {
+            assertThat(saldoDe(cafeId)).isEqualByComparingTo("0");
+            assertThat(saldoDe(queijoId)).isEqualByComparingTo("0");
+        });
         conta.comoUsuario(() ->
                 assertThat(esperadoDe(sessaoId)).isEqualTo(Money.ZERO));
 
@@ -714,10 +707,9 @@ class VendaServiceTest extends TesteDeIntegracao {
                     SolicitacaoPagamento.emDinheiro(Money.de("4.50"), Money.de("4.50")));
             vendaService.concluir(vendaId);
         });
-        // Espera o dinheiro entrar antes de fechar, senão o fechamento disputaria com o ouvinte.
-        await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
-                conta.comoUsuario(() ->
-                        assertThat(esperadoDe(sessaoId)).isEqualTo(Money.de("4.50"))));
+        // O dinheiro entrou na conclusão, e é com ele que o fechamento confere a gaveta.
+        conta.comoUsuario(() ->
+                assertThat(esperadoDe(sessaoId)).isEqualTo(Money.de("4.50")));
 
         conta.comoUsuario(() -> caixas.fechar(sessaoId, Money.de("4.50")));
 

@@ -163,7 +163,7 @@ class MovimentoEstoqueDoAgregadoTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("conta B não alcança o movimento da conta A nem pela raiz nem pela pergunta de reentrega")
+    @DisplayName("conta B não alcança o movimento da conta A nem pela raiz nem pela pergunta ao histórico")
     void contaNaoEnxergaMovimentoDeOutraConta() {
         ContaCriada contaA = criador.criar("Bar do Teste", SENHA_DE_TESTE);
         ContaCriada contaB = criador.criar("Barbearia Teste", SENHA_DE_TESTE);

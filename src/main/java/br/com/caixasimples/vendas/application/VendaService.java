@@ -86,11 +86,12 @@ import org.springframework.transaction.annotation.Transactional;
  * de gravar a venda CANCELADA, e só quando ela estava CONCLUIDA: uma comanda ABERTA abandonada
  * nunca produziu efeito fora do módulo, e não há o que desfazer. Lançar e devolver o dinheiro no
  * caixa, dar baixa e estornar o estoque são efeitos de quem ouve os eventos; este serviço não
- * chama nenhum dos dois módulos. Os ouvintes da conclusão rodam dentro da transação dela, então a
- * Venda concluída, o dinheiro na gaveta e a baixa confirmam juntos; os do cancelamento rodam
- * depois do commit, em outra thread. Os eventos carregam a conta, lida do contexto autenticado no
- * ato, porque o ouvinte do cancelamento não tem a requisição e uma reentrega pode vir do registro
- * de publicação horas depois; sem a conta dentro dele, o caixa não acharia a sessão.
+ * chama nenhum dos dois módulos. Os ouvintes rodam dentro da transação de quem publica, assim como
+ * o do recebimento de fiado: a Venda concluída, o dinheiro na gaveta e a baixa confirmam juntos, e
+ * o cancelamento, com o estorno e a devolução ao estoque, também. Se outra operação alterou a
+ * mesma sessão de caixa ou o mesmo produto no meio, a operação inteira falha por conflito de
+ * versão, e quem chamou repete, em vez de ela confirmar sem o efeito. Os eventos carregam a conta,
+ * lida do contexto autenticado no ato, e os ouvintes conferem que rodam nela.
  *
  * <p><strong>A Venda registrada no dispositivo sem rede</strong> chega com os ids que ele gerou e
  * com os instantes do balcão (RNF01, RNF03), pelas formas de {@link #iniciar}, de
@@ -491,9 +492,9 @@ public class VendaService {
      * Fecha a venda (RF09, RF33): a raiz confere que os pagamentos confirmados e o FIADO pendente cobrem o total e vira o
      * status para CONCLUIDA; depois de gravada, o evento {@link VendaConcluida} é publicado.
      *
-     * <p>O evento sai na mesma transação que grava a venda: o registro de publicação anota a
-     * publicação junto, e os listeners só rodam depois do commit. Se a transação não completar,
-     * nem a venda nem o evento existem.
+     * <p>O evento sai na mesma transação que grava a venda, e os ouvintes rodam nela: o dinheiro
+     * na gaveta e a baixa de estoque confirmam junto com a venda. Se a transação não completar,
+     * nem a venda nem os efeitos existem.
      *
      * @throws VendaNaoEncontradaException se a venda não existe nesta conta
      * @throws br.com.caixasimples.shared.AcessoNegadoException se a venda é de outro operador e
@@ -539,7 +540,8 @@ public class VendaService {
     /**
      * Desfaz a venda (RF12): a raiz vira o status para CANCELADA e, se a venda estava CONCLUIDA,
      * o evento {@link VendaCancelada} é publicado depois de gravada, na mesma transação, para que
-     * o caixa devolva o dinheiro e o estoque devolva os itens.
+     * o caixa devolva o dinheiro e o estoque devolva os itens. Os dois ouvintes rodam nesta
+     * transação: se o estorno ou a devolução falhar, o cancelamento falha junto.
      *
      * <p>A pergunta ao caixa vem antes de tocar no agregado, como em {@link #concluir}, e só é
      * feita quando há gaveta envolvida, isto é, quando a venda estava CONCLUIDA. O status de antes
@@ -554,6 +556,9 @@ public class VendaService {
      *                                     integrado já está CANCELADA
      * @throws PixIndisponivelException    se o PSP não comprova que a cobrança pendente foi
      *                                     removida ou paga; a Venda permanece no estado anterior
+     * @throws org.springframework.dao.OptimisticLockingFailureException se outra operação alterou
+     *                                     a sessão de caixa ou um produto da venda ao mesmo tempo;
+     *                                     nada do cancelamento fica, e quem chamou repete
      */
     @Transactional
     public void cancelar(UUID vendaId) {
@@ -618,7 +623,11 @@ public class VendaService {
         vendas.save(linha);
     }
 
-    /** Recebe parte ou toda a dívida na sessão ABERTA da pessoa autenticada. */
+    /**
+     * Recebe parte ou toda a dívida na sessão ABERTA da pessoa autenticada. O dinheiro entra na
+     * gaveta nesta mesma transação, pelo ouvinte de {@link FiadoRecebido}: se o lançamento falhar,
+     * inclusive por outra operação ter alterado a sessão ao mesmo tempo, o recebimento falha junto.
+     */
     @Transactional
     public RecebimentoRegistrado receber(UUID vendaId, Money valor, FormaPagamento forma) {
         UsuarioContext.exigirAtual();

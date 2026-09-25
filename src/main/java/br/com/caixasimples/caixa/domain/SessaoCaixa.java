@@ -45,18 +45,18 @@ import java.util.UUID;
  *   <li>Sessão FECHADA não aceita movimento. É a linguagem do domínio escrita em código, já que o
  *       caixa é a sessão <em>entre</em> abertura e fechamento, e protege o {@link #fechar}: um
  *       lançamento posterior tornaria mentirosa a {@code diferenca} já gravada.</li>
- *   <li>A mesma venda não entra duas vezes na gaveta. O dinheiro de uma venda chega por evento,
- *       entregue ao menos uma vez, e o esperado não pode contar duas vezes o que entrou uma.</li>
+ *   <li>A mesma venda não entra duas vezes na gaveta: o esperado não pode contar duas vezes o que
+ *       entrou uma, e a recusa vale para qualquer chamador.</li>
  *   <li>O estorno de uma venda cancelada devolve exatamente o que a venda trouxe, e uma vez só:
  *       não se estorna venda que não entrou nesta sessão, nem a mesma venda duas vezes.</li>
  * </ul>
  *
  * <p><strong>O estorno pode deixar o esperado negativo</strong>, ao contrário da sangria, e a
  * diferença é deliberada. Sangria é decisão de agora, e recusar a que não cabe é impedir um erro.
- * O estorno é reação a um cancelamento que já aconteceu no balcão; recusá-lo aqui não desfaria o
- * cancelamento, só deixaria o caixa sem refletir o que houve, e prenderia a entrega do evento. Um
- * esperado negativo depois de uma sangria seguida de estorno é o fato a corrigir, com um
- * suprimento, do mesmo modo que o saldo de estoque negativo se corrige com um ajuste.
+ * O estorno é reação a um cancelamento que já aconteceu no balcão; recusá-lo aqui faria o sistema
+ * recusar o cancelamento até alguém lançar um suprimento, com a venda já desfeita diante do
+ * cliente. Um esperado negativo depois de uma sangria seguida de estorno é o fato a corrigir, com
+ * um suprimento, do mesmo modo que o saldo de estoque negativo se corrige com um ajuste.
  *
  * <p><strong>Movimento de valor zero continua aceito</strong>, e a ausência dessa regra é
  * deliberada: a questão foi levantada junto com as três acima e a restrição não foi escolhida. O
@@ -236,11 +236,9 @@ public class SessaoCaixa {
      * esteve na gaveta, e por isso não entra no esperado: se entrasse, a conferência do
      * fechamento (RF15) acusaria falta em toda venda que não fosse em espécie.
      *
-     * <p><strong>A mesma venda não entra duas vezes.</strong> O evento chega ao caixa por um outbox
-     * que garante a entrega ao menos uma vez, então uma reentrega é possível; é o listener que a
-     * reconhece e pula, por {@link #jaRegistrouVenda}. A recusa aqui é a invariante em si, para
-     * qualquer chamador: dinheiro contado em dobro no esperado é uma diferença de fechamento que
-     * nunca existiu.
+     * <p><strong>A mesma venda não entra duas vezes.</strong> A recusa aqui é a invariante em si,
+     * para qualquer chamador: dinheiro contado em dobro no esperado é uma diferença de fechamento
+     * que nunca existiu.
      *
      * @param vendaId a venda que trouxe o dinheiro; referência entre agregados, sempre por id
      * @throws IllegalStateException se a sessão já está FECHADA, ou se esta venda já foi lançada
@@ -265,9 +263,9 @@ public class SessaoCaixa {
     }
 
     /**
-     * Se o dinheiro desta venda já entrou nesta sessão. É a pergunta que o listener faz antes de
-     * lançar, porque o evento pode chegar mais de uma vez. Continua verdadeira depois de um
-     * estorno: o dinheiro entrou, e o estorno é outro movimento.
+     * Se o dinheiro desta venda já entrou nesta sessão. É o que o ouvinte do cancelamento confere
+     * antes de estornar uma venda paga em dinheiro: sem a entrada, não há o que espelhar. Continua
+     * verdadeira depois de um estorno: o dinheiro entrou, e o estorno é outro movimento.
      */
     public boolean jaRegistrouVenda(UUID vendaId) {
         Objects.requireNonNull(vendaId, "vendaId nao pode ser nulo");
@@ -285,8 +283,7 @@ public class SessaoCaixa {
      * recusa é alta em vez de lançar zero.
      *
      * <p><strong>A mesma venda não sai duas vezes</strong>, pelo mesmo motivo de não entrar duas
-     * vezes: o evento de cancelamento chega ao menos uma vez, o listener reconhece a reentrega por
-     * {@link #jaEstornouVenda}, e a recusa aqui é a invariante para qualquer chamador.
+     * vezes, e a recusa aqui, por {@link #jaEstornouVenda}, é a invariante para qualquer chamador.
      *
      * <p>Não olha se o esperado fica negativo; ver o javadoc da classe.
      *
@@ -326,7 +323,7 @@ public class SessaoCaixa {
                 vendaId, null, Instant.now());
     }
 
-    /** Cada recebimento em dinheiro entra uma vez, mesmo após reentrega do evento. */
+    /** Cada recebimento em dinheiro entra uma vez; a recusa vale para qualquer chamador. */
     public void registrarRecebimento(UUID vendaId, UUID recebimentoId, Money valor) {
         Objects.requireNonNull(vendaId, "vendaId nao pode ser nulo");
         Objects.requireNonNull(recebimentoId, "recebimentoId nao pode ser nulo");
@@ -342,8 +339,8 @@ public class SessaoCaixa {
     }
 
     /**
-     * Se o dinheiro desta venda já saiu desta sessão por estorno. É a pergunta que o listener do
-     * cancelamento faz antes de estornar, porque o evento pode chegar mais de uma vez.
+     * Se o dinheiro desta venda já saiu desta sessão por estorno. É a pergunta que o estorno faz
+     * antes de lançar, para recusar a segunda devolução.
      */
     public boolean jaEstornouVenda(UUID vendaId) {
         Objects.requireNonNull(vendaId, "vendaId nao pode ser nulo");
