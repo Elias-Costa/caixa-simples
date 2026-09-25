@@ -1,10 +1,15 @@
+import 'fake-indexeddb/auto'
+import { deleteDB } from 'idb'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { caixa, type SessaoCaixa } from '../api/caixa'
+import { gravarIdentidade, gravarToken } from '../sessao/armazenamento'
+import { tokenComExpiracao } from '../sessao/tokenDeTeste'
 import { SessaoContext } from '../sessao/contexto'
 import { TelaDeCaixa } from './TelaDeCaixa'
 
 afterEach(() => vi.restoreAllMocks())
+beforeEach(async () => { await deleteDB('caixa-simples-offline') })
 
 const aberta: SessaoCaixa = {
   id: 's-1', usuarioId: 'u-1', valorAbertura: 20,
@@ -13,6 +18,9 @@ const aberta: SessaoCaixa = {
 }
 
 function mostrar(perfil: 'ADMIN' | 'OPERADOR' = 'OPERADOR') {
+  gravarToken(tokenComExpiracao(new Date(Date.now() + 60 * 60 * 1000)))
+  gravarIdentidade({ usuarioId: 'u-1', nome: 'Ana', perfil, contaId: 'c-1',
+    nomeNegocio: 'Loja da Esquina', estoqueHabilitado: false })
   render(<SessaoContext.Provider value={{
     identidade: {
       usuarioId: 'u-1', nome: 'Ana', perfil, contaId: 'c-1',
@@ -81,5 +89,23 @@ describe('caixa na tela', () => {
 
     await waitFor(() => expect(fechar).toHaveBeenCalledWith('s-1', 18))
     expect(await screen.findByText(/Diferença:/)).toHaveTextContent('R$')
+  })
+
+  it('mostra a conferência e fecha a SessaoCaixa sem chamar a API quando está offline', async () => {
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+    const remoto = vi.spyOn(caixa, 'abrir')
+    const fecharRemoto = vi.spyOn(caixa, 'fechar')
+    mostrar()
+
+    expect(await screen.findByText('Nenhum caixa aberto para você.')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Valor inicial'), { target: { value: '10.00' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir caixa' }))
+    expect((await screen.findAllByText('Pendente de sincronização com o servidor.')).length).toBeGreaterThan(0)
+    fireEvent.change(screen.getByLabelText('Valor contado'), { target: { value: '8.00' } })
+    expect(screen.getByText(/Diferença prevista:/)).toHaveTextContent('R$ 2,00')
+    fireEvent.click(screen.getByRole('button', { name: 'Fechar e registrar diferença' }))
+    expect(await screen.findByText(/Diferença:/)).toHaveTextContent('R$ 2,00')
+    expect(remoto).not.toHaveBeenCalled()
+    expect(fecharRemoto).not.toHaveBeenCalled()
   })
 })

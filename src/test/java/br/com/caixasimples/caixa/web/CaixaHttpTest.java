@@ -45,7 +45,8 @@ class CaixaHttpTest extends TesteDeIntegracao {
         http.perform(get("/api/caixa/sessoes/aberta").with(operador))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(id.toString()))
-                .andExpect(jsonPath("$.valorFechamentoEsperado").value(20.0));
+                .andExpect(jsonPath("$.valorFechamentoEsperado").value(20.0))
+                .andExpect(jsonPath("$.versao").value(0));
         http.perform(post("/api/caixa/sessoes").with(operador)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"valorAbertura\":0}"))
                 .andExpect(status().isConflict());
@@ -60,6 +61,7 @@ class CaixaHttpTest extends TesteDeIntegracao {
         http.perform(get("/api/caixa/sessoes/{id}", id).with(operador))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.valorFechamentoEsperado").value(25.0))
+                .andExpect(jsonPath("$.versao").value(2))
                 .andExpect(jsonPath("$.movimentos.length()").value(2))
                 .andExpect(jsonPath("$.movimentos[0].tipo").value("SUPRIMENTO"))
                 .andExpect(jsonPath("$.movimentos[0].motivo").value("Troco"))

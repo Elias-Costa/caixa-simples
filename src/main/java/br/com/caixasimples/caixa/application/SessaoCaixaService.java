@@ -242,12 +242,13 @@ public class SessaoCaixaService {
     /** Extrato de uma sessão escolhida, com a Venda de origem quando o movimento a tem. */
     @Transactional(readOnly = true)
     public ExtratoDaSessao consultarExtrato(UUID sessaoId) {
-        SessaoCaixa sessao = buscar(sessaoId).paraDominio();
+        SessaoCaixaEntity linha = buscar(sessaoId);
+        SessaoCaixa sessao = linha.paraDominio();
         UsuarioContext.exigirDonoOuAdmin(sessao.getUsuarioId());
         ResumoDeSessao resumo = new ResumoDeSessao(sessao.getId(), sessao.getUsuarioId(),
                 sessao.getValorAbertura(), sessao.getValorFechamentoEsperado(),
                 sessao.getValorFechamentoContado(), sessao.getDiferenca(), sessao.getAbertaEm(),
-                sessao.getFechadaEm(), sessao.getStatus());
+                sessao.getFechadaEm(), sessao.getStatus(), linha.getVersao());
         return new ExtratoDaSessao(resumo, sessao.getMovimentos());
     }
 
@@ -273,13 +274,13 @@ public class SessaoCaixaService {
      */
     public record ResumoDeSessao(UUID id, UUID usuarioId, Money valorAbertura,
             Money valorFechamentoEsperado, Money valorFechamentoContado, Money diferenca,
-            Instant abertaEm, Instant fechadaEm, StatusSessaoCaixa status) {
+            Instant abertaEm, Instant fechadaEm, StatusSessaoCaixa status, long versao) {
 
         static ResumoDeSessao de(LinhaDoHistorico linha) {
             return new ResumoDeSessao(linha.id(), linha.usuarioId(),
                     Money.de(linha.valorAbertura()), Money.de(linha.valorFechamentoEsperado()),
                     moneyOuNulo(linha.valorFechamentoContado()), moneyOuNulo(linha.diferenca()),
-                    linha.abertaEm(), linha.fechadaEm(), linha.status());
+                    linha.abertaEm(), linha.fechadaEm(), linha.status(), linha.versao());
         }
 
         private static Money moneyOuNulo(BigDecimal valor) {

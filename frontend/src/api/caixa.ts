@@ -2,6 +2,7 @@ import { chamarApi } from './cliente'
 
 export type SessaoCaixa = {
   id: string
+  versao?: number
   usuarioId: string
   valorAbertura: number
   valorFechamentoEsperado: number
@@ -11,6 +12,7 @@ export type SessaoCaixa = {
   fechadaEm: string | null
   status: 'ABERTA' | 'FECHADA'
   movimentos?: MovimentoCaixa[]
+  pendenteSincronizacao?: boolean
 }
 
 export type MovimentoCaixa = {

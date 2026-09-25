@@ -28,5 +28,5 @@ import java.util.UUID;
  */
 public record LinhaDoHistorico(UUID id, UUID usuarioId, BigDecimal valorAbertura,
         BigDecimal valorFechamentoEsperado, BigDecimal valorFechamentoContado, BigDecimal diferenca,
-        Instant abertaEm, Instant fechadaEm, StatusSessaoCaixa status) {
+        Instant abertaEm, Instant fechadaEm, StatusSessaoCaixa status, long versao) {
 }

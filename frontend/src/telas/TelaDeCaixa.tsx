@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { caixa, type SessaoCaixa } from '../api/caixa'
+import type { SessaoCaixa } from '../api/caixa'
 import { hojeNoBalcao } from '../dataDoBalcao'
+import { criarCaixaLocal } from '../offline/caixaLocal'
 import { useSessao } from '../sessao/useSessao'
 import { erroDeCadastro } from './erroDeCadastro'
 
 const moeda = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
+const caixa = criarCaixaLocal()
 const dataHora = new Intl.DateTimeFormat('pt-BR', {
   dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Bahia',
 })
@@ -24,6 +26,9 @@ export function TelaDeCaixa() {
   const [valorMovimento, setValorMovimento] = useState('')
   const [motivo, setMotivo] = useState('')
   const [valorContado, setValorContado] = useState('')
+  const contado = valorContado.trim() ? dinheiroDigitado(valorContado) : null
+  const diferencaPrevista = selecionada && contado !== null && Number.isFinite(contado) && contado >= 0
+    ? Math.round((selecionada.valorFechamentoEsperado - contado) * 100) / 100 : null
   const [erro, setErro] = useState<string | null>(null)
   const [ocupado, setOcupado] = useState(false)
   const [carregando, setCarregando] = useState(true)
@@ -117,6 +122,7 @@ export function TelaDeCaixa() {
         {aberta ? <>
           <p>Aberto em {dataHora.format(new Date(aberta.abertaEm))}</p>
           <p>Valor inicial: <strong>{moeda.format(aberta.valorAbertura)}</strong></p>
+          {aberta.pendenteSincronizacao && <p>Pendente de sincronização com o servidor.</p>}
           <button className="botao botao--secundario" type="button"
             onClick={() => setSelecionada(aberta)}>Ver meu caixa</button>
         </> : <form onSubmit={(evento) => void abrir(evento)}>
@@ -134,7 +140,8 @@ export function TelaDeCaixa() {
         <label>Dia
           <input type="date" value={dia} onChange={(evento) => setDia(evento.target.value)} />
         </label>
-        <p>{identidade?.perfil === 'ADMIN' ? 'Sessões de todos os operadores.' : 'Suas sessões.'}</p>
+        <p>{!navigator.onLine ? 'Sessões deste operador guardadas no dispositivo.'
+          : identidade?.perfil === 'ADMIN' ? 'Sessões de todos os operadores.' : 'Suas sessões.'}</p>
         {historico.length === 0 ? <p>Nenhuma sessão neste dia.</p> : <ul className="caixa__lista">
           {historico.map((sessao) => <li key={sessao.id}>
             <button className="botao botao--secundario" type="button"
@@ -149,6 +156,7 @@ export function TelaDeCaixa() {
       {selecionada && <section className="caixa__cartao">
         <h3>Sessão selecionada</h3>
         <p>Status: <strong>{selecionada.status}</strong></p>
+        {selecionada.pendenteSincronizacao && <p>Pendente de sincronização com o servidor.</p>}
         <p>Abertura: {dataHora.format(new Date(selecionada.abertaEm))}</p>
         <p>Valor inicial: {moeda.format(selecionada.valorAbertura)}</p>
         <p>Saldo esperado: <strong>{moeda.format(selecionada.valorFechamentoEsperado)}</strong></p>
@@ -197,6 +205,8 @@ export function TelaDeCaixa() {
             <input type="number" min="0" step="0.01" required value={valorContado}
               onChange={(evento) => setValorContado(evento.target.value)} />
           </label>
+          {diferencaPrevista !== null && <p>Diferença prevista: {moeda.format(diferencaPrevista)}
+            {' '}(positivo = falta, negativo = sobra)</p>}
           <button className="botao" disabled={ocupado}>Fechar e registrar diferença</button>
         </form>}
       </section>}

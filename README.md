@@ -77,21 +77,23 @@ O PWA guarda uma fila local de gestos no IndexedDB, separada por Conta e usuári
 armazenamento persistente ao ser instalado. O cadastro de Produto, serviço e Cliente já usa sem
 rede a cópia local recebida da API e registra cada alteração na fila com UUID estável e revisão
 de origem. O catálogo sugerido é copiado no servidor no primeiro login ADMIN e então guardado no
-dispositivo; novos itens do balcão não duplicam essa cópia. O envio da fila e os fluxos de caixa
-e Venda sem rede serão acrescentados nas próximas etapas.
+dispositivo; novos itens do balcão não duplicam essa cópia. A `SessaoCaixa` também pode ser aberta,
+movimentada por sangria e suprimento, conferida e fechada sem rede: cada gesto fica na fila, o saldo
+esperado e a diferença são calculados no dispositivo, e a tela indica o que aguarda sincronização.
+O envio da fila e a Venda sem rede serão acrescentados nas próximas etapas.
 
 | Módulo | Estado | O que existe hoje |
 |---|---|---|
 | `shared` | Implementado | `Money`, `ContaId`, `FusoDeReferencia` e os dois contextos da requisição: `TenantContext`, a conta em operação, e `UsuarioContext`, quem está operando e com que perfil, com as duas perguntas de autorização que todo caso de uso restrito faz na primeira linha. E o tratamento transversal de erro da API: toda resposta de erro sai em Problem Details, a recusa por perfil vira 403, argumento que o domínio rejeita vira 400 e estado que o agregado rejeita vira 409. E a entrega do aplicativo: o shell do PWA sai daqui, com o fallback que devolve a mesma página para qualquer rota do cliente e nunca para a API |
 | `contas` | Implementado | `Conta`, `Usuario`, `Credencial`, login por JWT, política de senha, provisionamento de conta, a pergunta que os outros módulos fazem à conta em operação, como se o controle de estoque está ligado, e a gestão de usuários: o administrador cria operador ou administrador com login próprio, lista e inativa pela API e pelo PWA, com mais de um usuário só no plano mais alto e a conta nunca sem administrador. A configuração liga o controle de estoque e só o desliga antes do primeiro movimento; o menu reage imediatamente à mudança. O filtro que resolve o token lê o usuário no banco a cada requisição, então inativar vale na requisição seguinte, e o perfil que vale é o do banco, não o do token. O primeiro login do administrador marca a Conta e publica o primeiro acesso na mesma transação que copia o catálogo sugerido. Quem está autenticado pergunta em `/api/auth/eu` e recebe o próprio nome, o negócio, o tipo dele e se o estoque está ligado: é o cabeçalho de toda tela |
 | `cadastro` | Implementado, com cadastro local pendente de sincronização | `Produto` com atributos `JSONB`, busca por nome ou código para o balcão, `Cliente` como vertical slice, catálogo sugerido por tipo de negócio e copiado no primeiro login do administrador, e o agregado inteiro: `MovimentoEstoque` como membro, com a baixa por venda, o estorno por cancelamento e o ajuste manual gravando movimento e saldo na mesma transação, o estoque mínimo de cada produto e a resposta de quais estão com estoque baixo. A API expõe a revisão de Produto e Cliente; o PWA guarda listas por Conta e gestos por usuário para cadastrar, editar e inativar os dois sem rede, além de reativar Cliente, após a preparação online. Só o administrador escreve produto; os dois perfis consultam produtos e cadastram clientes no balcão |
-| `caixa` | Implementado | `SessaoCaixa`: abertura, sangria, suprimento, fechamento com conferência, histórico por operador e por dia, consulta da sessão aberta do usuário atual e extrato de uma sessão com a Venda de origem nos movimentos. A API e o PWA permitem operar e conferir o caixa, com o esperado visível antes de informar o contado. O dinheiro em espécie de cada venda concluída entra na gaveta por evento, uma vez só; o cancelamento o estorna. O caixa é de quem o abriu: o operador só lança, fecha e consulta a própria sessão e só pede o próprio histórico; o administrador toca qualquer sessão da conta, inclusive para fechar o caixa de outro operador |
+| `caixa` | Implementado, com gestos locais pendentes de sincronização | `SessaoCaixa`: abertura, sangria, suprimento, fechamento com conferência, histórico por operador e por dia, consulta da sessão aberta do usuário atual e extrato de uma sessão com a Venda de origem nos movimentos. A API e o PWA permitem operar e conferir o caixa, com o esperado visível antes de informar o contado. Sem rede, o PWA guarda os gestos por Conta e usuário, recompõe a sessão após recarga e mostra a diferença antes do fechamento. O dinheiro em espécie de cada venda concluída entra na gaveta por evento, uma vez só; o cancelamento o estorna. O caixa é de quem o abriu: o operador só lança, fecha e consulta a própria sessão e só pede o próprio histórico; o administrador toca qualquer sessão da conta, inclusive para fechar o caixa de outro operador |
 | `pagamentos` | Implementado para cobrança, confirmação e cancelamento Pix | Strategy por forma: dinheiro com troco, cartão manual, FIADO pendente e Pix integrado. `PixGateway` usa um adapter Efí por Conta para criar, remover e reconsultar a cobrança pelo `txid`; só o Pix comprovado na consulta quita a parcela (RF25). Credenciais de homologação ainda não foram exercitadas |
 | `vendas` | Implementado para o PDV online | Agregado `Venda`, com `ItemVenda`, `Pagamento` e `Recebimento` como membros. A comanda copia o preço, permite divisão de formas e desconto pelo ADMIN. O Cliente ativo pode ser vinculado à Venda; só o ADMIN registra FIADO e conclui a Venda com sua parcela pendente. Qualquer perfil recebe a dívida na própria SessaoCaixa, em lançamentos parciais; o saldo vem das parcelas e dos recebimentos. O comprovante da Venda mostra o valor pendente e cada recebimento tem comprovante próprio (RF33). Confirmação Pix reconsultada conclui uma vez quando a cobertura e a SessaoCaixa permitem; Pix tardio fica visível para conciliação do ADMIN. O cancelamento recusa o Pix pendente só após remoção comprovada no PSP e mantém o Pix pago para devolução manual. Conclusão e cancelamento publicam eventos para caixa e estoque; recebimento publica evento para caixa. O operador só altera suas Vendas, salvo o recebimento de fiado da Conta |
 | `estoque` | Implementado para o PWA online | o ouvinte da venda concluída: quando a conta ligou o controle de estoque, cada produto vendido vira uma baixa, pedida ao cadastro, dono do agregado; serviço no meio dos itens não gera nada, e o evento entregue de novo não baixa em dobro. E os casos de uso que uma pessoa aciona: ajuste manual com motivo obrigatório, perda, quebra ou contagem, com a diferença carregando o sinal; estoque mínimo por produto; e o alerta de estoque baixo como consulta, a lista dos produtos ativos no mínimo ou abaixo. A API e o PWA listam saldos e mínimos, ajustam o saldo, definem o mínimo e mostram o alerta; a contagem na tela mostra a diferença antes de gravar. A Conta com controle desligado recebe 409 e o operador, 403. O ouvinte da venda cancelada devolve cada produto que a venda baixou, uma vez só |
 | `relatorios` | Implementado | Faturamento do dia e de um período, produtos mais vendidos e fluxo de caixa da gaveta. Venda concluída com FIADO conta no faturamento no dia da conclusão; recebimento em dinheiro conta no fluxo no dia da entrada, sem faturar outra vez (RF33). Filtros combináveis de faturamento por forma e operador incluem a parcela FIADO pendente. O módulo lê mapeamentos imutáveis de venda, item, produto, pagamento e movimento de caixa, e os três relatórios são do administrador |
 
-**Schema.** Dezessete migrations Flyway, de `V1` a `V17`: conta, usuário e credencial; produto; cliente;
+**Schema.** Dezoito migrations Flyway, de `V1` a `V18`: conta, usuário e credencial; produto; cliente;
 catálogo de referência; o agregado de caixa, com a regra de uma sessão aberta por operador; o
 agregado de venda, com a venda, seus itens e seus pagamentos; o outbox de eventos de domínio do
 Spring Modulith, cujo DDL foi gerado a partir da entidade do framework em vez de escrito de
@@ -103,7 +105,8 @@ e a marca do catálogo inicial aplicado na Conta, gravada junto da cópia dos it
 inclui FIADO, `recebimento` e o movimento RECEBIMENTO da gaveta. A `V15` guarda `txid`, chave
 recebedora, vencimento, copia e cola e estado da cobrança Pix na parcela da Venda. A `V16`
 conserva esses dados quando a parcela integrada passa a CONFIRMADO ou RECUSADO. A `V17` acrescenta
-a revisão de Produto e Cliente para as alterações offline.
+a revisão de Produto e Cliente para as alterações offline. A `V18` acrescenta a revisão da
+`SessaoCaixa`, atualizada a cada movimento e fechamento e entregue ao PWA.
 
 **Superfície HTTP.** A autenticação usa `POST /api/auth/login`, que devolve o
 token, e `GET /api/auth/eu`, que diz quem está autenticado e em que negócio, para o cabeçalho de
@@ -702,7 +705,7 @@ src
 │   │   ├── estoque/        application, web, internal
 │   │   └── relatorios/     application, web, internal
 │   └── resources
-│       └── db/migration/   V1 a V17, imutáveis depois de publicadas
+│       └── db/migration/   V1 a V18, imutáveis depois de publicadas
 ├── test/java/br/com/caixasimples
 │   ├── ModularityTests     fitness function das fronteiras
 │   ├── TesteDeIntegracao   base com Testcontainers, herdada pelos testes de banco

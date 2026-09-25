@@ -102,21 +102,21 @@ class SessaoCaixaController {
     record SessaoNaResposta(UUID id, UUID usuarioId, BigDecimal valorAbertura,
             BigDecimal valorFechamentoEsperado, BigDecimal valorFechamentoContado,
             BigDecimal diferenca, Instant abertaEm, Instant fechadaEm, String status,
-            List<MovimentoNaResposta> movimentos) {
+            long versao, List<MovimentoNaResposta> movimentos) {
 
         static SessaoNaResposta de(ResumoDeSessao resumo) {
             return new SessaoNaResposta(resumo.id(), resumo.usuarioId(),
                     resumo.valorAbertura().valor(), resumo.valorFechamentoEsperado().valor(),
                     valorOuNulo(resumo.valorFechamentoContado()),
                     valorOuNulo(resumo.diferenca()), resumo.abertaEm(), resumo.fechadaEm(),
-                    resumo.status().name(), null);
+                    resumo.status().name(), resumo.versao(), null);
         }
 
         static SessaoNaResposta de(ExtratoDaSessao extrato) {
             SessaoNaResposta base = de(extrato.sessao());
             return new SessaoNaResposta(base.id(), base.usuarioId(), base.valorAbertura(),
                     base.valorFechamentoEsperado(), base.valorFechamentoContado(),
-                    base.diferenca(), base.abertaEm(), base.fechadaEm(), base.status(),
+                    base.diferenca(), base.abertaEm(), base.fechadaEm(), base.status(), base.versao(),
                     extrato.movimentos().stream().map(MovimentoNaResposta::de).toList());
         }
 

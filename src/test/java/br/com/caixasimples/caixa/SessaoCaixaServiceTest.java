@@ -80,6 +80,7 @@ class SessaoCaixaServiceTest extends TesteDeIntegracao {
             assertThat(gravada.getValorAbertura()).isEqualTo(Money.de("150.00"));
             assertThat(gravada.getValorFechamentoEsperado()).isEqualTo(Money.de("150.00"));
             assertThat(gravada.getMovimentos()).isEmpty();
+            assertThat(sessoesDeCaixa.consultar(sessaoId).versao()).isZero();
         });
     }
 
@@ -105,6 +106,7 @@ class SessaoCaixaServiceTest extends TesteDeIntegracao {
 
             // A invariante do agregado atravessou o banco duas vezes: 100 mais 50 menos 30.
             assertThat(gravada.getValorFechamentoEsperado()).isEqualTo(Money.de("120.00"));
+            assertThat(sessoesDeCaixa.consultar(sessaoId).versao()).isEqualTo(2);
 
             assertThat(gravada.getMovimentos())
                     .extracting(MovimentoCaixa::tipo, MovimentoCaixa::valor,
@@ -114,6 +116,22 @@ class SessaoCaixaServiceTest extends TesteDeIntegracao {
                                     "Reforco de troco"),
                             tuple(TipoMovimentoCaixa.SANGRIA, Money.de("30.00"),
                                     "Pagamento do entregador"));
+        });
+    }
+
+    @Test
+    @DisplayName("movimento de valor zero também avança a revisão da sessão")
+    void movimentoZeroAvancaRevisao() {
+        ContaCriada conta = criador.criar("Caixa com Troco Zero", SENHA_DE_TESTE);
+        UUID sessaoId = conta.comoUsuario(() -> sessoesDeCaixa.abrir(Money.ZERO));
+
+        conta.comoUsuario(() ->
+                sessoesDeCaixa.registrarSuprimento(sessaoId, Money.ZERO, "Conferencia"));
+
+        conta.comoUsuario(() -> {
+            assertThat(sessoesDeCaixa.consultar(sessaoId).versao()).isEqualTo(1);
+            assertThat(sessoes.findById(sessaoId).orElseThrow().paraDominio().getMovimentos())
+                    .hasSize(1);
         });
     }
 
