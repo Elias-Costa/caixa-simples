@@ -204,9 +204,8 @@ O comprovante usa a impressão do navegador e o compartilhamento do dispositivo 
 Na Venda, o Cliente ativo selecionado aparece na faixa de contexto do shell com seu saldo devedor;
 a tela Fiado lista as dívidas e registra recebimentos parciais na SessaoCaixa aberta de quem recebe.
 O comprovante da Venda indica o valor pendente e cada recebimento pode ser impresso ou compartilhado.
-O mantenedor confirmou a instalação e abertura do PWA pelo ícone em desktop e tablet real (RNF08);
-o R23 e o portão da Fase 1 estão concluídos. O R24 foi executado antes desse teste físico pela
-exceção D53.
+O mantenedor confirmou a instalação e abertura do PWA pelo ícone em desktop e tablet real (RNF08).
+O núcleo do PWA e o fiado simples estão concluídos.
 O faturamento abre no dia do balcão e permite consultar um período escolhido pelo administrador.
 Um cliente HTTP só envia o token da sessão aberta nesta aba, troca-o pelo renovado quando a resposta
 pertence à mesma sessão e traduz todo erro no mesmo objeto, lido do Problem Details. Respostas de
@@ -694,7 +693,7 @@ Como há dois ouvintes por evento, quem conta publicações concluídas filtra p
 | Build | Maven, via wrapper versionado |
 | Testes | JUnit 5, AssertJ e Testcontainers |
 | Frontend | PWA em React 19, Vite 8 e TypeScript, com React Router, service worker gerado por Workbox, IndexedDB via `idb` e Vitest; empacotado no jar pelo Maven, com o Node fixado no `pom.xml` |
-| Infraestrutura | validação local sem clientes (R25); hospedagem pública a escolher antes do deploy (R38) |
+| Infraestrutura | validação local sem clientes; hospedagem pública a escolher antes do primeiro deploy |
 
 A escolha de versão não é acidental. Spring Boot 3.x perde suporte OSS em junho de 2026, então um
 projeto novo não deveria nascer nele; o Spring Modulith 2.1.x é a linha compatível com o Boot 4.1.

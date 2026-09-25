@@ -42,7 +42,6 @@ import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** R27: repetição da tentativa, parcela pendente e RNF05 no contrato HTTP. */
 @RecordApplicationEvents
 class VendaPixHttpTest extends TesteDeIntegracao {
     @Autowired MockMvc http;

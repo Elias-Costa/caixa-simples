@@ -29,7 +29,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import tools.jackson.databind.ObjectMapper;
 
-/** Contrato HTTP do PDV: comanda, parcelas, comprovante e isolamento (RF06–RF12, RNF05). */
+/** Contrato HTTP do PDV: comanda, parcelas, comprovante e isolamento (RF06 a RF12, RNF05). */
 class VendaHttpTest extends TesteDeIntegracao {
 
     private static final String SENHA = "uma senha longa de teste";

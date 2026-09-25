@@ -35,9 +35,9 @@
 			<artifactId>spring-boot-starter-validation</artifactId>
 		</dependency>
 		<!--
-			Emissao e validacao de JWT pelo proprio Spring Security (D14a): traz NimbusJwtEncoder,
+			Emissão e validação de JWT pelo próprio Spring Security: traz NimbusJwtEncoder,
 			NimbusJwtDecoder e o filtro de bearer token. Puxa spring-security-oauth2-jose
-			transitivamente, entao nao ha biblioteca de JWT de terceiro no projeto.
+			transitivamente, então não há biblioteca de JWT de terceiro no projeto.
 		-->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>

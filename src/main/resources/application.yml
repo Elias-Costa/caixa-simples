@@ -32,12 +32,12 @@ spring:
 
 caixa-simples:
   jwt:
-    # Sem valor padrao de proposito (D14e): um padrao em codigo seria o mesmo em toda instalacao,
-    # o que equivale a nao ter chave. A aplicacao nao sobe sem esta variavel.
+    # Sem valor padrão: uma chave fixa no código seria compartilhada por todas as instalações.
+    # A aplicação não sobe sem esta variável.
     # Precisa de ao menos 32 bytes (HMAC-SHA256).
     secret: ${CAIXA_SIMPLES_JWT_SECRET}
-    # 24h contadas do ultimo contato com o servidor, nao do login (A4): toda resposta autenticada
-    # devolve um token novo. Na pratica e a janela de resistencia offline exigida pelo RNF01.
+    # 24h contadas do último contato com o servidor: toda resposta autenticada devolve um token novo.
+    # Essa é a janela de resistência offline exigida pelo RNF01.
     validade: 24h
 
 server:

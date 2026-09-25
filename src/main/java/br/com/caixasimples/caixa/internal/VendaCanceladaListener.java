@@ -23,7 +23,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <h2>O que sai da gaveta</h2>
  *
- * <p>O ESTORNO sai da sessão original da Venda (D44i), inclusive quando um recebimento de FIADO
+ * <p>O ESTORNO sai da sessão original da Venda, inclusive quando um recebimento de FIADO
  * entrou em outra sessão. A entrada da outra sessão permanece no extrato, mesmo se ela já fechou.
  * A parcela original em dinheiro é conferida pelo movimento VENDA; recebimentos em dinheiro vêm
  * como fatos imutáveis no evento. Se nada entrou em dinheiro, nem se abre transação.
@@ -87,7 +87,7 @@ class VendaCanceladaListener {
             return;
         }
 
-        // D44i: a devolução sai da sessão original, inclusive quando o fiado foi recebido em
+        // A devolução sai da sessão original, inclusive quando o fiado foi recebido em
         // outra sessão. A janela de cancelamento depende somente da sessão original aberta.
         TenantContext.executarComo(evento.contaId(), () ->
                 transacao.executeWithoutResult(status -> {
