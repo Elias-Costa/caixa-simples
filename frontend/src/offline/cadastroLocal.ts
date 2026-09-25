@@ -1,10 +1,14 @@
 import type { Cliente, DadosDoCliente, DadosDoProduto, Produto } from '../api/cadastro'
 import { SemConexao } from '../api/cliente'
 import { lerIdentidade } from '../sessao/armazenamento'
-import { enfileirarGesto, guardarRetrato, lerRetrato, listarGestos, type GestoNaFila, type ValorJson } from './fila'
+import {
+  enfileirarGesto, gestoAplicavel, guardarRetrato, lerRetrato, listarGestos, ordenarPorDependencia,
+  type GestoNaFila, type ValorJson,
+} from './fila'
 
 type Remoto = {
   produtos(): Promise<Produto[]>
+  buscarProdutos(termo: string): Promise<Produto[]>
   criarProduto(dados: DadosDoProduto): Promise<{ id: string }>
   editarProduto(id: string, dados: DadosDoProduto): Promise<void>
   inativarProduto(id: string): Promise<void>
@@ -67,21 +71,24 @@ function exigirArmazenamento(): void {
   if (!('indexedDB' in globalThis)) throw new Error('O armazenamento local não está disponível.')
 }
 
-function ordenarPorDependencia(gestos: GestoNaFila[]): GestoNaFila[] {
-  const restantes = [...gestos]
-  const ordenados: GestoNaFila[] = []
-  while (restantes.length) {
-    const indice = restantes.findIndex((gesto) =>
-      gesto.dependeDe.every((id) => !restantes.some((outro) => outro.operacaoId === id)))
-    if (indice < 0) throw new Error('Dependências cíclicas no cadastro local.')
-    ordenados.push(restantes.splice(indice, 1)[0])
-  }
-  return ordenados
+function gestosAplicaveis(gestos: GestoNaFila[], prefixo: string): GestoNaFila[] {
+  return ordenarPorDependencia(gestos.filter((gesto) => gesto.tipo.startsWith(prefixo) && gestoAplicavel(gesto)))
 }
 
-function gestosAplicaveis(gestos: GestoNaFila[], prefixo: string): GestoNaFila[] {
-  return ordenarPorDependencia(gestos.filter((gesto) =>
-    gesto.tipo.startsWith(prefixo) && (gesto.estado !== 'needs_review' || gesto.resultado?.aplicada)))
+/**
+ * A mesma regra da busca do servidor no balcão (RF06): o termo é aparado e em branco é recusado; o
+ * item cujo código é igual ao termo vem primeiro, depois os que têm o termo no nome, em ordem
+ * alfabética, sem repetir. Maiúsculas não contam. Código parcial não entra, porque o código é único
+ * e um prefixo devolveria mais de um item para um valor que se lê inteiro da embalagem.
+ */
+function buscarNoCatalogo(produtos: Produto[], termo: string): Produto[] {
+  const alvo = termo.trim().toLocaleLowerCase('pt-BR')
+  if (!alvo) throw new Error('Informe nome ou código para buscar.')
+  const porCodigo = produtos.filter((item) => item.codigo?.trim().toLocaleLowerCase('pt-BR') === alvo)
+  const porNome = produtos
+    .filter((item) => !porCodigo.includes(item) && item.nome.toLocaleLowerCase('pt-BR').includes(alvo))
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+  return [...porCodigo, ...porNome]
 }
 
 function ultimoGesto(gestos: GestoNaFila[], prefixo: string, id: string): GestoNaFila | undefined {
@@ -164,6 +171,21 @@ export function criarCadastroLocal<T extends Remoto>(remoto: T): T {
         }
       }
       return locaisProdutos()
+    },
+    async buscarProdutos(termo) {
+      if (!('indexedDB' in globalThis)) return remoto.buscarProdutos(termo)
+      // Com item guardado só no dispositivo, a busca da API não o acharia e o preço dela ignoraria
+      // a edição que ainda não chegou ao servidor.
+      const produtoPendente = (await listarGestos()).some((gesto) =>
+        gesto.tipo.startsWith(GESTOS_PRODUTO) && gesto.estado !== 'sent')
+      if (navigator.onLine && !produtoPendente) {
+        try {
+          return await remoto.buscarProdutos(termo)
+        } catch (falha) {
+          if (!(falha instanceof SemConexao)) throw falha
+        }
+      }
+      return buscarNoCatalogo(await locaisProdutos(), termo)
     },
     async clientes() {
       if (!('indexedDB' in globalThis)) return remoto.clientes()

@@ -115,6 +115,28 @@ export async function lerRetrato<T>(tipo: string): Promise<T | null> {
   }
 }
 
+/**
+ * A ordem em que os gestos são reaplicados e enviados: cada um depois das dependências que estão
+ * na lista e, entre os livres, o mais antigo primeiro. Uma dependência fora da lista pertence a
+ * outro registro e não segura ninguém aqui.
+ */
+export function ordenarPorDependencia(gestos: readonly GestoNaFila[]): GestoNaFila[] {
+  const restantes = [...gestos]
+  const ordenados: GestoNaFila[] = []
+  while (restantes.length) {
+    const indice = restantes.findIndex((gesto) =>
+      gesto.dependeDe.every((id) => !restantes.some((outro) => outro.operacaoId === id)))
+    if (indice < 0) throw new Error('Dependências cíclicas na fila local.')
+    ordenados.push(restantes.splice(indice, 1)[0])
+  }
+  return ordenados
+}
+
+/** O gesto recusado na revisão não produziu efeito; o aplicado com pendência, sim. */
+export function gestoAplicavel(gesto: GestoNaFila): boolean {
+  return gesto.estado !== 'needs_review' || gesto.resultado?.aplicada === true
+}
+
 /** A tela só pode avançar depois que esta promessa confirmar a gravação no IndexedDB. */
 export async function enfileirarGesto(novo: NovoGesto): Promise<GestoNaFila> {
   const { dono, sessao } = donoDaSessao()

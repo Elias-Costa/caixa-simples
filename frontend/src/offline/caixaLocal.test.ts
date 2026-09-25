@@ -9,6 +9,7 @@ import type { Identidade } from '../sessao/Identidade'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
 import { criarCaixaLocal } from './caixaLocal'
 import { listarGestos } from './fila'
+import { criarVendaLocal } from './vendaLocal'
 
 const ana: Identidade = {
   contaId: 'conta-a', usuarioId: 'ana', nome: 'Ana', nomeNegocio: 'Café A',
@@ -70,6 +71,39 @@ describe('SessaoCaixa local', () => {
     expect(fechamento.versaoBase).toBe(2)
     expect(remoto.abrir).not.toHaveBeenCalled()
     expect(remoto.fechar).not.toHaveBeenCalled()
+  })
+
+  it('conta a Venda em dinheiro concluída no dispositivo e a põe antes da sangria e do fechamento', async () => {
+    entrar(ana)
+    rede(false)
+    const local = criarCaixaLocal()
+    const { id } = await local.abrir(20)
+    const vendasLocais = criarVendaLocal(undefined, local)
+    const venda = await vendasLocais.iniciar(id)
+    await vendasLocais.adicionarItem(venda.id, { id: '00000000-0000-4000-8000-000000000001', versao: 1,
+      tipo: 'PRODUTO', nome: 'Café', preco: 6.25, codigo: null, categoria: null, unidade: null,
+      atributos: {} }, 2, 0)
+    await vendasLocais.pagar(venda.id, 'DINHEIRO', 10, 10)
+    await vendasLocais.pagar(venda.id, 'CARTAO', 2.5)
+    await vendasLocais.concluir(venda.id)
+
+    // Só o dinheiro entra na gaveta: 20 de abertura mais 10 da Venda; o cartão fica de fora.
+    expect(await local.consultar(id)).toMatchObject({ valorFechamentoEsperado: 30, versao: 1,
+      pendenteSincronizacao: true, movimentos: [{ tipo: 'VENDA', valor: 10, vendaId: venda.id }] })
+    // A sangria de 25 só cabe por causa da Venda, e por isso depende da conclusão dela.
+    await local.sangrar(id, 25, 'Depósito')
+    expect(await local.fechar(id, 5)).toEqual({ diferenca: 0 })
+
+    const gestos = await listarGestos()
+    const conclusao = gestos.find((gesto) => gesto.tipo === 'venda.concluir')!
+    const sangria = gestos.find((gesto) => gesto.tipo === 'caixa.sangrar')!
+    const fechamento = gestos.find((gesto) => gesto.tipo === 'caixa.fechar')!
+    expect(sangria).toMatchObject({ dependeDe: [conclusao.operacaoId], versaoBase: 1 })
+    expect(fechamento.versaoBase).toBe(2)
+    expect([...fechamento.dependeDe].sort()).toEqual(gestos
+      .filter((gesto) => gesto.tipo !== 'caixa.fechar').map((gesto) => gesto.operacaoId).sort())
+    expect(await criarCaixaLocal().consultar(id)).toMatchObject({ status: 'FECHADA',
+      valorFechamentoEsperado: 5, valorFechamentoContado: 5, diferenca: 0, versao: 3 })
   })
 
   it('recusa estados inválidos antes de gravar gesto', async () => {

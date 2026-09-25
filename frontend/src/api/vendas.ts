@@ -10,6 +10,8 @@ export type ResumoDaVenda = {
   status: StatusVenda
   total: number
   criadoEm: string
+  /** Registrada neste dispositivo e ainda não recebida pelo servidor. */
+  pendenteSincronizacao?: boolean
 }
 
 export type ConciliacaoPix = {
@@ -62,6 +64,8 @@ export type Comprovante = {
   troco: number
   valorFiado: number
   saldoDevedor: number
+  /** Montado no dispositivo, de uma Venda que o servidor ainda não recebeu. */
+  pendenteSincronizacao?: boolean
 }
 
 export type ComprovanteDeRecebimento = {

@@ -2,10 +2,14 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
 import { QRCodeSVG } from 'qrcode.react'
 import { cadastro, type Cliente, type Produto } from '../api/cadastro'
-import { caixa, type SessaoCaixa } from '../api/caixa'
+import type { SessaoCaixa } from '../api/caixa'
+import { ErroDaApi, SemConexao } from '../api/cliente'
 import { fiado } from '../api/fiado'
-import { vendas, type Comprovante, type ConciliacaoPix, type FormaPagamento, type ResumoDaVenda, type Venda } from '../api/vendas'
+import type { Comprovante, ConciliacaoPix, FormaPagamento, ResumoDaVenda, Venda } from '../api/vendas'
+import { criarCaixaLocal } from '../offline/caixaLocal'
+import { criarVendaLocal } from '../offline/vendaLocal'
 import { useContextoDoShell } from '../shell/ContextoDoShell'
+import { useOnline } from '../shell/useOnline'
 import { useSessao } from '../sessao/useSessao'
 import { erroDeCadastro } from './erroDeCadastro'
 
@@ -13,6 +17,10 @@ const moeda = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL
 const dataHora = new Intl.DateTimeFormat('pt-BR', {
   dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Bahia',
 })
+const caixa = criarCaixaLocal()
+const vendas = criarVendaLocal()
+const PENDENTE_NO_COMPROVANTE = 'Pendente de sincronização com o servidor'
+const CANCELAR_DEPOIS_DE_SINCRONIZAR = 'O cancelamento fica disponível depois da sincronização com o servidor.'
 
 function numero(texto: string): number { return Number(texto.replace(',', '.')) }
 
@@ -38,6 +46,7 @@ function separarMultiplicador(texto: string): { termo: string; quantidade?: stri
 function textoDoComprovante(comprovante: Comprovante, negocio: string, operador: string): string {
   return [
     negocio, `Operador: ${operador}`, 'Comprovante não fiscal',
+    ...(comprovante.pendenteSincronizacao ? [PENDENTE_NO_COMPROVANTE] : []),
     dataHora.format(new Date(comprovante.concluidoEm)),
     ...comprovante.linhas.map((linha) =>
       `${linha.quantidade} × ${linha.nome}: ${moeda.format(linha.subtotal)}`),
@@ -77,7 +86,13 @@ export function TelaDeVenda() {
   const [erro, setErro] = useState<string>()
   const [ocupado, setOcupado] = useState(false)
   const [carregando, setCarregando] = useState(true)
+  const online = useOnline()
   const pixPendente = atual?.parcelas.some((parcela) => parcela.pix && parcela.status === 'PENDENTE') ?? false
+  const doDispositivo = atual?.pendenteSincronizacao === true
+  // Pix não entra na Venda registrada sem rede: a cobrança depende do provedor, com o cliente
+  // presente. A forma escolhida antes de a rede cair volta para dinheiro, sem esperar outro toque.
+  const pixPermitido = online && !doDispositivo
+  const formaEscolhida: FormaPagamento = forma === 'PIX' && !pixPermitido ? 'DINHEIRO' : forma
 
   useEffect(() => {
     let vivo = true
@@ -108,12 +123,24 @@ export function TelaDeVenda() {
   useEffect(() => {
     const clienteId = atual?.clienteId
     if (!clienteId) { definirFaixa(null); return }
+    const nome = clientes.find((c) => c.id === clienteId)?.nome ?? clienteId
+    // O saldo devedor é calculado no servidor, com todas as Vendas do Cliente. Sem ele, a faixa
+    // mostra quem é o Cliente e não inventa um saldo a partir do que está no dispositivo.
+    const semSaldo = `Cliente: ${nome} · Saldo devedor indisponível até sincronizar`
+    if (!online || atual?.pendenteSincronizacao) {
+      definirFaixa(semSaldo)
+      return () => definirFaixa(null)
+    }
     let vivo = true
     fiado.saldo(clienteId).then(({ saldoDevedor }) => {
-      if (vivo) definirFaixa(`Cliente: ${clientes.find((c) => c.id === clienteId)?.nome ?? clienteId} · Saldo devedor: ${moeda.format(saldoDevedor)}`)
-    }).catch((falha) => { if (vivo) setErro(erroDeCadastro(falha)) })
+      if (vivo) definirFaixa(`Cliente: ${nome} · Saldo devedor: ${moeda.format(saldoDevedor)}`)
+    }).catch((falha) => {
+      if (!vivo) return
+      if (falha instanceof SemConexao || (falha instanceof ErroDaApi && falha.status === 404)) definirFaixa(semSaldo)
+      else setErro(erroDeCadastro(falha))
+    })
     return () => { vivo = false; definirFaixa(null) }
-  }, [atual?.clienteId, atual?.saldoDevedor, clientes, definirFaixa])
+  }, [atual?.clienteId, atual?.saldoDevedor, atual?.pendenteSincronizacao, clientes, definirFaixa, online])
 
   useEffect(() => {
     if (!sessao || !busca.trim()) return
@@ -163,7 +190,7 @@ export function TelaDeVenda() {
     let id: string | undefined
     try {
       id = atual?.status === 'ABERTA' ? atual.id : (await vendas.iniciar(sessao.id)).id
-      await vendas.adicionarItem(id, produto.id, numero(quantidade), numero(descontoItem))
+      await vendas.adicionarItem(id, produto, numero(quantidade), numero(descontoItem))
       await atualizar(id)
       setBusca(''); setResultados([]); setQuantidade('1'); setDescontoItem('0')
       buscaRef.current?.focus()
@@ -203,11 +230,11 @@ export function TelaDeVenda() {
     evento.preventDefault()
     if (!atual) return
     const valor = valorPagamento ? numero(valorPagamento) : atual.faltaPagar
-    const recebido = forma === 'DINHEIRO'
+    const recebido = formaEscolhida === 'DINHEIRO'
       ? (valorRecebido ? numero(valorRecebido) : valor) : undefined
     setOcupado(true); setErro(undefined)
     try {
-      if (forma === 'PIX') {
+      if (formaEscolhida === 'PIX') {
         const parcela = await vendas.cobrarPix(atual.id, tentativaPix(atual.id, valor), valor)
         if (parcela.pix?.estado === 'DISPONIVEL') {
           sessionStorage.removeItem(`caixa-simples-pix-${atual.id}`)
@@ -216,7 +243,7 @@ export function TelaDeVenda() {
         await atualizar(atual.id)
         return
       }
-      const resultado = await vendas.pagar(atual.id, forma, valor, recebido)
+      const resultado = await vendas.pagar(atual.id, formaEscolhida, valor, recebido)
       setTroco(resultado.troco)
       setValorPagamento(''); setValorRecebido('')
       if (concluirJunto) await concluir(atual.id)
@@ -344,6 +371,9 @@ export function TelaDeVenda() {
           </div>
           {!atual ? <p>Busque e escolha o primeiro produto para iniciar.</p> : <>
             <p>Venda {atual.id.slice(0, 8)} · {atual.status}</p>
+            {doDispositivo && <p role="status">Registrada neste dispositivo. Aguardando sincronização com o servidor.</p>}
+            {!online && !doDispositivo && atual.status === 'ABERTA' &&
+              <p role="status">Esta Venda está no servidor e continua quando a rede voltar. Para vender agora, comece uma nova venda.</p>}
             {atual.status === 'CANCELADA' && atual.parcelas.some((p) => p.pix && p.status === 'CONFIRMADO') &&
               <p role="status">Pix integrado recebido. A devolução precisa ser feita fora do sistema e ainda exige conciliação; este aplicativo não verifica se ela aconteceu.</p>}
             {atual.status === 'ABERTA' ? <label>Cliente (para fiado)
@@ -402,8 +432,9 @@ export function TelaDeVenda() {
               {atual.itens.length > 0 && atual.faltaPagar > 0 && <form className="pdv__pagamento" onSubmit={(evento) => void pagar(evento)}>
                 <h4>Pagamento</h4>
                 <label>Forma
-                  <select value={forma} onChange={(evento) => setForma(evento.target.value as FormaPagamento)}>
-                    <option value="DINHEIRO">Dinheiro</option><option value="PIX">Pix integrado</option>
+                  <select value={formaEscolhida} onChange={(evento) => setForma(evento.target.value as FormaPagamento)}>
+                    <option value="DINHEIRO">Dinheiro</option>
+                    {pixPermitido && <option value="PIX">Pix integrado</option>}
                     <option value="CARTAO">Cartão manual</option>
                     {identidade?.perfil === 'ADMIN' && atual.clienteId &&
                       !atual.parcelas.some((parcela) => parcela.forma === 'FIADO') &&
@@ -414,37 +445,37 @@ export function TelaDeVenda() {
                   <input type="number" min="0.01" step="0.01" value={valorPagamento}
                     placeholder={atual.faltaPagar.toFixed(2)} onChange={(evento) => setValorPagamento(evento.target.value)} />
                 </label>
-                {forma === 'DINHEIRO' && <label>Valor recebido em dinheiro
+                {formaEscolhida === 'DINHEIRO' && <label>Valor recebido em dinheiro
                   <input type="number" min="0" step="0.01" value={valorRecebido}
                     placeholder={(valorPagamento ? numero(valorPagamento) : atual.faltaPagar).toFixed(2)}
                     onChange={(evento) => setValorRecebido(evento.target.value)} />
                 </label>}
                 <div className="pdv__acoes">
                   <button className="botao botao--secundario" disabled={ocupado}>Registrar parcela</button>
-                  {forma !== 'PIX' && atual.parcelas.length === 0 && (!valorPagamento || numero(valorPagamento) === atual.faltaPagar)
+                  {formaEscolhida !== 'PIX' && atual.parcelas.length === 0 && (!valorPagamento || numero(valorPagamento) === atual.faltaPagar)
                     && <button className="botao" type="button" disabled={ocupado}
-                    onClick={(evento) => void pagar(evento, true)}>{forma === 'FIADO' ? 'Registrar fiado e concluir' : 'Receber e concluir'}</button>}
+                    onClick={(evento) => void pagar(evento, true)}>{formaEscolhida === 'FIADO' ? 'Registrar fiado e concluir' : 'Receber e concluir'}</button>}
                 </div>
               </form>}
               {atual.faltaPagar === 0 && atual.itens.length > 0 && !atual.parcelas.some((p) => p.pix && p.status === 'PENDENTE') && <button className="botao" type="button"
                 disabled={ocupado} onClick={() => void concluirPendente()}>Concluir venda</button>}
-              <button className="botao botao--secundario" type="button"
-                disabled={ocupado}
-                onClick={() => void cancelar()}>Cancelar venda</button>
             </>}
-            {atual.status === 'CONCLUIDA' && <button className="botao botao--secundario" type="button"
-              disabled={ocupado} onClick={() => void cancelar()}>Cancelar venda</button>}
+            {atual.status !== 'CANCELADA' && (doDispositivo ? <p>{CANCELAR_DEPOIS_DE_SINCRONIZAR}</p>
+              : <button className="botao botao--secundario" type="button"
+                disabled={ocupado} onClick={() => void cancelar()}>Cancelar venda</button>)}
           </>}
         </section>
 
         <section className="pdv__painel pdv__historico">
           <h3>Vendas da SessaoCaixa</h3>
+          {!online && <p className="pdv__ajuda">Sem conexão, a lista mostra as Vendas registradas neste dispositivo.</p>}
           {historico.length === 0 ? <p>Nenhuma venda nesta sessão.</p> : <ul>
             {historico.map((resumo) => <li key={resumo.id}>
               <button type="button" className="botao botao--secundario"
                 onClick={() => void selecionar(resumo)}>
                 {dataHora.format(new Date(resumo.criadoEm))} · {resumo.status} · {moeda.format(resumo.total)}
-                {resumo.status === 'ABERTA' && ' · retomar ou cancelar'}
+                {resumo.status === 'ABERTA' && (resumo.pendenteSincronizacao ? ' · retomar' : ' · retomar ou cancelar')}
+                {resumo.pendenteSincronizacao && ' · pendente de sincronização'}
               </button>
             </li>)}
           </ul>}
@@ -456,6 +487,7 @@ export function TelaDeVenda() {
       <p>Operador: {comprovante.usuarioId === identidade.usuarioId
         ? identidade.nome : comprovante.usuarioId}</p>
       <p><strong>Comprovante não fiscal</strong></p>
+      {comprovante.pendenteSincronizacao && <p><strong>{PENDENTE_NO_COMPROVANTE}</strong></p>}
       <p>{dataHora.format(new Date(comprovante.concluidoEm))}</p>
       <ul>{comprovante.linhas.map((linha, indice) => <li key={`${linha.produtoId}-${indice}`}>
         {linha.quantidade} × {linha.nome} · {moeda.format(linha.precoUnitario)} · {moeda.format(linha.subtotal)}

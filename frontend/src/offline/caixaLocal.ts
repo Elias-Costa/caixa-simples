@@ -1,7 +1,12 @@
 import { caixa, type MovimentoCaixa, type SessaoCaixa } from '../api/caixa'
 import { SemConexao } from '../api/cliente'
 import { lerIdentidade } from '../sessao/armazenamento'
-import { enfileirarGesto, guardarRetrato, lerRetrato, listarGestos, type GestoNaFila } from './fila'
+import { centavos, reais } from './dinheiro'
+import {
+  enfileirarGesto, gestoAplicavel, guardarRetrato, lerRetrato, listarGestos, ordenarPorDependencia,
+  type GestoNaFila,
+} from './fila'
+import { dinheiroNaGaveta, projetarVendas, type DadosDoInicio } from './raizDaVenda'
 
 type CaixaRemoto = typeof caixa
 const prefixo = 'caixa.'
@@ -29,17 +34,6 @@ function usuarioAtual(): string {
 
 function tipoDoRetrato(): string { return `caixa:${usuarioAtual()}:sessoes` }
 
-function centavos(valor: number, campo: string): number {
-  const resultado = Math.round(valor * 100)
-  if (!Number.isFinite(valor) || valor < 0 || !Number.isSafeInteger(resultado)
-    || Math.abs(resultado / 100 - valor) > 1e-8 || resultado > 999999999999) {
-    throw new Error(`${campo} deve ser um valor não negativo com até duas casas decimais.`)
-  }
-  return resultado
-}
-
-function valor(centavos: number): number { return centavos / 100 }
-
 function versaoLida(sessao: SessaoCaixa): number {
   if (typeof sessao.versao !== 'number') {
     throw new Error('A revisão desta SessaoCaixa precisa ser carregada online antes da alteração.')
@@ -47,25 +41,54 @@ function versaoLida(sessao: SessaoCaixa): number {
   return sessao.versao
 }
 
-function ordenarGestos(gestos: GestoNaFila[]): GestoNaFila[] {
-  const restantes = [...gestos]
-  const ordenados: GestoNaFila[] = []
-  while (restantes.length) {
-    const indice = restantes.findIndex((gesto) => gesto.dependeDe.every((id) =>
-      !restantes.some((outro) => outro.operacaoId === id)))
-    if (indice < 0) throw new Error('Dependências cíclicas na SessaoCaixa local.')
-    ordenados.push(restantes.splice(indice, 1)[0])
-  }
-  return ordenados
+/** As Vendas registradas neste dispositivo dentro da sessão, reconhecidas pelo gesto de início. */
+function vendasDaSessao(gestos: GestoNaFila[], id: string): Set<string> {
+  return new Set(gestos.filter((gesto) => gesto.tipo === 'venda.iniciar'
+    && (gesto.payload as DadosDoInicio).sessaoCaixaId === id).map((gesto) => gesto.registroId))
 }
 
+/**
+ * Tudo o que pertence à sessão no dispositivo: os gestos de caixa dela e todos os gestos das
+ * Vendas registradas nela. O fechamento depende de todos, e a sessão continua pendente enquanto
+ * qualquer um deles não chegou ao servidor.
+ */
 function gestosDaSessao(gestos: GestoNaFila[], id: string): GestoNaFila[] {
-  return ordenarGestos(gestos.filter((gesto) => gesto.tipo.startsWith(prefixo) && gesto.registroId === id
-    && (gesto.estado !== 'needs_review' || gesto.resultado?.aplicada)))
+  const vendas = vendasDaSessao(gestos, id)
+  return ordenarPorDependencia(gestos.filter((gesto) => gestoAplicavel(gesto)
+    && ((gesto.tipo.startsWith(prefixo) && gesto.registroId === id)
+      || (gesto.tipo.startsWith('venda.') && vendas.has(gesto.registroId)))))
+}
+
+/**
+ * Os gestos que mudam o esperado da gaveta formam uma fila única por sessão: abertura, sangria,
+ * suprimento, fechamento e a conclusão de cada Venda registrada no dispositivo. Cada gesto novo
+ * dessa fila depende do último, porque foi conferido contra um esperado que já contava os
+ * anteriores: a sangria que só coube na gaveta por causa de uma Venda em dinheiro precisa encontrar
+ * essa Venda aplicada no servidor.
+ */
+function gestosDaGaveta(gestos: GestoNaFila[], id: string): GestoNaFila[] {
+  const vendas = vendasDaSessao(gestos, id)
+  return ordenarPorDependencia(gestos.filter((gesto) => gestoAplicavel(gesto)
+    && ((gesto.tipo.startsWith(prefixo) && gesto.registroId === id)
+      || (gesto.tipo === 'venda.concluir' && vendas.has(gesto.registroId)))))
 }
 
 function pendente(gestos: GestoNaFila[]): boolean {
+  return gestos.some((gesto) => gesto.estado !== 'sent')
+}
+
+function algumGestoDeCaixaPendente(gestos: GestoNaFila[]): boolean {
   return gestos.some((gesto) => gesto.tipo.startsWith(prefixo) && gesto.estado !== 'sent')
+}
+
+/** Se a sessão tem gesto no dispositivo que o servidor ainda não recebeu, de caixa ou de Venda. */
+export function sessaoTemPendencia(gestos: GestoNaFila[], id: string): boolean {
+  return pendente(gestosDaSessao(gestos, id))
+}
+
+/** O gesto do qual depende o próximo que mudar o esperado da gaveta desta sessão. */
+export function ultimoGestoDaGaveta(gestos: GestoNaFila[], id: string): GestoNaFila | undefined {
+  return gestosDaGaveta(gestos, id).at(-1)
 }
 
 async function retratos(): Promise<SessaoCaixa[]> {
@@ -86,7 +109,8 @@ async function guardar(sessoes: SessaoCaixa[]): Promise<void> {
 
 function projetar(base: SessaoCaixa | undefined, gestos: GestoNaFila[], id: string): SessaoCaixa | undefined {
   let sessao = base ? { ...base, movimentos: [...(base.movimentos ?? [])] } : undefined
-  for (const gesto of gestosDaSessao(gestos, id)) {
+  const vendas = projetarVendas(gestos, usuarioAtual())
+  for (const gesto of gestosDaGaveta(gestos, id)) {
     if (gesto.tipo === 'caixa.abrir') {
       const dados = gesto.payload as { valorAbertura: number; abertaEm: string }
       sessao = { id, usuarioId: usuarioAtual(), versao: 0, valorAbertura: dados.valorAbertura,
@@ -103,14 +127,24 @@ function projetar(base: SessaoCaixa | undefined, gestos: GestoNaFila[], id: stri
       const quantia = centavos(dados.valor, 'Valor do movimento')
       sessao = { ...sessao, movimentos: [...(sessao.movimentos ?? []), movimento],
         versao: versaoLida(sessao) + 1,
-        valorFechamentoEsperado: valor(esperado + (tipo === 'SUPRIMENTO' ? quantia : -quantia)) }
+        valorFechamentoEsperado: reais(esperado + (tipo === 'SUPRIMENTO' ? quantia : -quantia)) }
+    }
+    const venda = gesto.tipo === 'venda.concluir' ? vendas.get(gesto.registroId) : undefined
+    const emDinheiro = venda ? dinheiroNaGaveta(venda) : 0
+    // Como no servidor: só o dinheiro em espécie entra na gaveta, e sem dinheiro não há movimento.
+    if (venda && emDinheiro > 0) {
+      const movimento: MovimentoCaixa = { id: gesto.operacaoId, tipo: 'VENDA', valor: reais(emDinheiro),
+        motivo: null, vendaId: venda.id, recebimentoId: null, criadoEm: venda.concluidoEm ?? gesto.criadoEm }
+      sessao = { ...sessao, movimentos: [...(sessao.movimentos ?? []), movimento],
+        versao: versaoLida(sessao) + 1,
+        valorFechamentoEsperado: reais(centavos(sessao.valorFechamentoEsperado, 'Saldo esperado') + emDinheiro) }
     }
     if (gesto.tipo === 'caixa.fechar') {
       const dados = gesto.payload as { valorContado: number; fechadaEm: string }
       sessao = { ...sessao, status: 'FECHADA', fechadaEm: dados.fechadaEm,
         versao: versaoLida(sessao) + 1,
         valorFechamentoContado: dados.valorContado,
-        diferenca: valor(centavos(sessao.valorFechamentoEsperado, 'Saldo esperado')
+        diferenca: reais(centavos(sessao.valorFechamentoEsperado, 'Saldo esperado')
           - centavos(dados.valorContado, 'Valor contado')) }
     }
   }
@@ -130,10 +164,6 @@ async function local(id: string): Promise<SessaoCaixa> {
   if (!sessao) throw new Error('Sessão de caixa não encontrada neste dispositivo.')
   if (sessao.usuarioId !== usuarioAtual()) throw new Error('Este caixa pertence a outro operador.')
   return sessao
-}
-
-async function ultimoGestoDaSessao(id: string): Promise<GestoNaFila | undefined> {
-  return gestosDaSessao(await listarGestos(), id).at(-1)
 }
 
 async function enfileirar(tipo: string, id: string, dados: object, dependeDe: string[] = [],
@@ -202,14 +232,14 @@ export function criarCaixaLocal(remoto: CaixaRemoto = caixa): CaixaRemoto {
       if (semBanco()) return remoto.abrir(valorAbertura)
       centavos(valorAbertura, 'Valor de abertura')
       const gestos = await listarGestos()
-      if (navigator.onLine && !pendente(gestos)) {
+      if (navigator.onLine && !algumGestoDeCaixaPendente(gestos)) {
         return remoto.abrir(valorAbertura)
       }
       if ((await locais()).some((sessao) => sessao.status === 'ABERTA')) {
         throw new Error('Já existe uma SessaoCaixa aberta neste dispositivo.')
       }
       const id = crypto.randomUUID()
-      const ultimo = ordenarGestos(gestos.filter((gesto) => gesto.tipo.startsWith(prefixo))).at(-1)
+      const ultimo = ordenarPorDependencia(gestos.filter((gesto) => gesto.tipo.startsWith(prefixo))).at(-1)
       await enfileirar('caixa.abrir', id, { valorAbertura,
         abertaEm: new Date().toISOString() }, ultimo ? [ultimo.operacaoId] : [])
       return { id }
@@ -237,10 +267,11 @@ export function criarCaixaLocal(remoto: CaixaRemoto = caixa): CaixaRemoto {
       if (navigator.onLine && !pendente(gestos)) {
         return remoto.fechar(id, valorContado)
       }
-      // Todas as operações conhecidas desta sessão precisam preceder o fechamento.
+      // Todas as operações conhecidas desta sessão, inclusive cada gesto das Vendas registradas
+      // nela, precisam chegar ao servidor antes do fechamento.
       await enfileirar('caixa.fechar', id, { valorContado, fechadaEm: new Date().toISOString() },
         gestos.map((gesto) => gesto.operacaoId), versaoLida(sessao))
-      return { diferenca: valor(centavos(sessao.valorFechamentoEsperado, 'Saldo esperado') - contado) }
+      return { diferenca: reais(centavos(sessao.valorFechamentoEsperado, 'Saldo esperado') - contado) }
     },
   }
 }
@@ -254,12 +285,12 @@ async function movimentar(remoto: CaixaRemoto, id: string, quantia: number, moti
   if (tipo === 'caixa.sangrar' && cent > centavos(sessao.valorFechamentoEsperado, 'Saldo esperado')) {
     throw new Error('Sangria maior que o saldo esperado da gaveta.')
   }
-  const gestos = gestosDaSessao(await listarGestos(), id)
-  if (navigator.onLine && !pendente(gestos)) {
+  const gestos = await listarGestos()
+  if (navigator.onLine && !pendente(gestosDaSessao(gestos, id))) {
     if (tipo === 'caixa.sangrar') return remoto.sangrar(id, quantia, motivo)
     return remoto.suprir(id, quantia, motivo)
   }
-  const ultimo = await ultimoGestoDaSessao(id)
+  const ultimo = ultimoGestoDaGaveta(gestos, id)
   await enfileirar(tipo, id, { valor: quantia, motivo: motivo.trim(), criadoEm: new Date().toISOString() },
     ultimo ? [ultimo.operacaoId] : [], versaoLida(sessao))
 }

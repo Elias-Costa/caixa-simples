@@ -2,6 +2,7 @@ import 'fake-indexeddb/auto'
 import { deleteDB } from 'idb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Cliente, DadosDoCliente, DadosDoProduto, Produto } from '../api/cadastro'
+import { SemConexao } from '../api/cliente'
 import { gravarIdentidade, gravarToken } from '../sessao/armazenamento'
 import type { Identidade } from '../sessao/Identidade'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
@@ -25,6 +26,7 @@ function entrar(identidade: Identidade) {
 function remoto(produtos: Produto[] = [], clientes: Cliente[] = []) {
   return {
     produtos: vi.fn(async () => produtos),
+    buscarProdutos: vi.fn(async (_termo: string) => produtos),
     criarProduto: vi.fn(async (_dados: DadosDoProduto) => ({ id: crypto.randomUUID() })),
     editarProduto: vi.fn(async (_id: string, _dados: DadosDoProduto) => undefined),
     inativarProduto: vi.fn(async (_id: string) => undefined),
@@ -123,5 +125,40 @@ describe('cadastro local', () => {
     expect((await cadastro.produtos())[0]).toMatchObject({ id: a.id, preco: 5 })
     expect((await cadastro.clientes()).map((item) => item.nome)).toEqual(['Maria'])
     expect(await listarGestos()).toHaveLength(2)
+  })
+
+  it('busca no catálogo do dispositivo com a regra do balcão e só usa a API sem pendência', async () => {
+    entrar(ana)
+    const item = (id: string, nome: string, codigo: string | null): Produto => ({
+      id, versao: 1, tipo: 'PRODUTO', nome, preco: 5, codigo, categoria: null, unidade: null, atributos: {},
+    })
+    const bolo = item('00000000-0000-4000-8000-000000000011', 'Bolo', 'bolo')
+    const boloDeCafe = item('00000000-0000-4000-8000-000000000012', 'Bolo de café', null)
+    const expresso = item('00000000-0000-4000-8000-000000000013', 'Café expresso', 'CA-1')
+    const agua = item('00000000-0000-4000-8000-000000000014', 'Água', 'cafe')
+    rede(true)
+    const servidor = remoto([expresso, boloDeCafe, bolo, agua])
+    const cadastro = criarCadastroLocal(servidor)
+    await cadastro.produtos()
+    expect(await cadastro.buscarProdutos('bolo')).toEqual([expresso, boloDeCafe, bolo, agua])
+    expect(servidor.buscarProdutos).toHaveBeenCalledWith('bolo')
+
+    servidor.buscarProdutos.mockRejectedValueOnce(new SemConexao())
+    expect((await cadastro.buscarProdutos(' BOLO ')).map((produto) => produto.nome)).toEqual(['Bolo', 'Bolo de café'])
+
+    rede(false)
+    expect((await cadastro.buscarProdutos('ca-1')).map((produto) => produto.nome)).toEqual(['Café expresso'])
+    expect((await cadastro.buscarProdutos('cafe')).map((produto) => produto.nome)).toEqual(['Água'])
+    expect((await cadastro.buscarProdutos('café')).map((produto) => produto.nome))
+      .toEqual(['Bolo de café', 'Café expresso'])
+    await expect(cadastro.buscarProdutos('  ')).rejects.toThrow('Informe nome ou código')
+
+    await cadastro.inativarProduto(boloDeCafe.id)
+    const novo = await cadastro.criarProduto({ tipo: 'PRODUTO', nome: 'Café coado', preco: 4,
+      codigo: null, categoria: null, unidade: null, atributos: {} })
+    rede(true)
+    servidor.buscarProdutos.mockClear()
+    expect((await cadastro.buscarProdutos('café')).map((produto) => produto.id)).toEqual([novo.id, expresso.id])
+    expect(servidor.buscarProdutos).not.toHaveBeenCalled()
   })
 })
