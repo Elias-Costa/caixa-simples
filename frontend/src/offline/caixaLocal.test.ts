@@ -172,4 +172,51 @@ describe('SessaoCaixa local', () => {
     })
     expect((await listarGestos())[0].versaoBase).toBe(4)
   })
+
+  it('opera e fecha sem rede a sessão cujo esperado ficou negativo no servidor', async () => {
+    entrar(ana)
+    rede(true)
+    const id = crypto.randomUUID()
+    const cancelada = crypto.randomUUID()
+    const agora = new Date().toISOString()
+    // Venda em dinheiro, sangria do valor dela e o estorno do cancelamento: o servidor aceita o
+    // esperado negativo que sobra, e é um suprimento que o corrige.
+    const aberta: SessaoCaixa = {
+      id, usuarioId: ana.usuarioId, versao: 3, valorAbertura: 0, valorFechamentoEsperado: -10,
+      valorFechamentoContado: null, diferenca: null, abertaEm: agora, fechadaEm: null, status: 'ABERTA',
+      movimentos: [
+        { id: crypto.randomUUID(), tipo: 'VENDA', valor: 10, motivo: null, vendaId: cancelada,
+          recebimentoId: null, criadoEm: agora },
+        { id: crypto.randomUUID(), tipo: 'SANGRIA', valor: 10, motivo: 'Depósito', vendaId: null,
+          recebimentoId: null, criadoEm: agora },
+        { id: crypto.randomUUID(), tipo: 'ESTORNO', valor: 10, motivo: null, vendaId: cancelada,
+          recebimentoId: null, criadoEm: agora },
+      ],
+    }
+    const remoto = { ...caixa, consultar: vi.fn(async () => aberta) }
+    const local = criarCaixaLocal(remoto)
+    await local.consultar(id)
+
+    rede(false)
+    await local.suprir(id, 4, 'Troco')
+    // Como no servidor, a sangria que deixaria o esperado negativo continua recusada.
+    await expect(local.sangrar(id, 1, 'Retirada')).rejects.toThrow('maior que o saldo esperado')
+    const vendas = criarVendaLocal(undefined, local)
+    const venda = await vendas.iniciar(id)
+    await vendas.adicionarItem(venda.id, { id: '00000000-0000-4000-8000-000000000001', versao: 1,
+      tipo: 'PRODUTO', nome: 'Café', preco: 2.5, codigo: null, categoria: null, unidade: null,
+      atributos: {} }, 1, 0)
+    await vendas.pagar(venda.id, 'DINHEIRO', 2.5, 2.5)
+    await vendas.concluir(venda.id)
+    expect(await criarCaixaLocal(remoto).consultar(id)).toMatchObject({
+      status: 'ABERTA', valorFechamentoEsperado: -3.5, versao: 5,
+    })
+
+    expect(await local.fechar(id, 0)).toEqual({ diferenca: -3.5 })
+    expect(await criarCaixaLocal(remoto).consultar(id)).toMatchObject({
+      status: 'FECHADA', valorFechamentoEsperado: -3.5, valorFechamentoContado: 0, diferenca: -3.5,
+      versao: 6,
+    })
+    expect(remoto.consultar).toHaveBeenCalledTimes(1)
+  })
 })

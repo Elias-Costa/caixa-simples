@@ -1,7 +1,7 @@
 import { caixa, type MovimentoCaixa, type SessaoCaixa } from '../api/caixa'
 import { SemConexao } from '../api/cliente'
 import { lerIdentidade } from '../sessao/armazenamento'
-import { centavos, reais } from './dinheiro'
+import { centavos, centavosDoSaldo, reais } from './dinheiro'
 import {
   enfileirarGesto, gestoAplicavel, guardarRetrato, lerRetrato, listarGestos, ordenarPorDependencia,
   type GestoNaFila,
@@ -123,7 +123,7 @@ function projetar(base: SessaoCaixa | undefined, gestos: GestoNaFila[], id: stri
       const tipo = gesto.tipo === 'caixa.sangrar' ? 'SANGRIA' : 'SUPRIMENTO'
       const movimento: MovimentoCaixa = { id: gesto.operacaoId, tipo, valor: dados.valor,
         motivo: dados.motivo, vendaId: null, recebimentoId: null, criadoEm: dados.criadoEm }
-      const esperado = centavos(sessao.valorFechamentoEsperado, 'Saldo esperado')
+      const esperado = centavosDoSaldo(sessao.valorFechamentoEsperado)
       const quantia = centavos(dados.valor, 'Valor do movimento')
       sessao = { ...sessao, movimentos: [...(sessao.movimentos ?? []), movimento],
         versao: versaoLida(sessao) + 1,
@@ -137,14 +137,14 @@ function projetar(base: SessaoCaixa | undefined, gestos: GestoNaFila[], id: stri
         motivo: null, vendaId: venda.id, recebimentoId: null, criadoEm: venda.concluidoEm ?? gesto.criadoEm }
       sessao = { ...sessao, movimentos: [...(sessao.movimentos ?? []), movimento],
         versao: versaoLida(sessao) + 1,
-        valorFechamentoEsperado: reais(centavos(sessao.valorFechamentoEsperado, 'Saldo esperado') + emDinheiro) }
+        valorFechamentoEsperado: reais(centavosDoSaldo(sessao.valorFechamentoEsperado) + emDinheiro) }
     }
     if (gesto.tipo === 'caixa.fechar') {
       const dados = gesto.payload as { valorContado: number; fechadaEm: string }
       sessao = { ...sessao, status: 'FECHADA', fechadaEm: dados.fechadaEm,
         versao: versaoLida(sessao) + 1,
         valorFechamentoContado: dados.valorContado,
-        diferenca: reais(centavos(sessao.valorFechamentoEsperado, 'Saldo esperado')
+        diferenca: reais(centavosDoSaldo(sessao.valorFechamentoEsperado)
           - centavos(dados.valorContado, 'Valor contado')) }
     }
   }
@@ -271,7 +271,7 @@ export function criarCaixaLocal(remoto: CaixaRemoto = caixa): CaixaRemoto {
       // nela, precisam chegar ao servidor antes do fechamento.
       await enfileirar('caixa.fechar', id, { valorContado, fechadaEm: new Date().toISOString() },
         gestos.map((gesto) => gesto.operacaoId), versaoLida(sessao))
-      return { diferenca: reais(centavos(sessao.valorFechamentoEsperado, 'Saldo esperado') - contado) }
+      return { diferenca: reais(centavosDoSaldo(sessao.valorFechamentoEsperado) - contado) }
     },
   }
 }
@@ -282,7 +282,9 @@ async function movimentar(remoto: CaixaRemoto, id: string, quantia: number, moti
   const sessao = await local(id)
   if (sessao.status !== 'ABERTA') throw new Error('SessaoCaixa fechada não aceita movimento.')
   if (!motivo.trim()) throw new Error('Motivo é obrigatório para sangria e suprimento (RF14).')
-  if (tipo === 'caixa.sangrar' && cent > centavos(sessao.valorFechamentoEsperado, 'Saldo esperado')) {
+  // Com o esperado já negativo toda sangria é recusada, como no servidor: não se tira da gaveta o
+  // que não está lá, e o suprimento é que corrige o saldo.
+  if (tipo === 'caixa.sangrar' && cent > centavosDoSaldo(sessao.valorFechamentoEsperado)) {
     throw new Error('Sangria maior que o saldo esperado da gaveta.')
   }
   const gestos = await listarGestos()
