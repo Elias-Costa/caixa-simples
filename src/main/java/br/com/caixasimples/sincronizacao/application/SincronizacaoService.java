@@ -259,8 +259,9 @@ public class SincronizacaoService {
     /**
      * Compara campo a campo. O conteúdo e as dependências voltam do banco como texto e são lidos
      * de novo, porque o banco não guarda a ordem das chaves; o conteúdo recebido passa pelo mesmo
-     * caminho, escrito e lido, para os dois lados terem os números no mesmo tipo. O instante é
-     * comparado em microssegundos, a precisão da coluna.
+     * caminho, escrito e lido, para os dois lados terem os números no mesmo tipo. O instante
+     * recebido é truncado em microssegundos, a precisão da coluna, o mesmo corte com que o registro
+     * o gravou.
      */
     private boolean mesmaOperacao(OperacaoSincronizada gravada, OperacaoRecebida operacao,
             UUID usuarioId) {
@@ -272,7 +273,7 @@ public class SincronizacaoService {
                 && gravada.getTipo().equals(operacao.tipo())
                 && gravada.getRegistroId().equals(operacao.registroId())
                 && Objects.equals(gravada.getVersaoBase(), operacao.versaoBase())
-                && gravada.getCriadaEm().truncatedTo(ChronoUnit.MICROS)
+                && gravada.getCriadaEm()
                         .equals(operacao.criadoEm().truncatedTo(ChronoUnit.MICROS))
                 && dependeDeGravado.equals(new HashSet<>(operacao.dependeDe()))
                 && json.readTree(gravada.getPayload())

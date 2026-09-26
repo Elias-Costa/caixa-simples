@@ -302,6 +302,35 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
     }
 
     @Test
+    @DisplayName("instante com fração abaixo do microssegundo: o reenvio devolve o resultado gravado e não aplica de novo")
+    void reenvioComInstanteEmNanossegundos() {
+        ContaCriada conta = criador.criar("Padaria Aurora", SENHA);
+        UUID sessaoId = conta.comoUsuario(() -> sessoes.abrir(Money.de("50.00")));
+        // A fração abaixo do microssegundo, 789 nanossegundos, passa da metade: é onde arredondar,
+        // como o banco faz ao gravar, e truncar dão instantes diferentes.
+        GestoDeTeste suprimento = GestoDeTeste.de("caixa.suprir", sessaoId,
+                conteudo("valor", new BigDecimal("15.00"), "motivo", "Troco",
+                        "criadoEm", Instant.now().toString()))
+                .registradoEm(Instant.parse("2026-09-25T12:00:00.123456789Z"));
+
+        List<ResultadoDaOperacao> primeiro = conta.comoUsuario(() ->
+                sincronizacao.sincronizar(recebidas(List.of(suprimento))));
+        List<ResultadoDaOperacao> reenvio = conta.comoUsuario(() ->
+                sincronizacao.sincronizar(recebidas(List.of(suprimento))));
+
+        assertThat(primeiro).extracting(ResultadoDaOperacao::resultado)
+                .containsExactly(Resultado.APLICADA);
+        assertThat(reenvio).isEqualTo(primeiro);
+        conta.comoUsuario(() -> {
+            assertThat(linhasDeSessao.findById(sessaoId).orElseThrow().paraDominio()
+                    .getMovimentos()).extracting(MovimentoCaixa::tipo)
+                    .containsExactly(TipoMovimentoCaixa.SUPRIMENTO);
+            assertThat(registros.findByOperacaoId(suprimento.operacaoId()).orElseThrow()
+                    .getCriadaEm()).isEqualTo(Instant.parse("2026-09-25T12:00:00.123456Z"));
+        });
+    }
+
+    @Test
     @DisplayName("duas Vendas sem rede do último item: as duas entram, o saldo fica negativo e a segunda vai para revisão")
     void duasVendasDoUltimoItem() {
         ContaCriada conta = criador.criar("Mercadinho do Bairro", SENHA);

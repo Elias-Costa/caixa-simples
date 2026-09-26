@@ -11,6 +11,7 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Objects;
 import java.util.UUID;
 import org.hibernate.annotations.JdbcTypeCode;
@@ -116,7 +117,9 @@ public class OperacaoSincronizada {
         this.payload = Objects.requireNonNull(payloadEmJson, "payload nao pode ser nulo");
         this.versaoBase = operacao.versaoBase();
         this.dependeDe = Objects.requireNonNull(dependeDeEmJson, "dependeDe nao pode ser nulo");
-        this.criadaEm = operacao.criadoEm();
+        // A coluna guarda microssegundos, e o banco arredondaria o resto, às vezes para cima; o
+        // reenvio compara o instante truncado, então é truncado que ele precisa ser gravado.
+        this.criadaEm = operacao.criadoEm().truncatedTo(ChronoUnit.MICROS);
         this.recebidaEm = Objects.requireNonNull(recebidaEm, "recebidaEm nao pode ser nulo");
         this.resultado = Objects.requireNonNull(resultado, "resultado nao pode ser nulo");
         this.versao = versao;
