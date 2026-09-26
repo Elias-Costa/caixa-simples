@@ -11,7 +11,8 @@ export type ItemDoMenu = {
  * O menu segue a autorização do servidor, que é quem decide de fato: só o administrador escreve
  * produto, mexe no estoque, lê relatório e gere usuários e configuração (RF29, RF30). Esconder o
  * item do operador evita oferecer o que a API recusaria com 403; não substitui a recusa. O
- * estoque aparece só quando a conta ligou o controle, que nasce desligado (RF17).
+ * estoque aparece só quando a conta ligou o controle, que nasce desligado (RF17). A sincronização
+ * é dos dois perfis: quem operou sem rede confere ali o que o servidor revisou ou recusou.
  */
 export function itensDoMenu(identidade: Identidade): ItemDoMenu[] {
   const itens: ItemDoMenu[] = [
@@ -20,6 +21,7 @@ export function itensDoMenu(identidade: Identidade): ItemDoMenu[] {
     { rotulo: 'Produtos', caminho: '/produtos' },
     { rotulo: 'Clientes', caminho: '/clientes' },
     { rotulo: 'Fiado', caminho: '/fiado' },
+    { rotulo: 'Sincronização', caminho: '/sincronizacao' },
   ]
   if (identidade.perfil !== 'ADMIN') return itens
 

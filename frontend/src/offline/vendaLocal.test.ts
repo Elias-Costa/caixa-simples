@@ -3,11 +3,13 @@ import { deleteDB } from 'idb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cadastro, type Produto } from '../api/cadastro'
 import { caixa, type SessaoCaixa } from '../api/caixa'
+import type { OperacaoDoLote } from '../api/sincronizacao'
 import { vendas } from '../api/vendas'
 import { gravarIdentidade, gravarToken } from '../sessao/armazenamento'
 import type { Identidade } from '../sessao/Identidade'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
 import { criarCaixaLocal } from './caixaLocal'
+import { enviarFila } from './envio'
 import { guardarRetrato, listarGestos, type GestoNaFila } from './fila'
 import { criarVendaLocal } from './vendaLocal'
 
@@ -45,9 +47,9 @@ function doTipo(gestos: GestoNaFila[], tipo: string): GestoNaFila {
 }
 
 async function prepararCadastro() {
-  await guardarRetrato('produtos', [cafe])
-  await guardarRetrato('clientesAtivos', [])
-  await guardarRetrato('clientesInativos', [])
+  await guardarRetrato('produtos', [cafe], 0)
+  await guardarRetrato('clientesAtivos', [], 0)
+  await guardarRetrato('clientesInativos', [], 0)
 }
 
 beforeEach(async () => { await deleteDB('caixa-simples-offline') })
@@ -241,5 +243,30 @@ describe('Venda no dispositivo', () => {
 
     entrar(operadora)
     expect((await local.consultar(id)).itens).toHaveLength(1)
+  })
+
+  it('deixa de marcar como pendente a Venda cujos gestos tiveram resultado', async () => {
+    entrar(operadora)
+    rede(false)
+    await prepararCadastro()
+    const api = apiDeVendas()
+    const caixaLocal = criarCaixaLocal()
+    const { id: sessaoId } = await caixaLocal.abrir(20)
+    const local = criarVendaLocal(api, caixaLocal)
+    const { id } = await local.iniciar(sessaoId)
+    await local.adicionarItem(id, cafe, 1, 0)
+    await local.pagar(id, 'DINHEIRO', 6.25, 10)
+    await local.concluir(id)
+
+    await enviarFila(async (operacoes: OperacaoDoLote[]) => operacoes.map((operacao) => ({
+      operacaoId: operacao.operacaoId, resultado: 'APLICADA' as const })))
+
+    expect(await local.consultar(id)).toMatchObject({ status: 'CONCLUIDA', pendenteSincronizacao: false })
+    expect(await local.comprovante(id)).toMatchObject({ valorTotal: 6.25, pendenteSincronizacao: false })
+    expect(await local.daSessao(sessaoId)).toEqual([expect.objectContaining({ id,
+      pendenteSincronizacao: false })])
+    expect(await caixaLocal.consultar(sessaoId)).toMatchObject({ valorFechamentoEsperado: 26.25,
+      pendenteSincronizacao: false })
+    expect(api.comprovante).not.toHaveBeenCalled()
   })
 })

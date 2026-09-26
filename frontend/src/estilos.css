@@ -148,15 +148,17 @@ body {
 .cabecalho {
   grid-area: cabecalho;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--espaco);
+  gap: 8px var(--espaco);
   padding: 12px var(--espaco);
   background: var(--cor-marca);
   color: #fff;
 }
 
 .cabecalho__quem {
-  flex: 1;
+  /* Com os avisos da fila, o celular leva avisos e botão para a linha de baixo. */
+  flex: 1 1 160px;
   min-width: 0;
 }
 
@@ -181,6 +183,8 @@ body {
   color: var(--cor-aviso-texto);
   font-size: 0.85rem;
   font-weight: 600;
+  white-space: nowrap;
+  text-decoration: none;
 }
 
 .cabecalho .botao--secundario {

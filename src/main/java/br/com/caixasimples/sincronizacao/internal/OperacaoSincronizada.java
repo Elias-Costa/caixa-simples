@@ -20,9 +20,14 @@ import org.hibernate.type.SqlTypes;
 /**
  * O resultado gravado de uma operação que o dispositivo enviou, com o gesto como ele chegou.
  *
- * <p>É gravado na mesma transação do efeito e nunca muda depois: todas as colunas são
- * {@code updatable = false}. O índice único da migration V19, pela conta e pelo id da operação, é o
- * que impede que dois envios simultâneos da mesma operação apliquem o efeito duas vezes.
+ * <p>É gravado na mesma transação do efeito, e o gesto e o resultado nunca mudam depois: essas
+ * colunas são {@code updatable = false}. O índice único da migration V19, pela conta e pelo id da
+ * operação, é o que impede que dois envios simultâneos da mesma operação apliquem o efeito duas
+ * vezes.
+ *
+ * <p>A única escrita posterior é a conferência de uma revisão ou recusa pelo administrador, com
+ * quem e quando, na migration V20. Conferir é registrar que alguém olhou: não desfaz nem refaz o
+ * efeito, e o reenvio da operação continua devolvendo o resultado gravado.
  *
  * <p>O conteúdo e as dependências ficam em {@code jsonb} como texto já serializado, e quem os
  * compara num reenvio é o serviço, lendo com o mesmo leitor de JSON da API; comparar texto
@@ -81,6 +86,12 @@ public class OperacaoSincronizada {
     @Column(updatable = false)
     private String detalhe;
 
+    @Column(name = "conferida_em")
+    private Instant conferidaEm;
+
+    @Column(name = "conferida_por")
+    private UUID conferidaPor;
+
     protected OperacaoSincronizada() {
         // exigido pelo JPA
     }
@@ -122,6 +133,29 @@ public class OperacaoSincronizada {
         return resultado == Resultado.NAO_APLICADA;
     }
 
+    /**
+     * Registra que o administrador conferiu a revisão ou a recusa.
+     *
+     * <p>Conferir de novo não troca quem conferiu primeiro: a pergunta respondida é se alguém já
+     * olhou, e a primeira resposta é a que vale.
+     *
+     * @throws IllegalStateException se a operação foi aplicada sem pendência, e não há o que
+     *                               conferir
+     */
+    public void conferir(UUID administradorId, Instant instante) {
+        Objects.requireNonNull(administradorId, "administradorId nao pode ser nulo");
+        Objects.requireNonNull(instante, "instante nao pode ser nulo");
+        if (resultado == Resultado.APLICADA) {
+            throw new IllegalStateException(
+                    "a operacao foi aplicada sem pendencia e nao tem o que conferir");
+        }
+        if (conferidaEm != null) {
+            return;
+        }
+        this.conferidaEm = instante;
+        this.conferidaPor = administradorId;
+    }
+
     public UUID getOperacaoId() {
         return operacaoId;
     }
@@ -160,6 +194,18 @@ public class OperacaoSincronizada {
 
     public Resultado getResultado() {
         return resultado;
+    }
+
+    public String getDetalhe() {
+        return detalhe;
+    }
+
+    public Instant getConferidaEm() {
+        return conferidaEm;
+    }
+
+    public UUID getConferidaPor() {
+        return conferidaPor;
     }
 
     /** Existe para o teste de isolamento poder afirmar de que conta a linha é. */

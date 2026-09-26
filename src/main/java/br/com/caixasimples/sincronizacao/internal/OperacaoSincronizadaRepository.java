@@ -1,5 +1,7 @@
 package br.com.caixasimples.sincronizacao.internal;
 
+import br.com.caixasimples.sincronizacao.application.ResultadoDaOperacao.Resultado;
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -22,4 +24,18 @@ public interface OperacaoSincronizadaRepository
 
     /** Os resultados já gravados das operações de que outra depende. */
     List<OperacaoSincronizada> findByOperacaoIdIn(Collection<UUID> operacaoIds);
+
+    /**
+     * As operações com o resultado diferente do dado que ninguém conferiu, da que chegou primeiro
+     * para a mais recente. Quem chama passa a aplicada sem pendência, e recebe revisões e recusas.
+     */
+    List<OperacaoSincronizada> findByResultadoNotAndConferidaEmIsNullOrderByRecebidaEm(
+            Resultado excluido);
+
+    /**
+     * As conferidas a partir do início, inclusivo, até o fim, exclusivo, pela ordem da
+     * conferência.
+     */
+    List<OperacaoSincronizada> findByConferidaEmGreaterThanEqualAndConferidaEmLessThanOrderByConferidaEm(
+            Instant inicio, Instant fim);
 }

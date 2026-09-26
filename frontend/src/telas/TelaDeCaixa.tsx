@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import type { SessaoCaixa } from '../api/caixa'
 import { hojeNoBalcao } from '../dataDoBalcao'
 import { criarCaixaLocal } from '../offline/caixaLocal'
+import { useSincronizacao } from '../shell/sincronizacao'
 import { useSessao } from '../sessao/useSessao'
 import { erroDeCadastro } from './erroDeCadastro'
 
@@ -17,6 +18,7 @@ function dinheiroDigitado(valor: string): number {
 
 export function TelaDeCaixa() {
   const { identidade } = useSessao()
+  const { rodada } = useSincronizacao()
   const [aberta, setAberta] = useState<SessaoCaixa | undefined>()
   const [selecionada, setSelecionada] = useState<SessaoCaixa | undefined>()
   const [historico, setHistorico] = useState<SessaoCaixa[]>([])
@@ -53,7 +55,8 @@ export function TelaDeCaixa() {
     }
   }, [dia])
 
-  useEffect(() => { queueMicrotask(() => void carregar()) }, [carregar])
+  // A rodada de envio que grava resultado muda o que o servidor sabe da sessão: a tela relê.
+  useEffect(() => { queueMicrotask(() => void carregar()) }, [carregar, rodada])
   useEffect(() => {
     if (!selecionada || selecionada.movimentos) return
     let ativo = true

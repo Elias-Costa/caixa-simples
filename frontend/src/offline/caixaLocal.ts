@@ -3,12 +3,14 @@ import { SemConexao } from '../api/cliente'
 import { lerIdentidade } from '../sessao/armazenamento'
 import { centavos, centavosDoSaldo, reais } from './dinheiro'
 import {
-  enfileirarGesto, gestoAplicavel, guardarRetrato, lerRetrato, listarGestos, ordenarPorDependencia,
-  type GestoNaFila,
+  enfileirarGesto, gestoAplicavel, gestoPendente, guardarRetrato, jaEstaNoRetrato, lerDoServidor,
+  lerRetrato, listarGestos, ordenarPorDependencia, versaoDoResultado, type GestoNaFila,
 } from './fila'
 import { dinheiroNaGaveta, projetarVendas, type DadosDoInicio } from './raizDaVenda'
 
 type CaixaRemoto = typeof caixa
+/** Cada sessão guardada leva a ordem da leitura que a trouxe, porque cada uma é lida numa hora. */
+type SessaoGuardada = SessaoCaixa & { ordemDaLeitura?: number }
 const prefixo = 'caixa.'
 
 function semBanco(): boolean {
@@ -74,14 +76,14 @@ function gestosDaGaveta(gestos: GestoNaFila[], id: string): GestoNaFila[] {
 }
 
 function pendente(gestos: GestoNaFila[]): boolean {
-  return gestos.some((gesto) => gesto.estado !== 'sent')
+  return gestos.some(gestoPendente)
 }
 
 function algumGestoDeCaixaPendente(gestos: GestoNaFila[]): boolean {
-  return gestos.some((gesto) => gesto.tipo.startsWith(prefixo) && gesto.estado !== 'sent')
+  return gestos.some((gesto) => gesto.tipo.startsWith(prefixo) && gestoPendente(gesto))
 }
 
-/** Se a sessão tem gesto no dispositivo que o servidor ainda não recebeu, de caixa ou de Venda. */
+/** Se a sessão tem gesto no dispositivo ainda sem resultado do servidor, de caixa ou de Venda. */
 export function sessaoTemPendencia(gestos: GestoNaFila[], id: string): boolean {
   return pendente(gestosDaSessao(gestos, id))
 }
@@ -91,31 +93,54 @@ export function ultimoGestoDaGaveta(gestos: GestoNaFila[], id: string): GestoNaF
   return gestosDaGaveta(gestos, id).at(-1)
 }
 
-async function retratos(): Promise<SessaoCaixa[]> {
-  return await lerRetrato<SessaoCaixa[]>(tipoDoRetrato()) ?? []
+async function retratos(): Promise<SessaoGuardada[]> {
+  return (await lerRetrato<SessaoGuardada[]>(tipoDoRetrato()))?.dados ?? []
 }
 
-async function guardar(sessoes: SessaoCaixa[]): Promise<void> {
+async function guardar(sessoes: SessaoCaixa[], ordemDaLeitura: number): Promise<void> {
   const atuais = new Map((await retratos()).map((sessao) => [sessao.id, sessao]))
   for (const sessao of sessoes) {
     if (sessao.usuarioId !== usuarioAtual()) continue
     const anterior = atuais.get(sessao.id)
-    // O resumo do histórico não pode descartar o extrato que já foi carregado.
-    atuais.set(sessao.id, { ...anterior, ...sessao,
-      movimentos: sessao.movimentos ?? anterior?.movimentos })
+    if (sessao.movimentos) {
+      atuais.set(sessao.id, { ...sessao, ordemDaLeitura })
+    } else if (!anterior?.movimentos || anterior.versao === sessao.versao) {
+      // O resumo do histórico não traz o extrato; o guardado continua valendo porque é da mesma
+      // revisão.
+      atuais.set(sessao.id, { ...anterior, ...sessao, movimentos: anterior?.movimentos, ordemDaLeitura })
+    }
+    // O resumo de outra revisão não substitui um extrato guardado: ficariam os movimentos de uma
+    // leitura com o esperado de outra. O extrato é trocado na próxima consulta da sessão.
   }
-  await guardarRetrato(tipoDoRetrato(), [...atuais.values()])
+  // Cada sessão leva a própria ordem; a do retrato inteiro não é lida.
+  await guardarRetrato(tipoDoRetrato(), [...atuais.values()], 0)
 }
 
-function projetar(base: SessaoCaixa | undefined, gestos: GestoNaFila[], id: string): SessaoCaixa | undefined {
-  let sessao = base ? { ...base, movimentos: [...(base.movimentos ?? [])] } : undefined
+/**
+ * A sessão guardada mais os gestos da gaveta que ela ainda não contém. O gesto cujo resultado
+ * chegou antes da leitura já está no esperado do servidor, e somá-lo de novo dobraria a sangria ou
+ * a Venda. O confirmado depois da leitura entra com a revisão que o servidor devolveu.
+ */
+function projetar(base: SessaoGuardada | undefined, gestos: GestoNaFila[], id: string): SessaoCaixa | undefined {
+  let sessao: SessaoCaixa | undefined
+  if (base) {
+    const { ordemDaLeitura: _ordem, ...guardada } = base
+    sessao = { ...guardada, movimentos: [...(guardada.movimentos ?? [])] }
+  }
+  const leitura = base ? { ordemDaLeitura: base.ordemDaLeitura ?? 0 } : undefined
   const vendas = projetarVendas(gestos, usuarioAtual())
   for (const gesto of gestosDaGaveta(gestos, id)) {
+    if (jaEstaNoRetrato(gesto, leitura)) continue
     if (gesto.tipo === 'caixa.abrir') {
-      const dados = gesto.payload as { valorAbertura: number; abertaEm: string }
-      sessao = { id, usuarioId: usuarioAtual(), versao: 0, valorAbertura: dados.valorAbertura,
-        valorFechamentoEsperado: dados.valorAbertura, valorFechamentoContado: null,
-        diferenca: null, abertaEm: dados.abertaEm, fechadaEm: null, status: 'ABERTA', movimentos: [] }
+      // A sessão que já veio do servidor foi aberta lá; reabri-la aqui apagaria os movimentos.
+      if (!sessao) {
+        const dados = gesto.payload as { valorAbertura: number; abertaEm: string }
+        sessao = { id, usuarioId: usuarioAtual(), versao: versaoDoResultado(gesto) ?? 0,
+          valorAbertura: dados.valorAbertura, valorFechamentoEsperado: dados.valorAbertura,
+          valorFechamentoContado: null, diferenca: null, abertaEm: dados.abertaEm, fechadaEm: null,
+          status: 'ABERTA', movimentos: [] }
+      }
+      continue
     }
     if (!sessao) continue
     if (gesto.tipo === 'caixa.sangrar' || gesto.tipo === 'caixa.suprir') {
@@ -126,7 +151,7 @@ function projetar(base: SessaoCaixa | undefined, gestos: GestoNaFila[], id: stri
       const esperado = centavosDoSaldo(sessao.valorFechamentoEsperado)
       const quantia = centavos(dados.valor, 'Valor do movimento')
       sessao = { ...sessao, movimentos: [...(sessao.movimentos ?? []), movimento],
-        versao: versaoLida(sessao) + 1,
+        versao: versaoDoResultado(gesto) ?? versaoLida(sessao) + 1,
         valorFechamentoEsperado: reais(esperado + (tipo === 'SUPRIMENTO' ? quantia : -quantia)) }
     }
     const venda = gesto.tipo === 'venda.concluir' ? vendas.get(gesto.registroId) : undefined
@@ -135,6 +160,7 @@ function projetar(base: SessaoCaixa | undefined, gestos: GestoNaFila[], id: stri
     if (venda && emDinheiro > 0) {
       const movimento: MovimentoCaixa = { id: gesto.operacaoId, tipo: 'VENDA', valor: reais(emDinheiro),
         motivo: null, vendaId: venda.id, recebimentoId: null, criadoEm: venda.concluidoEm ?? gesto.criadoEm }
+      // A Venda não devolve a revisão da sessão; o dispositivo conta a entrada do dinheiro.
       sessao = { ...sessao, movimentos: [...(sessao.movimentos ?? []), movimento],
         versao: versaoLida(sessao) + 1,
         valorFechamentoEsperado: reais(centavosDoSaldo(sessao.valorFechamentoEsperado) + emDinheiro) }
@@ -142,7 +168,7 @@ function projetar(base: SessaoCaixa | undefined, gestos: GestoNaFila[], id: stri
     if (gesto.tipo === 'caixa.fechar') {
       const dados = gesto.payload as { valorContado: number; fechadaEm: string }
       sessao = { ...sessao, status: 'FECHADA', fechadaEm: dados.fechadaEm,
-        versao: versaoLida(sessao) + 1,
+        versao: versaoDoResultado(gesto) ?? versaoLida(sessao) + 1,
         valorFechamentoContado: dados.valorContado,
         diferenca: reais(centavosDoSaldo(sessao.valorFechamentoEsperado)
           - centavos(dados.valorContado, 'Valor contado')) }
@@ -177,9 +203,8 @@ async function consultarLocalOuRemoto(remoto: CaixaRemoto, id: string): Promise<
   const gestos = gestosDaSessao(await listarGestos(), id)
   if (!navigator.onLine || pendente(gestos)) return local(id)
   try {
-    const sessao = await remoto.consultar(id)
-    await guardar([sessao])
-    return sessao
+    // Sem gesto pendente, o servidor já tem tudo desta sessão, e a resposta vale como está.
+    return await lerDoServidor(() => remoto.consultar(id), (sessao, ordem) => guardar([sessao], ordem))
   } catch (falha) {
     if (!(falha instanceof SemConexao)) throw falha
     return local(id)
@@ -193,8 +218,8 @@ export function criarCaixaLocal(remoto: CaixaRemoto = caixa): CaixaRemoto {
       if (semBanco()) return remoto.abertaDoOperadorAtual()
       if (navigator.onLine) {
         try {
-          const recebida = await remoto.abertaDoOperadorAtual()
-          if (recebida) await guardar([recebida])
+          const recebida = await lerDoServidor(() => remoto.abertaDoOperadorAtual(),
+            async (sessao, ordem) => { if (sessao) await guardar([sessao], ordem) })
           const gestos = await listarGestos()
           const sobreposta = (await locais()).find((sessao) => sessao.status === 'ABERTA'
             && pendente(gestosDaSessao(gestos, sessao.id)))
@@ -212,8 +237,8 @@ export function criarCaixaLocal(remoto: CaixaRemoto = caixa): CaixaRemoto {
       if (semBanco()) return remoto.historico(dia, operadorId)
       if (navigator.onLine) {
         try {
-          const recebidas = await remoto.historico(dia, operadorId)
-          await guardar(recebidas)
+          const recebidas = await lerDoServidor(() => remoto.historico(dia, operadorId),
+            (sessoes, ordem) => guardar(sessoes, ordem))
           const gestos = await listarGestos()
           const doUsuario = (await locais()).filter((sessao) => diaNoBalcao(sessao.abertaEm) === dia)
           const mescladas = new Map(recebidas.map((sessao) => [sessao.id, sessao]))

@@ -2,8 +2,9 @@ import type { Cliente, DadosDoCliente, DadosDoProduto, Produto } from '../api/ca
 import { SemConexao } from '../api/cliente'
 import { lerIdentidade } from '../sessao/armazenamento'
 import {
-  enfileirarGesto, gestoAplicavel, guardarRetrato, lerRetrato, listarGestos, ordenarPorDependencia,
-  type GestoNaFila, type ValorJson,
+  enfileirarGesto, gestoAplicavel, gestoPendente, guardarRetrato, guardarRetratos, jaEstaNoRetrato,
+  lerDoServidor, lerRetrato, listarGestos, ordenarPorDependencia, versaoDoResultado,
+  type GestoNaFila, type Retrato, type ValorJson,
 } from './fila'
 
 type Remoto = {
@@ -95,35 +96,55 @@ function ultimoGesto(gestos: GestoNaFila[], prefixo: string, id: string): GestoN
   return gestosAplicaveis(gestos, prefixo).filter((gesto) => gesto.registroId === id).at(-1)
 }
 
-function projetarProdutos(base: Produto[], gestos: GestoNaFila[]): Produto[] {
-  const itens = new Map(base.map((item) => [item.id, item]))
+/**
+ * O retrato mais os gestos que ele ainda não contém. O gesto cujo resultado chegou antes da
+ * leitura já está no retrato, e reaplicá-lo esconderia a alteração feita depois no servidor, como
+ * o preço trocado em outro aparelho. O confirmado depois da leitura entra com a revisão que o
+ * servidor devolveu.
+ */
+function projetarProdutos(retrato: Retrato<Produto[]> | null, gestos: GestoNaFila[]): Produto[] {
+  const itens = new Map((retrato?.dados ?? []).map((item) => [item.id, item]))
   for (const gesto of gestosAplicaveis(gestos, GESTOS_PRODUTO)) {
+    if (jaEstaNoRetrato(gesto, retrato)) continue
     const dados = gesto.payload as DadosDoProduto
-    if (gesto.tipo === 'produto.criar') itens.set(gesto.registroId, { id: gesto.registroId, versao: 0, ...dados })
+    if (gesto.tipo === 'produto.criar') {
+      itens.set(gesto.registroId, { id: gesto.registroId, versao: versaoDoResultado(gesto) ?? 0, ...dados })
+    }
     if (gesto.tipo === 'produto.editar') {
       const anterior = itens.get(gesto.registroId)
-      if (anterior) itens.set(gesto.registroId, { ...anterior, ...dados, tipo: anterior.tipo })
+      if (anterior) itens.set(gesto.registroId, { ...anterior, ...dados, tipo: anterior.tipo,
+        versao: versaoDoResultado(gesto) ?? anterior.versao })
     }
     if (gesto.tipo === 'produto.inativar') itens.delete(gesto.registroId)
   }
   return [...itens.values()]
 }
 
-function projetarClientes(ativos: Cliente[], inativos: Cliente[], gestos: GestoNaFila[]): ClienteLocal[] {
+/** As duas listas de clientes são lidas e gravadas juntas, com a mesma ordem da leitura. */
+function projetarClientes(ativos: Retrato<Cliente[]> | null, inativos: Retrato<Cliente[]> | null,
+  gestos: GestoNaFila[]): ClienteLocal[] {
   const itens = new Map<string, ClienteLocal>([
-    ...ativos.map((item) => [item.id, { ...item, ativo: true }] as const),
-    ...inativos.map((item) => [item.id, { ...item, ativo: false }] as const),
+    ...(ativos?.dados ?? []).map((item) => [item.id, { ...item, ativo: true }] as const),
+    ...(inativos?.dados ?? []).map((item) => [item.id, { ...item, ativo: false }] as const),
   ])
+  const leitura = ativos && inativos
+    ? { ordemDaLeitura: Math.min(ativos.ordemDaLeitura, inativos.ordemDaLeitura) }
+    : ativos ?? inativos
   for (const gesto of gestosAplicaveis(gestos, GESTOS_CLIENTE)) {
+    if (jaEstaNoRetrato(gesto, leitura)) continue
     const dados = gesto.payload as DadosDoCliente
-    if (gesto.tipo === 'cliente.criar') itens.set(gesto.registroId, { id: gesto.registroId, versao: 0, ...dados, ativo: true })
+    if (gesto.tipo === 'cliente.criar') {
+      itens.set(gesto.registroId, { id: gesto.registroId, versao: versaoDoResultado(gesto) ?? 0, ...dados,
+        ativo: true })
+    }
+    const anterior = itens.get(gesto.registroId)
+    if (!anterior) continue
     if (gesto.tipo === 'cliente.editar') {
-      const anterior = itens.get(gesto.registroId)
-      if (anterior) itens.set(gesto.registroId, { ...anterior, ...dados })
+      itens.set(gesto.registroId, { ...anterior, ...dados, versao: versaoDoResultado(gesto) ?? anterior.versao })
     }
     if (gesto.tipo === 'cliente.inativar' || gesto.tipo === 'cliente.reativar') {
-      const anterior = itens.get(gesto.registroId)
-      if (anterior) itens.set(gesto.registroId, { ...anterior, ativo: gesto.tipo === 'cliente.reativar' })
+      itens.set(gesto.registroId, { ...anterior, ativo: gesto.tipo === 'cliente.reativar',
+        versao: versaoDoResultado(gesto) ?? anterior.versao })
     }
   }
   return [...itens.values()]
@@ -134,7 +155,7 @@ async function locaisProdutos(): Promise<Produto[]> {
   if (!retrato && !gestos.some((gesto) => gesto.tipo === 'produto.criar')) {
     throw new Error('O catálogo ainda não foi carregado neste dispositivo. Entre online para prepará-lo.')
   }
-  return projetarProdutos(retrato ?? [], gestos)
+  return projetarProdutos(retrato, gestos)
 }
 
 async function locaisClientes(): Promise<ClienteLocal[]> {
@@ -144,12 +165,12 @@ async function locaisClientes(): Promise<ClienteLocal[]> {
   if (!ativos && !inativos && !gestos.some((gesto) => gesto.tipo === 'cliente.criar')) {
     throw new Error('O cadastro de clientes ainda não foi carregado neste dispositivo. Entre online para prepará-lo.')
   }
-  return projetarClientes(ativos ?? [], inativos ?? [], gestos)
+  return projetarClientes(ativos, inativos, gestos)
 }
 
 async function dependencias(prefixo: string, id: string): Promise<{ dependeDe: string[]; pendente: boolean }> {
   const ultimo = ultimoGesto(await listarGestos(), prefixo, id)
-  return { dependeDe: ultimo ? [ultimo.operacaoId] : [], pendente: !!ultimo && ultimo.estado !== 'sent' }
+  return { dependeDe: ultimo ? [ultimo.operacaoId] : [], pendente: !!ultimo && gestoPendente(ultimo) }
 }
 
 async function enfileirar(tipo: string, id: string, dados: unknown, dependeDe: string[] = [], versaoBase?: number): Promise<void> {
@@ -158,14 +179,28 @@ async function enfileirar(tipo: string, id: string, dados: unknown, dependeDe: s
 
 /** A lista da API é a base local; gestos da sessão são reaplicados sem copiar o catálogo de novo. */
 export function criarCadastroLocal<T extends Remoto>(remoto: T): T {
+  let leituraDosClientes: Promise<unknown> | null = null
+
+  // As duas listas vêm juntas para o retrato ter uma ordem só, e a tela que pede as duas ao mesmo
+  // tempo aproveita o mesmo pedido.
+  function lerClientesDoServidor(): Promise<unknown> {
+    leituraDosClientes ??= lerDoServidor(
+      () => Promise.all([remoto.clientes(), remoto.clientesInativos()]),
+      ([ativos, inativos], ordem) => guardarRetratos([
+        { tipo: 'clientesAtivos', dados: ativos }, { tipo: 'clientesInativos', dados: inativos },
+      ], ordem),
+    ).finally(() => { leituraDosClientes = null })
+    return leituraDosClientes
+  }
+
   return {
     ...remoto,
     async produtos() {
       if (!('indexedDB' in globalThis)) return remoto.produtos()
       if (navigator.onLine) {
         try {
-          const recebidos = await remoto.produtos()
-          await guardarRetrato('produtos', recebidos)
+          await lerDoServidor(() => remoto.produtos(),
+            (recebidos, ordem) => guardarRetrato('produtos', recebidos, ordem))
         } catch (falha) {
           if (!(falha instanceof SemConexao)) throw falha
         }
@@ -177,7 +212,7 @@ export function criarCadastroLocal<T extends Remoto>(remoto: T): T {
       // Com item guardado só no dispositivo, a busca da API não o acharia e o preço dela ignoraria
       // a edição que ainda não chegou ao servidor.
       const produtoPendente = (await listarGestos()).some((gesto) =>
-        gesto.tipo.startsWith(GESTOS_PRODUTO) && gesto.estado !== 'sent')
+        gesto.tipo.startsWith(GESTOS_PRODUTO) && gestoPendente(gesto))
       if (navigator.onLine && !produtoPendente) {
         try {
           return await remoto.buscarProdutos(termo)
@@ -191,7 +226,7 @@ export function criarCadastroLocal<T extends Remoto>(remoto: T): T {
       if (!('indexedDB' in globalThis)) return remoto.clientes()
       if (navigator.onLine) {
         try {
-          await guardarRetrato('clientesAtivos', await remoto.clientes())
+          await lerClientesDoServidor()
         } catch (falha) {
           if (!(falha instanceof SemConexao)) throw falha
         }
@@ -202,7 +237,7 @@ export function criarCadastroLocal<T extends Remoto>(remoto: T): T {
       if (!('indexedDB' in globalThis)) return remoto.clientesInativos()
       if (navigator.onLine) {
         try {
-          await guardarRetrato('clientesInativos', await remoto.clientesInativos())
+          await lerClientesDoServidor()
         } catch (falha) {
           if (!(falha instanceof SemConexao)) throw falha
         }

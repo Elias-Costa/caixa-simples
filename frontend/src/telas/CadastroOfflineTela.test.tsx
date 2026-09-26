@@ -23,8 +23,8 @@ beforeEach(async () => {
   gravarToken(tokenComExpiracao(new Date(Date.now() + 60 * 60 * 1000)))
   gravarIdentidade(identidade)
   vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
-  await guardarRetrato('clientesAtivos', [])
-  await guardarRetrato('clientesInativos', [])
+  await guardarRetrato('clientesAtivos', [], 0)
+  await guardarRetrato('clientesInativos', [], 0)
 })
 afterEach(() => vi.restoreAllMocks())
 
@@ -53,7 +53,7 @@ describe('telas de cadastro sem rede', () => {
     }
     render(<SessaoProvider><Entrada /></SessaoProvider>)
     fireEvent.click(screen.getByRole('button', { name: 'Entrar' }))
-    await waitFor(async () => expect(await lerRetrato<unknown[]>('produtos')).toHaveLength(1))
+    await waitFor(async () => expect((await lerRetrato<unknown[]>('produtos'))?.dados).toHaveLength(1))
     expect(await listarGestos()).toEqual([])
     vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
     expect((await cadastro.produtos()).map((item) => item.nome)).toEqual(['Café expresso'])
@@ -64,7 +64,7 @@ describe('telas de cadastro sem rede', () => {
       id: '00000000-0000-4000-8000-000000000001', versao: 2, tipo: 'PRODUTO',
       nome: 'Café expresso', preco: 0, codigo: null, categoria: 'Bebidas',
       unidade: 'un', atributos: {},
-    }])
+    }], 0)
     const sessao = { identidade, entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn() }
     const tela = render(<SessaoContext.Provider value={sessao}><TelaDeProdutos /></SessaoContext.Provider>)
     expect(await screen.findByText('Café expresso')).toBeInTheDocument()

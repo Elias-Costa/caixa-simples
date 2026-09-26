@@ -3,11 +3,13 @@ import { deleteDB } from 'idb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { caixa, type SessaoCaixa } from '../api/caixa'
 import { SemConexao } from '../api/cliente'
+import type { OperacaoDoLote } from '../api/sincronizacao'
 import { hojeNoBalcao } from '../dataDoBalcao'
 import { gravarIdentidade, gravarToken } from '../sessao/armazenamento'
 import type { Identidade } from '../sessao/Identidade'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
 import { criarCaixaLocal } from './caixaLocal'
+import { enviarFila } from './envio'
 import { listarGestos } from './fila'
 import { criarVendaLocal } from './vendaLocal'
 
@@ -23,6 +25,25 @@ function entrar(identidade: Identidade) {
 
 function rede(online: boolean) {
   vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(online)
+}
+
+/** O servidor confirma cada operação do lote, com a revisão dada. */
+function aplicadas(versao: number) {
+  return async (operacoes: OperacaoDoLote[]) => operacoes.map((operacao) => ({
+    operacaoId: operacao.operacaoId, resultado: 'APLICADA' as const, versao }))
+}
+
+/** A mesma sessão no servidor antes e depois de uma sangria de 5,00 enviada pelo dispositivo. */
+function sessoesDoServidor(): { antes: SessaoCaixa; depois: SessaoCaixa } {
+  const agora = new Date().toISOString()
+  const antes: SessaoCaixa = {
+    id: crypto.randomUUID(), usuarioId: ana.usuarioId, versao: 0, valorAbertura: 20,
+    valorFechamentoEsperado: 20, valorFechamentoContado: null, diferenca: null, abertaEm: agora,
+    fechadaEm: null, status: 'ABERTA', movimentos: [],
+  }
+  return { antes, depois: { ...antes, versao: 1, valorFechamentoEsperado: 15, movimentos: [{
+    id: crypto.randomUUID(), tipo: 'SANGRIA', valor: 5, motivo: 'Retirada', vendaId: null,
+    recebimentoId: null, criadoEm: agora }] } }
 }
 
 beforeEach(async () => { await deleteDB('caixa-simples-offline') })
@@ -218,5 +239,51 @@ describe('SessaoCaixa local', () => {
       versao: 6,
     })
     expect(remoto.consultar).toHaveBeenCalledTimes(1)
+  })
+
+  it('não dobra no esperado a sangria enviada quando o retrato do servidor já a contém', async () => {
+    entrar(ana)
+    rede(true)
+    const { antes, depois } = sessoesDoServidor()
+    const remoto = { ...caixa, consultar: vi.fn(async () => antes) }
+    const local = criarCaixaLocal(remoto)
+    await local.consultar(antes.id)
+
+    rede(false)
+    await local.sangrar(antes.id, 5, 'Retirada')
+    expect(await enviarFila(aplicadas(1))).toMatchObject({ resolvidos: 1 })
+    // Confirmada, mas o retrato guardado é de antes dela: continua somada, com a revisão do servidor.
+    expect(await local.consultar(antes.id)).toMatchObject({ valorFechamentoEsperado: 15, versao: 1,
+      pendenteSincronizacao: false })
+
+    rede(true)
+    remoto.consultar.mockResolvedValue(depois)
+    expect(await local.consultar(antes.id)).toMatchObject({ valorFechamentoEsperado: 15 })
+    rede(false)
+    expect(await criarCaixaLocal(remoto).consultar(antes.id)).toMatchObject({
+      valorFechamentoEsperado: 15, versao: 1, movimentos: [{ tipo: 'SANGRIA', valor: 5 }],
+    })
+  })
+
+  it('não guarda a leitura feita com a sangria incerta, e a conta segue certa depois do reenvio', async () => {
+    entrar(ana)
+    rede(true)
+    const { antes, depois } = sessoesDoServidor()
+    const remoto = { ...caixa, consultar: vi.fn(async () => antes), historico: vi.fn(async () => [depois]) }
+    const local = criarCaixaLocal(remoto)
+    await local.consultar(antes.id)
+
+    rede(false)
+    await local.sangrar(antes.id, 5, 'Retirada')
+    // A resposta se perde: o servidor pode ter aplicado a sangria, e o histórico já a mostra.
+    await enviarFila(async () => { throw new SemConexao() })
+    rede(true)
+    await local.historico(hojeNoBalcao())
+    await enviarFila(aplicadas(1))
+
+    rede(false)
+    expect(await criarCaixaLocal(remoto).consultar(antes.id)).toMatchObject({
+      valorFechamentoEsperado: 15, versao: 1, movimentos: [{ tipo: 'SANGRIA', valor: 5 }],
+    })
   })
 })

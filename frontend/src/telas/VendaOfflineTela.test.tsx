@@ -31,9 +31,9 @@ beforeEach(async () => {
   gravarIdentidade(identidade)
   vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
   vi.stubGlobal('fetch', buscar)
-  await guardarRetrato('produtos', [cafe])
-  await guardarRetrato('clientesAtivos', [])
-  await guardarRetrato('clientesInativos', [])
+  await guardarRetrato('produtos', [cafe], 0)
+  await guardarRetrato('clientesAtivos', [], 0)
+  await guardarRetrato('clientesInativos', [], 0)
 })
 afterEach(() => {
   vi.restoreAllMocks()

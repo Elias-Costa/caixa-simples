@@ -9,6 +9,7 @@ import type { Comprovante, ConciliacaoPix, FormaPagamento, ResumoDaVenda, Venda 
 import { criarCaixaLocal } from '../offline/caixaLocal'
 import { criarVendaLocal } from '../offline/vendaLocal'
 import { useContextoDoShell } from '../shell/ContextoDoShell'
+import { useSincronizacao } from '../shell/sincronizacao'
 import { useOnline } from '../shell/useOnline'
 import { useSessao } from '../sessao/useSessao'
 import { erroDeCadastro } from './erroDeCadastro'
@@ -66,6 +67,7 @@ function textoDoComprovante(comprovante: Comprovante, negocio: string, operador:
 export function TelaDeVenda() {
   const { identidade } = useSessao()
   const { definirFaixa } = useContextoDoShell()
+  const { rodada } = useSincronizacao()
   const buscaRef = useRef<HTMLInputElement>(null)
   const [sessao, setSessao] = useState<SessaoCaixa>()
   const [historico, setHistorico] = useState<ResumoDaVenda[]>([])
@@ -94,6 +96,8 @@ export function TelaDeVenda() {
   const pixPermitido = online && !doDispositivo
   const formaEscolhida: FormaPagamento = forma === 'PIX' && !pixPermitido ? 'DINHEIRO' : forma
 
+  // Relê também quando uma rodada de envio grava resultado: a Venda feita sem rede deixa de estar
+  // pendente, e a lista precisa mostrar isso.
   useEffect(() => {
     let vivo = true
     caixa.abertaDoOperadorAtual().then(async (aberta) => {
@@ -103,7 +107,19 @@ export function TelaDeVenda() {
     }).catch((falha) => { if (vivo) setErro(erroDeCadastro(falha)) })
       .finally(() => { if (vivo) setCarregando(false) })
     return () => { vivo = false }
-  }, [])
+  }, [rodada])
+
+  const vendaDoDispositivo = useRef<string | undefined>(undefined)
+  useEffect(() => { vendaDoDispositivo.current = atual?.pendenteSincronizacao ? atual.id : undefined }, [atual])
+  useEffect(() => {
+    const id = vendaDoDispositivo.current
+    if (rodada === 0 || !id) return
+    let vivo = true
+    vendas.consultar(id).then((venda) => {
+      if (vivo) setAtual((anterior) => anterior?.id === id ? venda : anterior)
+    }).catch(() => { /* a Venda continua como estava; a próxima ação a relê */ })
+    return () => { vivo = false }
+  }, [rodada])
 
   useEffect(() => {
     let vivo = true

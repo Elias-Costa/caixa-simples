@@ -3,11 +3,13 @@ import { deleteDB } from 'idb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Cliente, DadosDoCliente, DadosDoProduto, Produto } from '../api/cadastro'
 import { SemConexao } from '../api/cliente'
+import type { OperacaoDoLote } from '../api/sincronizacao'
 import { gravarIdentidade, gravarToken } from '../sessao/armazenamento'
 import type { Identidade } from '../sessao/Identidade'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
 import { criarCadastroLocal } from './cadastroLocal'
-import { guardarRetrato, listarGestos } from './fila'
+import { enviarFila } from './envio'
+import { guardarRetrato, lerRetrato, listarGestos } from './fila'
 
 const ana: Identidade = {
   contaId: 'conta-a', usuarioId: 'ana', nome: 'Ana', nomeNegocio: 'Cafeteria Aurora',
@@ -102,17 +104,17 @@ describe('cadastro local', () => {
     rede(false)
     const cadastro = criarCadastroLocal(remoto())
     entrar(ana)
-    await guardarRetrato('produtos', [])
-    await guardarRetrato('clientesAtivos', [])
-    await guardarRetrato('clientesInativos', [])
+    await guardarRetrato('produtos', [], 0)
+    await guardarRetrato('clientesAtivos', [], 0)
+    await guardarRetrato('clientesInativos', [], 0)
     const a = await cadastro.criarProduto({ tipo: 'PRODUTO', nome: 'Café', preco: 5,
       codigo: null, categoria: null, unidade: null, atributos: {} })
     await cadastro.criarCliente({ nome: 'Maria', contato: null })
 
     entrar({ ...ana, contaId: 'conta-b', nomeNegocio: 'Loja da Esquina' })
-    await guardarRetrato('produtos', [])
-    await guardarRetrato('clientesAtivos', [])
-    await guardarRetrato('clientesInativos', [])
+    await guardarRetrato('produtos', [], 0)
+    await guardarRetrato('clientesAtivos', [], 0)
+    await guardarRetrato('clientesInativos', [], 0)
     expect(await cadastro.produtos()).toEqual([])
     expect(await cadastro.clientes()).toEqual([])
     const b = await cadastro.criarProduto({ tipo: 'PRODUTO', nome: 'Café', preco: 9,
@@ -160,5 +162,41 @@ describe('cadastro local', () => {
     servidor.buscarProdutos.mockClear()
     expect((await cadastro.buscarProdutos('café')).map((produto) => produto.id)).toEqual([novo.id, expresso.id])
     expect(servidor.buscarProdutos).not.toHaveBeenCalled()
+  })
+
+  it('a edição enviada não esconde o preço trocado depois no servidor', async () => {
+    entrar(ana)
+    rede(true)
+    const servidor = remoto([sugerido])
+    const cadastro = criarCadastroLocal(servidor)
+    await cadastro.produtos()
+
+    rede(false)
+    await cadastro.editarProduto(sugerido.id, { ...sugerido, preco: 8 })
+    await enviarFila(async (operacoes: OperacaoDoLote[]) => operacoes.map((operacao) => ({
+      operacaoId: operacao.operacaoId, resultado: 'APLICADA' as const, versao: 5 })))
+    // Sem leitura nova, a edição confirmada continua valendo, com a revisão do servidor.
+    expect((await cadastro.produtos())[0]).toMatchObject({ preco: 8, versao: 5 })
+
+    // Outro aparelho trocou o preço depois, e a leitura nova já contém a edição deste.
+    rede(true)
+    servidor.produtos.mockResolvedValue([{ ...sugerido, preco: 9, versao: 6 }])
+    expect((await cadastro.produtos())[0]).toMatchObject({ preco: 9, versao: 6 })
+    rede(false)
+    expect((await cadastro.produtos())[0]).toMatchObject({ preco: 9, versao: 6 })
+  })
+
+  it('lê as duas listas de clientes juntas, num pedido só para a tela que pede as duas', async () => {
+    entrar(ana)
+    rede(true)
+    const servidor = remoto([], [{ id: '00000000-0000-4000-8000-000000000002', versao: 1,
+      nome: 'Dona Marta', contato: null }])
+    const cadastro = criarCadastroLocal(servidor)
+    const [ativos, inativos] = await Promise.all([cadastro.clientes(), cadastro.clientesInativos()])
+    expect(ativos.map((cliente) => cliente.nome)).toEqual(['Dona Marta'])
+    expect(inativos).toEqual([])
+    expect(servidor.clientes).toHaveBeenCalledTimes(1)
+    expect(servidor.clientesInativos).toHaveBeenCalledTimes(1)
+    expect(await lerRetrato('clientesInativos')).toEqual({ dados: [], ordemDaLeitura: 0 })
   })
 })

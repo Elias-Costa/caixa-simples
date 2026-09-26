@@ -5,7 +5,8 @@ import { lerIdentidade } from '../sessao/armazenamento'
 import { criarCaixaLocal, sessaoTemPendencia, ultimoGestoDaGaveta } from './caixaLocal'
 import { reais } from './dinheiro'
 import {
-  enfileirarGesto, gestoAplicavel, listarGestos, ordenarPorDependencia, type GestoNaFila, type ValorJson,
+  enfileirarGesto, gestoAplicavel, gestoPendente, listarGestos, ordenarPorDependencia, type GestoNaFila,
+  type ValorJson,
 } from './fila'
 import * as raiz from './raizDaVenda'
 
@@ -56,7 +57,7 @@ async function enfileirar(tipo: string, id: string, dados: object, dependeDe: st
 }
 
 /**
- * Onde uma Venda existente continua. A que nasceu neste dispositivo e ainda tem gesto por enviar
+ * Onde uma Venda existente continua. A que nasceu neste dispositivo e ainda tem gesto sem resultado
  * continua aqui, com ou sem rede, porque o servidor ainda não sabe tudo o que aconteceu com ela.
  * Qualquer outra é do servidor e só continua com rede: a comanda aberta com conexão não é copiada
  * para o dispositivo quando a rede cai. A leitura sem rede de uma Venda nascida aqui usa os gestos
@@ -67,7 +68,7 @@ async function localizar(id: string, leitura: boolean): Promise<NoDispositivo | 
   const gestos = await listarGestos()
   const daVenda = gestos.filter((gesto) => gesto.tipo.startsWith('venda.') && gesto.registroId === id)
   const nasceuAqui = daVenda.some((gesto) => gesto.tipo === 'venda.iniciar')
-  const pendente = daVenda.some((gesto) => gesto.estado !== 'sent')
+  const pendente = daVenda.some(gestoPendente)
   if (nasceuAqui && (pendente || (leitura && !navigator.onLine))) {
     const venda = raiz.projetarVendas(gestos, usuarioAtual()).get(id)
     if (venda) return { gestos, venda, pendente }
@@ -110,8 +111,11 @@ function paraTela(venda: raiz.VendaNoDispositivo, pendente: boolean): Venda {
   }
 }
 
-/** Com o nome e o preço vistos no balcão e a marca de que o servidor ainda não recebeu a Venda. */
-function comprovanteDoDispositivo(venda: raiz.VendaNoDispositivo): Comprovante {
+/**
+ * Com o nome e o preço vistos no balcão. A marca de pendência fica enquanto algum gesto da Venda
+ * não teve resultado; depois disso o comprovante lido sem rede é o mesmo que o servidor emitiria.
+ */
+function comprovanteDoDispositivo(venda: raiz.VendaNoDispositivo, pendente: boolean): Comprovante {
   if (venda.status !== 'CONCLUIDA' || !venda.concluidoEm) {
     throw new Error('Só Venda concluída tem comprovante.')
   }
@@ -134,7 +138,7 @@ function comprovanteDoDispositivo(venda: raiz.VendaNoDispositivo): Comprovante {
     troco: reais(venda.parcelas.reduce((soma, parcela) => soma + parcela.trocoCentavos, 0)),
     valorFiado: reais(fiado),
     saldoDevedor: reais(fiado),
-    pendenteSincronizacao: true,
+    pendenteSincronizacao: pendente,
   }
 }
 
@@ -169,7 +173,7 @@ export function criarVendaLocal(remoto: VendasDaApi = vendas, caixa: CaixaDoDisp
       const doDispositivo = [...raiz.projetarVendas(gestos, usuarioAtual()).values()]
         .filter((venda) => venda.sessaoCaixaId === sessaoCaixaId)
         .map((venda) => resumo(venda, gestos.some((gesto) =>
-          gesto.tipo.startsWith('venda.') && gesto.registroId === venda.id && gesto.estado !== 'sent')))
+          gesto.tipo.startsWith('venda.') && gesto.registroId === venda.id && gestoPendente(gesto))))
       let doServidor: ResumoDaVenda[] = []
       if (navigator.onLine) {
         try {
@@ -291,7 +295,7 @@ export function criarVendaLocal(remoto: VendasDaApi = vendas, caixa: CaixaDoDisp
     async comprovante(id) {
       const alvo = await localizar(id, true)
       if (alvo === 'servidor') return remoto.comprovante(id)
-      return comprovanteDoDispositivo(alvo.venda)
+      return comprovanteDoDispositivo(alvo.venda, alvo.pendente)
     },
     async receber(id, valor, forma) { return remoto.receber(id, valor, forma) },
     async comprovanteDeRecebimento(id, recebimentoId) {
