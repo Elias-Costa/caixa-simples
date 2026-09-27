@@ -3,6 +3,11 @@
 Tudo o que põe o sistema no ar e o mantém de pé: a imagem, o CI, o Blueprint do Render, a cópia
 diária cifrada, a restauração, a carga de correção e o ensaio local de tudo isso.
 
+O Render, nos Estados Unidos, foi a primeira escolha de hospedagem e vai dar lugar a um fornecedor
+no Brasil, porque nenhum dado pessoal sai do país, nem na cópia cifrada. O que depende do Render (o
+Blueprint, os proxies confiáveis e o destino da cópia) será refeito para ele; a imagem, a cifra da
+cópia, a restauração e a carga continuam valendo.
+
 | Arquivo | O que é |
 |---|---|
 | [`Dockerfile`](../Dockerfile) | Imagem do jar único, com a API e o aplicativo na mesma origem |

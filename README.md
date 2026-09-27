@@ -251,9 +251,10 @@ meio de uma venda custaria a venda.
 **Implantação.** A imagem, o CI, o Blueprint do Render, a cópia diária cifrada e a restauração
 existem e foram ensaiados na máquina local, com a imagem nos limites do menor plano, meia CPU e
 512 MB: a carga de correção passa em três Contas em paralelo, e a cópia restaurada num PostgreSQL
-vazio confere com a origem. O primeiro deploy público ainda não foi feito, e o que só ele confirma,
-a cadeia real de proxies e o limite de memória que a JVM enxerga, está listado junto do passo a
-passo, em [operacao/README.md](operacao/README.md).
+vazio confere com a origem. A hospedagem do Blueprint, nos Estados Unidos, vai dar lugar a um
+fornecedor no Brasil, porque nenhum dado pessoal sai do país. O primeiro deploy público ainda não
+foi feito, e o que só ele confirma, a cadeia real de proxies e o limite de memória que a JVM
+enxerga, está listado junto do passo a passo, em [operacao/README.md](operacao/README.md).
 
 ## Por onde começar a leitura
 
@@ -798,6 +799,11 @@ tempo, cem Vendas com rede e um lote de gestos sem rede enviado duas vezes, conf
 lista de Vendas, o relatório do dia e o fechamento do caixa, que tem de dar diferença zero.
 
 ## Implantação
+
+Nenhum dado pessoal sai do Brasil: o banco, a aplicação e a cópia diária, mesmo cifrada, ficam em
+fornecedor no país. O Blueprint do Render descrito abaixo é da primeira escolha de hospedagem, nos
+Estados Unidos, e vai ser substituído quando o fornecedor no Brasil for escolhido; a imagem, o CI, a
+cifra da cópia e a restauração continuam os mesmos.
 
 O artefato é um só: o jar com a API e o aplicativo na mesma origem, numa imagem Docker que roda
 sem root. O Render constrói a imagem a partir de um Blueprint versionado, que declara o serviço
