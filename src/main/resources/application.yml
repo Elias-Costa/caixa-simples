@@ -30,6 +30,13 @@ spring:
   jackson:
     default-property-inclusion: non_null
 
+  # O starter do Spring Modulith traz os eventos de passagem do tempo (hora, dia, semana), que
+  # nenhum módulo ouve. Ligados, eles agendam uma tarefa por hora num executor próprio, que não
+  # deixa terminar a execução avulsa que cria uma Conta sem servidor web.
+  modulith:
+    moments:
+      enabled: false
+
 caixa-simples:
   jwt:
     # Sem valor padrão: uma chave fixa no código seria compartilhada por todas as instalações.
@@ -45,6 +52,36 @@ server:
   error:
     include-message: never
     include-stacktrace: never
+  # Em produção a aplicação fica atrás de proxies que terminam o HTTPS e falam com ela por HTTP
+  # numa rede interna. Sem ler os cabeçalhos deles, toda requisição pareceria vir do último proxy
+  # e por HTTP: o IP de origem seria sempre o mesmo e o HSTS nunca seria enviado.
+  forward-headers-strategy: native
+  tomcat:
+    remoteip:
+      # O X-Forwarded-For é lido da direita para a esquerda, que é a ordem em que cada proxy
+      # acrescenta quem se conectou a ele. Salto da rede interna (a lista padrão do Spring Boot,
+      # com as faixas privadas e de loopback) ou desta lista é descartado, e o primeiro endereço
+      # fora das duas é a origem. O que o cliente escreve à esquerda nunca chega a ser lido, e um
+      # salto desconhecido vira a origem em vez de ser atravessado.
+      # O padrão são as faixas publicadas da Cloudflare, a borda da hospedagem, em
+      # cloudflare.com/ips. A variável troca a lista inteira, sem novo build, se a borda mudar.
+      trusted-proxies: ${CAIXA_SIMPLES_PROXIES_CONFIAVEIS:173.245.48.0/20, 103.21.244.0/22, 103.22.200.0/22, 103.31.4.0/22, 141.101.64.0/18, 108.162.192.0/18, 190.93.240.0/20, 188.114.96.0/20, 197.234.240.0/22, 198.41.128.0/17, 162.158.0.0/15, 104.16.0.0/13, 104.24.0.0/14, 172.64.0.0/13, 131.0.72.0/22, 2400:cb00::/32, 2606:4700::/32, 2803:f800::/32, 2405:b500::/32, 2405:8100::/32, 2a06:98c0::/29, 2c0f:f248::/32}
+
+management:
+  # Só o health sai por HTTP, e a lista é explícita para que nenhum outro endpoint do Actuator
+  # passe a ser exposto por mudança de padrão numa atualização: env, configprops e afins mostram
+  # configuração e estado interno, e nenhum deles tem uso aqui.
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      # Liga /actuator/health/liveness, que diz se o processo está de pé sem consultar o banco. É o
+      # que a hospedagem lê para decidir se reinicia a instância: se lesse o health completo, uma
+      # queda do banco faria reiniciar em laço uma aplicação sem defeito, sem trazer o banco de volta.
+      probes:
+        enabled: true
 
 logging:
   level:

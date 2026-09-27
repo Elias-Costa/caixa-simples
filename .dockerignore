@@ -1,0 +1,13 @@
+# Lista de permissão: o build da imagem enxerga só o que compila o jar. Tudo o mais fica de fora
+# sem precisar ser nomeado, inclusive o que ainda vai existir.
+*
+!mvnw
+!.mvn/
+!pom.xml
+!src/main/
+!frontend/
+
+# Gerados pelo empacotamento local; o build da imagem refaz os três.
+frontend/node/
+frontend/node_modules/
+frontend/dist/

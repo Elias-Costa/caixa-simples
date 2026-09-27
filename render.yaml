@@ -1,0 +1,95 @@
+# Blueprint do Render: o serviço web, o banco e o job da cópia diária, com tudo o que não é segredo.
+# Segredo aparece só pelo nome, com sync: false, e é preenchido no painel quando o Blueprint é
+# aplicado pela primeira vez. O passo a passo está em operacao/README.md.
+
+services:
+  - type: web
+    name: caixa-simples
+    runtime: docker
+    plan: starter
+    region: virginia
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    # Só o commit em que o CI passou vira deploy. Todo push no main publica, então commit com
+    # migration só é enviado dentro da janela de manutenção.
+    autoDeployTrigger: checksPass
+    # Sem o banco: a instância só responde depois das migrations, e com o banco fora do ar uma
+    # sonda que o consultasse faria reiniciar em laço uma aplicação sem defeito.
+    healthCheckPath: /actuator/health/liveness
+    buildFilter:
+      ignoredPaths:
+        - README.md
+        - operacao/**
+    envVars:
+      - key: CAIXA_SIMPLES_PORT
+        value: "10000"
+      # O Blueprint não monta a URL JDBC a partir das partes do banco. O valor é
+      # jdbc:postgresql://<host interno>:5432/caixa_simples, com o host da página do banco.
+      - key: CAIXA_SIMPLES_DB_URL
+        sync: false
+      - key: CAIXA_SIMPLES_DB_USER
+        fromDatabase:
+          name: caixa-simples-banco
+          property: user
+      - key: CAIXA_SIMPLES_DB_PASSWORD
+        fromDatabase:
+          name: caixa-simples-banco
+          property: password
+      # Gerada pelo Render na criação: 256 bits aleatórios em base64, acima dos 32 bytes que a
+      # assinatura dos tokens exige, sem passar por ninguém.
+      - key: CAIXA_SIMPLES_JWT_SECRET
+        generateValue: true
+      # As credenciais Pix de cada Conta recebedora entram à mão no painel, com o prefixo
+      # CAIXA_SIMPLES_EFI_ e o certificado como arquivo secreto; ver operacao/README.md.
+
+  - type: cron
+    name: caixa-simples-copia
+    runtime: docker
+    plan: starter
+    region: virginia
+    branch: main
+    dockerfilePath: ./operacao/copia/Dockerfile
+    dockerContext: ./operacao/copia
+    autoDeployTrigger: checksPass
+    buildFilter:
+      paths:
+        - operacao/copia/**
+    # 6h UTC são 3h no fuso America/Bahia, dentro da janela de manutenção, sem uso esperado.
+    schedule: "0 6 * * *"
+    envVars:
+      - key: CAIXA_SIMPLES_COPIA_BANCO
+        fromDatabase:
+          name: caixa-simples-banco
+          property: connectionString
+      # A chave pública do age. A privada nunca entra aqui: sem ela o job cifra, mas não decifra.
+      - key: CAIXA_SIMPLES_COPIA_CHAVE_PUBLICA
+        sync: false
+      # Destino no formato do rclone, como r2:nome-do-bucket.
+      - key: CAIXA_SIMPLES_COPIA_DESTINO
+        sync: false
+      - key: RCLONE_CONFIG_R2_TYPE
+        value: s3
+      - key: RCLONE_CONFIG_R2_PROVIDER
+        value: Cloudflare
+      # O token de gravação vale só para o bucket, sem permissão de criá-lo; sem esta opção o
+      # rclone tenta conferir o bucket e recebe acesso negado.
+      - key: RCLONE_CONFIG_R2_NO_CHECK_BUCKET
+        value: "true"
+      - key: RCLONE_CONFIG_R2_ENDPOINT
+        sync: false
+      - key: RCLONE_CONFIG_R2_ACCESS_KEY_ID
+        sync: false
+      - key: RCLONE_CONFIG_R2_SECRET_ACCESS_KEY
+        sync: false
+
+databases:
+  - name: caixa-simples-banco
+    databaseName: caixa_simples
+    user: caixa_simples
+    plan: basic-256mb
+    region: virginia
+    postgresMajorVersion: "17"
+    diskSizeGB: 1
+    # Lista vazia: nenhuma conexão de fora do Render. O serviço e o job usam a rede interna.
+    ipAllowList: []

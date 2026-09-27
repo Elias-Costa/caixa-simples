@@ -1,2 +1,7 @@
 /mvnw text eol=lf
 *.cmd text eol=crlf
+# Lidos dentro de contêiner Linux: com CRLF, o sh e o psql tomariam o retorno de carro como parte do
+# comando.
+*.sh text eol=lf
+Dockerfile text eol=lf
+operacao/** text eol=lf

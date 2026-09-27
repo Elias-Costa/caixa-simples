@@ -1,5 +1,6 @@
 package br.com.caixasimples.contas.internal;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -23,7 +24,13 @@ import org.springframework.security.web.authentication.www.BasicAuthenticationFi
 @Configuration(proxyBeanMethods = false)
 class SecurityConfiguration {
 
+    /**
+     * Só existe com servidor web. A execução avulsa que cria uma Conta sobe a aplicação sem ele,
+     * para terminar sozinha quando a Conta estiver criada, e sem servidor não há requisição para
+     * filtrar nem o construtor da cadeia.
+     */
     @Bean
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
     SecurityFilterChain filterChain(HttpSecurity http, IdentidadeDoTokenFilter identidadeDoToken,
             RenovacaoDeTokenFilter renovacaoDeToken) throws Exception {
 
