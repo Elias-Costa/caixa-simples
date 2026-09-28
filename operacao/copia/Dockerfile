@@ -1,5 +1,5 @@
-# Imagem do job da cópia diária e da restauração: o cliente do PostgreSQL na mesma versão maior do
-# servidor, o age para cifrar e o rclone para enviar e buscar.
+# Imagem do job da cópia de hora em hora e da restauração: o cliente do PostgreSQL na mesma versão
+# maior do servidor, o age para cifrar e o rclone para enviar e buscar.
 FROM postgres:17-alpine
 
 RUN apk add --no-cache age rclone
@@ -9,7 +9,7 @@ RUN apk add --no-cache age rclone
 # falta.
 ENV RCLONE_CONFIG=""
 
-COPY copia-diaria.sh restaurar.sh conferencia.sql /copia/
+COPY copia.sh restaurar.sh conferencia.sql /copia/
 
 # Ponto de montagem para quando o destino é uma pasta, como no ensaio local; na hospedagem o
 # destino é o armazenamento externo, e ela fica vazia. É do usuário do job porque um volume novo
@@ -23,4 +23,4 @@ WORKDIR /tmp
 # Sem o ponto de entrada da imagem, que inicializaria um servidor. Os scripts rodam pelo sh porque
 # o bit de execução não sobrevive a todo checkout.
 ENTRYPOINT []
-CMD ["sh", "/copia/copia-diaria.sh"]
+CMD ["sh", "/copia/copia.sh"]

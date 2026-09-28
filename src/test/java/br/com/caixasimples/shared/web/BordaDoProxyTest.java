@@ -18,26 +18,22 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Em produção, a requisição passa pela borda da CDN e pelo balanceador da hospedagem antes de
- * chegar à aplicação, e cada um acrescenta ao {@code X-Forwarded-For} quem se conectou a ele. Este
- * teste prova, contra o servidor de verdade, que a origem é lida da direita e que o que o cliente
- * escreve no cabeçalho nunca vira a origem.
+ * Em produção, a requisição passa pela entrada da hospedagem antes de chegar à aplicação: ela
+ * termina o HTTPS, acrescenta ao {@code X-Forwarded-For} o endereço de quem se conectou a ela e
+ * fala com a aplicação pela rede interna. Este teste prova, contra o servidor de verdade, que a
+ * origem é lida da direita e que o que o cliente escreve no cabeçalho nunca vira a origem.
  *
  * <p>Sobe o servidor numa porta real porque quem lê os cabeçalhos é o próprio servidor, antes do
  * Spring: pelo MockMvc, que chama o Spring direto, o teste passaria sem ter lido nada. Por isso
  * este contexto é separado do resto da suíte.
  *
- * <p>A cadeia é a medida na hospedagem: o cliente, um endereço da borda dentro das faixas
- * publicadas da Cloudflare e um endereço da rede interna. A conexão chega de {@code 127.0.0.1},
- * que é rede interna, como lá.
+ * <p>Nenhum proxy além da rede interna é declarado confiável aqui, como na configuração padrão. A
+ * conexão chega de {@code 127.0.0.1}, que é rede interna, como a da entrada lá.
  */
 @SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT)
 class BordaDoProxyTest extends TesteDeIntegracao {
 
     private static final String CLIENTE = "203.0.113.7";
-    private static final String BORDA = "172.71.146.118";
-    private static final String BALANCEADOR = "10.26.236.170";
-    private static final String CADEIA_DA_HOSPEDAGEM = CLIENTE + ", " + BORDA + ", " + BALANCEADOR;
 
     private final HttpClient http = HttpClient.newHttpClient();
 
@@ -48,10 +44,10 @@ class BordaDoProxyTest extends TesteDeIntegracao {
     private ObjectMapper json;
 
     @Test
-    @DisplayName("atrás da borda e do balanceador, a origem é o cliente e a requisição é segura")
+    @DisplayName("atrás da entrada da hospedagem, a origem é o cliente e a requisição é segura")
     void cadeiaDaHospedagem() throws Exception {
         JsonNode eco = eco(pedido("/teste/borda")
-                .header("X-Forwarded-For", CADEIA_DA_HOSPEDAGEM)
+                .header("X-Forwarded-For", CLIENTE)
                 .header("X-Forwarded-Proto", "https"));
 
         assertThat(eco.path("origem").asString()).isEqualTo(CLIENTE);
@@ -63,29 +59,42 @@ class BordaDoProxyTest extends TesteDeIntegracao {
     @DisplayName("o que o cliente escreve à esquerda do cabeçalho não vira a origem")
     void prefixoForjadoEhIgnorado() throws Exception {
         JsonNode eco = eco(pedido("/teste/borda")
-                .header("X-Forwarded-For", "192.0.2.1, " + CADEIA_DA_HOSPEDAGEM));
+                .header("X-Forwarded-For", "192.0.2.1, " + CLIENTE));
 
         assertThat(eco.path("origem").asString()).isEqualTo(CLIENTE);
     }
 
+    /**
+     * A entrada pode ter mais de um salto dentro da rede do provedor antes da aplicação. Endereço
+     * privado no cabeçalho é atravessado como a própria conexão.
+     */
     @Test
-    @DisplayName("um salto fora das faixas confiáveis vira a origem, e o que está antes dele não é lido")
-    void saltoDesconhecidoViraAOrigem() throws Exception {
+    @DisplayName("um salto da rede interna no cabeçalho é atravessado")
+    void saltoInternoEhAtravessado() throws Exception {
         JsonNode eco = eco(pedido("/teste/borda")
-                .header("X-Forwarded-For", CLIENTE + ", 198.51.100.9, " + BALANCEADOR));
+                .header("X-Forwarded-For", CLIENTE + ", 10.26.236.170"));
+
+        assertThat(eco.path("origem").asString()).isEqualTo(CLIENTE);
+    }
+
+    /**
+     * Se a entrada passar a ter um salto público que ninguém declarou, a origem vira esse salto: o
+     * aviso de pagamento que confere o endereço é recusado, e nada escrito pelo cliente é aceito.
+     */
+    @Test
+    @DisplayName("um salto público não declarado vira a origem, e o que está antes dele não é lido")
+    void saltoPublicoNaoDeclaradoViraAOrigem() throws Exception {
+        JsonNode eco = eco(pedido("/teste/borda")
+                .header("X-Forwarded-For", CLIENTE + ", 198.51.100.9"));
 
         assertThat(eco.path("origem").asString()).isEqualTo("198.51.100.9");
     }
 
-    /**
-     * A lista padrão vai dentro de um valor padrão de variável, e metade dela é IPv6, cheia de
-     * dois-pontos: este caso prova que ela chega inteira ao servidor.
-     */
     @Test
-    @DisplayName("a borda que chega por IPv6 é atravessada do mesmo jeito")
-    void bordaPorIpv6() throws Exception {
+    @DisplayName("o cliente que chega por IPv6 atravessa um salto interno IPv6 do mesmo jeito")
+    void clientePorIpv6() throws Exception {
         JsonNode eco = eco(pedido("/teste/borda")
-                .header("X-Forwarded-For", "2001:db8::7, 2606:4700::6810:84e5, " + BALANCEADOR));
+                .header("X-Forwarded-For", "2001:db8::7, fd00::5"));
 
         assertThat(eco.path("origem").asString()).isEqualTo("2001:db8::7");
     }
@@ -104,7 +113,7 @@ class BordaDoProxyTest extends TesteDeIntegracao {
     @DisplayName("o HSTS sai numa rota real só quando o proxy diz que a requisição chegou por HTTPS")
     void hstsSoQuandoChegouPorHttps() throws Exception {
         HttpResponse<String> porHttps = enviar(pedido("/")
-                .header("X-Forwarded-For", CADEIA_DA_HOSPEDAGEM)
+                .header("X-Forwarded-For", CLIENTE)
                 .header("X-Forwarded-Proto", "https"));
         HttpResponse<String> porHttp = enviar(pedido("/"));
 

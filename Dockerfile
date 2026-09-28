@@ -38,10 +38,11 @@ USER caixa
 # A porta de verdade vem de CAIXA_SIMPLES_PORT; esta é o padrão da aplicação.
 EXPOSE 8080
 
-# Medido sob carga no limite de 512 MB: depois do GC ficam cerca de 100 MB vivos no heap, e a JVM
-# ocupa perto de 245 MB fora dele (metaspace, código compilado, símbolos). Com o heap limitado a
-# 45% da memória do contêiner, a soma fica abaixo do limite mesmo com o heap no máximo; com 60%,
-# passaria. A fração, e não um valor fixo, acompanha uma troca de plano sem novo build.
+# Medido sob carga com meia CPU e com limites de 512 MB e de 1 GB: depois do GC ficam cerca de
+# 100 MB vivos no heap, que a JVM expande até uns 220 MB, e ela ocupa perto de 245 MB fora dele
+# (metaspace, código compilado, símbolos). Com o heap limitado a 45% da memória do contêiner, a
+# soma fica abaixo do limite mesmo com o heap no máximo, inclusive em 512 MB, onde 60% passaria.
+# A fração, e não um valor fixo, acompanha uma troca de plano sem novo build.
 # O coletor serial é o que a JVM escolhe quando enxerga uma CPU só, e fica explícito porque a
 # medição foi feita com ele: outro coletor gastaria mais memória fora do heap.
 # Sem memória, o processo termina em vez de seguir degradado, e a hospedagem sobe outro.

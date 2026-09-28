@@ -1,4 +1,5 @@
-# Portão entre o push e a produção: a hospedagem só publica o commit em que este workflow passou.
+# Portão entre o push e a produção: a publicação só é disparada no commit em que os testes, o build
+# e o lint passaram.
 name: CI
 
 on:
@@ -40,3 +41,27 @@ jobs:
       - name: Lint do front-end
         working-directory: frontend
         run: PATH="$PWD/node:$PATH" npm run lint
+
+  # Pede à hospedagem que construa e publique este commit. O endereço do gatilho é o segredo: ele só
+  # dispara o fluxo declarado lá, que constrói o commit informado e o publica, e não dá acesso a
+  # mais nada. A variável do repositório liga a publicação; sem ela, o CI testa e não publica, que
+  # é o caso enquanto não existe ambiente publicado. Commit com migration só vai para o main dentro
+  # da janela de manutenção.
+  publicar:
+    name: Publicação
+    needs: verificar
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.PUBLICAR_NO_NORTHFLANK == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Disparar a publicação deste commit
+        env:
+          GATILHO: ${{ secrets.NORTHFLANK_WEBHOOK_PUBLICACAO }}
+        run: |
+          if [ -z "$GATILHO" ]; then
+            echo "::error::A publicação está ligada, mas falta o segredo NORTHFLANK_WEBHOOK_PUBLICACAO."
+            exit 1
+          fi
+          # Os argumentos do fluxo vão na query: a hospedagem ignora o corpo do POST.
+          curl --fail-with-body --silent --show-error --request POST \
+            "${GATILHO}?sha=${GITHUB_SHA}&name=${GITHUB_SHA::12}"

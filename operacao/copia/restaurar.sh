@@ -3,8 +3,10 @@
 # gravada junto com ela, na origem, na hora da cópia.
 #
 # Uso: restaurar.sh <cópia sem a extensão, no formato do rclone>
-#   restaurar.sh r2:bucket/caixa-simples-20261027T060000Z
-#   restaurar.sh /copias/caixa-simples-20261027T060000Z
+#   restaurar.sh s3:bucket/diaria/caixa-simples-20261027T060012Z
+#   restaurar.sh /copias/horaria/caixa-simples-20261027T150008Z
+#
+# A credencial que busca a cópia é de leitura, e não a do job, que só grava.
 #
 # Variáveis:
 #   CAIXA_SIMPLES_COPIA_CHAVE_PRIVADA   caminho do arquivo com a chave privada do age

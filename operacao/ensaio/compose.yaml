@@ -1,6 +1,7 @@
-# Ensaio local da produção: a imagem da aplicação com os limites do menor plano da hospedagem
-# (0,5 CPU e 512 MB, sem swap) contra um PostgreSQL 17, o seed avulso, o job da cópia e um segundo
-# PostgreSQL, vazio, para a restauração. O passo a passo está em operacao/README.md.
+# Ensaio local da produção: a imagem da aplicação com os limites do plano da hospedagem (0,5 CPU e
+# 1 GB, sem swap) contra um PostgreSQL 17 com os limites do banco de lá (0,2 CPU e 512 MB), o seed
+# avulso, o job da cópia com os do menor plano (0,1 CPU e 256 MB) e um segundo PostgreSQL, vazio,
+# para a restauração. O passo a passo está em operacao/README.md.
 #
 # Nenhuma senha fica aqui. A do banco do ensaio tem padrão só local; a chave dos tokens, os dados
 # do seed e a chave pública do age vêm do ambiente, e quem os usa recusa o valor vazio com uma
@@ -11,6 +12,9 @@ name: caixa-simples-ensaio
 services:
   banco:
     image: postgres:17-alpine
+    cpus: 0.2
+    mem_limit: 512m
+    memswap_limit: 512m
     environment:
       POSTGRES_DB: caixa_simples
       POSTGRES_USER: caixa_simples
@@ -28,8 +32,8 @@ services:
       banco:
         condition: service_healthy
     cpus: 0.5
-    mem_limit: 512m
-    memswap_limit: 512m
+    mem_limit: 1g
+    memswap_limit: 1g
     # Como a hospedagem, sobe de novo o processo que termina com erro; a contagem de reinícios é
     # um dos critérios da carga.
     restart: on-failure
@@ -55,7 +59,8 @@ services:
       banco:
         condition: service_healthy
     cpus: 0.5
-    mem_limit: 512m
+    mem_limit: 1g
+    memswap_limit: 1g
     environment:
       <<: *ambiente-da-aplicacao
       SPRING_PROFILES_ACTIVE: seed
@@ -65,7 +70,8 @@ services:
       CAIXA_SIMPLES_SEED_SENHA: ${CAIXA_SIMPLES_SEED_SENHA:-}
 
   # As cópias ficam num volume do Docker, e não numa pasta do projeto: mesmo cifradas, não têm
-  # por que ficar ao alcance de um commit.
+  # por que ficar ao alcance de um commit. As duas pastas fazem o papel dos dois destinos da
+  # hospedagem; a hora da cópia diária pode ser trocada no comando, para exercitar os dois.
   copia:
     profiles: [copia]
     build: ../copia
@@ -73,11 +79,16 @@ services:
     depends_on:
       banco:
         condition: service_healthy
+    cpus: 0.1
+    mem_limit: 256m
+    memswap_limit: 256m
     environment:
       CAIXA_SIMPLES_COPIA_BANCO: postgresql://caixa_simples@banco:5432/caixa_simples
       PGPASSWORD: ${ENSAIO_SENHA_DO_BANCO:-ensaio}
       CAIXA_SIMPLES_COPIA_CHAVE_PUBLICA: ${CAIXA_SIMPLES_COPIA_CHAVE_PUBLICA:-}
-      CAIXA_SIMPLES_COPIA_DESTINO: /copias
+      CAIXA_SIMPLES_COPIA_DESTINO: /copias/horaria
+      CAIXA_SIMPLES_COPIA_DESTINO_DIARIA: /copias/diaria
+      CAIXA_SIMPLES_COPIA_HORA_DIARIA: ${CAIXA_SIMPLES_COPIA_HORA_DIARIA:-6}
     volumes:
       - copias:/copias
 

@@ -12,12 +12,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * A rota que a hospedagem consulta para saber se a instância está de pé, e o que mais o Actuator
- * mostra por HTTP.
+ * As rotas que a hospedagem consulta para saber se a instância está de pé e se pode receber
+ * tráfego, e o que mais o Actuator mostra por HTTP.
  *
- * <p>A hospedagem não tem token, então a rota responde sem ele; e responde só o estado, sem
- * detalhe, porque é pública. Ela não consulta o banco: quem decide reiniciar a instância por ela
- * não pode reiniciar por causa de uma queda que não é da aplicação.
+ * <p>A hospedagem não tem token, então as rotas respondem sem ele; e respondem só o estado, sem
+ * detalhe, porque são públicas. Nenhuma consulta o banco: quem decide reiniciar a instância, ou
+ * tirá-la do tráfego, não pode fazê-lo por causa de uma queda que não é da aplicação.
  */
 class SaudeDaInstanciaTest extends TesteDeIntegracao {
 
@@ -28,6 +28,15 @@ class SaudeDaInstanciaTest extends TesteDeIntegracao {
     @DisplayName("a rota de vida responde UP sem token e sem detalhe")
     void vidaRespondeSemToken() throws Exception {
         http.perform(get("/actuator/health/liveness"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("UP"))
+                .andExpect(jsonPath("$.components").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("a rota de prontidão responde UP sem token e sem detalhe")
+    void prontidaoRespondeSemToken() throws Exception {
+        http.perform(get("/actuator/health/readiness"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("UP"))
                 .andExpect(jsonPath("$.components").doesNotExist());
