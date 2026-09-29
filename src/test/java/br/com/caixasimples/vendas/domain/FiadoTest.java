@@ -45,7 +45,12 @@ class FiadoTest {
                 StatusPagamento.PENDENTE, Money.ZERO);
         venda.concluir();
         UUID sessaoDeQuemRecebe = UUID.randomUUID();
-        venda.receber(sessaoDeQuemRecebe, Money.de("7.00"), FormaPagamento.DINHEIRO);
+        UUID recebimentoId = UUID.randomUUID();
+        venda.receber(recebimentoId, sessaoDeQuemRecebe, Money.de("7.00"),
+                FormaPagamento.DINHEIRO);
+        assertThat(venda.saldoDevedor()).isEqualTo(Money.de("13.00"));
+        assertThatIllegalStateException().isThrownBy(() -> venda.receber(recebimentoId,
+                sessaoDeQuemRecebe, Money.de("7.00"), FormaPagamento.DINHEIRO));
         assertThat(venda.saldoDevedor()).isEqualTo(Money.de("13.00"));
         assertThat(venda.getPagamentos().getFirst().status()).isEqualTo(StatusPagamento.PENDENTE);
         assertThatIllegalArgumentException().isThrownBy(() ->

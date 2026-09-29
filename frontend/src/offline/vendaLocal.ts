@@ -15,8 +15,12 @@ type CaixaDoDispositivo = Pick<ReturnType<typeof criarCaixaLocal>, 'consultar'>
 type ClientesDoDispositivo = Pick<typeof cadastro, 'clientes'>
 
 /** O contrato da API de vendas, com o item levando o Produto como o operador o viu na busca. */
-export type VendasDoPdv = Omit<VendasDaApi, 'adicionarItem'> & {
+export type VendasDoPdv = Omit<VendasDaApi, 'adicionarItem' | 'pagar' | 'receber'> & {
   adicionarItem(id: string, produto: Produto, quantidade: number, desconto: number): Promise<{ id: string }>
+  pagar(id: string, forma: Parameters<VendasDaApi['pagar']>[1], valor: number,
+    valorRecebido?: number, pagamentoId?: string): Promise<{ troco: number }>
+  receber(id: string, valor: number, forma: Parameters<VendasDaApi['receber']>[2],
+    recebimentoId?: string): Promise<{ id: string; saldoDevedor: number }>
 }
 
 const VENDA_DO_SERVIDOR_SEM_REDE = 'Esta Venda está no servidor e continua quando a rede voltar. '
@@ -251,9 +255,10 @@ export function criarVendaLocal(remoto: VendasDaApi = vendas, caixa: CaixaDoDisp
       await enfileirar('venda.aplicarDesconto', id, dados, operacoes(ultimoGesto(alvo.gestos, 'venda.', id)),
         alvo.venda.versao)
     },
-    async pagar(id, forma, valor, valorRecebido) {
+    async pagar(id, forma, valor, valorRecebido, pagamentoId) {
       const alvo = await localizar(id, false)
-      if (alvo === 'servidor') return remoto.pagar(id, forma, valor, valorRecebido)
+      if (alvo === 'servidor') return remoto.pagar(id, forma, valor, valorRecebido,
+        pagamentoId ?? crypto.randomUUID())
       if (forma === 'FIADO') exigirAdmin('Só ADMIN registra Venda com FIADO.')
       const dados: raiz.DadosDaParcela = {
         pagamentoId: crypto.randomUUID(), forma, valor, valorRecebido: valorRecebido ?? null,
@@ -297,7 +302,9 @@ export function criarVendaLocal(remoto: VendasDaApi = vendas, caixa: CaixaDoDisp
       if (alvo === 'servidor') return remoto.comprovante(id)
       return comprovanteDoDispositivo(alvo.venda, alvo.pendente)
     },
-    async receber(id, valor, forma) { return remoto.receber(id, valor, forma) },
+    async receber(id, valor, forma, recebimentoId?: string) {
+      return remoto.receber(id, valor, forma, recebimentoId ?? crypto.randomUUID())
+    },
     async comprovanteDeRecebimento(id, recebimentoId) {
       return remoto.comprovanteDeRecebimento(id, recebimentoId)
     },

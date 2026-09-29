@@ -192,6 +192,10 @@ public class SessaoCaixa {
 
     /** A mesma sangria, com o instante do balcão em que o dinheiro saiu da gaveta. */
     public void sangrar(Money valor, String motivo, Instant criadoEm) {
+        sangrar(UUID.randomUUID(), valor, motivo, criadoEm);
+    }
+
+    public void sangrar(UUID movimentoId, Money valor, String motivo, Instant criadoEm) {
         exigirMotivo(motivo, TipoMovimentoCaixa.SANGRIA);
         Objects.requireNonNull(valor, "valor da sangria nao pode ser nulo");
 
@@ -203,7 +207,7 @@ public class SessaoCaixa {
                             + " que deveriam estar na gaveta. Nao se retira o que nao esta la.");
         }
 
-        registrar(TipoMovimentoCaixa.SANGRIA, valor, motivo, null, null, criadoEm);
+        registrar(movimentoId, TipoMovimentoCaixa.SANGRIA, valor, motivo, null, null, criadoEm);
     }
 
     /**
@@ -220,8 +224,12 @@ public class SessaoCaixa {
 
     /** O mesmo suprimento, com o instante do balcão em que o troco entrou na gaveta. */
     public void suprir(Money valor, String motivo, Instant criadoEm) {
+        suprir(UUID.randomUUID(), valor, motivo, criadoEm);
+    }
+
+    public void suprir(UUID movimentoId, Money valor, String motivo, Instant criadoEm) {
         exigirMotivo(motivo, TipoMovimentoCaixa.SUPRIMENTO);
-        registrar(TipoMovimentoCaixa.SUPRIMENTO, valor, motivo, null, null, criadoEm);
+        registrar(movimentoId, TipoMovimentoCaixa.SUPRIMENTO, valor, motivo, null, null, criadoEm);
     }
 
     /**
@@ -411,6 +419,15 @@ public class SessaoCaixa {
      */
     private void registrar(TipoMovimentoCaixa tipo, Money valor, String motivo, UUID vendaId,
             UUID recebimentoId, Instant criadoEm) {
+        registrar(UUID.randomUUID(), tipo, valor, motivo, vendaId, recebimentoId, criadoEm);
+    }
+
+    private void registrar(UUID movimentoId, TipoMovimentoCaixa tipo, Money valor, String motivo,
+            UUID vendaId, UUID recebimentoId, Instant criadoEm) {
+        Objects.requireNonNull(movimentoId, "id do movimento nao pode ser nulo");
+        if (movimentos.stream().anyMatch(existente -> existente.id().equals(movimentoId))) {
+            throw new IllegalStateException("movimento ja existe nesta sessao: " + movimentoId);
+        }
         if (status != StatusSessaoCaixa.ABERTA) {
             // Depois do fechamento a diferença já está gravada; um movimento novo a tornaria
             // mentirosa sem que nada a recalculasse.
@@ -420,8 +437,8 @@ public class SessaoCaixa {
                             + " conferida.");
         }
 
-        MovimentoCaixa movimento = MovimentoCaixa.novo(tipo, valor, motivo, vendaId, recebimentoId,
-                criadoEm);
+        MovimentoCaixa movimento = MovimentoCaixa.novo(movimentoId, tipo, valor, motivo, vendaId,
+                recebimentoId, criadoEm);
         movimentos.add(movimento);
 
         // O switch é exaustivo de propósito: acrescentar um valor em TipoMovimentoCaixa quebra a

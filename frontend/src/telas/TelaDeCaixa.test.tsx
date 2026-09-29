@@ -58,7 +58,7 @@ describe('caixa na tela', () => {
     fireEvent.change(screen.getByLabelText('Motivo'), { target: { value: 'Retirada' } })
     fireEvent.click(screen.getByRole('button', { name: 'Registrar sangria' }))
 
-    await waitFor(() => expect(sangrar).toHaveBeenCalledWith('s-1', 5, 'Retirada'))
+    await waitFor(() => expect(sangrar).toHaveBeenCalledWith('s-1', 5, 'Retirada', expect.any(String)))
   })
 
   it('mostra esperado antes de fechar, diferença depois e Venda no extrato', async () => {

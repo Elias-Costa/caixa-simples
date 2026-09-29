@@ -42,6 +42,10 @@ public interface VendaRepository extends JpaRepository<VendaEntity, UUID> {
     /** A mesma pergunta para a parcela lançada no dispositivo sem rede. */
     boolean existsByPagamentosId(UUID pagamentoId);
 
+    Optional<VendaEntity> findByPagamentosId(UUID pagamentoId);
+
+    Optional<VendaEntity> findByRecebimentosId(UUID recebimentoId);
+
     /** Serializa recebimentos parciais da mesma dívida antes de conferir o saldo. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<VendaEntity> findLockedById(UUID id);

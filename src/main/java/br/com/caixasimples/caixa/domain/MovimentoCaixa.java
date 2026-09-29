@@ -64,8 +64,12 @@ public record MovimentoCaixa(UUID id, TipoMovimentoCaixa tipo, Money valor, Stri
      */
     static MovimentoCaixa novo(TipoMovimentoCaixa tipo, Money valor, String motivo, UUID vendaId,
             UUID recebimentoId, Instant criadoEm) {
-        return new MovimentoCaixa(UUID.randomUUID(), tipo, valor, motivo, vendaId, recebimentoId,
-                criadoEm);
+        return novo(UUID.randomUUID(), tipo, valor, motivo, vendaId, recebimentoId, criadoEm);
+    }
+
+    static MovimentoCaixa novo(UUID id, TipoMovimentoCaixa tipo, Money valor, String motivo,
+            UUID vendaId, UUID recebimentoId, Instant criadoEm) {
+        return new MovimentoCaixa(id, tipo, valor, motivo, vendaId, recebimentoId, criadoEm);
     }
 
     private static String textoOpcional(String valor) {

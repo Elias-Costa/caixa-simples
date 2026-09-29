@@ -351,6 +351,43 @@ public class VendaService {
         return registrarPagamento(vendaId, UUID.randomUUID(), solicitacao, Instant.now());
     }
 
+    /** Repete uma parcela online apenas quando o registro existente tem o mesmo conteúdo. */
+    @Transactional
+    public Money registrarPagamentoOnline(UUID vendaId, UUID pagamentoId,
+            SolicitacaoPagamento solicitacao) {
+        Objects.requireNonNull(pagamentoId, "id da parcela nao pode ser nulo");
+        Objects.requireNonNull(solicitacao, "solicitacao de pagamento nao pode ser nula");
+        if (solicitacao.forma() == FormaPagamento.PIX) {
+            throw new IllegalArgumentException("Pix integrado exige a rota de cobranca com tentativaId");
+        }
+        if (solicitacao.forma() == FormaPagamento.FIADO) {
+            UsuarioContext.exigirAdmin();
+        }
+        VendaEntity linha = vendas.findLockedById(vendaId)
+                .orElseThrow(() -> new VendaNaoEncontradaException(vendaId));
+        Venda venda = linha.paraDominio();
+        UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
+        ResultadoPagamento resultado = pagamentos.pagar(solicitacao);
+        var anterior = vendas.findByPagamentosId(pagamentoId);
+        if (anterior.isPresent()) {
+            Pagamento parcela = anterior.get().paraDominio().getPagamentos().stream()
+                    .filter(existente -> existente.id().equals(pagamentoId))
+                    .findFirst().orElseThrow();
+            if (!anterior.get().getId().equals(vendaId)
+                    || parcela.forma() != resultado.forma()
+                    || !parcela.valor().equals(resultado.valor())
+                    || !parcela.troco().equals(resultado.troco())) {
+                throw new IllegalStateException("id da parcela ja usado com outro conteudo");
+            }
+            return parcela.troco();
+        }
+        venda.registrarPagamento(pagamentoId, resultado.forma(), resultado.valor(),
+                resultado.status(), resultado.troco(), Instant.now());
+        linha.atualizarCom(venda);
+        vendas.save(linha);
+        return resultado.troco();
+    }
+
     /**
      * A mesma parcela, com o id e o instante que o dispositivo gravou ao lançá-la sem rede. O
      * troco é recalculado aqui pela mesma regra, e não copiado do dispositivo.
@@ -630,13 +667,32 @@ public class VendaService {
      */
     @Transactional
     public RecebimentoRegistrado receber(UUID vendaId, Money valor, FormaPagamento forma) {
+        return receberOnline(vendaId, UUID.randomUUID(), valor, forma);
+    }
+
+    /** O recebimento confirmado pode ser reenviado mesmo depois do fechamento da sessão. */
+    @Transactional
+    public RecebimentoRegistrado receberOnline(UUID vendaId, UUID recebimentoId, Money valor,
+            FormaPagamento forma) {
+        Objects.requireNonNull(recebimentoId, "id do recebimento nao pode ser nulo");
         UsuarioContext.exigirAtual();
-        UUID sessaoId = caixa.sessaoAbertaDoOperadorAtual().orElseThrow(() ->
-                new IllegalStateException("abra o proprio caixa antes de receber fiado"));
         VendaEntity linha = vendas.findLockedById(vendaId)
                 .orElseThrow(() -> new VendaNaoEncontradaException(vendaId));
         Venda venda = linha.paraDominio();
-        Recebimento recebimento = venda.receber(sessaoId, valor, forma);
+        var anterior = vendas.findByRecebimentosId(recebimentoId);
+        if (anterior.isPresent()) {
+            Recebimento recebimento = anterior.get().paraDominio().getRecebimentos().stream()
+                    .filter(existente -> existente.id().equals(recebimentoId))
+                    .findFirst().orElseThrow();
+            if (!anterior.get().getId().equals(vendaId)
+                    || !recebimento.valor().equals(valor) || recebimento.forma() != forma) {
+                throw new IllegalStateException("id do recebimento ja usado com outro conteudo");
+            }
+            return new RecebimentoRegistrado(recebimentoId, venda.saldoDevedor(), true);
+        }
+        UUID sessaoId = caixa.sessaoAbertaDoOperadorAtual().orElseThrow(() ->
+                new IllegalStateException("abra o proprio caixa antes de receber fiado"));
+        Recebimento recebimento = venda.receber(recebimentoId, sessaoId, valor, forma);
         linha.atualizarCom(venda);
         vendas.save(linha);
         eventos.publishEvent(new FiadoRecebido(TenantContext.exigirAtual(), vendaId,
@@ -691,7 +747,10 @@ public class VendaService {
                 alvo.forma(), alvo.valor(), fiado.subtrair(totalRecebidoAteAqui));
     }
 
-    public record RecebimentoRegistrado(UUID id, Money saldoDevedor) {
+    public record RecebimentoRegistrado(UUID id, Money saldoDevedor, boolean repetido) {
+        public RecebimentoRegistrado(UUID id, Money saldoDevedor) {
+            this(id, saldoDevedor, false);
+        }
     }
 
     public record DividaParaTela(UUID vendaId, UUID clienteId, String nomeCliente,

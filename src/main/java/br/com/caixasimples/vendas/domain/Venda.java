@@ -659,6 +659,15 @@ public class Venda {
 
     /** Registra cada entrada sem alterar seu histórico; a parcela quita quando o saldo chega a zero. */
     public Recebimento receber(UUID sessaoCaixaId, Money valor, FormaPagamento forma) {
+        return receber(UUID.randomUUID(), sessaoCaixaId, valor, forma);
+    }
+
+    public Recebimento receber(UUID recebimentoId, UUID sessaoCaixaId, Money valor,
+            FormaPagamento forma) {
+        Objects.requireNonNull(recebimentoId, "id do recebimento nao pode ser nulo");
+        if (recebimentos.stream().anyMatch(existente -> existente.id().equals(recebimentoId))) {
+            throw new IllegalStateException("recebimento ja existe nesta venda: " + recebimentoId);
+        }
         if (status != StatusVenda.CONCLUIDA) {
             throw new IllegalStateException("so venda CONCLUIDA aceita recebimento");
         }
@@ -666,7 +675,7 @@ public class Venda {
         if (fiado == null) {
             throw new IllegalStateException("venda nao possui parcela FIADO");
         }
-        Recebimento recebimento = Recebimento.novo(sessaoCaixaId, valor, forma);
+        Recebimento recebimento = Recebimento.novo(recebimentoId, sessaoCaixaId, valor, forma);
         if (valor.subtrair(saldoDevedor()).valor().signum() > 0) {
             throw new IllegalArgumentException("recebimento supera o saldo devedor da venda");
         }

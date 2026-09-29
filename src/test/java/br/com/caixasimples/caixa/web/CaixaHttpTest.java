@@ -50,14 +50,34 @@ class CaixaHttpTest extends TesteDeIntegracao {
         http.perform(post("/api/caixa/sessoes").with(operador)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"valorAbertura\":0}"))
                 .andExpect(status().isConflict());
+        UUID suprimentoId = UUID.randomUUID();
+        UUID sangriaId = UUID.randomUUID();
+        String pedidoDeSuprimento = "{\"movimentoId\":\"" + suprimentoId
+                + "\",\"valor\":10.00,\"motivo\":\"Troco\"}";
+        String pedidoDeSangria = "{\"movimentoId\":\"" + sangriaId
+                + "\",\"valor\":5.00,\"motivo\":\"Retirada\"}";
         http.perform(post("/api/caixa/sessoes/{id}/suprimentos", id).with(operador)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"valor\":10.00,\"motivo\":\"Troco\"}"))
+                        .content(pedidoDeSuprimento))
                 .andExpect(status().isNoContent());
         http.perform(post("/api/caixa/sessoes/{id}/sangrias", id).with(operador)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"valor\":5.00,\"motivo\":\"Retirada\"}"))
+                        .content(pedidoDeSangria))
                 .andExpect(status().isNoContent());
+        http.perform(post("/api/caixa/sessoes/{id}/suprimentos", id).with(operador)
+                .contentType(MediaType.APPLICATION_JSON).content(pedidoDeSuprimento))
+                .andExpect(status().isNoContent());
+        http.perform(post("/api/caixa/sessoes/{id}/sangrias", id).with(operador)
+                .contentType(MediaType.APPLICATION_JSON).content(pedidoDeSangria))
+                .andExpect(status().isNoContent());
+        http.perform(post("/api/caixa/sessoes/{id}/suprimentos", id).with(operador)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(pedidoDeSuprimento.replace("10.00", "11.00")))
+                .andExpect(status().isConflict());
+        http.perform(post("/api/caixa/sessoes/{id}/sangrias", id).with(operador)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(pedidoDeSangria.replace("Retirada", "Outra retirada")))
+                .andExpect(status().isConflict());
         http.perform(get("/api/caixa/sessoes/{id}", id).with(operador))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.valorFechamentoEsperado").value(25.0))
@@ -70,6 +90,9 @@ class CaixaHttpTest extends TesteDeIntegracao {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"valorContado\":23.00}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.diferenca").value(2.0));
+        http.perform(post("/api/caixa/sessoes/{id}/sangrias", id).with(operador)
+                .contentType(MediaType.APPLICATION_JSON).content(pedidoDeSangria))
+                .andExpect(status().isNoContent());
         http.perform(get("/api/caixa/sessoes/aberta").with(operador))
                 .andExpect(status().isNoContent());
         String dia = LocalDate.now(FusoDeReferencia.DO_BALCAO).toString();
@@ -124,6 +147,18 @@ class CaixaHttpTest extends TesteDeIntegracao {
         http.perform(get("/api/caixa/sessoes").param("dia",
                         LocalDate.now(FusoDeReferencia.DO_BALCAO).toString()).with(outraConta))
                 .andExpect(status().isOk()).andExpect(jsonPath("$").isEmpty());
+        UUID movimentoId = UUID.randomUUID();
+        String pedido = "{\"movimentoId\":\"" + movimentoId
+                + "\",\"valor\":2,\"motivo\":\"Troco\"}";
+        http.perform(post("/api/caixa/sessoes/{id}/suprimentos", id)
+                .with(autenticador.como(contaA)).contentType(MediaType.APPLICATION_JSON)
+                .content(pedido)).andExpect(status().isNoContent());
+        http.perform(post("/api/caixa/sessoes/{id}/suprimentos", id)
+                .with(outraConta).contentType(MediaType.APPLICATION_JSON).content(pedido))
+                .andExpect(status().isNotFound());
+        http.perform(get("/api/caixa/sessoes/{id}", id).with(autenticador.como(contaA)))
+                .andExpect(jsonPath("$.valorFechamentoEsperado").value(10.0))
+                .andExpect(jsonPath("$.movimentos.length()").value(1));
     }
 
     @Test

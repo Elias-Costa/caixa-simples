@@ -187,7 +187,8 @@ describe('Venda no dispositivo', () => {
     await local.pagar('venda-do-servidor', 'CARTAO', 6.25)
     await local.concluir('venda-do-servidor')
     expect(api.adicionarItem).toHaveBeenCalledWith('venda-do-servidor', cafe.id, 1, 0)
-    expect(api.pagar).toHaveBeenCalledWith('venda-do-servidor', 'CARTAO', 6.25, undefined)
+    expect(api.pagar).toHaveBeenCalledWith('venda-do-servidor', 'CARTAO', 6.25, undefined,
+      expect.any(String))
     expect(api.concluir).toHaveBeenCalledWith('venda-do-servidor')
     expect(await listarGestos()).toEqual([])
 

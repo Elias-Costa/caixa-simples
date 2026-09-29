@@ -1,6 +1,7 @@
 package br.com.caixasimples.caixa.application;
 
 import br.com.caixasimples.caixa.StatusSessaoCaixa;
+import br.com.caixasimples.caixa.TipoMovimentoCaixa;
 import br.com.caixasimples.caixa.domain.SessaoCaixa;
 import br.com.caixasimples.caixa.domain.MovimentoCaixa;
 import br.com.caixasimples.caixa.internal.LinhaDoHistorico;
@@ -119,6 +120,12 @@ public class SessaoCaixaService {
         registrarSangria(sessaoId, valor, motivo, Instant.now());
     }
 
+    @Transactional
+    public void registrarSangriaOnline(UUID sessaoId, UUID movimentoId, Money valor,
+            String motivo) {
+        registrarMovimentoOnline(sessaoId, movimentoId, TipoMovimentoCaixa.SANGRIA, valor, motivo);
+    }
+
     /** A mesma sangria, com o instante do balcão em que ela foi registrada sem rede. */
     @Transactional
     public void registrarSangria(UUID sessaoId, Money valor, String motivo, Instant criadoEm) {
@@ -144,6 +151,41 @@ public class SessaoCaixaService {
     @Transactional
     public void registrarSuprimento(UUID sessaoId, Money valor, String motivo) {
         registrarSuprimento(sessaoId, valor, motivo, Instant.now());
+    }
+
+    @Transactional
+    public void registrarSuprimentoOnline(UUID sessaoId, UUID movimentoId, Money valor,
+            String motivo) {
+        registrarMovimentoOnline(sessaoId, movimentoId, TipoMovimentoCaixa.SUPRIMENTO, valor,
+                motivo);
+    }
+
+    private void registrarMovimentoOnline(UUID sessaoId, UUID movimentoId,
+            TipoMovimentoCaixa tipo, Money valor, String motivo) {
+        Objects.requireNonNull(movimentoId, "id do movimento nao pode ser nulo");
+        SessaoCaixaEntity linha = sessoes.findLockedById(sessaoId)
+                .orElseThrow(() -> new SessaoCaixaNaoEncontradaException(sessaoId));
+        SessaoCaixa sessao = linha.paraDominio();
+        UsuarioContext.exigirDonoOuAdmin(sessao.getUsuarioId());
+        var anterior = sessoes.findByMovimentosId(movimentoId);
+        if (anterior.isPresent()) {
+            MovimentoCaixa movimento = anterior.get().paraDominio().getMovimentos().stream()
+                    .filter(existente -> existente.id().equals(movimentoId))
+                    .findFirst().orElseThrow();
+            if (!anterior.get().getId().equals(sessaoId) || movimento.tipo() != tipo
+                    || !movimento.valor().equals(valor)
+                    || !Objects.equals(movimento.motivo(), motivo == null ? null : motivo.trim())) {
+                throw new IllegalStateException("id do movimento ja usado com outro conteudo");
+            }
+            return;
+        }
+        if (tipo == TipoMovimentoCaixa.SANGRIA) {
+            sessao.sangrar(movimentoId, valor, motivo, Instant.now());
+        } else {
+            sessao.suprir(movimentoId, valor, motivo, Instant.now());
+        }
+        linha.atualizarCom(sessao);
+        sessoes.save(linha);
     }
 
     /** O mesmo suprimento, com o instante do balcão em que ele foi registrado sem rede. */

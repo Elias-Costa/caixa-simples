@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
 import { caixa, type SessaoCaixa } from '../api/caixa'
+import { SemConexao } from '../api/cliente'
+import { intencaoOnline } from '../api/intencaoOnline'
 import { fiado, type Divida } from '../api/fiado'
 import { vendas, type ComprovanteDeRecebimento, type FormaPagamento } from '../api/vendas'
 import { useSessao } from '../sessao/useSessao'
@@ -51,11 +53,18 @@ export function TelaDeFiado() {
     setOcupado(true); setErro(undefined)
     try {
       const quantia = Number(valor.replace(',', '.'))
-      const registrado = await vendas.receber(selecionada.vendaId, quantia, forma)
+      const intencao = await intencaoOnline(`/api/vendas/${selecionada.vendaId}/recebimentos`,
+        { valor: quantia, forma }, identidade)
+      const registrado = await vendas.receber(selecionada.vendaId, quantia, forma, intencao.id)
       setComprovante(await vendas.comprovanteDeRecebimento(selecionada.vendaId, registrado.id))
-      setValor('')
       await carregar()
-    } catch (falha) { setErro(erroDeCadastro(falha)) }
+      intencao.confirmar()
+      setValor('')
+    } catch (falha) {
+      setErro(falha instanceof SemConexao
+        ? 'Sem conexão. Tente registrar o mesmo recebimento quando a rede voltar.'
+        : erroDeCadastro(falha))
+    }
     finally { setOcupado(false) }
   }
 

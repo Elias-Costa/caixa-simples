@@ -65,13 +65,15 @@ class SessaoCaixaController {
 
     @PostMapping("/{id}/sangrias")
     ResponseEntity<Void> sangrar(@PathVariable UUID id, @Valid @RequestBody PedidoDeMovimento pedido) {
-        sessoes.registrarSangria(id, Money.de(pedido.valor()), pedido.motivo());
+        sessoes.registrarSangriaOnline(id, pedido.movimentoId(), Money.de(pedido.valor()),
+                pedido.motivo());
         return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/{id}/suprimentos")
     ResponseEntity<Void> suprir(@PathVariable UUID id, @Valid @RequestBody PedidoDeMovimento pedido) {
-        sessoes.registrarSuprimento(id, Money.de(pedido.valor()), pedido.motivo());
+        sessoes.registrarSuprimentoOnline(id, pedido.movimentoId(), Money.de(pedido.valor()),
+                pedido.motivo());
         return ResponseEntity.noContent().build();
     }
 
@@ -85,7 +87,8 @@ class SessaoCaixaController {
             BigDecimal valorAbertura) {
     }
 
-    record PedidoDeMovimento(@NotNull @DecimalMin("0.00") @Digits(integer = 10, fraction = 2)
+    record PedidoDeMovimento(@NotNull UUID movimentoId,
+            @NotNull @DecimalMin("0.00") @Digits(integer = 10, fraction = 2)
             BigDecimal valor, @NotBlank String motivo) {
     }
 

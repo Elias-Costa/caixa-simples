@@ -107,8 +107,9 @@ class VendaController {
     @PostMapping("/{id}/pagamentos")
     Troco registrarPagamento(@PathVariable UUID id, @Valid @RequestBody PedidoDePagamento pedido) {
         Money recebido = pedido.valorRecebido() == null ? null : Money.de(pedido.valorRecebido());
-        Money troco = vendas.registrarPagamento(id, new SolicitacaoPagamento(pedido.forma(),
-                Money.de(pedido.valor()), recebido));
+        Money troco = vendas.registrarPagamentoOnline(id, pedido.pagamentoId(),
+                new SolicitacaoPagamento(pedido.forma(),
+                        Money.de(pedido.valor()), recebido));
         return new Troco(troco.valor());
     }
 
@@ -133,9 +134,11 @@ class VendaController {
     @PostMapping("/{id}/recebimentos")
     ResponseEntity<RecebimentoRegistradoNaResposta> receber(@PathVariable UUID id,
             @Valid @RequestBody PedidoDeRecebimento pedido) {
-        var registrado = vendas.receber(id, Money.de(pedido.valor()), pedido.forma());
-        return ResponseEntity.created(URI.create("/api/vendas/" + id + "/recebimentos/"
-                + registrado.id() + "/comprovante"))
+        var registrado = vendas.receberOnline(id, pedido.recebimentoId(), Money.de(pedido.valor()),
+                pedido.forma());
+        return ResponseEntity.status(registrado.repetido() ? HttpStatus.OK : HttpStatus.CREATED)
+                .location(URI.create("/api/vendas/" + id + "/recebimentos/"
+                        + registrado.id() + "/comprovante"))
                 .body(new RecebimentoRegistradoNaResposta(registrado.id(),
                         registrado.saldoDevedor().valor()));
     }
@@ -169,11 +172,12 @@ class VendaController {
     record PedidoDeCliente(@NotNull UUID clienteId) {
     }
 
-    record PedidoDeRecebimento(@NotNull @DecimalMin("0.01") @Digits(integer = 10, fraction = 2)
+    record PedidoDeRecebimento(@NotNull UUID recebimentoId,
+            @NotNull @DecimalMin("0.01") @Digits(integer = 10, fraction = 2)
             BigDecimal valor, @NotNull FormaPagamento forma) {
     }
 
-    record PedidoDePagamento(@NotNull FormaPagamento forma,
+    record PedidoDePagamento(@NotNull UUID pagamentoId, @NotNull FormaPagamento forma,
             @NotNull @DecimalMin("0.01") @Digits(integer = 10, fraction = 2)
             BigDecimal valor,
             @DecimalMin("0.00") @Digits(integer = 10, fraction = 2)

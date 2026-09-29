@@ -5,6 +5,7 @@ import { cadastro, type Cliente, type Produto } from '../api/cadastro'
 import type { SessaoCaixa } from '../api/caixa'
 import { ErroDaApi, SemConexao } from '../api/cliente'
 import { fiado } from '../api/fiado'
+import { intencaoOnline, type IntencaoOnline } from '../api/intencaoOnline'
 import type { Comprovante, ConciliacaoPix, FormaPagamento, ResumoDaVenda, Venda } from '../api/vendas'
 import { criarCaixaLocal } from '../offline/caixaLocal'
 import { criarVendaLocal } from '../offline/vendaLocal'
@@ -191,6 +192,7 @@ export function TelaDeVenda() {
     setAtual(venda)
     if (sessao) setHistorico(await vendas.daSessao(sessao.id))
     if (identidade?.perfil === 'ADMIN') setConciliacoes(await vendas.conciliacoesPix())
+    return venda
   }
 
   async function consultarConciliacao(id: string) {
@@ -249,6 +251,7 @@ export function TelaDeVenda() {
     const recebido = formaEscolhida === 'DINHEIRO'
       ? (valorRecebido ? numero(valorRecebido) : valor) : undefined
     setOcupado(true); setErro(undefined)
+    let intencao: IntencaoOnline | undefined
     try {
       if (formaEscolhida === 'PIX') {
         const parcela = await vendas.cobrarPix(atual.id, tentativaPix(atual.id, valor), valor)
@@ -259,14 +262,24 @@ export function TelaDeVenda() {
         await atualizar(atual.id)
         return
       }
-      const resultado = await vendas.pagar(atual.id, formaEscolhida, valor, recebido)
+      intencao = await intencaoOnline(`/api/vendas/${atual.id}/pagamentos`,
+        { forma: formaEscolhida, valor, valorRecebido: recebido ?? null }, identidade)
+      const resultado = await vendas.pagar(atual.id, formaEscolhida, valor, recebido, intencao.id)
       setTroco(resultado.troco)
-      setValorPagamento(''); setValorRecebido('')
       if (concluirJunto) await concluir(atual.id)
       else await atualizar(atual.id)
+      intencao.confirmar()
+      setValorPagamento(''); setValorRecebido('')
     } catch (falha) {
-      setErro(erroDeCadastro(falha))
-      await atualizar(atual.id).catch(() => undefined)
+      setErro(falha instanceof SemConexao && intencao
+        ? 'Sem conexão. Tente registrar a mesma parcela quando a rede voltar.'
+        : erroDeCadastro(falha))
+      const atualizada = await atualizar(atual.id).catch(() => undefined)
+      const idDaIntencao = intencao?.id
+      if (idDaIntencao && atualizada?.parcelas.some((parcela) => parcela.id === idDaIntencao)) {
+        intencao?.confirmar()
+        setValorPagamento(''); setValorRecebido('')
+      }
     } finally { setOcupado(false) }
   }
 

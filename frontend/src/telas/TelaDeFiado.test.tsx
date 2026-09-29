@@ -2,12 +2,13 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, expect, it, vi } from 'vitest'
 import { caixa } from '../api/caixa'
+import { SemConexao } from '../api/cliente'
 import { fiado } from '../api/fiado'
 import { vendas } from '../api/vendas'
 import { SessaoContext } from '../sessao/contexto'
 import { TelaDeFiado } from './TelaDeFiado'
 
-afterEach(() => vi.restoreAllMocks())
+afterEach(() => { vi.restoreAllMocks(); sessionStorage.clear() })
 
 it('operador registra recebimento parcial e vê comprovante com saldo restante', async () => {
   vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue({
@@ -17,7 +18,8 @@ it('operador registra recebimento parcial e vê comprovante com saldo restante',
   })
   vi.spyOn(fiado, 'dividas').mockResolvedValue([{ vendaId: 'venda-1', clienteId: 'cliente-1',
     nomeCliente: 'Lia', concluidoEm: '2026-09-23T12:00:00Z', saldoDevedor: 20 }])
-  const receber = vi.spyOn(vendas, 'receber').mockResolvedValue({ id: 'recebimento-1', saldoDevedor: 13 })
+  const receber = vi.spyOn(vendas, 'receber').mockRejectedValueOnce(new SemConexao())
+    .mockResolvedValue({ id: 'recebimento-1', saldoDevedor: 13 })
   vi.spyOn(vendas, 'comprovanteDeRecebimento').mockResolvedValue({
     vendaId: 'venda-1', recebimentoId: 'recebimento-1', clienteId: 'cliente-1',
     nomeCliente: 'Lia', sessaoCaixaId: 'sessao-1', recebidoEm: '2026-09-23T12:05:00Z',
@@ -33,8 +35,11 @@ it('operador registra recebimento parcial e vê comprovante com saldo restante',
   fireEvent.change(screen.getByLabelText('Valor recebido'), { target: { value: '7' } })
   fireEvent.change(screen.getByLabelText('Forma'), { target: { value: 'PIX' } })
   fireEvent.click(screen.getByRole('button', { name: 'Registrar recebimento' }))
-
-  await waitFor(() => expect(receber).toHaveBeenCalledWith('venda-1', 7, 'PIX'))
+  await waitFor(() => expect(receber).toHaveBeenCalledTimes(1))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Sem conexão')
+  fireEvent.click(screen.getByRole('button', { name: 'Registrar recebimento' }))
+  await waitFor(() => expect(receber).toHaveBeenCalledTimes(2))
+  expect(receber.mock.calls[0][3]).toBe(receber.mock.calls[1][3])
   expect(await screen.findByLabelText('Comprovante de recebimento não fiscal'))
     .toHaveTextContent('Saldo da Venda após recebimento: R$ 13,00')
 })

@@ -69,7 +69,13 @@ class SessaoCaixaTest {
         sessao.registrarVenda(Money.de("25.00"), UUID.randomUUID());
         assertThat(sessao.getValorFechamentoEsperado()).isEqualTo(Money.de("125.00"));
 
-        sessao.suprir(Money.de("50.00"), "Reforco de troco");
+        UUID movimentoId = UUID.randomUUID();
+        sessao.suprir(movimentoId, Money.de("50.00"), "Reforco de troco", Instant.now());
+        assertThat(sessao.getValorFechamentoEsperado()).isEqualTo(Money.de("175.00"));
+        assertThatIllegalStateException().isThrownBy(() -> sessao.suprir(movimentoId,
+                Money.de("50.00"), "Reforco de troco", Instant.now()));
+        assertThatIllegalStateException().isThrownBy(() -> sessao.sangrar(movimentoId,
+                Money.de("30.00"), "Pagamento do entregador", Instant.now()));
         assertThat(sessao.getValorFechamentoEsperado()).isEqualTo(Money.de("175.00"));
 
         // A sangria é lançada com 30 positivo; quem sabe que ela sai é o tipo do movimento.

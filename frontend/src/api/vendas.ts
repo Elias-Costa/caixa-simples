@@ -97,9 +97,10 @@ export const vendas = {
     chamarApi<void>(`/api/vendas/${id}/itens/${itemId}`, { metodo: 'DELETE' }),
   descontar: (id: string, valor: number) =>
     chamarApi<void>(`/api/vendas/${id}/desconto`, { metodo: 'PUT', corpo: { valor } }),
-  pagar: (id: string, forma: FormaPagamento, valor: number, valorRecebido?: number) =>
+  pagar: (id: string, forma: FormaPagamento, valor: number, valorRecebido: number | undefined,
+    pagamentoId: string) =>
     chamarApi<{ troco: number }>(`/api/vendas/${id}/pagamentos`, {
-      metodo: 'POST', corpo: { forma, valor, valorRecebido },
+      metodo: 'POST', corpo: { pagamentoId, forma, valor, valorRecebido },
     }),
   cobrarPix: (id: string, tentativaId: string, valor: number) =>
     chamarApi<ParcelaDaVenda>(`/api/vendas/${id}/pagamentos/pix`, {
@@ -110,9 +111,9 @@ export const vendas = {
   cancelar: (id: string) =>
     chamarApi<void>(`/api/vendas/${id}/cancelamento`, { metodo: 'POST' }),
   comprovante: (id: string) => chamarApi<Comprovante>(`/api/vendas/${id}/comprovante`),
-  receber: (id: string, valor: number, forma: FormaPagamento) =>
+  receber: (id: string, valor: number, forma: FormaPagamento, recebimentoId: string) =>
     chamarApi<{ id: string; saldoDevedor: number }>(`/api/vendas/${id}/recebimentos`, {
-      metodo: 'POST', corpo: { valor, forma },
+      metodo: 'POST', corpo: { recebimentoId, valor, forma },
     }),
   comprovanteDeRecebimento: (id: string, recebimentoId: string) =>
     chamarApi<ComprovanteDeRecebimento>(`/api/vendas/${id}/recebimentos/${recebimentoId}/comprovante`),

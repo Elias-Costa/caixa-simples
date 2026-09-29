@@ -65,12 +65,25 @@ class VendaHttpTest extends TesteDeIntegracao {
                 .andExpect(jsonPath("$.faltaPagar").value(25.0));
         http.perform(get("/api/vendas").param("sessaoCaixaId", sessao.toString()).with(admin))
                 .andExpect(status().isOk()).andExpect(jsonPath("$[0].status").value("ABERTA"));
+        UUID pagamentoId = UUID.randomUUID();
         http.perform(post("/api/vendas/{id}/pagamentos", venda).with(admin)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"forma\":\"DINHEIRO\",\"valor\":25,\"valorRecebido\":30}"))
+                .content("{\"pagamentoId\":\"" + pagamentoId
+                        + "\",\"forma\":\"DINHEIRO\",\"valor\":25,\"valorRecebido\":30}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.troco").value(5.0));
         http.perform(post("/api/vendas/{id}/conclusao", venda).with(admin))
                 .andExpect(status().isNoContent());
+        String pedidoRepetido = "{\"pagamentoId\":\"" + pagamentoId
+                + "\",\"forma\":\"DINHEIRO\",\"valor\":25,\"valorRecebido\":30}";
+        http.perform(post("/api/vendas/{id}/pagamentos", venda).with(admin)
+                .contentType(MediaType.APPLICATION_JSON).content(pedidoRepetido))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.troco").value(5.0));
+        http.perform(post("/api/vendas/{id}/pagamentos", venda).with(admin)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(pedidoRepetido.replace("30}", "31}")))
+                .andExpect(status().isConflict());
+        http.perform(get("/api/vendas/{id}", venda).with(admin))
+                .andExpect(jsonPath("$.parcelas.length()").value(1));
         http.perform(get("/api/vendas/{id}/comprovante", venda).with(admin))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.valorTotal").value(25.0))
@@ -102,15 +115,18 @@ class VendaHttpTest extends TesteDeIntegracao {
                 .andExpect(status().isNoContent());
         http.perform(post("/api/vendas/{id}/pagamentos", venda).with(admin)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"forma\":\"CARTAO\",\"valor\":5.00}"))
+                .content("{\"pagamentoId\":\"" + UUID.randomUUID()
+                        + "\",\"forma\":\"CARTAO\",\"valor\":5.00}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.troco").value(0.0));
         http.perform(post("/api/vendas/{id}/pagamentos", venda).with(admin)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"forma\":\"CARTAO\",\"valor\":2.50}"))
+                .content("{\"pagamentoId\":\"" + UUID.randomUUID()
+                        + "\",\"forma\":\"CARTAO\",\"valor\":2.50}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.troco").value(0.0));
         http.perform(post("/api/vendas/{id}/pagamentos", venda).with(admin)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"forma\":\"DINHEIRO\",\"valor\":2.50,\"valorRecebido\":10.00}"))
+                .content("{\"pagamentoId\":\"" + UUID.randomUUID()
+                        + "\",\"forma\":\"DINHEIRO\",\"valor\":2.50,\"valorRecebido\":10.00}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.troco").value(7.5));
         http.perform(get("/api/vendas/{id}", venda).with(admin))
                 .andExpect(jsonPath("$.pago").value(10.0))
@@ -187,7 +203,8 @@ class VendaHttpTest extends TesteDeIntegracao {
                 .andExpect(status().isNoContent());
         http.perform(post("/api/vendas/{id}/pagamentos", venda).with(tokenOperador)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"forma\":\"FIADO\",\"valor\":20}"))
+                .content("{\"pagamentoId\":\"" + UUID.randomUUID()
+                        + "\",\"forma\":\"FIADO\",\"valor\":20}"))
                 .andExpect(status().isForbidden());
         admin.comoUsuario(() -> vendaService.registrarPagamento(venda,
                 SolicitacaoPagamento.de(FormaPagamento.FIADO, Money.de("20.00"))));
@@ -202,11 +219,27 @@ class VendaHttpTest extends TesteDeIntegracao {
         http.perform(get("/api/vendas/{id}/comprovante", venda).with(tokenOperador))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.valorFiado").value(20.0))
                 .andExpect(jsonPath("$.saldoDevedor").value(20.0));
+        UUID recebimentoId = UUID.randomUUID();
+        String pedidoDeRecebimento = "{\"recebimentoId\":\"" + recebimentoId
+                + "\",\"valor\":7,\"forma\":\"PIX\"}";
         UUID recebimento = uuidDaResposta(http.perform(post("/api/vendas/{id}/recebimentos", venda)
                 .with(tokenOperador).contentType(MediaType.APPLICATION_JSON)
-                .content("{\"valor\":7,\"forma\":\"PIX\"}"))
+                .content(pedidoDeRecebimento))
                 .andExpect(status().isCreated()).andExpect(jsonPath("$.saldoDevedor").value(13.0))
                 .andReturn().getResponse().getContentAsString());
+        http.perform(post("/api/caixa/sessoes/{id}/fechamento", sessao).with(tokenOperador)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"valorContado\":0}"))
+                .andExpect(status().isOk());
+        http.perform(post("/api/vendas/{id}/recebimentos", venda).with(tokenOperador)
+                .contentType(MediaType.APPLICATION_JSON).content(pedidoDeRecebimento))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.id").value(recebimento.toString()))
+                .andExpect(jsonPath("$.saldoDevedor").value(13.0));
+        http.perform(post("/api/vendas/{id}/recebimentos", venda).with(tokenOperador)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(pedidoDeRecebimento.replace("\"valor\":7", "\"valor\":8")))
+                .andExpect(status().isConflict());
+        http.perform(get("/api/vendas/{id}", venda).with(tokenOperador))
+                .andExpect(jsonPath("$.recebimentos.length()").value(1));
         http.perform(get("/api/vendas/{id}/recebimentos/{recebimento}/comprovante", venda,
                 recebimento).with(tokenOperador))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.saldoApos").value(13.0))

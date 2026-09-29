@@ -154,7 +154,8 @@ describe('PDV no tablet', () => {
     fireEvent.change(screen.getByLabelText('Valor recebido em dinheiro'), { target: { value: '15.00' } })
     fireEvent.click(screen.getByRole('button', { name: 'Receber e concluir' }))
 
-    await waitFor(() => expect(pagar).toHaveBeenCalledWith('venda-1', 'DINHEIRO', 12.5, 15))
+    await waitFor(() => expect(pagar).toHaveBeenCalledWith('venda-1', 'DINHEIRO', 12.5, 15,
+      expect.any(String)))
     await waitFor(() => expect(concluir).toHaveBeenCalledWith('venda-1'))
     expect(await screen.findByLabelText('Comprovante não fiscal')).toHaveTextContent('Troco: R$ 2,50')
     expect(toques).toBeLessThanOrEqual(6)
@@ -210,7 +211,8 @@ describe('PDV no tablet', () => {
     await waitFor(() => expect(vincular).toHaveBeenCalledWith('venda-1', 'cliente-1'))
     fireEvent.change(await screen.findByLabelText('Forma'), { target: { value: 'FIADO' } })
     fireEvent.click(screen.getByRole('button', { name: 'Registrar fiado e concluir' }))
-    await waitFor(() => expect(pagar).toHaveBeenCalledWith('venda-1', 'FIADO', 12.5, undefined))
+    await waitFor(() => expect(pagar).toHaveBeenCalledWith('venda-1', 'FIADO', 12.5, undefined,
+      expect.any(String)))
     expect(await screen.findByLabelText('Comprovante não fiscal'))
       .toHaveTextContent('Valor pendente: R$ 12,50')
   })

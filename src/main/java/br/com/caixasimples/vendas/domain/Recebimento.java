@@ -25,6 +25,10 @@ public record Recebimento(UUID id, UUID sessaoCaixaId, Money valor, FormaPagamen
     }
 
     static Recebimento novo(UUID sessaoCaixaId, Money valor, FormaPagamento forma) {
-        return new Recebimento(UUID.randomUUID(), sessaoCaixaId, valor, forma, Instant.now());
+        return novo(UUID.randomUUID(), sessaoCaixaId, valor, forma);
+    }
+
+    static Recebimento novo(UUID id, UUID sessaoCaixaId, Money valor, FormaPagamento forma) {
+        return new Recebimento(id, sessaoCaixaId, valor, forma, Instant.now());
     }
 }

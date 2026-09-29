@@ -9,6 +9,10 @@ import {
 import { dinheiroNaGaveta, projetarVendas, type DadosDoInicio } from './raizDaVenda'
 
 type CaixaRemoto = typeof caixa
+type CaixaNoDispositivo = Omit<CaixaRemoto, 'sangrar' | 'suprir'> & {
+  sangrar(id: string, valor: number, motivo: string, movimentoId?: string): Promise<void>
+  suprir(id: string, valor: number, motivo: string, movimentoId?: string): Promise<void>
+}
 /** Cada sessão guardada leva a ordem da leitura que a trouxe, porque cada uma é lida numa hora. */
 type SessaoGuardada = SessaoCaixa & { ordemDaLeitura?: number }
 const prefixo = 'caixa.'
@@ -212,7 +216,7 @@ async function consultarLocalOuRemoto(remoto: CaixaRemoto, id: string): Promise<
 }
 
 /** Projeta apenas o caixa do usuário autenticado; ADMIN consulta outros caixas pela API online. */
-export function criarCaixaLocal(remoto: CaixaRemoto = caixa): CaixaRemoto {
+export function criarCaixaLocal(remoto: CaixaRemoto = caixa): CaixaNoDispositivo {
   return {
     async abertaDoOperadorAtual() {
       if (semBanco()) return remoto.abertaDoOperadorAtual()
@@ -269,17 +273,21 @@ export function criarCaixaLocal(remoto: CaixaRemoto = caixa): CaixaRemoto {
         abertaEm: new Date().toISOString() }, ultimo ? [ultimo.operacaoId] : [])
       return { id }
     },
-    async sangrar(id, valorMovimento, motivo) {
-      if (semBanco()) return remoto.sangrar(id, valorMovimento, motivo)
+    async sangrar(id, valorMovimento, motivo, movimentoId?: string) {
+      if (semBanco()) return remoto.sangrar(id, valorMovimento, motivo,
+        movimentoId ?? crypto.randomUUID())
       if (navigator.onLine && (await retratos()).every((sessao) => sessao.id !== id)
-        && lerIdentidade()?.perfil === 'ADMIN') return remoto.sangrar(id, valorMovimento, motivo)
-      return movimentar(remoto, id, valorMovimento, motivo, 'caixa.sangrar')
+        && lerIdentidade()?.perfil === 'ADMIN') return remoto.sangrar(id, valorMovimento, motivo,
+          movimentoId ?? crypto.randomUUID())
+      return movimentar(remoto, id, valorMovimento, motivo, 'caixa.sangrar', movimentoId)
     },
-    async suprir(id, valorMovimento, motivo) {
-      if (semBanco()) return remoto.suprir(id, valorMovimento, motivo)
+    async suprir(id, valorMovimento, motivo, movimentoId?: string) {
+      if (semBanco()) return remoto.suprir(id, valorMovimento, motivo,
+        movimentoId ?? crypto.randomUUID())
       if (navigator.onLine && (await retratos()).every((sessao) => sessao.id !== id)
-        && lerIdentidade()?.perfil === 'ADMIN') return remoto.suprir(id, valorMovimento, motivo)
-      return movimentar(remoto, id, valorMovimento, motivo, 'caixa.suprir')
+        && lerIdentidade()?.perfil === 'ADMIN') return remoto.suprir(id, valorMovimento, motivo,
+          movimentoId ?? crypto.randomUUID())
+      return movimentar(remoto, id, valorMovimento, motivo, 'caixa.suprir', movimentoId)
     },
     async fechar(id, valorContado) {
       if (semBanco()) return remoto.fechar(id, valorContado)
@@ -302,7 +310,7 @@ export function criarCaixaLocal(remoto: CaixaRemoto = caixa): CaixaRemoto {
 }
 
 async function movimentar(remoto: CaixaRemoto, id: string, quantia: number, motivo: string,
-  tipo: 'caixa.sangrar' | 'caixa.suprir'): Promise<void> {
+  tipo: 'caixa.sangrar' | 'caixa.suprir', movimentoId?: string): Promise<void> {
   const cent = centavos(quantia, 'Valor do movimento')
   const sessao = await local(id)
   if (sessao.status !== 'ABERTA') throw new Error('SessaoCaixa fechada não aceita movimento.')
@@ -314,8 +322,9 @@ async function movimentar(remoto: CaixaRemoto, id: string, quantia: number, moti
   }
   const gestos = await listarGestos()
   if (navigator.onLine && !pendente(gestosDaSessao(gestos, id))) {
-    if (tipo === 'caixa.sangrar') return remoto.sangrar(id, quantia, motivo)
-    return remoto.suprir(id, quantia, motivo)
+    if (tipo === 'caixa.sangrar') return remoto.sangrar(id, quantia, motivo,
+      movimentoId ?? crypto.randomUUID())
+    return remoto.suprir(id, quantia, motivo, movimentoId ?? crypto.randomUUID())
   }
   const ultimo = ultimoGestoDaGaveta(gestos, id)
   await enfileirar(tipo, id, { valor: quantia, motivo: motivo.trim(), criadoEm: new Date().toISOString() },

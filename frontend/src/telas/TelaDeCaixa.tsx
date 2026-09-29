@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import type { SessaoCaixa } from '../api/caixa'
+import { SemConexao } from '../api/cliente'
+import { intencaoOnline } from '../api/intencaoOnline'
 import { hojeNoBalcao } from '../dataDoBalcao'
 import { criarCaixaLocal } from '../offline/caixaLocal'
 import { useSincronizacao } from '../shell/sincronizacao'
@@ -87,14 +89,20 @@ export function TelaDeCaixa() {
     setOcupado(true)
     try {
       const valor = dinheiroDigitado(valorMovimento)
-      if (tipoMovimento === 'SANGRIA') await caixa.sangrar(selecionada.id, valor, motivo)
-      else await caixa.suprir(selecionada.id, valor, motivo)
-      setValorMovimento('')
-      setMotivo('')
+      const rota = `/api/caixa/sessoes/${selecionada.id}/`
+        + (tipoMovimento === 'SANGRIA' ? 'sangrias' : 'suprimentos')
+      const intencao = await intencaoOnline(rota, { valor, motivo: motivo.trim() }, identidade)
+      if (tipoMovimento === 'SANGRIA') await caixa.sangrar(selecionada.id, valor, motivo, intencao.id)
+      else await caixa.suprir(selecionada.id, valor, motivo, intencao.id)
       await carregar()
       setSelecionada(await caixa.consultar(selecionada.id))
+      intencao.confirmar()
+      setValorMovimento('')
+      setMotivo('')
     } catch (falha) {
-      setErro(erroDeCadastro(falha))
+      setErro(falha instanceof SemConexao
+        ? 'Sem conexão. Tente registrar o mesmo movimento quando a rede voltar.'
+        : erroDeCadastro(falha))
     } finally {
       setOcupado(false)
     }

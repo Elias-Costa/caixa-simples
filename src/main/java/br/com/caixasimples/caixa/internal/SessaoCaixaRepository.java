@@ -5,7 +5,9 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 
 /**
  * Repositório da raiz de agregado {@code SessaoCaixa}.
@@ -74,4 +76,9 @@ public interface SessaoCaixaRepository extends JpaRepository<SessaoCaixaEntity, 
      * caixa está aberto, se responde com uma linha. Mesma projeção do histórico, pelo mesmo motivo.
      */
     Optional<LinhaDoHistorico> findLinhaById(UUID id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    Optional<SessaoCaixaEntity> findLockedById(UUID id);
+
+    Optional<SessaoCaixaEntity> findByMovimentosId(UUID movimentoId);
 }
