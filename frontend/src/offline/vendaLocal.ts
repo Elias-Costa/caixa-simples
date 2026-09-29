@@ -5,8 +5,9 @@ import { lerIdentidade } from '../sessao/armazenamento'
 import { criarCaixaLocal, sessaoTemPendencia, ultimoGestoDaGaveta } from './caixaLocal'
 import { reais } from './dinheiro'
 import {
-  enfileirarGesto, gestoAplicavel, gestoPendente, listarGestos, ordenarPorDependencia, type GestoNaFila,
-  type ValorJson,
+  descartarGestosEnviadosDaVenda, enfileirarGesto, gestoAplicavel, gestoPendente,
+  guardarRetrato, lerRetrato, listarGestos, listarRetratosDeVendas, ordenarPorDependencia,
+  type GestoNaFila, type ValorJson,
 } from './fila'
 import * as raiz from './raizDaVenda'
 
@@ -187,6 +188,11 @@ export function criarVendaLocal(remoto: VendasDaApi = vendas, caixa: CaixaDoDisp
         }
       }
       const porId = new Map(doServidor.map((venda) => [venda.id, venda]))
+      for (const guardada of await listarRetratosDeVendas<Venda>()) {
+        if (guardada.sessaoCaixaId === sessaoCaixaId && !porId.has(guardada.id)) {
+          porId.set(guardada.id, guardada)
+        }
+      }
       for (const venda of doDispositivo) {
         if (venda.pendenteSincronizacao || !porId.has(venda.id)) porId.set(venda.id, venda)
       }
@@ -202,8 +208,23 @@ export function criarVendaLocal(remoto: VendasDaApi = vendas, caixa: CaixaDoDisp
       }
     },
     async consultar(id) {
+      if (!navigator.onLine && temBanco()) {
+        const gestos = await listarGestos()
+        if (!gestos.some((gesto) => gesto.tipo.startsWith('venda.')
+          && gesto.registroId === id && gestoPendente(gesto))) {
+          const guardada = await lerRetrato<Venda>(`venda:${id}`)
+          if (guardada) return guardada.dados
+        }
+      }
       const alvo = await localizar(id, true)
-      if (alvo === 'servidor') return remoto.consultar(id)
+      if (alvo === 'servidor') {
+        const recebida = await remoto.consultar(id)
+        if (temBanco()) {
+          await guardarRetrato(`venda:${id}`, recebida, 0)
+          await descartarGestosEnviadosDaVenda(id)
+        }
+        return recebida
+      }
       return paraTela(alvo.venda, alvo.pendente)
     },
     async vincularCliente(id, clienteId) {
@@ -298,8 +319,16 @@ export function criarVendaLocal(remoto: VendasDaApi = vendas, caixa: CaixaDoDisp
       throw new Error(CANCELAR_DEPOIS_DE_SINCRONIZAR)
     },
     async comprovante(id) {
+      if (!navigator.onLine && temBanco()) {
+        const guardado = await lerRetrato<Comprovante>(`comprovante:${id}`)
+        if (guardado) return guardado.dados
+      }
       const alvo = await localizar(id, true)
-      if (alvo === 'servidor') return remoto.comprovante(id)
+      if (alvo === 'servidor') {
+        const recebido = await remoto.comprovante(id)
+        if (temBanco()) await guardarRetrato(`comprovante:${id}`, recebido, 0)
+        return recebido
+      }
       return comprovanteDoDispositivo(alvo.venda, alvo.pendente)
     },
     async receber(id, valor, forma, recebimentoId?: string) {

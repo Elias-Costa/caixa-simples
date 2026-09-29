@@ -1,6 +1,7 @@
 package br.com.caixasimples.shared.web;
 
 import br.com.caixasimples.shared.AcessoNegadoException;
+import br.com.caixasimples.shared.RegistroDeRemocoesIndisponivelException;
 import br.com.caixasimples.shared.TenantNaoResolvidoException;
 import br.com.caixasimples.shared.UsuarioNaoResolvidoException;
 import java.util.LinkedHashMap;
@@ -81,6 +82,12 @@ class TratamentoDeErrosHttp extends ResponseEntityExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, excecao.getMessage());
     }
 
+    @ExceptionHandler(RegistroDeRemocoesIndisponivelException.class)
+    ProblemDetail registroDeRemocaoIndisponivel(RegistroDeRemocoesIndisponivelException excecao) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE,
+                excecao.getMessage());
+    }
+
     /**
      * Duas operações alteraram a mesma raiz ao mesmo tempo, e a versão gravada recusou a segunda:
      * por exemplo, duas vendas concluídas juntas que mexem na mesma sessão de caixa ou no mesmo
@@ -124,7 +131,7 @@ class TratamentoDeErrosHttp extends ResponseEntityExceptionHandler {
      */
     @ExceptionHandler(Exception.class)
     ProblemDetail inesperado(Exception excecao) {
-        log.error("Erro inesperado ao atender a requisicao", excecao);
+        log.error("Erro inesperado ao atender a requisicao: {}", excecao.getClass().getName());
         return ProblemDetail.forStatus(HttpStatus.INTERNAL_SERVER_ERROR);
     }
 }

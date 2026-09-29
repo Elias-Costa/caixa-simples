@@ -18,5 +18,7 @@ public interface CredencialRepository extends JpaRepository<Credencial, UUID> {
 
     Optional<Credencial> findByEmailIgnoreCase(String email);
 
+    Optional<Credencial> findByUsuarioId(UUID usuarioId);
+
     boolean existsByEmailIgnoreCase(String email);
 }

@@ -105,17 +105,17 @@ conteúdo diferente.
 
 | Módulo | Estado | O que existe hoje |
 |---|---|---|
-| `shared` | Implementado | `Money`, `ContaId`, `FusoDeReferencia` e os dois contextos da requisição: `TenantContext`, a conta em operação, e `UsuarioContext`, quem está operando e com que perfil, com as duas perguntas de autorização que todo caso de uso restrito faz na primeira linha. E o tratamento transversal de erro da API: toda resposta de erro sai em Problem Details, a recusa por perfil vira 403, argumento que o domínio rejeita vira 400 e estado que o agregado rejeita vira 409. E a entrega do aplicativo: o shell do PWA sai daqui, com o fallback que devolve a mesma página para qualquer rota do cliente e nunca para a API |
-| `contas` | Implementado | `Conta`, `Usuario`, `Credencial`, login por JWT, política de senha, provisionamento de conta, a pergunta que os outros módulos fazem à conta em operação, como se o controle de estoque está ligado, e a gestão de usuários: o administrador cria operador ou administrador com login próprio, lista e inativa pela API e pelo PWA, com mais de um usuário só no plano mais alto e a conta nunca sem administrador. A configuração liga o controle de estoque e só o desliga antes do primeiro movimento; o menu reage imediatamente à mudança. O filtro que resolve o token lê o usuário no banco a cada requisição, então inativar vale na requisição seguinte, e o perfil que vale é o do banco, não o do token. O primeiro login do administrador marca a Conta e publica o primeiro acesso na mesma transação que copia o catálogo sugerido. Quem está autenticado pergunta em `/api/auth/eu` e recebe o próprio nome, o negócio, o tipo dele e se o estoque está ligado: é o cabeçalho de toda tela |
-| `cadastro` | Implementado, com cadastro local recebido pelo lote | `Produto` com atributos `JSONB`, busca por nome ou código para o balcão, `Cliente` como vertical slice, catálogo sugerido por tipo de negócio e copiado no primeiro login do administrador, e o agregado inteiro: `MovimentoEstoque` como membro, com a baixa por venda, o estorno por cancelamento e o ajuste manual gravando movimento e saldo na mesma transação, o estoque mínimo de cada produto e a resposta de quais estão com estoque baixo. A API expõe a revisão de Produto e Cliente; o PWA guarda listas por Conta e gestos por usuário para cadastrar, editar e inativar os dois sem rede, além de reativar Cliente, após a preparação online. Só o administrador escreve produto; os dois perfis consultam produtos e cadastram clientes no balcão. Os gestos do dispositivo chegam pelo lote de sincronização, com o id e o instante gravados sem rede |
+| `shared` | Implementado | `Money`, `ContaId`, `FusoDeReferencia` e os dois contextos da requisição: `TenantContext`, a conta em operação, e `UsuarioContext`, quem está operando e com que perfil, com as duas perguntas de autorização que todo caso de uso restrito faz na primeira linha. O registro mínimo de remoções é gravado em objetos separados das cópias do banco; sem essa gravação, a remoção é recusada. O tratamento transversal de erro da API devolve Problem Details: recusa por perfil vira 403, estado inválido vira 409 e indisponibilidade do registro vira 503. O shell do PWA sai daqui, com o fallback que devolve a mesma página para qualquer rota do cliente e nunca para a API |
+| `contas` | Implementado | `Conta`, `Usuario`, `Credencial`, login por JWT, política de senha, provisionamento de conta, a pergunta que os outros módulos fazem à conta em operação, como se o controle de estoque está ligado, e a gestão de usuários: o administrador cria operador ou administrador com login próprio, lista e inativa pela API e pelo PWA, com mais de um usuário só no plano mais alto e a conta nunca sem administrador. Inativar apaga a credencial e libera o e-mail; o administrador pode anonimizar o nome depois. A configuração liga o controle de estoque e só o desliga antes do primeiro movimento; o menu reage imediatamente à mudança. O filtro que resolve o token lê o usuário no banco a cada requisição, então inativar vale na requisição seguinte, e o perfil que vale é o do banco, não o do token. O primeiro login do administrador marca a Conta e publica o primeiro acesso na mesma transação que copia o catálogo sugerido. Quem está autenticado pergunta em `/api/auth/eu` e recebe o próprio nome, o negócio, o tipo dele e se o estoque está ligado: é o cabeçalho de toda tela |
+| `cadastro` | Implementado, com cadastro local recebido pelo lote | `Produto` com atributos `JSONB`, busca por nome ou código para o balcão, `Cliente` como vertical slice, catálogo sugerido por tipo de negócio e copiado no primeiro login do administrador, e o agregado inteiro: `MovimentoEstoque` como membro, com a baixa por venda, o estorno por cancelamento e o ajuste manual gravando movimento e saldo na mesma transação, o estoque mínimo de cada produto e a resposta de quais estão com estoque baixo. A API expõe a revisão de Produto e Cliente; o PWA guarda listas por Conta e gestos por usuário para cadastrar, editar e inativar os dois sem rede, além de reativar Cliente, após a preparação online. Só o administrador remove Cliente: o nome vira `Cliente removido`, o contato sai e o cadastro não volta às listas; dívida ou comanda aberta impede a remoção. Os dois perfis consultam produtos e cadastram clientes no balcão. Os gestos do dispositivo chegam pelo lote de sincronização, com o id e o instante gravados sem rede |
 | `caixa` | Implementado, com gestos locais recebidos pelo lote | `SessaoCaixa`: abertura, sangria, suprimento, fechamento com conferência, histórico por operador e por dia, consulta da sessão aberta do usuário atual e extrato de uma sessão com a Venda de origem nos movimentos. A API e o PWA permitem operar e conferir o caixa, com o esperado visível antes de informar o contado. Sangria e suprimento online recebem o id do movimento do aparelho e aceitam o reenvio igual sem lançá-lo de novo. Sem rede, o PWA guarda os gestos por Conta e usuário, recompõe a sessão após recarga, conta no esperado o dinheiro das Vendas concluídas no dispositivo e mostra a diferença antes do fechamento. O dinheiro em espécie de cada venda concluída entra na gaveta pelo evento, na mesma transação da conclusão e com o instante dela, uma vez só; o cancelamento o estorna. Abertura, sangria, suprimento e fechamento feitos sem rede chegam pelo lote com o id e os instantes do balcão, e o fechamento calcula a diferença com o que o servidor conhece. O caixa é de quem o abriu: o operador só lança, fecha e consulta a própria sessão e só pede o próprio histórico; o administrador toca qualquer sessão da conta, inclusive para fechar o caixa de outro operador |
 | `pagamentos` | Implementado para cobrança, confirmação e cancelamento Pix | Strategy por forma: dinheiro com troco, cartão manual, FIADO pendente e Pix integrado. `PixGateway` usa um adapter Efí por Conta para criar, remover e reconsultar a cobrança pelo `txid`; só o Pix comprovado na consulta quita a parcela (RF25). Credenciais de homologação ainda não foram exercitadas |
 | `vendas` | Implementado, com Venda local recebida pelo lote | Agregado `Venda`, com `ItemVenda`, `Pagamento` e `Recebimento` como membros. A comanda copia o preço, permite divisão de formas e desconto pelo ADMIN. O Cliente ativo pode ser vinculado à Venda; só o ADMIN registra FIADO e conclui a Venda com sua parcela pendente. Qualquer perfil recebe a dívida na própria SessaoCaixa, em lançamentos parciais; o saldo vem das parcelas e dos recebimentos. O comprovante da Venda mostra o valor pendente e cada recebimento tem comprovante próprio (RF33). Confirmação Pix reconsultada conclui uma vez quando a cobertura e a SessaoCaixa permitem; Pix tardio fica visível para conciliação do ADMIN. O cancelamento recusa o Pix pendente só após remoção comprovada no PSP e mantém o Pix pago para devolução manual. Conclusão e cancelamento publicam eventos para caixa e estoque, e recebimento publica evento para caixa; todos são ouvidos na transação de quem publica. O operador só altera suas Vendas, salvo o recebimento de fiado da Conta. Sem rede, o PWA monta, recebe e conclui a Venda no dispositivo com as mesmas regras da raiz e imprime o comprovante marcado como pendente; a Venda aberta com rede espera a rede voltar, e o cancelamento fica para depois da sincronização. No lote, a Venda chega com os ids da Venda, do item e da parcela gerados no dispositivo, o preço visto e os instantes do balcão |
 | `estoque` | Implementado para o PWA online | o ouvinte da venda concluída: quando a conta ligou o controle de estoque, cada produto vendido vira uma baixa, pedida ao cadastro, dono do agregado; serviço no meio dos itens não gera nada, a baixa acontece na mesma transação da conclusão, e a mesma venda não baixa duas vezes. E os casos de uso que uma pessoa aciona: ajuste manual com motivo obrigatório, perda, quebra ou contagem, com a diferença carregando o sinal; estoque mínimo por produto; e o alerta de estoque baixo como consulta, a lista dos produtos ativos no mínimo ou abaixo. A API e o PWA listam saldos e mínimos, ajustam o saldo, definem o mínimo e mostram o alerta; a contagem na tela mostra a diferença antes de gravar. A Conta com controle desligado recebe 409 e o operador, 403. O ouvinte da venda cancelada devolve cada produto que a venda baixou, uma vez só, na mesma transação do cancelamento |
 | `relatorios` | Implementado | Faturamento do dia e de um período, produtos mais vendidos e fluxo de caixa da gaveta. Venda concluída com FIADO conta no faturamento no dia da conclusão; recebimento em dinheiro conta no fluxo no dia da entrada, sem faturar outra vez (RF33). Filtros combináveis de faturamento por forma e operador incluem a parcela FIADO pendente. O módulo lê mapeamentos imutáveis de venda, item, produto, pagamento e movimento de caixa, e os três relatórios são do administrador |
-| `sincronizacao` | Implementado, com envio automático pelo PWA | Recebe o lote de gestos que o dispositivo registrou sem rede, até 100 por envio, e aplica cada um pelos casos de uso do módulo dono, que implementa a porta deste: cadastro, caixa e vendas. Uma transação por operação, com o resultado gravado junto, por Conta e id de operação: o reenvio devolve o gravado, o mesmo id com outro conteúdo é recusado, e duas requisições simultâneas não aplicam duas vezes. Dependência que ainda não chegou pede reenvio; o gesto seguinte de um registro recusado é recusado, e o de outro registro é tentado. O item fica com o preço visto no balcão e vai para revisão quando difere do vigente; também vão a conclusão que deixou o estoque negativo e o gesto de relógio adiantado mais de cinco minutos. O administrador lista as revisões e recusas de todos os usuários da Conta, com o gesto como chegou, e registra quem conferiu e quando; a conferência é a única escrita depois da gravação |
+| `sincronizacao` | Implementado, com envio automático pelo PWA | Recebe o lote de gestos que o dispositivo registrou sem rede, até 100 por envio, e aplica cada um pelos casos de uso do módulo dono, que implementa a porta deste: cadastro, caixa e vendas. Uma transação por operação, com o resultado gravado junto, por Conta e id de operação: o reenvio devolve o gravado, o mesmo id com outro conteúdo é recusado, e duas requisições simultâneas não aplicam duas vezes. Dependência que ainda não chegou pede reenvio; o gesto seguinte de um registro recusado é recusado, e o de outro registro é tentado. O item fica com o preço visto no balcão e vai para revisão quando difere do vigente; também vão a conclusão que deixou o estoque negativo e o gesto de relógio adiantado mais de cinco minutos. O administrador lista as revisões e recusas de todos os usuários da Conta e registra quem conferiu e quando. Ao remover Cliente, o conteúdo de seus gestos gravados é anonimizado e o reenvio antigo entra em conflito. O PWA descarta gestos enviados depois de ler o retrato que já contém seus efeitos |
 
-**Schema.** Vinte migrations Flyway, de `V1` a `V20`: conta, usuário e credencial; produto; cliente;
+**Schema.** Vinte e uma migrations Flyway, de `V1` a `V21`: conta, usuário e credencial; produto; cliente;
 catálogo de referência; o agregado de caixa, com a regra de uma sessão aberta por operador; o
 agregado de venda, com a venda, seus itens e seus pagamentos; o outbox de eventos de domínio do
 Spring Modulith, cujo DDL foi gerado a partir da entidade do framework em vez de escrito de
@@ -132,7 +132,13 @@ a revisão de Produto e Cliente para as alterações offline. A `V18` acrescenta
 das operações que o dispositivo enviou, por Conta, com o gesto como chegou, o resultado e o
 instante de recebimento, e o índice único pela Conta e pelo id da operação que torna o reenvio
 inofensivo. A `V20` acrescenta a esse registro quem conferiu a revisão ou a recusa e quando, com
-os índices parciais da lista do administrador.
+os índices parciais da lista do administrador. A `V21` acrescenta `removido_em` ao Cliente para
+distinguir a anonimização a pedido da inativação comum.
+
+O [aviso de privacidade](frontend/src/telas/TelaDePrivacidade.tsx) é público, inclusive antes do
+login. O ADMIN pede o encerramento da Conta pelo canal indicado nele. O procedimento em
+[`operacao/exclusao/`](operacao/exclusao/) remove as linhas da Conta e exige a retirada dos segredos
+da Conta; o registro externo das remoções é reaplicado quando uma cópia do banco é restaurada.
 
 **Superfície HTTP.** A autenticação usa `POST /api/auth/login`, que devolve o
 token, e `GET /api/auth/eu`, que diz quem está autenticado e em que negócio, para o cabeçalho de
@@ -149,7 +155,8 @@ Valor monetário viaja como número, e a conversão para `Money` é escrita no c
 oferece `GET` e `POST /api/produtos`, `PUT /api/produtos/{id}` e
 `POST /api/produtos/{id}/inativar`; para clientes, `GET` e `POST /api/clientes`,
 `GET /api/clientes/inativos`, `PUT /api/clientes/{id}`,
-`POST /api/clientes/{id}/inativar` e `POST /api/clientes/{id}/reativar`.
+`POST /api/clientes/{id}/inativar`, `POST /api/clientes/{id}/reativar` e
+`POST /api/clientes/{id}/remover`, esta última só do administrador.
 O PDV busca produto em `GET /api/produtos/busca?termo=...` e usa `GET` e `POST /api/vendas`
 para listar as vendas de uma SessaoCaixa e iniciar uma comanda. `GET /api/vendas/{id}` devolve
 itens, total e parcelas; `POST /api/vendas/{id}/itens` e
@@ -188,7 +195,7 @@ O faturamento usa `GET /api/relatorios/faturamento/dia?dia=...` e
 `GET /api/relatorios/faturamento?inicio=...&fim=...`; os dois devolvem o período, o total e
 a quantidade de vendas, e recusam o OPERADOR com 403.
 Usuários usam `GET` e `POST /api/usuarios` e
-`POST /api/usuarios/{id}/inativar`; a lista não expõe e-mail, a criação num plano sem
+`POST /api/usuarios/{id}/inativar` e `POST /api/usuarios/{id}/anonimizar`; a lista não expõe e-mail, a criação num plano sem
 multiusuário responde 409 e a inativação do último administrador também. A configuração usa
 `GET` e `PUT /api/conta/configuracao`, com `estoqueHabilitado` booleano; depois do primeiro
 movimento de estoque, a tentativa de desligar responde 409. Essas rotas são só do administrador.
@@ -281,7 +288,7 @@ Atalhos para avaliar o código sem percorrer o repositório inteiro.
 | Administração da Conta no PWA | [UsuarioController.java](src/main/java/br/com/caixasimples/contas/web/UsuarioController.java), [ConfiguracaoDaContaController.java](src/main/java/br/com/caixasimples/contas/web/ConfiguracaoDaContaController.java), [TelaDeUsuarios.tsx](frontend/src/telas/TelaDeUsuarios.tsx) e [TelaDeConfiguracao.tsx](frontend/src/telas/TelaDeConfiguracao.tsx) | A API usa a Conta do contexto e recusa o operador; o interruptor atualiza a identidade guardada e o menu sem recarga; o cadastro responde se a Conta já tem movimento antes de permitir desligar o controle |
 | Um contrato de erro só, para o framework e para a aplicação | [TratamentoDeErrosHttp.java](src/main/java/br/com/caixasimples/shared/web/TratamentoDeErrosHttp.java) | Estende o tratador do Spring MVC em vez de substituí-lo, então corpo ilegível e recusa por perfil saem na mesma forma; cada status tem o porquê escrito no lugar, e o 404 de cada módulo fica no módulo, sem hierarquia de exceção. O molde do controller, com validação do pedido e a exceção própria traduzida no lugar, é [AutenticacaoController.java](src/main/java/br/com/caixasimples/contas/web/AutenticacaoController.java) |
 | O primeiro login aplicando o catálogo uma vez | [ContaService.java](src/main/java/br/com/caixasimples/contas/application/ContaService.java) | Bloqueia a linha da Conta, marca o primeiro acesso e publica um evento síncrono para o cadastro copiar os itens na mesma transação; [PrimeiroAcessoDaContaListener.java](src/main/java/br/com/caixasimples/cadastro/internal/PrimeiroAcessoDaContaListener.java) reage sem criar dependência de Contas para o catálogo |
-| Cadastro HTTP consumido pelas telas | [ProdutoController.java](src/main/java/br/com/caixasimples/cadastro/web/ProdutoController.java) e [ClienteController.java](src/main/java/br/com/caixasimples/cadastro/web/ClienteController.java) | A API conserva a Conta e o perfil fora do corpo, faz inativação lógica e devolve 404 para id de outra Conta; [TelaDeProdutos.tsx](frontend/src/telas/TelaDeProdutos.tsx) e [TelaDeClientes.tsx](frontend/src/telas/TelaDeClientes.tsx) exercitam o contrato no PWA |
+| Cadastro HTTP consumido pelas telas | [ProdutoController.java](src/main/java/br/com/caixasimples/cadastro/web/ProdutoController.java) e [ClienteController.java](src/main/java/br/com/caixasimples/cadastro/web/ClienteController.java) | A API conserva a Conta e o perfil fora do corpo, faz inativação lógica e devolve 404 para id de outra Conta; o ADMIN também remove dados pessoais do Cliente sem apagar sua linha; [TelaDeProdutos.tsx](frontend/src/telas/TelaDeProdutos.tsx) e [TelaDeClientes.tsx](frontend/src/telas/TelaDeClientes.tsx) exercitam o contrato no PWA |
 | Caixa HTTP e conferência no PWA | [SessaoCaixaController.java](src/main/java/br/com/caixasimples/caixa/web/SessaoCaixaController.java) e [TelaDeCaixa.tsx](frontend/src/telas/TelaDeCaixa.tsx) | A sessão aberta vem do usuário autenticado, o histórico preserva o filtro por perfil, e só a consulta de uma sessão carrega os movimentos com a Venda de origem |
 | Venda HTTP e PDV | [VendaController.java](src/main/java/br/com/caixasimples/vendas/web/VendaController.java) e [TelaDeVenda.tsx](frontend/src/telas/TelaDeVenda.tsx) | A comanda é recuperada após recarga, o pagamento dividido mostra o troco e a tela apresenta o comprovante não fiscal para imprimir ou compartilhar |
 | As regras da Venda conferidas sem rede | [raizDaVenda.ts](frontend/src/offline/raizDaVenda.ts) e [vendaLocal.ts](frontend/src/offline/vendaLocal.ts) | O dispositivo aplica as regras da raiz antes de gravar cada gesto, em centavos inteiros e com o arredondamento por item do servidor; a Venda nova fica na fila quando falta rede ou quando o caixa já tem gesto pendente, e a Venda aberta com rede não é copiada para o dispositivo |
@@ -546,7 +553,8 @@ de uso, provada por teste negativo, e nunca dependente de um valor que o cliente
   os membros de agregado (movimento de caixa, item e pagamento da venda, movimento de estoque) têm
   um teste próprio, que prova que a coluna de conta deles vem do contexto e não da raiz por
   junção. O teste falha se a anotação de tenant for removida. O registro das operações
-  sincronizadas também tem o seu, que cobre a lista de revisões e a conferência, e o lote prova por HTTP que duas Contas com os mesmos ids de
+  sincronizadas também tem o seu, que cobre a lista de revisões e a conferência. A remoção de
+  Cliente e a anonimização de Usuário são recusadas com id de outra Conta. O lote prova por HTTP que duas Contas com os mesmos ids de
   operação recebem cada uma o seu resultado e que o id de Produto de uma Conta usado pela outra é
   recusado sem alterar nada. Os casos de uso do estoque têm o
   seu nas duas direções: a lista de estoque baixo de uma conta não traz o produto de outra, e o
@@ -636,7 +644,7 @@ monetários são `numeric(12,2)` e timestamps são `timestamptz` gravados em UTC
 | **Venda** | `Venda` | `ItemVenda`, `Pagamento`, `Recebimento` | `valor_total` reflete a soma dos itens menos o desconto; numa Venda concluída, pagamentos confirmados e FIADO pendente cobrem o total, e os recebimentos não excedem o FIADO | Implementado: regras conferidas também ao remontar o agregado do banco. CANCELADA é estado final, com itens, parcelas e recebimentos preservados |
 | **Caixa** | `SessaoCaixa` | `MovimentoCaixa` | `valor_fechamento_esperado` reflete o valor de abertura mais a soma assinada dos movimentos | Implementado |
 | **Produto** | `Produto` | `MovimentoEstoque` | `estoque_atual` reflete a soma dos movimentos, atualizado na mesma transação | Implementado para os três tipos, a saída por venda, a entrada do cancelamento e o ajuste manual: o único método que escreve o saldo exige o movimento junto, o ajuste sem motivo não passa pela raiz, e não se devolve o que não saiu |
-| Entidade única | `Conta`, `Usuario`, `Cliente` | nenhum | são agregados de uma entidade só; a marca do primeiro acesso da Conta só avança uma vez | Implementado |
+| Entidade única | `Conta`, `Usuario`, `Cliente` | nenhum | são agregados de uma entidade só; a marca do primeiro acesso da Conta só avança uma vez; a remoção do Cliente anonimiza a linha e a inativação do Usuário apaga sua credencial | Implementado |
 
 Referência que cruza agregado é sempre por ID, nunca um `@ManyToOne` navegável. É o que impede
 editar um agregado através de outro.
@@ -712,8 +720,8 @@ editar um agregado através de outro.
   registro da operação.
 - **O registro das operações sincronizadas** guarda, por Conta, cada gesto como o dispositivo o
   enviou, o autor, o resultado, o motivo da revisão ou da recusa e o instante de recebimento. É
-  gravado na mesma transação do efeito, e o gesto e o resultado nunca mudam: a única escrita depois
-  é a conferência do administrador, com quem e quando. O índice único pela Conta e pelo id da
+  gravado na mesma transação do efeito. Depois, o ADMIN pode conferir a revisão ou recusa, e a
+  remoção de um Cliente anonimiza o payload dos gestos dele. O índice único pela Conta e pelo id da
   operação é o que torna o reenvio inofensivo. Não é agregado de domínio: não tem regra de negócio,
   só a memória do que já foi aplicado.
 - **As tabelas de venda, item de venda, produto, pagamento e movimento de caixa têm um segundo
@@ -862,7 +870,8 @@ northflank.json             template da hospedagem: banco, builds, serviço, job
 operacao
 ├── copia/                  imagem do job, cópia cifrada de hora em hora, restauração e conferência
 ├── carga/                  carga de correção contra uma instalação
-└── ensaio/                 a produção em miniatura, nos limites dos planos da hospedagem
+├── ensaio/                 a produção em miniatura, nos limites dos planos da hospedagem
+└── exclusao/               encerramento da Conta e remoção dos seus dados
 src
 ├── main
 │   ├── java/br/com/caixasimples
@@ -876,7 +885,7 @@ src
 │   │   ├── relatorios/     application, web, internal
 │   │   └── sincronizacao/  a porta que os módulos donos implementam; application, web, internal
 │   └── resources
-│       └── db/migration/   V1 a V20, imutáveis depois de publicadas
+│       └── db/migration/   V1 a V21, imutáveis depois de publicadas
 ├── test/java/br/com/caixasimples
 │   ├── ModularityTests     fitness function das fronteiras
 │   ├── TesteDeIntegracao   base com Testcontainers, herdada pelos testes de banco
@@ -887,7 +896,7 @@ frontend
 │   ├── offline/            fila, retratos locais, envio da fila, cadastro, caixa e Venda no dispositivo, pedido de armazenamento persistente
 │   ├── sessao/             token e identidade no dispositivo, provedor de sessão
 │   ├── shell/              cabeçalho com os avisos da fila, envio automático, navegação por perfil, guardas de rota
-│   └── telas/              login, produto, cliente, caixa, Venda, faturamento, usuários, configuração, estoque e sincronização
+│   └── telas/              login, privacidade, produto, cliente, caixa, Venda, faturamento, usuários, configuração, estoque e sincronização
 ├── public/                 ícones e manifest
 └── vite.config.ts          build, service worker e o proxy de desenvolvimento para a API
 ```

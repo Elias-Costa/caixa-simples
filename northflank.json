@@ -5,7 +5,10 @@
     "COPIA_BUCKET": "",
     "COPIA_CHAVE_PUBLICA": "",
     "COPIA_AWS_ACCESS_KEY_ID": "",
-    "COPIA_AWS_SECRET_ACCESS_KEY": ""
+    "COPIA_AWS_SECRET_ACCESS_KEY": "",
+    "REMOCOES_BUCKET": "",
+    "REMOCOES_AWS_ACCESS_KEY_ID": "",
+    "REMOCOES_AWS_SECRET_ACCESS_KEY": ""
   },
   "spec": {
     "kind": "Workflow",
@@ -114,7 +117,7 @@
                           "dockerfile": {
                             "buildEngine": "buildkit",
                             "dockerFilePath": "/operacao/copia/Dockerfile",
-                            "dockerWorkDir": "/operacao/copia",
+                            "dockerWorkDir": "/operacao",
                             "buildkit": {
                               "useCache": false
                             }
@@ -260,6 +263,31 @@
                       "RCLONE_CONFIG_S3_REGION": "sa-east-1",
                       "RCLONE_CONFIG_S3_ACCESS_KEY_ID": "${args.COPIA_AWS_ACCESS_KEY_ID}",
                       "RCLONE_CONFIG_S3_SECRET_ACCESS_KEY": "${args.COPIA_AWS_SECRET_ACCESS_KEY}"
+                    },
+                    "files": {}
+                  }
+                }
+              },
+              {
+                "kind": "SecretGroup",
+                "ref": "segredosRemocoes",
+                "spec": {
+                  "name": "segredos-remocoes",
+                  "description": "Guarda o acesso de gravação ao registro externo de remoções.",
+                  "type": "secret",
+                  "secretType": "environment",
+                  "priority": 10,
+                  "restrictions": {
+                    "restricted": true,
+                    "nfObjects": [
+                      { "id": "caixa-simples", "type": "service" }
+                    ]
+                  },
+                  "secrets": {
+                    "variables": {
+                      "CAIXA_SIMPLES_REMOCOES_BUCKET": "${args.REMOCOES_BUCKET}",
+                      "AWS_ACCESS_KEY_ID": "${args.REMOCOES_AWS_ACCESS_KEY_ID}",
+                      "AWS_SECRET_ACCESS_KEY": "${args.REMOCOES_AWS_SECRET_ACCESS_KEY}"
                     },
                     "files": {}
                   }

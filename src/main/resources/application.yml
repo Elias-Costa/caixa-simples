@@ -90,3 +90,5 @@ management:
 logging:
   level:
     br.com.caixasimples: INFO
+    # O banco pode incluir e-mail e contato na mensagem de uma violação de unicidade.
+    org.hibernate.orm.jdbc.error: OFF

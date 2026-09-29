@@ -74,7 +74,9 @@ services:
   # hospedagem; a hora da cópia diária pode ser trocada no comando, para exercitar os dois.
   copia:
     profiles: [copia]
-    build: ../copia
+    build:
+      context: ..
+      dockerfile: copia/Dockerfile
     image: caixa-simples-copia:ensaio
     depends_on:
       banco:
@@ -117,8 +119,26 @@ services:
       CAIXA_SIMPLES_RESTAURAR_BANCO: postgresql://restaurado@restaurado:5432/restaurado
       PGPASSWORD: ${ENSAIO_SENHA_DO_BANCO:-ensaio}
       CAIXA_SIMPLES_COPIA_CHAVE_PRIVADA: /chave/chave-privada.txt
+      CAIXA_SIMPLES_REMOCOES_DESTINO: /remocoes
     volumes:
       - copias:/copias:ro
+      - remocoes:/remocoes:ro
+
+  encerrar:
+    profiles: [exclusao]
+    image: caixa-simples-copia:ensaio
+    depends_on:
+      banco:
+        condition: service_healthy
+    entrypoint: ["sh", "/exclusao/encerrar-conta.sh"]
+    environment:
+      CAIXA_SIMPLES_ENCERRAR_BANCO: postgresql://caixa_simples@banco:5432/caixa_simples
+      PGPASSWORD: ${ENSAIO_SENHA_DO_BANCO:-ensaio}
+      CAIXA_SIMPLES_REMOCOES_DESTINO: /remocoes
+      CAIXA_SIMPLES_SEGREDOS_REMOVIDOS: sim
+    volumes:
+      - remocoes:/remocoes
 
 volumes:
   copias:
+  remocoes:

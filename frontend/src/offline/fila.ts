@@ -147,10 +147,104 @@ export async function guardarRetratos(retratos: { tipo: string; dados: unknown }
   const banco = await abrirBanco()
   try {
     conferirDono(dono, sessao)
-    const transacao = banco.transaction('retratos', 'readwrite')
+    const transacao = banco.transaction(['retratos', 'gestos'], 'readwrite')
+    const armazenados = transacao.objectStore('retratos')
     for (const { tipo, dados } of retratos) {
-      await transacao.store.put({ chave: `${conta}\u0000${tipo}`, conta, tipo,
+      await armazenados.put({ chave: `${conta}\u0000${tipo}`, conta, tipo,
         dados: structuredClone(dados), ordemDaLeitura })
+    }
+    const tiposLidos = new Set(retratos.map((retrato) => retrato.tipo))
+    const clientesCompletos = tiposLidos.has('clientesAtivos') && tiposLidos.has('clientesInativos')
+    const gestos = transacao.objectStore('gestos')
+    let cursor = await gestos.index('porDono').openCursor(dono)
+    while (cursor) {
+      const gesto = cursor.value
+      const cadastroLido = gesto.tipo.startsWith('produto.') && tiposLidos.has('produtos')
+        || gesto.tipo.startsWith('cliente.') && clientesCompletos
+      if (gesto.estado === 'sent' && gesto.ordemDoResultado !== undefined
+        && gesto.ordemDoResultado <= ordemDaLeitura && cadastroLido) {
+        await cursor.delete()
+      }
+      cursor = await cursor.continue()
+    }
+    await transacao.done
+    conferirDono(dono, sessao)
+  } finally {
+    banco.close()
+  }
+}
+
+/** A sessão lida só cobre os próprios movimentos, que podem ter ordens diferentes das demais. */
+export async function descartarGestosEnviadosDoCaixa(sessoes: { id: string; ordemDaLeitura?: number }[]): Promise<void> {
+  const { dono, sessao } = donoDaSessao()
+  const leituras = new Map(sessoes.map((item) => [item.id, item.ordemDaLeitura]))
+  const banco = await abrirBanco()
+  try {
+    conferirDono(dono, sessao)
+    const transacao = banco.transaction('gestos', 'readwrite')
+    let cursor = await transacao.store.index('porDono').openCursor(dono)
+    while (cursor) {
+      const gesto = cursor.value
+      const ordem = leituras.get(gesto.registroId)
+      if (gesto.estado === 'sent' && gesto.tipo.startsWith('caixa.')
+        && ordem !== undefined && gesto.ordemDoResultado !== undefined
+        && gesto.ordemDoResultado <= ordem) await cursor.delete()
+      cursor = await cursor.continue()
+    }
+    await transacao.done
+    conferirDono(dono, sessao)
+  } finally {
+    banco.close()
+  }
+}
+
+/** A remoção confirmada pelo servidor não pode reaparecer de um retrato antigo no aparelho. */
+export async function guardarClienteRemovido(clienteId: string): Promise<void> {
+  const { dono, conta, sessao } = donoDaSessao()
+  const banco = await abrirBanco()
+  try {
+    conferirDono(dono, sessao)
+    const transacao = banco.transaction(['retratos', 'gestos'], 'readwrite')
+    const armazenados = transacao.objectStore('retratos')
+    const chave = `${conta}\u0000clientesRemovidos`
+    const anterior = await armazenados.get(chave)
+    const ids = new Set((anterior?.dados ?? []) as string[])
+    ids.add(clienteId)
+    await armazenados.put({ chave, conta, tipo: 'clientesRemovidos', dados: [...ids] })
+    for (const tipo of ['clientesAtivos', 'clientesInativos']) {
+      const chaveDaLista = `${conta}\u0000${tipo}`
+      const lista = await armazenados.get(chaveDaLista)
+      if (lista && Array.isArray(lista.dados)) {
+        await armazenados.put({ ...lista, dados: (lista.dados as { id: string }[])
+          .filter((cliente) => cliente.id !== clienteId) })
+      }
+    }
+    let cursor = await transacao.objectStore('gestos').index('porDono').openCursor(dono)
+    while (cursor) {
+      if (cursor.value.estado === 'sent' && cursor.value.tipo.startsWith('cliente.')
+        && cursor.value.registroId === clienteId) await cursor.delete()
+      cursor = await cursor.continue()
+    }
+    await transacao.done
+    conferirDono(dono, sessao)
+  } finally {
+    banco.close()
+  }
+}
+
+/** A consulta da Venda no servidor prova que seus gestos enviados já estão na raiz lida. */
+export async function descartarGestosEnviadosDaVenda(vendaId: string): Promise<void> {
+  const { dono, sessao } = donoDaSessao()
+  const banco = await abrirBanco()
+  try {
+    conferirDono(dono, sessao)
+    const transacao = banco.transaction('gestos', 'readwrite')
+    let cursor = await transacao.store.index('porDono').openCursor(dono)
+    while (cursor) {
+      const gesto = cursor.value
+      if (gesto.estado === 'sent' && gesto.tipo.startsWith('venda.')
+        && gesto.registroId === vendaId) await cursor.delete()
+      cursor = await cursor.continue()
     }
     await transacao.done
     conferirDono(dono, sessao)
@@ -174,6 +268,21 @@ export async function lerRetrato<T>(tipo: string): Promise<Retrato<T> | null> {
     return retrato
       ? { dados: structuredClone(retrato.dados) as T, ordemDaLeitura: retrato.ordemDaLeitura ?? 0 }
       : null
+  } finally {
+    banco.close()
+  }
+}
+
+/** Retratos de Venda lidos do servidor e mantidos para consulta sem rede. */
+export async function listarRetratosDeVendas<T>(): Promise<T[]> {
+  const { dono, conta, sessao } = donoDaSessao()
+  const banco = await abrirBanco()
+  try {
+    conferirDono(dono, sessao)
+    const retratos = await banco.getAll('retratos')
+    conferirDono(dono, sessao)
+    return retratos.filter((retrato) => retrato.conta === conta && retrato.tipo.startsWith('venda:'))
+      .map((retrato) => structuredClone(retrato.dados) as T)
   } finally {
     banco.close()
   }

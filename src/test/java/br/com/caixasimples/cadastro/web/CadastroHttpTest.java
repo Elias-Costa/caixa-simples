@@ -41,6 +41,27 @@ class CadastroHttpTest extends TesteDeIntegracao {
     @Autowired ObjectMapper json;
 
     @Test
+    void removerClienteExigeAdminEIsolaContas() throws Exception {
+        ContaCriada dona = criador.criar("Conta que remove", SENHA);
+        ContaCriada outra = criador.criar("Outra conta ativa", SENHA);
+        ContaCriada operador = criador.criar("Conta do operador", SENHA, Perfil.OPERADOR, true);
+        UUID clienteId = UUID.fromString(json.readTree(http.perform(post("/api/clientes")
+                        .with(autenticador.como(dona)).contentType(MediaType.APPLICATION_JSON)
+                        .content(CLIENTE))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString())
+                .get("id").asText());
+
+        http.perform(post("/api/clientes/{id}/remover", clienteId)
+                .with(autenticador.como(operador))).andExpect(status().isForbidden());
+        http.perform(post("/api/clientes/{id}/remover", clienteId)
+                .with(autenticador.como(outra))).andExpect(status().isNotFound());
+        http.perform(post("/api/clientes/{id}/remover", clienteId)
+                .with(autenticador.como(dona))).andExpect(status().isNoContent());
+        http.perform(get("/api/clientes").with(autenticador.como(dona)))
+                .andExpect(jsonPath("$").isEmpty());
+    }
+
+    @Test
     void produtoCadastroEdicaoInativacaoEIsolamento() throws Exception {
         ContaCriada contaA = criador.criar("Cafeteria A", SENHA);
         ContaCriada contaB = criador.criar("Cafeteria B", SENHA);

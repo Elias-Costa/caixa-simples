@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { Navigate, useNavigate } from 'react-router'
+import { Link, Navigate, useNavigate } from 'react-router'
 import { ErroDaApi, SemConexao } from '../api/cliente'
 import { useSessao } from '../sessao/useSessao'
 
@@ -68,6 +68,7 @@ export function TelaDeLogin() {
         <button type="submit" className="botao botao--largo" disabled={enviando}>
           {enviando ? 'Entrando...' : 'Entrar'}
         </button>
+        <p><Link to="/privacidade">Aviso de privacidade</Link></p>
       </form>
     </main>
   )

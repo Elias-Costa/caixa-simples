@@ -49,6 +49,8 @@ const remoto = {
     chamarApi<void>(`/api/clientes/${id}/inativar`, { metodo: 'POST' }),
   reativarCliente: (id: string) =>
     chamarApi<void>(`/api/clientes/${id}/reativar`, { metodo: 'POST' }),
+  removerCliente: (id: string) =>
+    chamarApi<void>(`/api/clientes/${id}/remover`, { metodo: 'POST' }),
 }
 
 export const cadastro = criarCadastroLocal(remoto)

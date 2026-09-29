@@ -11,6 +11,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import br.com.caixasimples.TesteDeIntegracao;
 import br.com.caixasimples.cadastro.TipoProduto;
+import br.com.caixasimples.cadastro.internal.ClienteService;
 import br.com.caixasimples.cadastro.application.ProdutoService;
 import br.com.caixasimples.cadastro.application.ProdutoService.DadosDoProduto;
 import br.com.caixasimples.cadastro.internal.ProdutoRepository;
@@ -65,6 +66,7 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
     @Autowired ObjectMapper json;
     @Autowired CriadorDeContaDeTeste criador;
     @Autowired ProdutoService produtos;
+    @Autowired ClienteService clientes;
     @Autowired ProdutoRepository linhasDeProduto;
     @Autowired SessaoCaixaService sessoes;
     @Autowired SessaoCaixaRepository linhasDeSessao;
@@ -75,6 +77,25 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
     void limparContexto() {
         TenantContext.limpar();
         UsuarioContext.limpar();
+    }
+
+    @Test
+    @DisplayName("remover Cliente apaga o payload do lote e o gesto antigo entra em conflito")
+    void remocaoAnonimizaRegistroDoLote() {
+        ContaCriada conta = criador.criar("Conta com gesto removido", SENHA);
+        UUID clienteId = UUID.randomUUID();
+        GestoDeTeste gesto = GestoDeTeste.de("cliente.criar", clienteId,
+                conteudo("nome", "Nome pessoal", "contato", "contato@exemplo.test"));
+        assertThat(conta.comoUsuario(() -> sincronizacao.sincronizar(recebidas(List.of(gesto)))))
+                .extracting(ResultadoDaOperacao::resultado).containsExactly(Resultado.APLICADA);
+
+        conta.comoUsuario(() -> clientes.remover(clienteId));
+        conta.comoUsuario(() -> assertThat(registros.findByOperacaoId(gesto.operacaoId())
+                .orElseThrow().getPayload()).isEqualTo("{}"));
+        assertThat(conta.comoUsuario(() -> sincronizacao.sincronizar(recebidas(List.of(gesto)))))
+                .extracting(ResultadoDaOperacao::resultado).containsExactly(Resultado.NAO_APLICADA);
+        conta.comoUsuario(() -> assertThat(clientes.consultar(clienteId).nome())
+                .isEqualTo("Cliente removido"));
     }
 
     @Test

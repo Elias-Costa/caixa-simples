@@ -240,6 +240,47 @@ class UsuarioServiceTest extends TesteDeIntegracao {
                         .isEqualTo(true));
     }
 
+    @Test
+    @DisplayName("inativar apaga o login, libera o e-mail e permite anonimizar o nome a pedido")
+    void inativacaoEAnonimizacao() throws Exception {
+        ContaCriada conta = criador.criar("Conta com usuário removido", SENHA_DE_TESTE);
+        criador.trocarPlano(conta.contaId(), Plano.COMPLETO);
+        String email = "removido-" + UUID.randomUUID() + "@exemplo.test";
+        UUID primeiro = conta.comoUsuario(() -> usuarioService.criar(
+                "Nome pessoal", Perfil.OPERADOR, email, SENHA_DO_OPERADOR));
+
+        conta.comoUsuario(() -> usuarioService.inativar(primeiro));
+        http.perform(login(email, SENHA_DO_OPERADOR)).andExpect(status().isUnauthorized());
+        conta.comoUsuario(() -> usuarioService.anonimizarNome(primeiro));
+        conta.comoUsuario(() -> assertThat(usuarioService.listar())
+                .filteredOn(usuario -> usuario.id().equals(primeiro))
+                .singleElement().extracting(UsuarioDaConta::nome)
+                .isEqualTo("Usuário removido"));
+
+        UUID segundo = conta.comoUsuario(() -> usuarioService.criar(
+                "Novo usuário", Perfil.OPERADOR, email, SENHA_DO_OPERADOR));
+        assertThat(segundo).isNotEqualTo(primeiro);
+        assertThat(entrar(email, SENHA_DO_OPERADOR)).isNotBlank();
+    }
+
+    @Test
+    @DisplayName("pedido de outra Conta não anonimiza o Usuário")
+    void anonimizarNomeIsolaContas() {
+        ContaCriada dona = criador.criar("Dona do usuário", SENHA_DE_TESTE);
+        ContaCriada outra = criador.criar("Outra usuária", SENHA_DE_TESTE);
+        criador.trocarPlano(dona.contaId(), Plano.COMPLETO);
+        UUID id = dona.comoUsuario(() -> usuarioService.criar("Nome pessoal", Perfil.OPERADOR,
+                "isolado-" + UUID.randomUUID() + "@exemplo.test", SENHA_DO_OPERADOR));
+        dona.comoUsuario(() -> usuarioService.inativar(id));
+
+        assertThatExceptionOfType(UsuarioNaoEncontradoException.class).isThrownBy(() ->
+                outra.comoUsuario(() -> usuarioService.anonimizarNome(id)));
+        dona.comoUsuario(() -> assertThat(usuarioService.listar())
+                .filteredOn(usuario -> usuario.id().equals(id))
+                .singleElement().extracting(UsuarioDaConta::nome)
+                .isEqualTo("Nome pessoal"));
+    }
+
     private String entrar(String email, String senha) throws Exception {
         String corpo = http.perform(login(email, senha))
                 .andExpect(status().isOk())

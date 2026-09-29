@@ -66,7 +66,7 @@ class SeedDeConta implements ApplicationRunner {
         exigirPreenchido(propriedades.senha(), "caixa-simples.seed.senha");
 
         if (credenciais.existsByEmailIgnoreCase(propriedades.email())) {
-            log.info("Ja existe credencial para {}; nada a fazer.", propriedades.email());
+            log.info("Ja existe credencial; nada a fazer.");
             return;
         }
 
@@ -87,7 +87,7 @@ class SeedDeConta implements ApplicationRunner {
                             usuario.getId(), contaId));
                 }));
 
-        log.info("Conta {} criada para {}", contaId, propriedades.email());
+        log.info("Conta {} criada", contaId);
     }
 
     private static void exigirPreenchido(String valor, String propriedade) {

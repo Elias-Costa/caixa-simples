@@ -23,7 +23,7 @@ const cafe: Produto = {
 const buscar = vi.fn(async () => { throw new TypeError('sem rede') })
 // Cada gesto abre o IndexedDB simulado mais de uma vez; com a suíte inteira em paralelo, a espera
 // padrão de um segundo não basta para receber, concluir e montar o comprovante.
-const espera = { timeout: 5000 }
+const espera = { timeout: 10000 }
 
 beforeEach(async () => {
   await deleteDB('caixa-simples-offline')
@@ -69,7 +69,15 @@ describe('PDV sem rede', () => {
 
     fireEvent.click(screen.getByLabelText('Valor recebido em dinheiro'))
     fireEvent.change(screen.getByLabelText('Valor recebido em dinheiro'), { target: { value: '20.00' } })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Receber e concluir' })).toBeEnabled(), espera)
     fireEvent.click(screen.getByRole('button', { name: 'Receber e concluir' }))
+
+    await waitFor(async () => {
+      expect((await listarGestos()).map((gesto) => gesto.tipo).sort()).toEqual([
+        'caixa.abrir', 'venda.adicionarItem', 'venda.concluir', 'venda.iniciar',
+        'venda.registrarPagamento',
+      ])
+    }, espera)
 
     const comprovante = await screen.findByLabelText('Comprovante não fiscal', undefined, espera)
     expect(comprovante).toHaveTextContent('Pendente de sincronização com o servidor')
@@ -79,10 +87,6 @@ describe('PDV sem rede', () => {
       .toContain('Troco: R$ 7,50')
     expect(toques).toBeLessThanOrEqual(6)
     document.removeEventListener('click', contar)
-    await waitFor(async () => expect((await listarGestos()).map((gesto) => gesto.tipo).sort()).toEqual([
-      'caixa.abrir', 'venda.adicionarItem', 'venda.concluir', 'venda.iniciar', 'venda.registrarPagamento',
-    ]))
-
     tela.unmount()
     mostrar()
     fireEvent.click(await screen.findByRole('button', { name: /CONCLUIDA.*pendente de sincronização/ }, espera))

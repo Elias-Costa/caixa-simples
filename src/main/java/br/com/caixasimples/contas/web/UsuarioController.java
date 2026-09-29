@@ -54,6 +54,12 @@ class UsuarioController {
         return ResponseEntity.noContent().build();
     }
 
+    @PostMapping("/{id}/anonimizar")
+    ResponseEntity<Void> anonimizar(@PathVariable UUID id) {
+        usuarios.anonimizarNome(id);
+        return ResponseEntity.noContent().build();
+    }
+
     @ExceptionHandler(UsuarioNaoEncontradoException.class)
     ProblemDetail naoEncontrado(UsuarioNaoEncontradoException excecao) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, excecao.getMessage());

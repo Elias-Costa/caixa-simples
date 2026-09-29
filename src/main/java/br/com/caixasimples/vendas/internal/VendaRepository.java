@@ -30,6 +30,8 @@ public interface VendaRepository extends JpaRepository<VendaEntity, UUID> {
 
     List<VendaEntity> findByClienteIdAndStatus(UUID clienteId, StatusVenda status);
 
+    boolean existsByClienteIdAndStatus(UUID clienteId, StatusVenda status);
+
     List<VendaEntity> findByStatus(StatusVenda status);
 
     /**

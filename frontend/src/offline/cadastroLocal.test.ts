@@ -9,7 +9,7 @@ import type { Identidade } from '../sessao/Identidade'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
 import { criarCadastroLocal } from './cadastroLocal'
 import { enviarFila } from './envio'
-import { guardarRetrato, lerRetrato, listarGestos } from './fila'
+import { enfileirarGesto, guardarRetrato, lerRetrato, listarGestos, mudarEstadoDoGesto } from './fila'
 
 const ana: Identidade = {
   contaId: 'conta-a', usuarioId: 'ana', nome: 'Ana', nomeNegocio: 'Cafeteria Aurora',
@@ -38,6 +38,7 @@ function remoto(produtos: Produto[] = [], clientes: Cliente[] = []) {
     editarCliente: vi.fn(async (_id: string, _dados: DadosDoCliente) => undefined),
     inativarCliente: vi.fn(async (_id: string) => undefined),
     reativarCliente: vi.fn(async (_id: string) => undefined),
+    removerCliente: vi.fn(async (_id: string) => undefined),
   }
 }
 
@@ -51,6 +52,25 @@ beforeEach(async () => {
 afterEach(() => vi.restoreAllMocks())
 
 describe('cadastro local', () => {
+  it('remove Cliente online e limpa o retrato e o gesto enviado neste aparelho', async () => {
+    entrar(ana)
+    rede(true)
+    const id = '00000000-0000-4000-8000-000000000009'
+    const servidor = remoto([], [{ id, versao: 1, nome: 'Nome pessoal', contato: 'contato' }])
+    const cadastro = criarCadastroLocal(servidor)
+    await cadastro.clientes()
+    const gesto = await enfileirarGesto({ tipo: 'cliente.editar', registroId: id,
+      payload: { nome: 'Nome pessoal', contato: 'contato' } })
+    await mudarEstadoDoGesto(gesto.operacaoId, 'queued', 'syncing')
+    await mudarEstadoDoGesto(gesto.operacaoId, 'syncing', 'sent', { aplicada: true })
+
+    await cadastro.removerCliente(id)
+    expect(servidor.removerCliente).toHaveBeenCalledWith(id)
+    expect(await listarGestos()).toEqual([])
+    rede(false)
+    expect(await cadastro.clientes()).toEqual([])
+  })
+
   it('guarda o catálogo já copiado no servidor e edita Produto e Cliente sem rede após recarga', async () => {
     entrar(ana)
     rede(true)

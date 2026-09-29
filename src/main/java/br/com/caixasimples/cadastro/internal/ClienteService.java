@@ -1,17 +1,29 @@
 package br.com.caixasimples.cadastro.internal;
 
+import br.com.caixasimples.cadastro.PendenciasDoCliente;
+import br.com.caixasimples.shared.ClienteRemovido;
 import br.com.caixasimples.shared.ContaId;
+import br.com.caixasimples.shared.Money;
+import br.com.caixasimples.shared.RegistroDeRemocoes;
+import br.com.caixasimples.shared.RegistroDeRemocoes.Tipo;
+import br.com.caixasimples.shared.TenantContext;
+import br.com.caixasimples.shared.UsuarioContext;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
+import jakarta.persistence.LockModeType;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import org.hibernate.annotations.TenantId;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,17 +42,24 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>Não existe busca por nome nem vínculo com venda aqui: a busca durante a venda nasce com o
  * módulo de vendas, e a venda referencia o cliente apenas por UUID.
  *
- * <p><strong>Os dois perfis chamam.</strong> Ao contrário do cadastro de produto, que é do
+ * <p><strong>Os dois perfis cadastram e editam.</strong> Ao contrário do cadastro de produto, que é do
  * administrador, o cliente costuma ser cadastrado no balcão, na hora da venda, por quem está
- * atendendo; por isso nenhum caso de uso daqui pergunta o perfil de quem chama.
+ * atendendo. A remoção de dados pessoais exige ADMIN.
  */
 @Service
 public class ClienteService {
 
     private final ClienteRepository clientes;
+    private final PendenciasDoCliente pendencias;
+    private final RegistroDeRemocoes registroDeRemocoes;
+    private final ApplicationEventPublisher eventos;
 
-    ClienteService(ClienteRepository clientes) {
+    ClienteService(ClienteRepository clientes, PendenciasDoCliente pendencias,
+            RegistroDeRemocoes registroDeRemocoes, ApplicationEventPublisher eventos) {
         this.clientes = clientes;
+        this.pendencias = pendencias;
+        this.registroDeRemocoes = registroDeRemocoes;
+        this.eventos = eventos;
     }
 
     /**
@@ -112,32 +131,63 @@ public class ClienteService {
         clientes.save(linha);
     }
 
+    /** A remoção preserva o id da Venda, mas retira a identidade do Cliente e suas cópias. */
+    @Transactional
+    public void remover(UUID id) {
+        UsuarioContext.exigirAdmin();
+        Objects.requireNonNull(id, "id do cliente nao pode ser nulo");
+        ClienteEntity linha = clientes.buscarParaRemocao(id)
+                .orElseThrow(() -> new ClienteNaoEncontradoException(id));
+        if (linha.isRemovido()) {
+            return;
+        }
+        Money saldo = pendencias.saldoDevedor(id);
+        if (!saldo.equals(Money.ZERO)) {
+            throw new IllegalStateException("cliente com saldo devedor de " + saldo
+                    + " nao pode ser removido");
+        }
+        if (pendencias.temComandaAberta(id)) {
+            throw new IllegalStateException("cliente vinculado a comanda aberta nao pode ser removido");
+        }
+        Instant instante = Instant.now();
+        registroDeRemocoes.registrar(Tipo.CLIENTE, id, instante,
+                UsuarioContext.exigirAtual().usuarioId());
+        linha.remover(instante);
+        clientes.save(linha);
+        eventos.publishEvent(new ClienteRemovido(TenantContext.exigirAtual(), id));
+    }
+
     /** Clientes da conta. Cliente inativado não aparece aqui, que é o efeito visível do RF05. */
     @Transactional(readOnly = true)
     public List<Cliente> listarAtivos() {
-        return clientes.findByAtivoTrue().stream().map(ClienteEntity::paraCliente).toList();
+        return clientes.findByAtivoTrueAndRemovidoEmIsNull().stream()
+                .map(ClienteEntity::paraCliente).toList();
     }
 
     @Transactional(readOnly = true)
     public List<ClienteComVersao> listarAtivosComVersao() {
-        return clientes.findByAtivoTrue().stream().map(ClienteEntity::paraClienteComVersao).toList();
+        return clientes.findByAtivoTrueAndRemovidoEmIsNull().stream()
+                .map(ClienteEntity::paraClienteComVersao).toList();
     }
 
     /** A tela mostra os inativos em separado para permitir reativar sem expor exclusão física. */
     @Transactional(readOnly = true)
     public List<Cliente> listarInativos() {
-        return clientes.findByAtivoFalse().stream().map(ClienteEntity::paraCliente).toList();
+        return clientes.findByAtivoFalseAndRemovidoEmIsNull().stream()
+                .map(ClienteEntity::paraCliente).toList();
     }
 
     @Transactional(readOnly = true)
     public List<ClienteComVersao> listarInativosComVersao() {
-        return clientes.findByAtivoFalse().stream().map(ClienteEntity::paraClienteComVersao).toList();
+        return clientes.findByAtivoFalseAndRemovidoEmIsNull().stream()
+                .map(ClienteEntity::paraClienteComVersao).toList();
     }
 
     /** O vínculo de uma Venda nova exige Cliente desta Conta e ainda ativo. */
-    @Transactional(readOnly = true)
+    @Transactional
     public boolean consultarSeAtivo(UUID id) {
-        return buscar(id).isAtivo();
+        return clientes.buscarParaVinculo(id)
+                .orElseThrow(() -> new ClienteNaoEncontradoException(id)).isAtivo();
     }
 
     /** Histórico de fiado também pode consultar o nome de um Cliente inativo. */
@@ -221,6 +271,9 @@ class ClienteEntity {
     /** Opcional: telefone ou e-mail. Em branco é gravado como ausente, nunca vazio. */
     private String contato;
 
+    @Column(name = "removido_em")
+    private Instant removidoEm;
+
     /** Soft delete (RF05): preserva a referência das vendas já registradas para este cliente. */
     @Column(nullable = false)
     private boolean ativo;
@@ -247,6 +300,7 @@ class ClienteEntity {
      * que não aparece em listagem nenhuma.
      */
     void alterar(String nome, String contato) {
+        exigirNaoRemovido();
         if (!ativo) {
             throw new IllegalStateException(
                     "cliente inativo nao pode ser editado; reative antes: " + id);
@@ -256,11 +310,31 @@ class ClienteEntity {
     }
 
     void inativar() {
+        exigirNaoRemovido();
         this.ativo = false;
     }
 
     void reativar() {
+        exigirNaoRemovido();
         this.ativo = true;
+    }
+
+    void remover(Instant instante) {
+        exigirNaoRemovido();
+        this.nome = "Cliente removido";
+        this.contato = null;
+        this.ativo = false;
+        this.removidoEm = Objects.requireNonNull(instante, "instante nao pode ser nulo");
+    }
+
+    boolean isRemovido() {
+        return removidoEm != null;
+    }
+
+    private void exigirNaoRemovido() {
+        if (isRemovido()) {
+            throw new IllegalStateException("cliente removido nao pode ser alterado");
+        }
     }
 
     private static String exigirNome(String nome) {
@@ -318,7 +392,15 @@ class ClienteEntity {
  */
 interface ClienteRepository extends JpaRepository<ClienteEntity, UUID> {
 
-    List<ClienteEntity> findByAtivoTrue();
+    List<ClienteEntity> findByAtivoTrueAndRemovidoEmIsNull();
 
-    List<ClienteEntity> findByAtivoFalse();
+    List<ClienteEntity> findByAtivoFalseAndRemovidoEmIsNull();
+
+    @Lock(LockModeType.PESSIMISTIC_READ)
+    @Query("select c from ClienteEntity c where c.id = :id")
+    java.util.Optional<ClienteEntity> buscarParaVinculo(@Param("id") UUID id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select c from ClienteEntity c where c.id = :id")
+    java.util.Optional<ClienteEntity> buscarParaRemocao(@Param("id") UUID id);
 }

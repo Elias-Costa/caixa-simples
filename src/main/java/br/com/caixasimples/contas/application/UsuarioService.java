@@ -9,9 +9,12 @@ import br.com.caixasimples.contas.internal.Usuario;
 import br.com.caixasimples.contas.internal.UsuarioRepository;
 import br.com.caixasimples.shared.ContaId;
 import br.com.caixasimples.shared.Perfil;
+import br.com.caixasimples.shared.RegistroDeRemocoes;
+import br.com.caixasimples.shared.RegistroDeRemocoes.Tipo;
 import br.com.caixasimples.shared.TenantContext;
 import br.com.caixasimples.shared.UsuarioContext;
 import java.util.List;
+import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -19,7 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Gestão de usuários da conta em operação (RF29): criar, listar e inativar.
+ * Gestão de usuários da conta em operação (RF29): criar, listar, inativar e anonimizar o nome.
  *
  * <p><strong>Só o administrador chama</strong>, e cada caso de uso pergunta isso na primeira
  * linha. A conta nunca chega por parâmetro: é a do contexto, como em {@link ContaService}, e o
@@ -42,14 +45,17 @@ public class UsuarioService {
     private final CredencialRepository credenciais;
     private final PasswordEncoder encoder;
     private final PoliticaDeSenha politica;
+    private final RegistroDeRemocoes registroDeRemocoes;
 
     UsuarioService(ContaRepository contas, UsuarioRepository usuarios,
-            CredencialRepository credenciais, PasswordEncoder encoder, PoliticaDeSenha politica) {
+            CredencialRepository credenciais, PasswordEncoder encoder, PoliticaDeSenha politica,
+            RegistroDeRemocoes registroDeRemocoes) {
         this.contas = contas;
         this.usuarios = usuarios;
         this.credenciais = credenciais;
         this.encoder = encoder;
         this.politica = politica;
+        this.registroDeRemocoes = registroDeRemocoes;
     }
 
     /**
@@ -111,7 +117,7 @@ public class UsuarioService {
     }
 
     /**
-     * Soft delete: o usuário deixa de entrar na requisição seguinte e o histórico de vendas e de
+     * A linha do usuário fica inativa e a credencial é apagada. O histórico de vendas e de
      * caixas dele fica intacto. Um administrador pode inativar a si mesmo, desde que não seja o
      * último; a conta não pode ficar sem ninguém que a administre.
      *
@@ -132,7 +138,38 @@ public class UsuarioService {
             throw new UltimoAdministradorException(usuarioId);
         }
 
+        Credencial credencial = credenciais.findByUsuarioId(usuarioId).orElse(null);
+        if (credencial != null && !credencial.getContaId().equals(TenantContext.exigirAtual())) {
+            throw new IllegalStateException("credencial pertence a outra conta");
+        }
+        if (!usuario.isAtivo() && credencial == null) {
+            return;
+        }
+        registroDeRemocoes.registrar(Tipo.USUARIO, usuarioId, Instant.now(),
+                UsuarioContext.exigirAtual().usuarioId());
         usuario.inativar();
+        usuarios.save(usuario);
+        if (credencial != null) {
+            credenciais.delete(credencial);
+        }
+    }
+
+    /** A pedido, retira o nome do Usuário já inativo, sem tocar no histórico. */
+    @Transactional
+    public void anonimizarNome(UUID usuarioId) {
+        UsuarioContext.exigirAdmin();
+        Objects.requireNonNull(usuarioId, "usuarioId nao pode ser nulo");
+        Usuario usuario = usuarios.findById(usuarioId)
+                .orElseThrow(() -> new UsuarioNaoEncontradoException(usuarioId));
+        if (usuario.isAtivo()) {
+            throw new IllegalStateException("inative o usuario antes de remover o nome");
+        }
+        if ("Usuário removido".equals(usuario.getNome())) {
+            return;
+        }
+        registroDeRemocoes.registrar(Tipo.NOME_USUARIO, usuarioId, Instant.now(),
+                UsuarioContext.exigirAtual().usuarioId());
+        usuario.anonimizarNome();
         usuarios.save(usuario);
     }
 

@@ -8,8 +8,11 @@ import br.com.caixasimples.shared.TenantContext;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.DefaultApplicationArguments;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 
@@ -23,6 +26,7 @@ import org.springframework.test.context.TestPropertySource;
  * transação e a conta no contexto que o causa.
  */
 @ActiveProfiles("seed")
+@ExtendWith(OutputCaptureExtension.class)
 @TestPropertySource(properties = {
         "caixa-simples.seed.nome-negocio=Cafeteria Aurora",
         "caixa-simples.seed.tipo-negocio=cafeteria",
@@ -52,7 +56,7 @@ class SeedDeContaTest extends TesteDeIntegracao {
 
     @Test
     @DisplayName("na subida, cria a conta com o administrador dentro dela, e o login funciona")
-    void criaContaComAdministradorDentroDela() {
+    void criaContaComAdministradorDentroDela(CapturedOutput logs) {
         Credencial credencial = credenciais.findByEmailIgnoreCase(EMAIL).orElseThrow();
 
         Optional<Usuario> usuario = TenantContext.executarComo(credencial.getContaId(),
@@ -66,6 +70,7 @@ class SeedDeContaTest extends TesteDeIntegracao {
                 .extracting(Conta::getNomeNegocio, Conta::getTipoNegocio)
                 .containsExactly("Cafeteria Aurora", "cafeteria");
         assertThat(autenticacao.entrar(EMAIL, SENHA)).isNotBlank();
+        assertThat(logs.getAll()).doesNotContain(EMAIL, "Cafeteria Aurora", "Ana");
     }
 
     @Test

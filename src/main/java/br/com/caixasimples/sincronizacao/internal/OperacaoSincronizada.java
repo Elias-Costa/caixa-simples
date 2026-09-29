@@ -21,13 +21,14 @@ import org.hibernate.type.SqlTypes;
 /**
  * O resultado gravado de uma operação que o dispositivo enviou, com o gesto como ele chegou.
  *
- * <p>É gravado na mesma transação do efeito, e o gesto e o resultado nunca mudam depois: essas
- * colunas são {@code updatable = false}. O índice único da migration V19, pela conta e pelo id da
+ * <p>É gravado na mesma transação do efeito, e o resultado nunca muda depois. O payload pode ser
+ * anonimizado quando o Cliente é removido; o reenvio com o conteúdo antigo vira conflito. O índice
+ * único da migration V19, pela conta e pelo id da
  * operação, é o que impede que dois envios simultâneos da mesma operação apliquem o efeito duas
  * vezes.
  *
- * <p>A única escrita posterior é a conferência de uma revisão ou recusa pelo administrador, com
- * quem e quando, na migration V20. Conferir é registrar que alguém olhou: não desfaz nem refaz o
+ * <p>A conferência de uma revisão ou recusa pelo administrador, com quem e quando, é outra escrita
+ * posterior, na migration V20. Conferir é registrar que alguém olhou: não desfaz nem refaz o
  * efeito, e o reenvio da operação continua devolvendo o resultado gravado.
  *
  * <p>O conteúdo e as dependências ficam em {@code jsonb} como texto já serializado, e quem os
@@ -61,7 +62,7 @@ public class OperacaoSincronizada {
     private UUID registroId;
 
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(nullable = false, updatable = false)
+    @Column(nullable = false)
     private String payload;
 
     @Column(name = "versao_base", updatable = false)
@@ -84,7 +85,7 @@ public class OperacaoSincronizada {
     @Column(updatable = false)
     private Long versao;
 
-    @Column(updatable = false)
+    @Column
     private String detalhe;
 
     @Column(name = "conferida_em")
@@ -157,6 +158,17 @@ public class OperacaoSincronizada {
         }
         this.conferidaEm = instante;
         this.conferidaPor = administradorId;
+    }
+
+    /** Retira dados do Cliente sem permitir que o gesto antigo seja reaplicado no reenvio. */
+    public void anonimizarCliente() {
+        if (!tipo.startsWith("cliente.")) {
+            throw new IllegalStateException("somente gesto de cliente pode ser anonimizado");
+        }
+        payload = "{}";
+        if (detalhe != null) {
+            detalhe = "cliente removido";
+        }
     }
 
     public UUID getOperacaoId() {

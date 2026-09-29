@@ -1,6 +1,7 @@
 package br.com.caixasimples.cadastro.web;
 
 import br.com.caixasimples.cadastro.internal.ClienteService;
+import br.com.caixasimples.cadastro.internal.ClienteService.ClienteNaoEncontradoException;
 import br.com.caixasimples.cadastro.internal.ClienteService.ClienteComVersao;
 import br.com.caixasimples.cadastro.internal.ClienteService.DadosDoCliente;
 import jakarta.validation.Valid;
@@ -9,6 +10,9 @@ import java.net.URI;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -60,6 +64,17 @@ class ClienteController {
     ResponseEntity<Void> reativar(@PathVariable UUID id) {
         clientes.reativar(id);
         return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{id}/remover")
+    ResponseEntity<Void> remover(@PathVariable UUID id) {
+        clientes.remover(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @ExceptionHandler(ClienteNaoEncontradoException.class)
+    ProblemDetail naoEncontrado(ClienteNaoEncontradoException excecao) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, excecao.getMessage());
     }
 
     record PedidoDeCliente(@NotBlank String nome, String contato) {

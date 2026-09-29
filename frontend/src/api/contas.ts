@@ -23,6 +23,8 @@ export const contas = {
     chamarApi<{ id: string }>('/api/usuarios', { metodo: 'POST', corpo: dados }),
   inativarUsuario: (id: string) =>
     chamarApi<void>(`/api/usuarios/${id}/inativar`, { metodo: 'POST' }),
+  anonimizarUsuario: (id: string) =>
+    chamarApi<void>(`/api/usuarios/${id}/anonimizar`, { metodo: 'POST' }),
   configuracao: () => chamarApi<ConfiguracaoDaConta>('/api/conta/configuracao'),
   definirEstoque: (estoqueHabilitado: boolean) =>
     chamarApi<ConfiguracaoDaConta>('/api/conta/configuracao', {

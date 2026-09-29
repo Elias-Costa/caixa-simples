@@ -25,6 +25,9 @@ public interface OperacaoSincronizadaRepository
     /** Os resultados já gravados das operações de que outra depende. */
     List<OperacaoSincronizada> findByOperacaoIdIn(Collection<UUID> operacaoIds);
 
+    List<OperacaoSincronizada> findByRegistroIdAndTipoIn(UUID registroId,
+            Collection<String> tipos);
+
     /**
      * As operações com o resultado diferente do dado que ninguém conferiu, da que chegou primeiro
      * para a mais recente. Quem chama passa a aplicada sem pendência, e recebe revisões e recusas.

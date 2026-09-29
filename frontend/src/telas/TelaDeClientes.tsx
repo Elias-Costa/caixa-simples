@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { cadastro, type Cliente, type DadosDoCliente } from '../api/cadastro'
 import { listarGestos } from '../offline/fila'
+import { lerIdentidade } from '../sessao/armazenamento'
 import { erroDeCadastro } from './erroDeCadastro'
 
 export function TelaDeClientes() {
+  const podeRemover = lerIdentidade()?.perfil === 'ADMIN'
   const [ativos, setAtivos] = useState<Cliente[]>([])
   const [inativos, setInativos] = useState<Cliente[]>([])
   const [editando, setEditando] = useState<string | null>(null)
@@ -90,6 +92,17 @@ export function TelaDeClientes() {
     }
   }
 
+  async function remover(cliente: Cliente) {
+    if (!window.confirm(`Remover os dados de ${cliente.nome}? Esta ação não pode ser desfeita.`)) return
+    setErro(null)
+    try {
+      await cadastro.removerCliente(cliente.id)
+      await carregar()
+    } catch (falha) {
+      setErro(erroDeCadastro(falha))
+    }
+  }
+
   return <section className="cadastro">
     <div className="cadastro__topo">
       <div><h2 className="titulo">Clientes</h2><p>Cadastre no balcão com nome e contato opcional.</p></div>
@@ -105,6 +118,8 @@ export function TelaDeClientes() {
           <div className="cadastro__acoes">
             <button className="botao botao--secundario" type="button" onClick={() => editar(cliente)}>Editar</button>
             <button className="botao botao--secundario" type="button" onClick={() => void inativar(cliente)}>Inativar</button>
+            {podeRemover && <button className="botao botao--secundario" type="button"
+              onClick={() => void remover(cliente)}>Remover dados</button>}
           </div>
         </li>)}
       </ul>}
@@ -112,6 +127,8 @@ export function TelaDeClientes() {
         {inativos.map((cliente) => <li className="cadastro__item" key={cliente.id}>
           <div><strong>{cliente.nome}</strong><p>{cliente.contato ?? 'Sem contato'}</p></div>
           <button className="botao botao--secundario" type="button" onClick={() => void reativar(cliente)}>Reativar</button>
+          {podeRemover && <button className="botao botao--secundario" type="button"
+            onClick={() => void remover(cliente)}>Remover dados</button>}
         </li>)}
       </ul></>}
     </>}

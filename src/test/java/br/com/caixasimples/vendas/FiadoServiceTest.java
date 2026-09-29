@@ -157,4 +157,37 @@ class FiadoServiceTest extends TesteDeIntegracao {
         assertThat(conta.comoUsuario(() -> vendas.saldoDevedorDoCliente(clienteId)))
                 .isEqualTo(Money.ZERO);
     }
+
+    @Test
+    void remocaoRecusaComandaAbertaEDividaEAceitaDepoisDeQuitar() {
+        ContaCriada conta = criador.criar("Fiado com remoção", "senha longa de teste");
+        UUID sessaoId = conta.comoUsuario(() -> caixas.abrir(Money.ZERO));
+        UUID clienteId = conta.comoUsuario(() -> clientes.cadastrar(
+                new DadosDoCliente("Nome pessoal", "contato@exemplo.test")));
+        UUID produtoId = produto(conta);
+        UUID vendaId = conta.comoUsuario(() -> {
+            UUID id = vendas.iniciar(sessaoId);
+            vendas.adicionarItem(id, produtoId, BigDecimal.ONE, Money.ZERO);
+            vendas.vincularCliente(id, clienteId);
+            return id;
+        });
+
+        assertThatIllegalStateException().isThrownBy(() ->
+                conta.comoUsuario(() -> clientes.remover(clienteId)))
+                .withMessageContaining("comanda aberta");
+
+        conta.comoUsuario(() -> {
+            vendas.registrarPagamento(vendaId,
+                    SolicitacaoPagamento.de(FormaPagamento.FIADO, Money.de("20.00")));
+            vendas.concluir(vendaId);
+        });
+        assertThatIllegalStateException().isThrownBy(() ->
+                conta.comoUsuario(() -> clientes.remover(clienteId)))
+                .withMessageContaining("20.00");
+
+        conta.comoUsuario(() -> vendas.receber(vendaId, Money.de("20.00"), FormaPagamento.DINHEIRO));
+        conta.comoUsuario(() -> clientes.remover(clienteId));
+        assertThat(conta.comoUsuario(() -> clientes.consultar(clienteId).nome()))
+                .isEqualTo("Cliente removido");
+    }
 }

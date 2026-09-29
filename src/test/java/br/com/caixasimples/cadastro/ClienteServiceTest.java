@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 
 import br.com.caixasimples.TesteDeIntegracao;
+import br.com.caixasimples.RegistroDeRemocoesDeTeste;
 import br.com.caixasimples.cadastro.internal.ClienteService;
 import br.com.caixasimples.cadastro.internal.ClienteService.Cliente;
 import br.com.caixasimples.cadastro.internal.ClienteService.ClienteNaoEncontradoException;
@@ -13,6 +14,8 @@ import br.com.caixasimples.contas.CriadorDeContaDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.UsuarioCriado;
 import br.com.caixasimples.shared.TenantContext;
+import br.com.caixasimples.shared.AcessoNegadoException;
+import br.com.caixasimples.shared.RegistroDeRemocoes.Tipo;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -36,6 +39,9 @@ class ClienteServiceTest extends TesteDeIntegracao {
 
     @Autowired
     private CriadorDeContaDeTeste criador;
+
+    @Autowired
+    private RegistroDeRemocoesDeTeste registroDeRemocoes;
 
     @AfterEach
     void limparContexto() {
@@ -185,5 +191,49 @@ class ClienteServiceTest extends TesteDeIntegracao {
                     .as("id que não existe")
                     .isThrownBy(() -> clienteService.inativar(UUID.randomUUID()));
         });
+    }
+
+    @Test
+    @DisplayName("só o ADMIN remove o Cliente e a identidade desaparece sem perder a linha")
+    void adminRemoveCliente() {
+        registroDeRemocoes.limpar();
+        ContaCriada conta = criador.criar("Loja com exclusão", SENHA_DE_TESTE);
+        UsuarioCriado operador = criador.criarOperadorEm(conta.contaId(), "Atendente");
+        UUID id = conta.comoUsuario(() -> clienteService.cadastrar(
+                new DadosDoCliente("Nome pessoal", "contato@exemplo.test")));
+
+        assertThatExceptionOfType(AcessoNegadoException.class).isThrownBy(() ->
+                operador.comoUsuario(() -> clienteService.remover(id)));
+        conta.comoUsuario(() -> clienteService.remover(id));
+
+        conta.comoUsuario(() -> {
+            assertThat(clienteService.listarAtivos()).isEmpty();
+            assertThat(clienteService.listarInativos()).isEmpty();
+            assertThat(clienteService.consultar(id))
+                    .isEqualTo(new Cliente(id, "Cliente removido", null));
+            assertThatExceptionOfType(IllegalStateException.class).isThrownBy(() ->
+                    clienteService.reativar(id));
+        });
+        assertThat(registroDeRemocoes.registros())
+                .anySatisfy(remocao -> {
+                    assertThat(remocao.conta()).isEqualTo(conta.contaId());
+                    assertThat(remocao.tipo()).isEqualTo(Tipo.CLIENTE);
+                    assertThat(remocao.registroId()).isEqualTo(id);
+                    assertThat(remocao.solicitadoPor()).isEqualTo(conta.usuarioId());
+                });
+    }
+
+    @Test
+    @DisplayName("uma Conta não remove Cliente de outra Conta")
+    void remocaoIsolaContas() {
+        ContaCriada dona = criador.criar("Dona do cadastro", SENHA_DE_TESTE);
+        ContaCriada outra = criador.criar("Outra conta", SENHA_DE_TESTE);
+        UUID id = dona.comoUsuario(() -> clienteService.cadastrar(
+                new DadosDoCliente("Cliente da dona", null)));
+
+        assertThatExceptionOfType(ClienteNaoEncontradoException.class).isThrownBy(() ->
+                outra.comoUsuario(() -> clienteService.remover(id)));
+        dona.comoUsuario(() -> assertThat(clienteService.consultar(id).nome())
+                .isEqualTo("Cliente da dona"));
     }
 }

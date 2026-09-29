@@ -8,6 +8,7 @@ import br.com.caixasimples.contas.internal.ContaRepository;
 import br.com.caixasimples.contas.internal.CredencialRepository;
 import br.com.caixasimples.contas.internal.UsuarioRepository;
 import br.com.caixasimples.contas.internal.VerificadorDeSenhaVazada;
+import br.com.caixasimples.shared.RegistroDeRemocoes;
 import br.com.caixasimples.vendas.CriadorDeVendaDeTeste;
 import br.com.caixasimples.vendas.internal.VendaRepository;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -33,6 +34,12 @@ public class ConfiguracaoDeTeste {
     @Primary
     VerificadorDeSenhaVazada verificadorDeSenhaVazada() {
         return new VerificadorDeSenhaVazadaFalso();
+    }
+
+    @Bean
+    @Primary
+    RegistroDeRemocoes registroDeRemocoes() {
+        return new RegistroDeRemocoesDeTeste();
     }
 
     /** Fixture compartilhada, declarada aqui em vez de descoberta por varredura. */

@@ -2,7 +2,8 @@ import type { Cliente, DadosDoCliente, DadosDoProduto, Produto } from '../api/ca
 import { SemConexao } from '../api/cliente'
 import { lerIdentidade } from '../sessao/armazenamento'
 import {
-  enfileirarGesto, gestoAplicavel, gestoPendente, guardarRetrato, guardarRetratos, jaEstaNoRetrato,
+  enfileirarGesto, gestoAplicavel, gestoPendente, guardarClienteRemovido, guardarRetrato,
+  guardarRetratos, jaEstaNoRetrato,
   lerDoServidor, lerRetrato, listarGestos, ordenarPorDependencia, versaoDoResultado,
   type GestoNaFila, type Retrato, type ValorJson,
 } from './fila'
@@ -19,6 +20,7 @@ type Remoto = {
   editarCliente(id: string, dados: DadosDoCliente): Promise<void>
   inativarCliente(id: string): Promise<void>
   reativarCliente(id: string): Promise<void>
+  removerCliente(id: string): Promise<void>
 }
 
 type ClienteLocal = Cliente & { ativo: boolean }
@@ -122,7 +124,7 @@ function projetarProdutos(retrato: Retrato<Produto[]> | null, gestos: GestoNaFil
 
 /** As duas listas de clientes são lidas e gravadas juntas, com a mesma ordem da leitura. */
 function projetarClientes(ativos: Retrato<Cliente[]> | null, inativos: Retrato<Cliente[]> | null,
-  gestos: GestoNaFila[]): ClienteLocal[] {
+  gestos: GestoNaFila[], removidos: Set<string>): ClienteLocal[] {
   const itens = new Map<string, ClienteLocal>([
     ...(ativos?.dados ?? []).map((item) => [item.id, { ...item, ativo: true }] as const),
     ...(inativos?.dados ?? []).map((item) => [item.id, { ...item, ativo: false }] as const),
@@ -147,7 +149,7 @@ function projetarClientes(ativos: Retrato<Cliente[]> | null, inativos: Retrato<C
         versao: versaoDoResultado(gesto) ?? anterior.versao })
     }
   }
-  return [...itens.values()]
+  return [...itens.values()].filter((cliente) => !removidos.has(cliente.id))
 }
 
 async function locaisProdutos(): Promise<Produto[]> {
@@ -159,13 +161,14 @@ async function locaisProdutos(): Promise<Produto[]> {
 }
 
 async function locaisClientes(): Promise<ClienteLocal[]> {
-  const [ativos, inativos, gestos] = await Promise.all([
-    lerRetrato<Cliente[]>('clientesAtivos'), lerRetrato<Cliente[]>('clientesInativos'), listarGestos(),
+  const [ativos, inativos, gestos, removidos] = await Promise.all([
+    lerRetrato<Cliente[]>('clientesAtivos'), lerRetrato<Cliente[]>('clientesInativos'),
+    listarGestos(), lerRetrato<string[]>('clientesRemovidos'),
   ])
   if (!ativos && !inativos && !gestos.some((gesto) => gesto.tipo === 'cliente.criar')) {
     throw new Error('O cadastro de clientes ainda não foi carregado neste dispositivo. Entre online para prepará-lo.')
   }
-  return projetarClientes(ativos, inativos, gestos)
+  return projetarClientes(ativos, inativos, gestos, new Set(removidos?.dados ?? []))
 }
 
 async function dependencias(prefixo: string, id: string): Promise<{ dependeDe: string[]; pendente: boolean }> {
@@ -318,6 +321,12 @@ export function criarCadastroLocal<T extends Remoto>(remoto: T): T {
       const atual = (await locaisClientes()).find((item) => item.id === id)
       if (!atual) throw new Error('Cliente não encontrado no cadastro local.')
       await enfileirar('cliente.reativar', id, {}, dependeDe, versaoLida(atual))
+    },
+    async removerCliente(id) {
+      if (!navigator.onLine) throw new Error('Entre online para remover um Cliente.')
+      if (lerIdentidade()?.perfil !== 'ADMIN') throw new Error('Só ADMIN pode remover Cliente.')
+      await remoto.removerCliente(id)
+      if ('indexedDB' in globalThis) await guardarClienteRemovido(id)
     },
   }
 }

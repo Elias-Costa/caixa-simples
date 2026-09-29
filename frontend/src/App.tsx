@@ -4,6 +4,7 @@ import { ExigeSessao } from './shell/ExigeSessao'
 import { Shell } from './shell/Shell'
 import { Inicio } from './telas/Inicio'
 import { TelaDeLogin } from './telas/TelaDeLogin'
+import { TelaDePrivacidade } from './telas/TelaDePrivacidade'
 import { TelaDeProdutos } from './telas/TelaDeProdutos'
 import { TelaDeClientes } from './telas/TelaDeClientes'
 import { TelaDeCaixa } from './telas/TelaDeCaixa'
@@ -24,6 +25,7 @@ export function App() {
   return (
     <Routes>
       <Route path="/entrar" element={<TelaDeLogin />} />
+      <Route path="/privacidade" element={<TelaDePrivacidade />} />
 
       <Route element={<ExigeSessao />}>
         <Route element={<Shell />}>

@@ -2,19 +2,21 @@
 # maior do servidor, o age para cifrar e o rclone para enviar e buscar.
 FROM postgres:17-alpine
 
-RUN apk add --no-cache age rclone
+RUN apk add --no-cache age rclone jq
 
 # O destino do rclone é configurado só por variáveis (RCLONE_CONFIG_<NOME>_*). Vazio, este caminho
 # diz ao rclone que não há arquivo de configuração, e o log do job não abre com o aviso de que ele
 # falta.
 ENV RCLONE_CONFIG=""
 
-COPY copia.sh restaurar.sh conferencia.sql /copia/
+COPY copia/copia.sh copia/restaurar.sh copia/reaplicar-remocoes.sh /copia/
+COPY copia/reaplicar-cliente.sql copia/reaplicar-usuario.sql copia/reaplicar-nome-usuario.sql /copia/
+COPY copia/conferencia.sql /copia/
+COPY exclusao/apagar-conta.sql exclusao/encerrar-conta.sh /exclusao/
 
-# Ponto de montagem para quando o destino é uma pasta, como no ensaio local; na hospedagem o
-# destino é o armazenamento externo, e ela fica vazia. É do usuário do job porque um volume novo
-# herda o dono da pasta da imagem.
-RUN mkdir /copias && chown postgres:postgres /copias
+# Pontos de montagem para os dois destinos locais do ensaio. Na hospedagem o destino é externo.
+# Um volume novo herda o dono da pasta da imagem, que precisa aceitar a escrita do usuário do job.
+RUN mkdir /copias /remocoes && chown postgres:postgres /copias /remocoes
 
 # Não precisa de root, e o usuário postgres já existe na imagem.
 USER postgres

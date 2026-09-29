@@ -5,7 +5,7 @@ import { gravarIdentidade, gravarToken } from '../sessao/armazenamento'
 import type { Identidade } from '../sessao/Identidade'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
 import {
-  conferirGesto, enfileirarGesto, guardarRetrato, iniciarEnvio, jaEstaNoRetrato, lerDoServidor, lerRetrato,
+  conferirGesto, descartarGestosEnviadosDoCaixa, enfileirarGesto, guardarRetrato, iniciarEnvio, jaEstaNoRetrato, lerDoServidor, lerRetrato,
   listarGestos, mudarEstadoDoGesto, recuperarEnviosInterrompidos, registrarDesfechos,
 } from './fila'
 
@@ -29,6 +29,26 @@ beforeEach(async () => {
 })
 
 describe('fila local de gestos', () => {
+  it('descarta cada gesto do Caixa só após o retrato da própria SessaoCaixa', async () => {
+    entrar(ana)
+    const primeira = await enfileirarGesto({ tipo: 'caixa.suprir',
+      registroId: '00000000-0000-4000-8000-000000000011', payload: { valor: 10 } })
+    const segunda = await enfileirarGesto({ tipo: 'caixa.suprir',
+      registroId: '00000000-0000-4000-8000-000000000012', payload: { valor: 20 } })
+    await iniciarEnvio([primeira.operacaoId, segunda.operacaoId])
+    await registrarDesfechos([primeira, segunda].map((gesto) => ({
+      operacaoId: gesto.operacaoId, estado: 'sent' as const, resultado: { aplicada: true },
+    })))
+
+    await descartarGestosEnviadosDoCaixa([
+      { id: primeira.registroId, ordemDaLeitura: 1 },
+      { id: segunda.registroId, ordemDaLeitura: 0 },
+    ])
+    expect((await listarGestos()).map((gesto) => gesto.operacaoId)).toEqual([segunda.operacaoId])
+    await descartarGestosEnviadosDoCaixa([{ id: segunda.registroId, ordemDaLeitura: 2 }])
+    expect(await listarGestos()).toEqual([])
+  })
+
   it('atualiza o banco local existente sem perder gestos ao criar os retratos', async () => {
     const antigo = await openDB('caixa-simples-offline', 1, {
       upgrade(banco) {
@@ -180,12 +200,13 @@ describe('fila local de gestos', () => {
     }, guardar)
     expect((await lerRetrato('produtos'))?.dados).toEqual(['sem fila'])
 
+    const [enviado] = await listarGestos()
+    expect(jaEstaNoRetrato(enviado, { ordemDaLeitura: 0 })).toBe(false)
     await lerDoServidor(async () => ['depois'], guardar)
     const retrato = await lerRetrato('produtos')
     expect(retrato).toEqual({ dados: ['depois'], ordemDaLeitura: 1 })
-    const [enviado] = await listarGestos()
     expect(jaEstaNoRetrato(enviado, retrato)).toBe(true)
-    expect(jaEstaNoRetrato(enviado, { ordemDaLeitura: 0 })).toBe(false)
+    expect(await listarGestos()).toEqual([])
   })
 
   it('lê como anterior a todo resultado o retrato gravado antes da ordem da leitura', async () => {

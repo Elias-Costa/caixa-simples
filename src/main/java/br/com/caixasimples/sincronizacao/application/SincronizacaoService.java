@@ -175,9 +175,9 @@ public class SincronizacaoService {
         } catch (DataIntegrityViolationException conflito) {
             return depoisDeConflito(operacao, usuarioId, conflito);
         } catch (DataAccessException | TransactionException falha) {
-            // Esperada em reenvio simultâneo e em queda do banco: a mensagem basta, sem a pilha.
-            log.warn("operacao {} do tipo {} nao aplicada por falha transitoria: {}",
-                    operacao.operacaoId(), operacao.tipo(), falha.getMessage());
+            // A mensagem do banco pode conter valores recebidos no gesto.
+            log.warn("operacao {} nao aplicada por falha transitoria: {}",
+                    operacao.operacaoId(), falha.getClass().getSimpleName());
             return ResultadoDaOperacao.transitorio(operacao.operacaoId(),
                     "falha temporaria no servidor; a operacao pode ser reenviada");
         } catch (RuntimeException recusa) {
@@ -292,8 +292,8 @@ public class SincronizacaoService {
         if (daOutraRequisicao.isPresent()) {
             return daOutraRequisicao.get();
         }
-        log.warn("operacao {} do tipo {} recusada por conflito com registro existente: {}",
-                operacao.operacaoId(), operacao.tipo(), conflito.getMessage());
+        log.warn("operacao {} recusada por conflito com registro existente: {}",
+                operacao.operacaoId(), conflito.getClass().getSimpleName());
         return gravarRecusa(operacao, usuarioId,
                 "o registro conflita com outro ja existente e nao foi alterado");
     }
@@ -312,7 +312,7 @@ public class SincronizacaoService {
                             "a recusa nao pode ser gravada agora; a operacao pode ser reenviada"));
         } catch (DataAccessException | TransactionException falha) {
             log.warn("recusa da operacao {} nao gravada por falha transitoria: {}",
-                    operacao.operacaoId(), falha.getMessage());
+                    operacao.operacaoId(), falha.getClass().getSimpleName());
             return ResultadoDaOperacao.transitorio(operacao.operacaoId(),
                     "falha temporaria no servidor; a operacao pode ser reenviada");
         }
@@ -329,11 +329,11 @@ public class SincronizacaoService {
                 || recusa instanceof AcessoNegadoException
                 || recusa instanceof OperacaoRecusadaException;
         if (prevista) {
-            log.warn("operacao {} do tipo {} recusada: {}", operacao.operacaoId(),
-                    operacao.tipo(), recusa.getMessage());
+            log.warn("operacao {} recusada: {}", operacao.operacaoId(),
+                    recusa.getClass().getSimpleName());
         } else {
-            log.error("operacao {} do tipo {} recusada por excecao inesperada",
-                    operacao.operacaoId(), operacao.tipo(), recusa);
+            log.error("operacao {} recusada por excecao inesperada: {}",
+                    operacao.operacaoId(), recusa.getClass().getName());
         }
     }
 

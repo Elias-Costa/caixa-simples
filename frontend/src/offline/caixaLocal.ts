@@ -3,7 +3,7 @@ import { SemConexao } from '../api/cliente'
 import { lerIdentidade } from '../sessao/armazenamento'
 import { centavos, centavosDoSaldo, reais } from './dinheiro'
 import {
-  enfileirarGesto, gestoAplicavel, gestoPendente, guardarRetrato, jaEstaNoRetrato, lerDoServidor,
+  descartarGestosEnviadosDoCaixa, enfileirarGesto, gestoAplicavel, gestoPendente, guardarRetrato, jaEstaNoRetrato, lerDoServidor,
   lerRetrato, listarGestos, ordenarPorDependencia, versaoDoResultado, type GestoNaFila,
 } from './fila'
 import { dinheiroNaGaveta, projetarVendas, type DadosDoInicio } from './raizDaVenda'
@@ -118,6 +118,7 @@ async function guardar(sessoes: SessaoCaixa[], ordemDaLeitura: number): Promise<
   }
   // Cada sessão leva a própria ordem; a do retrato inteiro não é lida.
   await guardarRetrato(tipoDoRetrato(), [...atuais.values()], 0)
+  await descartarGestosEnviadosDoCaixa([...atuais.values()])
 }
 
 /**

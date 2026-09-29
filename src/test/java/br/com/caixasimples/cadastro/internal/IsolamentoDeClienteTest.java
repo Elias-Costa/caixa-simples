@@ -59,7 +59,7 @@ class IsolamentoDeClienteTest extends TesteDeIntegracao {
                     .as("listagem da conta B")
                     .extracting(ClienteEntity::getId)
                     .doesNotContain(clienteDaContaA);
-            assertThat(clientes.findByAtivoTrue())
+            assertThat(clientes.findByAtivoTrueAndRemovidoEmIsNull())
                     .as("derived query da conta B")
                     .extracting(ClienteEntity::getId)
                     .doesNotContain(clienteDaContaA);

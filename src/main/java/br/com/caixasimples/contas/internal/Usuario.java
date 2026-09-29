@@ -96,4 +96,11 @@ public class Usuario {
     public void inativar() {
         this.ativo = false;
     }
+
+    public void anonimizarNome() {
+        if (ativo) {
+            throw new IllegalStateException("inative o usuario antes de remover o nome");
+        }
+        this.nome = "Usuário removido";
+    }
 }

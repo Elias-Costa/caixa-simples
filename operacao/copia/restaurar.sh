@@ -11,6 +11,7 @@
 # Variáveis:
 #   CAIXA_SIMPLES_COPIA_CHAVE_PRIVADA   caminho do arquivo com a chave privada do age
 #   CAIXA_SIMPLES_RESTAURAR_BANCO       URL de conexão do banco vazio que recebe a cópia
+#   CAIXA_SIMPLES_REMOCOES_DESTINO      registro externo, separado das cópias
 #
 # Termina com "confere" e código 0, ou com a diferença e código 1.
 
@@ -20,6 +21,7 @@ set -o pipefail
 COPIA="${1:?informe a cópia, sem a extensão}"
 : "${CAIXA_SIMPLES_COPIA_CHAVE_PRIVADA:?informe o arquivo da chave privada do age}"
 : "${CAIXA_SIMPLES_RESTAURAR_BANCO:?informe a URL de conexão do banco que recebe a cópia}"
+: "${CAIXA_SIMPLES_REMOCOES_DESTINO:?informe o destino externo das remoções}"
 
 AQUI=$(dirname "$0")
 TRABALHO=$(mktemp -d)
@@ -46,6 +48,7 @@ OBTIDA=$(psql --no-psqlrc --quiet --dbname="$CAIXA_SIMPLES_RESTAURAR_BANCO" --fi
 
 if [ "$ESPERADA" = "$OBTIDA" ]; then
     printf '%s\n' "$OBTIDA"
+    sh "$AQUI/reaplicar-remocoes.sh"
     echo "confere"
     exit 0
 fi

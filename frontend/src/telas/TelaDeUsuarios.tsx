@@ -55,6 +55,19 @@ export function TelaDeUsuarios() {
     }
   }
 
+  async function anonimizar(usuario: UsuarioDaConta) {
+    if (!window.confirm('Remover o nome deste Usuário? Esta ação não pode ser desfeita.')) return
+    setErro(null)
+    setAviso(null)
+    try {
+      await contas.anonimizarUsuario(usuario.id)
+      await carregar()
+      setAviso('Nome do Usuário removido.')
+    } catch (falha) {
+      setErro(erroDeCadastro(falha))
+    }
+  }
+
   return <section className="cadastro">
     <h2 className="titulo">Usuários</h2>
     <p>Crie acessos para quem trabalha nesta Conta. O plano Completo permite mais de um usuário.</p>
@@ -94,6 +107,9 @@ export function TelaDeUsuarios() {
         <div><strong>{usuario.nome}</strong><p>{usuario.perfil === 'ADMIN' ? 'Administrador' : 'Operador'} · {usuario.ativo ? 'Ativo' : 'Inativo'}</p></div>
         {usuario.ativo && <button className="botao botao--secundario" type="button"
           onClick={() => void inativar(usuario)}>Inativar</button>}
+        {!usuario.ativo && usuario.nome !== 'Usuário removido' &&
+          <button className="botao botao--secundario" type="button"
+            onClick={() => void anonimizar(usuario)}>Remover nome</button>}
       </li>)}</ul>}
   </section>
 }

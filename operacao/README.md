@@ -67,6 +67,7 @@ O [`northflank.json`](../northflank.json) descreve o ambiente inteiro, sem segre
 | job `copia` | job agendado, `nf-compute-10`, `0 * * * *`, sem duas execuções ao mesmo tempo | a cópia cifrada |
 | `segredos-aplicacao` | grupo de segredos, só do serviço e do seed | banco e chave dos tokens |
 | `segredos-copia` | grupo de segredos, só do job da cópia | banco, chave pública e credencial do bucket |
+| `segredos-remocoes` | grupo de segredos, só do serviço | credencial de gravação do bucket de remoções |
 | `segredos-pix-efi` | grupo de segredos, só do serviço | credenciais Pix de cada Conta, preenchidas no painel |
 | fluxo `publicacao` | workflow do environment, com gatilho webhook | constrói o commit do argumento `sha` e o publica |
 
@@ -78,6 +79,8 @@ e nunca no arquivo:
 | `COPIA_BUCKET` | Nome do bucket das cópias |
 | `COPIA_CHAVE_PUBLICA` | Chave pública do age, a linha que começa com `age1` |
 | `COPIA_AWS_ACCESS_KEY_ID` e `COPIA_AWS_SECRET_ACCESS_KEY` | Chave de acesso do usuário do job no IAM |
+| `REMOCOES_BUCKET` | Nome do bucket separado das remoções, sem o ciclo de vida das cópias |
+| `REMOCOES_AWS_ACCESS_KEY_ID` e `REMOCOES_AWS_SECRET_ACCESS_KEY` | Credencial limitada à gravação dos objetos de remoção |
 
 O arquivo traz só `apiVersion`, `arguments` e `spec`, o formato que o Northflank lê de um
 repositório; nome, execução automática e concorrência do template se configuram na criação dele.
@@ -99,6 +102,7 @@ nunca mais mexe nele.
 | `CAIXA_SIMPLES_JWT_SECRET` | Gerada pelo Northflank na primeira execução do template e guardada no grupo | Assinatura dos tokens, com ao menos 32 bytes. Trocá-la obriga todo mundo a entrar de novo |
 | `CAIXA_SIMPLES_PORT` | Template | 8080, a porta pública do serviço |
 | `CAIXA_SIMPLES_PROXIES_CONFIAVEIS` | Opcional | Declara um proxy público na frente da aplicação; ver [Borda](#borda) |
+| `CAIXA_SIMPLES_REMOCOES_BUCKET` e `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` | Grupo `segredos-remocoes` | Grava o registro mínimo antes de uma exclusão |
 | `CAIXA_SIMPLES_EFI_<UUID_DA_CONTA_SEM_HIFENS>_*` | À mão, no grupo `segredos-pix-efi`, por Conta que recebe Pix | `AMBIENTE`, `CLIENT_ID`, `CLIENT_SECRET`, `CHAVE_PIX`, `CERTIFICADO_P12`, `CERTIFICADO_SENHA`, `WEBHOOK_ID` e `WEBHOOK_SECRET` |
 
 O certificado `.p12` de cada Conta entra como arquivo secreto do grupo `segredos-pix-efi`, montado
@@ -113,7 +117,9 @@ num caminho escolhido na hora, como `/segredos/efi/<uuid da Conta>.p12`; é esse
    plataforma.
 2. Conta no Northflank com o GitHub ligado a ela, com acesso a este repositório, e um e-mail que
    receba as faturas.
-3. Preparar a AWS e a chave da cópia, como em [Cópia de hora em hora](#cópia-de-hora-em-hora-cifrada).
+3. Preparar a AWS e a chave da cópia, como em [Cópia de hora em hora](#cópia-de-hora-em-hora-cifrada),
+   e o bucket separado de remoções, com credencial de gravação para o serviço e leitura para o
+   procedimento de restauração.
 4. Criar o template: colar o `northflank.json` no editor de código, com o nome `caixa-simples`,
    execução automática desligada e concorrência `forbid`, e preencher os argument overrides.
 5. Rodar o template com o último commit do `main` verde no CI. A primeira execução cria o projeto e
@@ -193,7 +199,7 @@ rodar o job, acrescente nas variáveis de ambiente da execução:
 | `CAIXA_SIMPLES_SEED_EMAIL` | E-mail do administrador |
 | `CAIXA_SIMPLES_SEED_SENHA` | Senha inicial |
 
-O log termina com `Conta <id> criada para <e-mail>`. Os valores da execução ficam nos detalhes dela,
+O log termina com `Conta <id> criada`. Os valores da execução ficam nos detalhes dela,
 visíveis para quem acessa o projeto, que de todo modo já alcança o banco. A senha passa pela mesma
 política de qualquer senha, inclusive a verificação de vazamento.
 
@@ -311,12 +317,14 @@ acesso.
 A cópia no S3 é o único backup: o banco não tem backup do fornecedor. Restauração nunca ensaiada não
 prova que a cópia serve, então ela é ensaiada antes da primeira Conta real, pelos dois caminhos
 abaixo, e depois **uma vez por mês**, pelo local, anotando data, cópia usada, contagens, totais e
-resultado.
+resultado. O registro externo das remoções fica em outro bucket, sem a expiração das cópias.
 
 [`copia/restaurar.sh`](copia/restaurar.sh) busca o par, confere que o banco de destino está vazio,
 decifra direto para o `pg_restore`, sem dump em claro no disco, e roda a conferência no banco
-restaurado contra a que foi gravada na origem. Termina com `confere` e código 0, ou com a diferença e
-código 1.
+restaurado contra a que foi gravada na origem. Antes de liberar acesso, reaplica os registros de
+remoção do bucket separado. Uma cópia anterior à coluna `cliente.removido_em` precisa receber as
+migrations em ambiente isolado antes dessa reaplicação. Termina com `confere` e código 0, ou com a
+diferença e código 1.
 
 **Num PostgreSQL 17 local**, o vazio do ensaio, com a credencial de leitura no ambiente. Para ver as
 cópias, `rclone lsf s3:<bucket>/diaria/` com as mesmas variáveis:
@@ -325,6 +333,7 @@ cópias, `rclone lsf s3:<bucket>/diaria/` com as mesmas variáveis:
 docker compose -f operacao/ensaio/compose.yaml --profile restauracao run --rm \
   -e RCLONE_CONFIG_S3_TYPE=s3 -e RCLONE_CONFIG_S3_PROVIDER=AWS -e RCLONE_CONFIG_S3_REGION=sa-east-1 \
   -e RCLONE_CONFIG_S3_ACCESS_KEY_ID -e RCLONE_CONFIG_S3_SECRET_ACCESS_KEY \
+  -e CAIXA_SIMPLES_REMOCOES_DESTINO=s3:<bucket-de-remocoes>/remocoes \
   -v "<arquivo da chave privada>:/chave/chave-privada.txt:ro" \
   restaurar s3:<bucket>/diaria/caixa-simples-<instante UTC>
 ```
@@ -335,6 +344,33 @@ caixa-simples --addonId <addon novo>`) e rode o mesmo comando acrescentando
 `-e CAIXA_SIMPLES_RESTAURAR_BANCO=<URL de conexão do addon novo, com o host local do encaminhamento>`.
 Conferido, o addon novo é apagado. Numa restauração de verdade, os grupos de segredo passam a apontar
 para ele, dentro da janela.
+
+## Remoção de dados e encerramento da Conta
+
+O ADMIN remove Cliente no aplicativo. Se houver dívida ou comanda ABERTA, a operação responde 409;
+após quitar ou cancelar a Venda elegível, o pedido pode ser repetido. A inativação de Usuário apaga
+a credencial, e o ADMIN pode anonimizar o nome depois. Essas ações gravam antes um registro mínimo
+em objetos `remocoes/<conta>/<tipo>/<id>/<instante>.json` num bucket S3 separado do backup, na
+região `sa-east-1`. O bucket de remoções não usa o ciclo de vida de três ou trinta dias das cópias.
+A aplicação precisa de `CAIXA_SIMPLES_REMOCOES_BUCKET` e de uma credencial AWS limitada a gravar
+nesse bucket; o grupo `segredos-remocoes` do template entrega as três variáveis apenas ao serviço.
+Sem acesso ao registro, a API responde 503 e não remove o dado do banco.
+
+O ADMIN pede encerramento pelo endereço publicado no aviso de privacidade. Antes de executar,
+confira a identidade e o vínculo do ADMIN com a Conta, anote a data do pedido para cumprir o prazo
+de quinze dias e pare o serviço para impedir novas escritas. No painel do Northflank, retire todas
+as variáveis e o arquivo de certificado da Conta no grupo `segredos-pix-efi`: os nomes começam por
+`CAIXA_SIMPLES_EFI_<UUID_DA_CONTA_SEM_HIFENS>_`. Confira no painel que nenhum nome com esse prefixo
+restou. Guarde a evidência dessa conferência fora do banco a apagar.
+
+Execute `exclusao/encerrar-conta.sh <uuid da Conta> <uuid do ADMIN>` com conexão ao banco e com
+`CAIXA_SIMPLES_REMOCOES_DESTINO=s3:<bucket-de-remocoes>/remocoes`. Use uma credencial de gravação
+do bucket e defina `CAIXA_SIMPLES_SEGREDOS_REMOVIDOS=sim` só depois da conferência no Northflank.
+O script verifica se o solicitante é ADMIN ativo da Conta, grava o registro externo, apaga em uma
+transação as linhas da Conta e confere que ela não existe mais. A Conta de outro tenant continua.
+Uma falha depois do registro externo exige investigar antes de reabrir o serviço; uma restauração
+reaplica o encerramento. O ensaio local usa o serviço `encerrar` do Compose e o volume `remocoes`,
+separado de `copias`. A restauração precisa de leitura nos dois destinos.
 
 ## Aviso de falha
 
