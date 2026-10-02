@@ -284,7 +284,7 @@ Atalhos para avaliar o código sem percorrer o repositório inteiro.
 | Isolamento entre contas provado nos dois sentidos | [IsolamentoEntreContasTest.java](src/test/java/br/com/caixasimples/contas/IsolamentoEntreContasTest.java) | Segurança testada, não presumida: grava na conta A e prova que a conta B não enxerga |
 | O mecanismo por trás desse isolamento | [MultiTenancyConfiguration.java](src/main/java/br/com/caixasimples/shared/internal/MultiTenancyConfiguration.java) | Filtro no Hibernate, não em cada consulta, e o que acontece quando não há tenant no contexto |
 | Autorização explícita, sem anotação | [UsuarioContext.java](src/main/java/br/com/caixasimples/shared/UsuarioContext.java) | Quem chama vem do contexto, nunca de parâmetro, e cada caso de uso restrito pergunta na primeira linha se é o administrador ou o dono do caixa; o porquê de não haver `@PreAuthorize` nem tabela de rotas está escrito no lugar. [IdentidadeDoTokenFilter.java](src/main/java/br/com/caixasimples/contas/internal/IdentidadeDoTokenFilter.java) preenche os dois contextos e lê o usuário no banco a cada requisição, para inativar valer na hora |
-| Gestão de usuários com o plano no caminho | [UsuarioService.java](src/main/java/br/com/caixasimples/contas/application/UsuarioService.java) | Criar usuário grava duas linhas numa transação, passa pela política de senha e pela unicidade global de e-mail, e é recusado fora do plano que admite mais de um usuário; inativar nunca deixa a conta sem administrador |
+| Gestão de usuários com o plano no caminho | [UsuarioService.java](src/main/java/br/com/caixasimples/contas/application/UsuarioService.java) | Criar usuário grava duas linhas numa transação, passa pela política de senha e pela unicidade global de e-mail, e é recusado fora do plano que admite mais de um usuário; inativar nunca deixa a conta sem administrador, nem com duas inativações ao mesmo tempo, porque a linha da conta é travada antes da contagem |
 | Administração da Conta no PWA | [UsuarioController.java](src/main/java/br/com/caixasimples/contas/web/UsuarioController.java), [ConfiguracaoDaContaController.java](src/main/java/br/com/caixasimples/contas/web/ConfiguracaoDaContaController.java), [TelaDeUsuarios.tsx](frontend/src/telas/TelaDeUsuarios.tsx) e [TelaDeConfiguracao.tsx](frontend/src/telas/TelaDeConfiguracao.tsx) | A API usa a Conta do contexto e recusa o operador; o interruptor atualiza a identidade guardada e o menu sem recarga; o cadastro responde se a Conta já tem movimento antes de permitir desligar o controle |
 | Um contrato de erro só, para o framework e para a aplicação | [TratamentoDeErrosHttp.java](src/main/java/br/com/caixasimples/shared/web/TratamentoDeErrosHttp.java) | Estende o tratador do Spring MVC em vez de substituí-lo, então corpo ilegível e recusa por perfil saem na mesma forma; cada status tem o porquê escrito no lugar, e o 404 de cada módulo fica no módulo, sem hierarquia de exceção. O molde do controller, com validação do pedido e a exceção própria traduzida no lugar, é [AutenticacaoController.java](src/main/java/br/com/caixasimples/contas/web/AutenticacaoController.java) |
 | O primeiro login aplicando o catálogo uma vez | [ContaService.java](src/main/java/br/com/caixasimples/contas/application/ContaService.java) | Bloqueia a linha da Conta, marca o primeiro acesso e publica um evento síncrono para o cadastro copiar os itens na mesma transação; [PrimeiroAcessoDaContaListener.java](src/main/java/br/com/caixasimples/cadastro/internal/PrimeiroAcessoDaContaListener.java) reage sem criar dependência de Contas para o catálogo |
@@ -625,7 +625,10 @@ carrega o perfil e o tenant, e uma `Credencial`, que carrega e-mail e senha, gra
 transação. A senha inicial passa pela mesma política de qualquer senha, inclusive a verificação de
 vazamento, que recusa se não puder verificar; criar usuário é raro, quem cria é o dono e ele está
 conectado. Mais de um usuário por conta é recurso do plano mais alto, e a conta nunca fica sem um
-administrador ativo.
+administrador ativo. A inativação trava a linha da conta antes de contar os administradores, então
+duas inativações simultâneas não passam juntas pela guarda: a segunda espera a primeira confirmar,
+conta de novo e é recusada antes de gravar o registro externo da remoção. A trava não atrasa vendas
+nem cadastros, que só conferem a chave da conta.
 
 Nenhum segredo mora no repositório. Chave de assinatura e credenciais vêm de variável de ambiente, e
 a aplicação recusa subir sem a chave, em vez de cair num valor padrão que seria idêntico em toda
@@ -809,6 +812,12 @@ com rede ou pelo lote, é recusada sem reabrir a venda nem mexer no caixa e no e
 conclusões, e dois cancelamentos, com os mesmos produtos em ordens diferentes terminam em conflito
 de versão para a segunda, nunca em impasse. Testes de arquitetura recusam escrita em `VendaService`
 que leia a Venda sem a trava e ouvinte da conclusão ou do cancelamento sem ordem declarada.
+
+Duas inativações de administrador também: uma transação prende a linha do usuário que a primeira
+grava, e a segunda começa com a primeira parada ali. Quando um administrador inativa o outro ao
+mesmo tempo, uma inativação confirma e a outra é recusada sem gravar o registro externo da remoção;
+a mesma inativação pedida duas vezes grava um registro só; e a trava de uma conta não faz esperar a
+inativação de outra.
 
 O lote de sincronização é testado de ponta a ponta por HTTP, com os gestos que o PWA grava: um
 dia inteiro sem rede num envio só, com a sangria que só cabe por causa da Venda do mesmo lote; o

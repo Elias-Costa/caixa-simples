@@ -17,7 +17,10 @@ import org.springframework.data.jpa.repository.JpaRepository;
  */
 public interface ContaRepository extends JpaRepository<Conta, UUID> {
 
-    /** Serializa o primeiro acesso e as mudanças de configuração da mesma Conta. */
+    /**
+     * Serializa o primeiro acesso, as mudanças de configuração e as inativações de usuário da mesma
+     * Conta. A trava não barra a conferência de chave estrangeira de quem insere linhas da Conta.
+     */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select c from Conta c where c.id = :id")
     Optional<Conta> buscarParaAtualizar(UUID id);

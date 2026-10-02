@@ -19,6 +19,10 @@ public interface UsuarioRepository extends JpaRepository<Usuario, UUID> {
 
     List<Usuario> findByAtivoTrue();
 
-    /** Quantos administradores ativos a conta ainda tem: é o que impede inativar o último. */
+    /**
+     * Quantos administradores ativos a conta ainda tem: é o que impede inativar o último. Só decide
+     * com a linha da Conta travada até o commit; sem ela, duas inativações simultâneas contariam os
+     * mesmos administradores.
+     */
     long countByPerfilAndAtivoTrue(Perfil perfil);
 }

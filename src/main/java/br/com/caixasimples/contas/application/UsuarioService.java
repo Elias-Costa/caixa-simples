@@ -121,6 +121,14 @@ public class UsuarioService {
      * caixas dele fica intacto. Um administrador pode inativar a si mesmo, desde que não seja o
      * último; a conta não pode ficar sem ninguém que a administre.
      *
+     * <p><strong>A linha da Conta é travada antes de ler o usuário e contar os
+     * administradores</strong>, e a trava vale até o commit. Sem ela, duas inativações simultâneas
+     * de administradores diferentes contariam os mesmos dois, passariam as duas pela guarda e
+     * deixariam a conta sem nenhum. Com ela, a segunda espera a primeira confirmar, relê o usuário
+     * e conta de novo: é recusada antes de gravar o registro externo da remoção, ou termina sem
+     * efeito se a primeira já inativou o mesmo usuário. A trava não barra quem só insere linhas da
+     * conta, como vendas e movimentos de caixa.
+     *
      * @throws br.com.caixasimples.shared.AcessoNegadoException se quem chama não é ADMIN
      * @throws UsuarioNaoEncontradoException se o id não existe nesta conta
      * @throws UltimoAdministradorException se é o último administrador ativo
@@ -129,6 +137,12 @@ public class UsuarioService {
     public void inativar(UUID usuarioId) {
         UsuarioContext.exigirAdmin();
         Objects.requireNonNull(usuarioId, "usuarioId nao pode ser nulo");
+
+        // Só a trava interessa aqui: ela serializa as inativações da Conta até o commit.
+        ContaId contaId = TenantContext.exigirAtual();
+        contas.buscarParaAtualizar(contaId.valor())
+                .orElseThrow(() -> new IllegalStateException(
+                        "conta do contexto nao existe: " + contaId));
 
         Usuario usuario = usuarios.findById(usuarioId)
                 .orElseThrow(() -> new UsuarioNaoEncontradoException(usuarioId));
@@ -139,7 +153,7 @@ public class UsuarioService {
         }
 
         Credencial credencial = credenciais.findByUsuarioId(usuarioId).orElse(null);
-        if (credencial != null && !credencial.getContaId().equals(TenantContext.exigirAtual())) {
+        if (credencial != null && !credencial.getContaId().equals(contaId)) {
             throw new IllegalStateException("credencial pertence a outra conta");
         }
         if (!usuario.isAtivo() && credencial == null) {
