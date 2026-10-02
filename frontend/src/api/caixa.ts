@@ -13,6 +13,8 @@ export type SessaoCaixa = {
   status: 'ABERTA' | 'FECHADA'
   movimentos?: MovimentoCaixa[]
   pendenteSincronizacao?: boolean
+  /** Só do aparelho: o servidor disse que a sessão fechou, e os valores do fechamento não foram lidos. */
+  fechamentoSemValores?: boolean
 }
 
 export type MovimentoCaixa = {

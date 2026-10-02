@@ -1,16 +1,18 @@
 import 'fake-indexeddb/auto'
 import { deleteDB } from 'idb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { caixa, type SessaoCaixa } from '../api/caixa'
+import type { Produto } from '../api/cadastro'
+import { caixa, type MovimentoCaixa, type SessaoCaixa } from '../api/caixa'
 import { SemConexao } from '../api/cliente'
 import type { OperacaoDoLote } from '../api/sincronizacao'
+import { vendas, type Venda } from '../api/vendas'
 import { hojeNoBalcao } from '../dataDoBalcao'
 import { gravarIdentidade, gravarToken } from '../sessao/armazenamento'
 import type { Identidade } from '../sessao/Identidade'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
-import { criarCaixaLocal } from './caixaLocal'
+import { criarCaixaLocal, mesclarSessoesLidas } from './caixaLocal'
 import { enviarFila } from './envio'
-import { listarGestos } from './fila'
+import { lerCaixaNoAparelho, listarGestos, type GestoNaFila } from './fila'
 import { criarVendaLocal } from './vendaLocal'
 
 const ana: Identidade = {
@@ -44,6 +46,87 @@ function sessoesDoServidor(): { antes: SessaoCaixa; depois: SessaoCaixa } {
   return { antes, depois: { ...antes, versao: 1, valorFechamentoEsperado: 15, movimentos: [{
     id: crypto.randomUUID(), tipo: 'SANGRIA', valor: 5, motivo: 'Retirada', vendaId: null,
     recebimentoId: null, criadoEm: agora }] } }
+}
+
+const cafe: Produto = {
+  id: '00000000-0000-4000-8000-000000000001', versao: 1, tipo: 'PRODUTO', nome: 'Café', preco: 6.25,
+  codigo: null, categoria: null, unidade: null, atributos: {},
+}
+
+/** Uma sessão ABERTA de Ana no servidor, com o extrato completo. */
+function abertaNoServidor(valorAbertura: number): SessaoCaixa {
+  return {
+    id: crypto.randomUUID(), usuarioId: ana.usuarioId, versao: 0, valorAbertura,
+    valorFechamentoEsperado: valorAbertura, valorFechamentoContado: null, diferenca: null,
+    abertaEm: new Date().toISOString(), fechadaEm: null, status: 'ABERTA', movimentos: [],
+  }
+}
+
+/** O que a consulta da sessão aberta devolve: o resumo, sem o extrato. */
+function resumo({ movimentos: _movimentos, ...sessao }: SessaoCaixa): SessaoCaixa {
+  return sessao
+}
+
+/** A consulta da sessão aberta no servidor, que pode passar a responder que não há nenhuma. */
+function abertaRemota(sessao: SessaoCaixa) {
+  return vi.fn(async (): Promise<SessaoCaixa | undefined> => resumo(sessao))
+}
+
+function movimento(tipo: MovimentoCaixa['tipo'], valor: number, vendaId: string | null = null): MovimentoCaixa {
+  return { id: crypto.randomUUID(), tipo, valor, motivo: tipo === 'SANGRIA' ? 'Depósito' : null, vendaId,
+    recebimentoId: null, criadoEm: new Date().toISOString() }
+}
+
+function apiDeVendas() {
+  return { ...vendas, consultar: vi.fn() }
+}
+
+/** A Venda de 12,50 do dispositivo como o servidor a devolve depois de aplicar os gestos dela. */
+function vendaDoServidor(id: string, sessaoCaixaId: string): Venda {
+  return {
+    id, sessaoCaixaId, usuarioId: ana.usuarioId, status: 'CONCLUIDA', total: 12.5,
+    criadoEm: new Date().toISOString(), clienteId: null, saldoDevedor: 0, descontoDaVenda: 0, pago: 12.5,
+    faltaPagar: 0, recebimentos: [],
+    itens: [{ id: crypto.randomUUID(), produtoId: cafe.id, nome: 'Café', quantidade: 2, precoUnitario: 6.25,
+      desconto: 0, subtotal: 12.5 }],
+    parcelas: [
+      { id: crypto.randomUUID(), forma: 'DINHEIRO', valor: 10, status: 'CONFIRMADO', troco: 10, pix: null },
+      { id: crypto.randomUUID(), forma: 'CARTAO', valor: 2.5, status: 'CONFIRMADO', troco: 0, pix: null },
+    ],
+  }
+}
+
+function doTipo(gestos: GestoNaFila[], tipo: string): GestoNaFila {
+  const encontrado = gestos.find((gesto) => gesto.tipo === tipo)
+  if (!encontrado) throw new Error(`Gesto ${tipo} não está na fila`)
+  return encontrado
+}
+
+/**
+ * Com o caixa de 20,00 lido do servidor, conclui sem rede uma Venda de 12,50 paga com 10,00 em
+ * dinheiro (20,00 entregues, 10,00 de troco) e 2,50 no cartão, e envia a fila.
+ */
+async function vendaEmDinheiroEnviada() {
+  entrar(ana)
+  rede(true)
+  const sessao = abertaNoServidor(20)
+  const remoto = { ...caixa, consultar: vi.fn(async () => sessao) }
+  const local = criarCaixaLocal(remoto)
+  await local.consultar(sessao.id)
+
+  rede(false)
+  const api = apiDeVendas()
+  const vendasLocais = criarVendaLocal(api, local)
+  const { id: vendaId } = await vendasLocais.iniciar(sessao.id)
+  await vendasLocais.adicionarItem(vendaId, cafe, 2, 0)
+  expect(await vendasLocais.pagar(vendaId, 'DINHEIRO', 10, 20)).toEqual({ troco: 10 })
+  await vendasLocais.pagar(vendaId, 'CARTAO', 2.5)
+  await vendasLocais.concluir(vendaId)
+  // Só o dinheiro entra na gaveta: 20 de abertura mais 10; o troco e o cartão ficam de fora.
+  expect(await local.consultar(sessao.id)).toMatchObject({ valorFechamentoEsperado: 30 })
+  await enviarFila(aplicadas(1))
+  api.consultar.mockResolvedValue(vendaDoServidor(vendaId, sessao.id))
+  return { sessao, remoto, local, vendasLocais, vendaId }
 }
 
 beforeEach(async () => { await deleteDB('caixa-simples-offline') })
@@ -285,5 +368,243 @@ describe('SessaoCaixa local', () => {
     expect(await criarCaixaLocal(remoto).consultar(antes.id)).toMatchObject({
       valorFechamentoEsperado: 15, versao: 1, movimentos: [{ tipo: 'SANGRIA', valor: 5 }],
     })
+  })
+})
+
+describe('SessaoCaixa local diante do que o servidor já sabe', () => {
+  it('mantém na gaveta a Venda em dinheiro lida do servidor antes do caixa', async () => {
+    const { sessao, remoto, local, vendasLocais, vendaId } = await vendaEmDinheiroEnviada()
+
+    // Com rede, só a Venda é lida; o retrato do caixa ainda é o de antes dela.
+    rede(true)
+    await vendasLocais.consultar(vendaId)
+
+    rede(false)
+    expect(await criarCaixaLocal(remoto).consultar(sessao.id)).toMatchObject({
+      valorFechamentoEsperado: 30, movimentos: [{ tipo: 'VENDA', valor: 10, vendaId }],
+    })
+    // A sangria de 25 só cabe por causa da Venda, e continua dependendo da conclusão dela.
+    await local.sangrar(sessao.id, 25, 'Depósito')
+    const gestos = await listarGestos()
+    expect(doTipo(gestos, 'caixa.sangrar').dependeDe).toEqual([doTipo(gestos, 'venda.concluir').operacaoId])
+    expect(await local.consultar(sessao.id)).toMatchObject({ valorFechamentoEsperado: 5 })
+
+    // Com a sangria enviada, o caixa lido do servidor já tem as duas, e nada conta duas vezes.
+    await enviarFila(aplicadas(2))
+    rede(true)
+    remoto.consultar.mockResolvedValue({ ...sessao, versao: 2, valorFechamentoEsperado: 5,
+      movimentos: [movimento('VENDA', 10, vendaId), movimento('SANGRIA', 25)] })
+    await local.consultar(sessao.id)
+    rede(false)
+    expect(await criarCaixaLocal(remoto).consultar(sessao.id)).toMatchObject({
+      valorFechamentoEsperado: 5, versao: 2, pendenteSincronizacao: false,
+    })
+    expect(await listarGestos()).toEqual([])
+  })
+
+  it('não dobra a Venda em dinheiro quando o caixa é lido do servidor antes dela', async () => {
+    const { sessao, remoto, local, vendasLocais, vendaId } = await vendaEmDinheiroEnviada()
+
+    rede(true)
+    remoto.consultar.mockResolvedValue({ ...sessao, versao: 1, valorFechamentoEsperado: 30,
+      movimentos: [movimento('VENDA', 10, vendaId)] })
+    await local.consultar(sessao.id)
+    rede(false)
+    expect(await criarCaixaLocal(remoto).consultar(sessao.id)).toMatchObject({
+      valorFechamentoEsperado: 30, versao: 1, movimentos: [{ tipo: 'VENDA' }],
+    })
+
+    rede(true)
+    await vendasLocais.consultar(vendaId)
+    rede(false)
+    expect(await criarCaixaLocal(remoto).consultar(sessao.id)).toMatchObject({
+      valorFechamentoEsperado: 30, versao: 1, movimentos: [{ tipo: 'VENDA' }],
+    })
+    await local.sangrar(sessao.id, 25, 'Depósito')
+    expect(await local.consultar(sessao.id)).toMatchObject({ valorFechamentoEsperado: 5, versao: 2 })
+    // Os dois retratos contêm a Venda: os gestos dela saem da fila, e a sangria fica para envio.
+    expect((await listarGestos()).map((gesto) => gesto.tipo)).toEqual(['caixa.sangrar'])
+  })
+
+  it('guarda as duas sessões lidas ao mesmo tempo, sem uma apagar a outra', async () => {
+    entrar(ana)
+    rede(true)
+    const ontem = { ...abertaNoServidor(10), status: 'FECHADA' as const, valorFechamentoContado: 10,
+      diferenca: 0, fechadaEm: new Date().toISOString() }
+    const hoje = abertaNoServidor(20)
+    const remoto = { ...caixa, consultar: vi.fn(async (id: string) => id === ontem.id ? ontem : hoje) }
+    const local = criarCaixaLocal(remoto)
+    await Promise.all([local.consultar(ontem.id), local.consultar(hoje.id)])
+
+    rede(false)
+    expect(await local.consultar(ontem.id)).toMatchObject({ status: 'FECHADA', valorFechamentoContado: 10 })
+    expect(await local.consultar(hoje.id)).toMatchObject({ status: 'ABERTA', valorFechamentoEsperado: 20 })
+  })
+
+  it('não traz de volta o caixa fechado em outro aparelho, e outro abre sem rede', async () => {
+    entrar(ana)
+    rede(true)
+    const sessao = abertaNoServidor(20)
+    const remoto = { ...caixa, abertaDoOperadorAtual: abertaRemota(sessao),
+      consultar: vi.fn(async () => sessao) }
+    const local = criarCaixaLocal(remoto)
+    expect((await local.abertaDoOperadorAtual())?.id).toBe(sessao.id)
+    await local.consultar(sessao.id)
+
+    remoto.abertaDoOperadorAtual.mockResolvedValue(undefined)
+    expect(await local.abertaDoOperadorAtual()).toBeUndefined()
+
+    rede(false)
+    expect(await criarCaixaLocal(remoto).abertaDoOperadorAtual()).toBeUndefined()
+    await expect(local.sangrar(sessao.id, 1, 'Retirada')).rejects.toThrow('fechada')
+    await expect(local.fechar(sessao.id, 20)).rejects.toThrow('já fechada')
+    await expect(criarVendaLocal(apiDeVendas(), local).iniciar(sessao.id)).rejects.toThrow('não está ABERTA')
+    // Sem o fechamento lido, a sessão aparece fechada, sem hora, valor contado ou diferença inventados.
+    expect(await local.consultar(sessao.id)).toMatchObject({ status: 'FECHADA', fechadaEm: null,
+      valorFechamentoContado: null, diferenca: null, fechamentoSemValores: true, valorFechamentoEsperado: 20 })
+    expect(await listarGestos()).toEqual([])
+    const { id } = await local.abrir(10)
+    expect((await local.abertaDoOperadorAtual())?.id).toBe(id)
+  })
+
+  it('mostra o fechamento lido do servidor no lugar da sessão marcada como fechada', async () => {
+    entrar(ana)
+    rede(true)
+    const sessao = abertaNoServidor(20)
+    const remoto = { ...caixa, abertaDoOperadorAtual: abertaRemota(sessao),
+      consultar: vi.fn(async () => sessao) }
+    const local = criarCaixaLocal(remoto)
+    await local.consultar(sessao.id)
+    remoto.abertaDoOperadorAtual.mockResolvedValue(undefined)
+    await local.abertaDoOperadorAtual()
+    expect((await lerCaixaNoAparelho()).fechadasNoServidor).toEqual([sessao.id])
+
+    const fechadaEm = new Date().toISOString()
+    remoto.consultar.mockResolvedValue({ ...sessao, versao: 1, status: 'FECHADA', fechadaEm,
+      valorFechamentoContado: 18, diferenca: 2 })
+    await local.consultar(sessao.id)
+    rede(false)
+    const lida = await local.consultar(sessao.id)
+    expect(lida).toMatchObject({ status: 'FECHADA', fechadaEm, valorFechamentoContado: 18, diferenca: 2 })
+    expect(lida.fechamentoSemValores).toBeUndefined()
+    expect((await lerCaixaNoAparelho()).fechadasNoServidor).toEqual([])
+  })
+
+  it('não traz de volta o caixa fechado com rede quando a rede cai logo depois', async () => {
+    entrar(ana)
+    rede(true)
+    const sessao = abertaNoServidor(20)
+    const remoto = { ...caixa, consultar: vi.fn(async () => sessao),
+      fechar: vi.fn(async () => ({ diferenca: 0 })) }
+    const local = criarCaixaLocal(remoto)
+    await local.consultar(sessao.id)
+    expect(await local.fechar(sessao.id, 20)).toEqual({ diferenca: 0 })
+
+    rede(false)
+    expect(await local.abertaDoOperadorAtual()).toBeUndefined()
+    expect(await local.consultar(sessao.id)).toMatchObject({ status: 'FECHADA', fechamentoSemValores: true })
+    await expect(local.fechar(sessao.id, 20)).rejects.toThrow('já fechada')
+    expect(remoto.fechar).toHaveBeenCalledTimes(1)
+    expect(await listarGestos()).toEqual([])
+  })
+
+  it('troca a sessão ABERTA guardada pela que o servidor diz aberta', async () => {
+    entrar(ana)
+    rede(true)
+    const antiga = abertaNoServidor(20)
+    const nova = abertaNoServidor(50)
+    const remoto = { ...caixa, abertaDoOperadorAtual: abertaRemota(antiga),
+      consultar: vi.fn(async () => antiga) }
+    const local = criarCaixaLocal(remoto)
+    await local.abertaDoOperadorAtual()
+    await local.consultar(antiga.id)
+
+    remoto.abertaDoOperadorAtual.mockResolvedValue(resumo(nova))
+    expect((await local.abertaDoOperadorAtual())?.id).toBe(nova.id)
+    rede(false)
+    expect((await local.abertaDoOperadorAtual())?.id).toBe(nova.id)
+    expect(await local.consultar(antiga.id)).toMatchObject({ status: 'FECHADA', fechamentoSemValores: true })
+    await expect(local.sangrar(antiga.id, 1, 'Retirada')).rejects.toThrow('fechada')
+  })
+
+  it('tira de operação o caixa que o servidor fechou sem perder o gesto pendente dele', async () => {
+    entrar(ana)
+    rede(true)
+    const sessao = abertaNoServidor(20)
+    const remoto = { ...caixa, abertaDoOperadorAtual: abertaRemota(sessao),
+      consultar: vi.fn(async () => sessao) }
+    const local = criarCaixaLocal(remoto)
+    await local.consultar(sessao.id)
+    rede(false)
+    await local.suprir(sessao.id, 5, 'Troco')
+
+    // O suprimento ainda não saiu, e a sessão foi fechada em outro aparelho.
+    rede(true)
+    remoto.abertaDoOperadorAtual.mockResolvedValue(undefined)
+    expect(await local.abertaDoOperadorAtual()).toBeUndefined()
+    rede(false)
+    expect(await local.abertaDoOperadorAtual()).toBeUndefined()
+    expect(await local.consultar(sessao.id)).toMatchObject({ status: 'FECHADA', fechamentoSemValores: true,
+      pendenteSincronizacao: true, valorFechamentoEsperado: 25, movimentos: [{ tipo: 'SUPRIMENTO', valor: 5 }] })
+    expect(await listarGestos()).toEqual([expect.objectContaining({ tipo: 'caixa.suprir', estado: 'queued' })])
+  })
+
+  it('preserva a abertura feita sem rede que o servidor ainda não recebeu', async () => {
+    entrar(ana)
+    rede(false)
+    const remoto = { ...caixa, abertaDoOperadorAtual: vi.fn(async () => undefined) }
+    const local = criarCaixaLocal(remoto)
+    const { id } = await local.abrir(15)
+
+    rede(true)
+    expect((await local.abertaDoOperadorAtual())?.id).toBe(id)
+    rede(false)
+    expect((await local.abertaDoOperadorAtual())?.id).toBe(id)
+    expect(await listarGestos()).toEqual([expect.objectContaining({ tipo: 'caixa.abrir', estado: 'queued' })])
+  })
+
+  it('não traz de volta o caixa aberto sem rede, já enviado, que o servidor fechou', async () => {
+    entrar(ana)
+    rede(false)
+    const remoto = { ...caixa, abertaDoOperadorAtual: vi.fn(async () => undefined) }
+    const local = criarCaixaLocal(remoto)
+    const { id } = await local.abrir(15)
+    await enviarFila(aplicadas(0))
+
+    // Antes de este aparelho reler a sessão, ela foi fechada em outro aparelho.
+    rede(true)
+    expect(await local.abertaDoOperadorAtual()).toBeUndefined()
+    rede(false)
+    expect(await local.abertaDoOperadorAtual()).toBeUndefined()
+    expect(await local.consultar(id)).toMatchObject({ status: 'FECHADA', fechamentoSemValores: true,
+      valorAbertura: 15 })
+    await expect(local.sangrar(id, 1, 'Retirada')).rejects.toThrow('fechada')
+  })
+})
+
+describe('mesclarSessoesLidas', () => {
+  const guardada = { ...abertaNoServidor(20), ordemDaLeitura: 5 }
+
+  it('não troca a sessão guardada por uma leitura mais antiga', () => {
+    const lida = { ...guardada, versao: 3, valorFechamentoEsperado: 99 }
+    expect(mesclarSessoesLidas({ sessoes: [guardada], fechadasNoServidor: [] }, [lida], 4, ana.usuarioId))
+      .toEqual({ sessoes: [guardada], fechadasNoServidor: [] })
+    expect(mesclarSessoesLidas({ sessoes: [guardada], fechadasNoServidor: [] }, [lida], 5, ana.usuarioId).sessoes)
+      .toEqual([{ ...lida, ordemDaLeitura: 5 }])
+  })
+
+  it('não volta a ABERTA a sessão guardada FECHADA e tira a marca quando o fechamento é lido', () => {
+    const fechada = { ...guardada, versao: 2, status: 'FECHADA' as const, fechadaEm: new Date().toISOString(),
+      valorFechamentoContado: 20, diferenca: 0 }
+    const comFechamento = mesclarSessoesLidas({ sessoes: [guardada], fechadasNoServidor: [guardada.id] },
+      [fechada], 6, ana.usuarioId)
+    expect(comFechamento).toEqual({ sessoes: [{ ...fechada, ordemDaLeitura: 6 }], fechadasNoServidor: [] })
+    expect(mesclarSessoesLidas(comFechamento, [resumo(guardada)], 7, ana.usuarioId)).toEqual(comFechamento)
+  })
+
+  it('ignora a sessão de outro operador', () => {
+    const deOutro = { ...abertaNoServidor(10), usuarioId: 'outra' }
+    expect(mesclarSessoesLidas({ sessoes: [], fechadasNoServidor: [] }, [deOutro], 0, ana.usuarioId))
+      .toEqual({ sessoes: [], fechadasNoServidor: [] })
   })
 })

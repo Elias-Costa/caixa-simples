@@ -1,4 +1,4 @@
-import { openDB, type DBSchema } from 'idb'
+import { openDB, type DBSchema, type IDBPTransaction } from 'idb'
 import { lerIdentidade, lerTokenDaSessao, sessaoAtual, sessaoDaAba } from '../sessao/armazenamento'
 import { tokenExpirado } from '../sessao/token'
 
@@ -39,6 +39,15 @@ export type GestoNaFila = Readonly<{
 
 /** A lista lida do servidor e a ordem do último resultado gravado quando o pedido saiu. */
 export type Retrato<T> = { dados: T; ordemDaLeitura: number }
+
+/** Uma sessão de caixa guardada leva a ordem da leitura que a trouxe, porque cada uma é lida numa hora. */
+export type SessaoNoRetrato = { id: string; ordemDaLeitura?: number }
+
+/**
+ * O que o aparelho guarda do caixa do usuário: as sessões lidas do servidor e as que o servidor já
+ * disse não estarem abertas sem que o aparelho tenha lido o fechamento delas.
+ */
+export type RetratoDoCaixa<T extends SessaoNoRetrato> = { sessoes: T[]; fechadasNoServidor: string[] }
 
 /** O que o servidor disse de um gesto enviado, ou por que ele ficou sem resposta. */
 export type Desfecho =
@@ -82,7 +91,7 @@ const MUDANCAS_PERMITIDAS: Record<EstadoDoGesto, EstadoDoGesto[]> = {
 }
 const ouvintes = new Set<(mudanca: MudancaDaFila) => void>()
 
-function donoDaSessao(): { dono: string; conta: string; sessao: string } {
+function donoDaSessao(): { dono: string; conta: string; usuario: string; sessao: string } {
   const sessao = sessaoAtual()
   const identidade = lerIdentidade()
   if (!sessao || sessaoDaAba() !== sessao || !identidade) {
@@ -90,7 +99,8 @@ function donoDaSessao(): { dono: string; conta: string; sessao: string } {
   }
   const token = lerTokenDaSessao(sessao)
   if (!token || tokenExpirado(token)) throw new Error('Entre novamente para usar a fila')
-  return { dono: `${identidade.contaId}\u0000${identidade.usuarioId}`, conta: identidade.contaId, sessao }
+  return { dono: `${identidade.contaId}\u0000${identidade.usuarioId}`, conta: identidade.contaId,
+    usuario: identidade.usuarioId, sessao }
 }
 
 function conferirDono(dono: string, sessao: string): void {
@@ -174,27 +184,113 @@ export async function guardarRetratos(retratos: { tipo: string; dados: unknown }
   }
 }
 
-/** A sessão lida só cobre os próprios movimentos, que podem ter ordens diferentes das demais. */
-export async function descartarGestosEnviadosDoCaixa(sessoes: { id: string; ordemDaLeitura?: number }[]): Promise<void> {
-  const { dono, sessao } = donoDaSessao()
-  const leituras = new Map(sessoes.map((item) => [item.id, item.ordemDaLeitura]))
+type TransacaoDoDescarte = IDBPTransaction<BancoDaFila, ('retratos' | 'gestos')[], 'readwrite'>
+
+function tiposDoCaixa(usuario: string): { sessoes: string; fechadas: string } {
+  return { sessoes: `caixa:${usuario}:sessoes`, fechadas: `caixa:${usuario}:fechadasNoServidor` }
+}
+
+async function retratoDoCaixa<T extends SessaoNoRetrato>(
+  ler: (chave: string) => Promise<{ dados: unknown } | undefined>, conta: string, usuario: string,
+): Promise<RetratoDoCaixa<T>> {
+  const tipos = tiposDoCaixa(usuario)
+  const sessoes = await ler(`${conta}\u0000${tipos.sessoes}`)
+  const fechadas = await ler(`${conta}\u0000${tipos.fechadas}`)
+  return { sessoes: (sessoes?.dados ?? []) as T[], fechadasNoServidor: (fechadas?.dados ?? []) as string[] }
+}
+
+/**
+ * O caixa do usuário como o aparelho o conhece: as sessões guardadas, as fechadas no servidor e os
+ * gestos, lidos numa transação só, para que um descarte feito em outra aba não caia entre a leitura
+ * do retrato e a dos gestos e deixe a projeção sem um efeito que nenhum dos dois contém.
+ */
+export async function lerCaixaNoAparelho<T extends SessaoNoRetrato>(): Promise<RetratoDoCaixa<T> & {
+  gestos: GestoNaFila[] }> {
+  const { dono, conta, usuario, sessao } = donoDaSessao()
   const banco = await abrirBanco()
   try {
     conferirDono(dono, sessao)
-    const transacao = banco.transaction('gestos', 'readwrite')
-    let cursor = await transacao.store.index('porDono').openCursor(dono)
-    while (cursor) {
-      const gesto = cursor.value
-      const ordem = leituras.get(gesto.registroId)
-      if (gesto.estado === 'sent' && gesto.tipo.startsWith('caixa.')
-        && ordem !== undefined && gesto.ordemDoResultado !== undefined
-        && gesto.ordemDoResultado <= ordem) await cursor.delete()
-      cursor = await cursor.continue()
-    }
+    const transacao = banco.transaction(['retratos', 'gestos'], 'readonly')
+    const retratos = transacao.objectStore('retratos')
+    const retrato = await retratoDoCaixa<T>((chave) => retratos.get(chave), conta, usuario)
+    const gestos = await transacao.objectStore('gestos').index('porDono').getAll(dono)
+    await transacao.done
+    conferirDono(dono, sessao)
+    return { ...retrato, gestos: gestos.map(semChavesInternas).sort((a, b) => a.criadoEm.localeCompare(b.criadoEm)) }
+  } finally {
+    banco.close()
+  }
+}
+
+/**
+ * Lê, mescla e grava o retrato do caixa numa transação só, e nela descarta os gestos enviados que
+ * nenhuma projeção usa mais. Duas leituras do servidor gravadas ao mesmo tempo, nesta aba ou em
+ * outra, ficam uma depois da outra: separadas, cada uma gravaria sobre o retrato que leu antes e
+ * desfaria o que a outra guardou, inclusive o que já tinha justificado um descarte. A função que
+ * mescla recebe os gestos do usuário e não pode esperar nada fora do banco, ou a transação termina
+ * no meio.
+ */
+export async function atualizarRetratoDoCaixa<T extends SessaoNoRetrato>(
+  mesclar: (atual: RetratoDoCaixa<T>, gestos: GestoNaFila[]) => RetratoDoCaixa<T>,
+): Promise<void> {
+  const { dono, conta, usuario, sessao } = donoDaSessao()
+  const banco = await abrirBanco()
+  try {
+    conferirDono(dono, sessao)
+    const transacao = banco.transaction(['retratos', 'gestos'], 'readwrite')
+    const retratos = transacao.objectStore('retratos')
+    const atual = await retratoDoCaixa<T>((chave) => retratos.get(chave), conta, usuario)
+    const gestos = await transacao.objectStore('gestos').index('porDono').getAll(dono)
+    const novo = mesclar(atual, gestos.map(semChavesInternas))
+    const tipos = tiposDoCaixa(usuario)
+    // Cada sessão leva a própria ordem; a do retrato inteiro não é lida.
+    await retratos.put({ chave: `${conta}\u0000${tipos.sessoes}`, conta, tipo: tipos.sessoes,
+      dados: novo.sessoes, ordemDaLeitura: 0 })
+    await retratos.put({ chave: `${conta}\u0000${tipos.fechadas}`, conta, tipo: tipos.fechadas,
+      dados: novo.fechadasNoServidor })
+    await descartarEnviadosDoCaixaEDasVendas(transacao, dono, conta, novo.sessoes)
     await transacao.done
     conferirDono(dono, sessao)
   } finally {
     banco.close()
+  }
+}
+
+/**
+ * Descarta os gestos de caixa e de Venda enviados cujo efeito todo retrato que os projeta já
+ * contém. O de caixa sai quando a sessão guardada foi lida depois do resultado dele. Os de uma Venda
+ * saem juntos, quando o retrato dela existe e, se ela foi concluída, a sessão guardada já contém a
+ * conclusão: até lá a projeção da gaveta remonta a Venda desses gestos para somar o dinheiro dela, e o
+ * retrato da Venda sozinho não diz nada sobre a gaveta. O que está na fila, em envio, com falha ou em
+ * revisão fica.
+ */
+async function descartarEnviadosDoCaixaEDasVendas(transacao: TransacaoDoDescarte, dono: string,
+  conta: string, sessoes: SessaoNoRetrato[]): Promise<void> {
+  const leituras = new Map(sessoes.map((sessao) => [sessao.id, { ordemDaLeitura: sessao.ordemDaLeitura ?? 0 }]))
+  const gestos = transacao.objectStore('gestos')
+  const retratos = transacao.objectStore('retratos')
+  const doDono = await gestos.index('porDono').getAll(dono)
+  const vendasDescartaveis = new Set<string>()
+  for (const vendaId of new Set(doDono.filter((gesto) => gesto.tipo.startsWith('venda.'))
+    .map((gesto) => gesto.registroId))) {
+    if (!(await retratos.getKey(`${conta}\u0000venda:${vendaId}`))) continue
+    const daVenda = doDono.filter((gesto) => gesto.tipo.startsWith('venda.') && gesto.registroId === vendaId)
+    const conclusao = daVenda.find((gesto) => gesto.tipo === 'venda.concluir' && gestoAplicavel(gesto))
+    if (conclusao) {
+      const inicio = daVenda.find((gesto) => gesto.tipo === 'venda.iniciar')
+      const sessaoCaixaId = (inicio?.payload as { sessaoCaixaId?: unknown } | null | undefined)?.sessaoCaixaId
+      if (typeof sessaoCaixaId !== 'string'
+        || !jaEstaNoRetrato(conclusao, leituras.get(sessaoCaixaId))) continue
+    }
+    vendasDescartaveis.add(vendaId)
+  }
+  let cursor = await gestos.index('porDono').openCursor(dono)
+  while (cursor) {
+    const gesto = cursor.value
+    const doCaixa = gesto.tipo.startsWith('caixa.') && jaEstaNoRetrato(gesto, leituras.get(gesto.registroId))
+    const daVenda = gesto.tipo.startsWith('venda.') && vendasDescartaveis.has(gesto.registroId)
+    if (gesto.estado === 'sent' && (doCaixa || daVenda)) await cursor.delete()
+    cursor = await cursor.continue()
   }
 }
 
@@ -232,20 +328,23 @@ export async function guardarClienteRemovido(clienteId: string): Promise<void> {
   }
 }
 
-/** A consulta da Venda no servidor prova que seus gestos enviados já estão na raiz lida. */
-export async function descartarGestosEnviadosDaVenda(vendaId: string): Promise<void> {
-  const { dono, sessao } = donoDaSessao()
+/**
+ * Guarda a Venda lida do servidor e, na mesma transação, descarta os gestos que nenhuma projeção usa
+ * mais. A Venda nascida no aparelho só é lida do servidor quando todos os gestos dela já têm
+ * resultado, porque até lá ela continua no aparelho; por isso o retrato contém todos eles e dispensa a
+ * ordem da leitura. Os gestos dela ainda podem servir à gaveta: ver descartarEnviadosDoCaixaEDasVendas.
+ */
+export async function guardarRetratoDaVenda<T>(vendaId: string, venda: T): Promise<void> {
+  const { dono, conta, usuario, sessao } = donoDaSessao()
   const banco = await abrirBanco()
   try {
     conferirDono(dono, sessao)
-    const transacao = banco.transaction('gestos', 'readwrite')
-    let cursor = await transacao.store.index('porDono').openCursor(dono)
-    while (cursor) {
-      const gesto = cursor.value
-      if (gesto.estado === 'sent' && gesto.tipo.startsWith('venda.')
-        && gesto.registroId === vendaId) await cursor.delete()
-      cursor = await cursor.continue()
-    }
+    const transacao = banco.transaction(['retratos', 'gestos'], 'readwrite')
+    const retratos = transacao.objectStore('retratos')
+    const tipo = `venda:${vendaId}`
+    await retratos.put({ chave: `${conta}\u0000${tipo}`, conta, tipo, dados: structuredClone(venda), ordemDaLeitura: 0 })
+    const { sessoes } = await retratoDoCaixa((chave) => retratos.get(chave), conta, usuario)
+    await descartarEnviadosDoCaixaEDasVendas(transacao, dono, conta, sessoes)
     await transacao.done
     conferirDono(dono, sessao)
   } finally {

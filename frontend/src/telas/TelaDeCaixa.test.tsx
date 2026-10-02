@@ -3,6 +3,7 @@ import { deleteDB } from 'idb'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { caixa, type SessaoCaixa } from '../api/caixa'
+import { criarCaixaLocal } from '../offline/caixaLocal'
 import { gravarIdentidade, gravarToken } from '../sessao/armazenamento'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
 import { SessaoContext } from '../sessao/contexto'
@@ -107,5 +108,28 @@ describe('caixa na tela', () => {
     expect(await screen.findByText(/Diferença:/)).toHaveTextContent('R$ 2,00')
     expect(remoto).not.toHaveBeenCalled()
     expect(fecharRemoto).not.toHaveBeenCalled()
+  })
+
+  it('mostra fechado, sem valores nem formulários, o caixa que o servidor fechou fora do aparelho', async () => {
+    const deHoje = { ...aberta, abertaEm: new Date().toISOString() }
+    vi.spyOn(caixa, 'consultar').mockResolvedValue({ ...deHoje, versao: 0, movimentos: [] })
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(undefined)
+    gravarToken(tokenComExpiracao(new Date(Date.now() + 60 * 60 * 1000)))
+    gravarIdentidade({ usuarioId: 'u-1', nome: 'Ana', perfil: 'OPERADOR', contaId: 'c-1',
+      nomeNegocio: 'Loja da Esquina', estoqueHabilitado: false })
+    // Com rede, o aparelho guardou a sessão e depois ouviu que o servidor não tem caixa aberto.
+    const local = criarCaixaLocal()
+    await local.consultar(deHoje.id)
+    await local.abertaDoOperadorAtual()
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+    mostrar()
+
+    expect(await screen.findByText('Nenhum caixa aberto para você.')).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: /FECHADA/ }))
+    expect(await screen.findByText('Fechada no servidor; valor contado e diferença aparecem quando a rede voltar.'))
+      .toBeInTheDocument()
+    expect(screen.queryByText(/Valor contado:/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Fechar e registrar diferença' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Registrar sangria' })).not.toBeInTheDocument()
   })
 })

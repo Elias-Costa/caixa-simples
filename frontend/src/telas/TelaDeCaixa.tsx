@@ -171,11 +171,13 @@ export function TelaDeCaixa() {
         <p>Abertura: {dataHora.format(new Date(selecionada.abertaEm))}</p>
         <p>Valor inicial: {moeda.format(selecionada.valorAbertura)}</p>
         <p>Saldo esperado: <strong>{moeda.format(selecionada.valorFechamentoEsperado)}</strong></p>
-        {selecionada.status === 'FECHADA' && <>
-          <p>Valor contado: {moeda.format(selecionada.valorFechamentoContado ?? 0)}</p>
-          <p>Diferença: {moeda.format(selecionada.diferenca ?? 0)}
-            {' '}(positivo = falta, negativo = sobra)</p>
-        </>}
+        {selecionada.status === 'FECHADA' && (selecionada.fechamentoSemValores
+          ? <p>Fechada no servidor; valor contado e diferença aparecem quando a rede voltar.</p>
+          : <>
+            <p>Valor contado: {moeda.format(selecionada.valorFechamentoContado ?? 0)}</p>
+            <p>Diferença: {moeda.format(selecionada.diferenca ?? 0)}
+              {' '}(positivo = falta, negativo = sobra)</p>
+          </>)}
 
         <h4>Movimentos</h4>
         {!selecionada.movimentos ? <p>Carregando extrato...</p>

@@ -3,8 +3,8 @@ import { SemConexao } from '../api/cliente'
 import { lerIdentidade } from '../sessao/armazenamento'
 import { centavos, centavosDoSaldo, reais } from './dinheiro'
 import {
-  descartarGestosEnviadosDoCaixa, enfileirarGesto, gestoAplicavel, gestoPendente, guardarRetrato, jaEstaNoRetrato, lerDoServidor,
-  lerRetrato, listarGestos, ordenarPorDependencia, versaoDoResultado, type GestoNaFila,
+  atualizarRetratoDoCaixa, enfileirarGesto, gestoAplicavel, gestoPendente, jaEstaNoRetrato, lerCaixaNoAparelho,
+  lerDoServidor, listarGestos, ordenarPorDependencia, versaoDoResultado, type GestoNaFila, type RetratoDoCaixa,
 } from './fila'
 import { dinheiroNaGaveta, projetarVendas, type DadosDoInicio } from './raizDaVenda'
 
@@ -37,8 +37,6 @@ function usuarioAtual(): string {
   if (!id) throw new Error('Entre novamente para operar o caixa.')
   return id
 }
-
-function tipoDoRetrato(): string { return `caixa:${usuarioAtual()}:sessoes` }
 
 function versaoLida(sessao: SessaoCaixa): number {
   if (typeof sessao.versao !== 'number') {
@@ -98,27 +96,73 @@ export function ultimoGestoDaGaveta(gestos: GestoNaFila[], id: string): GestoNaF
 }
 
 async function retratos(): Promise<SessaoGuardada[]> {
-  return (await lerRetrato<SessaoGuardada[]>(tipoDoRetrato()))?.dados ?? []
+  return (await lerCaixaNoAparelho<SessaoGuardada>()).sessoes
 }
 
-async function guardar(sessoes: SessaoCaixa[], ordemDaLeitura: number): Promise<void> {
-  const atuais = new Map((await retratos()).map((sessao) => [sessao.id, sessao]))
-  for (const sessao of sessoes) {
-    if (sessao.usuarioId !== usuarioAtual()) continue
-    const anterior = atuais.get(sessao.id)
-    if (sessao.movimentos) {
-      atuais.set(sessao.id, { ...sessao, ordemDaLeitura })
-    } else if (!anterior?.movimentos || anterior.versao === sessao.versao) {
+/**
+ * As sessões lidas do servidor sobre as que o aparelho já guardava. A guardada só é trocada por uma
+ * leitura que não seja mais antiga que ela: a ordem da leitura nunca recua, porque o descarte já tirou
+ * da fila o que a leitura mais nova continha. E o fechamento é definitivo no servidor: a leitura que
+ * ainda mostra ABERTA a sessão que o aparelho tem FECHADA saiu antes do fechamento.
+ */
+export function mesclarSessoesLidas(atual: RetratoDoCaixa<SessaoGuardada>, lidas: SessaoCaixa[],
+  ordemDaLeitura: number, usuario: string): RetratoDoCaixa<SessaoGuardada> {
+  const guardadas = new Map(atual.sessoes.map((sessao) => [sessao.id, sessao]))
+  for (const lida of lidas) {
+    if (lida.usuarioId !== usuario) continue
+    const anterior = guardadas.get(lida.id)
+    if (anterior && (anterior.ordemDaLeitura ?? 0) > ordemDaLeitura) continue
+    if (anterior?.status === 'FECHADA' && lida.status === 'ABERTA') continue
+    if (lida.movimentos) {
+      guardadas.set(lida.id, { ...lida, ordemDaLeitura })
+    } else if (!anterior?.movimentos || anterior.versao === lida.versao) {
       // O resumo do histórico não traz o extrato; o guardado continua valendo porque é da mesma
       // revisão.
-      atuais.set(sessao.id, { ...anterior, ...sessao, movimentos: anterior?.movimentos, ordemDaLeitura })
+      guardadas.set(lida.id, { ...anterior, ...lida, movimentos: anterior?.movimentos, ordemDaLeitura })
     }
     // O resumo de outra revisão não substitui um extrato guardado: ficariam os movimentos de uma
     // leitura com o esperado de outra. O extrato é trocado na próxima consulta da sessão.
   }
-  // Cada sessão leva a própria ordem; a do retrato inteiro não é lida.
-  await guardarRetrato(tipoDoRetrato(), [...atuais.values()], 0)
-  await descartarGestosEnviadosDoCaixa([...atuais.values()])
+  const sessoes = [...guardadas.values()]
+  // Com o fechamento lido, a marca de fechada no servidor não tem mais o que dizer.
+  const fechamentoLido = new Set(sessoes.filter((sessao) => sessao.status === 'FECHADA').map((sessao) => sessao.id))
+  return { sessoes, fechadasNoServidor: atual.fechadasNoServidor.filter((id) => !fechamentoLido.has(id)) }
+}
+
+async function guardar(sessoes: SessaoCaixa[], ordemDaLeitura: number): Promise<void> {
+  const usuario = usuarioAtual()
+  await atualizarRetratoDoCaixa<SessaoGuardada>((atual) =>
+    mesclarSessoesLidas(atual, sessoes, ordemDaLeitura, usuario))
+}
+
+/**
+ * Guarda a resposta de qual sessão do operador está aberta no servidor e marca como fechada no
+ * servidor cada outra sessão dele que a resposta já conhecia: o servidor tem no máximo uma sessão
+ * aberta por operador, e sessão fechada não reabre. A resposta conhecia a sessão guardada por uma
+ * leitura de ordem igual ou anterior à dela e a aberta neste aparelho cuja abertura já tinha
+ * resultado quando a pergunta saiu. A abertura ainda sem resultado não é marcada: o servidor não
+ * sabia dela.
+ */
+async function guardarSessaoAberta(recebida: SessaoCaixa | undefined, ordemDaLeitura: number): Promise<void> {
+  const usuario = usuarioAtual()
+  await atualizarRetratoDoCaixa<SessaoGuardada>((atual, gestos) => {
+    const mesclado = mesclarSessoesLidas(atual, recebida ? [recebida] : [], ordemDaLeitura, usuario)
+    const conhecidas = [
+      ...atual.sessoes.filter((sessao) => sessao.status === 'ABERTA'
+        && (sessao.ordemDaLeitura ?? 0) <= ordemDaLeitura).map((sessao) => sessao.id),
+      ...gestos.filter((gesto) => gesto.tipo === 'caixa.abrir' && gestoAplicavel(gesto)
+        && jaEstaNoRetrato(gesto, { ordemDaLeitura })).map((gesto) => gesto.registroId),
+    ]
+    const fechadas = new Set(mesclado.fechadasNoServidor)
+    for (const id of conhecidas) if (id !== recebida?.id) fechadas.add(id)
+    return { ...mesclado, fechadasNoServidor: [...fechadas] }
+  })
+}
+
+/** O servidor confirmou o fechamento; os valores dele chegam na próxima leitura da sessão. */
+async function marcarFechadaNoServidor(id: string): Promise<void> {
+  await atualizarRetratoDoCaixa<SessaoGuardada>((atual) => ({ ...atual,
+    fechadasNoServidor: [...new Set([...atual.fechadasNoServidor, id])] }))
 }
 
 /**
@@ -126,7 +170,8 @@ async function guardar(sessoes: SessaoCaixa[], ordemDaLeitura: number): Promise<
  * chegou antes da leitura já está no esperado do servidor, e somá-lo de novo dobraria a sangria ou
  * a Venda. O confirmado depois da leitura entra com a revisão que o servidor devolveu.
  */
-function projetar(base: SessaoGuardada | undefined, gestos: GestoNaFila[], id: string): SessaoCaixa | undefined {
+function projetar(base: SessaoGuardada | undefined, gestos: GestoNaFila[], id: string,
+  fechadaNoServidor: boolean): SessaoCaixa | undefined {
   let sessao: SessaoCaixa | undefined
   if (base) {
     const { ordemDaLeitura: _ordem, ...guardada } = base
@@ -179,15 +224,23 @@ function projetar(base: SessaoGuardada | undefined, gestos: GestoNaFila[], id: s
           - centavos(dados.valorContado, 'Valor contado')) }
     }
   }
-  return sessao ? { ...sessao, pendenteSincronizacao: pendente(gestosDaSessao(gestos, id)) } : undefined
+  if (!sessao) return undefined
+  // O servidor já disse que a sessão não está aberta, e o aparelho não leu o fechamento: ela deixa de
+  // aceitar operação, sem hora, valor contado ou diferença inventados. O fechamento feito aqui e
+  // ainda não enviado tem os próprios valores e prevalece.
+  if (fechadaNoServidor && sessao.status === 'ABERTA') {
+    sessao = { ...sessao, status: 'FECHADA', fechadaEm: null, valorFechamentoContado: null, diferenca: null,
+      fechamentoSemValores: true }
+  }
+  return { ...sessao, pendenteSincronizacao: pendente(gestosDaSessao(gestos, id)) }
 }
 
 async function locais(): Promise<SessaoCaixa[]> {
-  const [base, gestos] = await Promise.all([retratos(), listarGestos()])
+  const { sessoes: base, fechadasNoServidor, gestos } = await lerCaixaNoAparelho<SessaoGuardada>()
   const ids = new Set([...base.map((sessao) => sessao.id),
     ...gestos.filter((gesto) => gesto.tipo === 'caixa.abrir').map((gesto) => gesto.registroId)])
-  return [...ids].map((id) => projetar(base.find((sessao) => sessao.id === id), gestos, id))
-    .filter((sessao): sessao is SessaoCaixa => !!sessao)
+  return [...ids].map((id) => projetar(base.find((sessao) => sessao.id === id), gestos, id,
+    fechadasNoServidor.includes(id))).filter((sessao): sessao is SessaoCaixa => !!sessao)
 }
 
 async function local(id: string): Promise<SessaoCaixa> {
@@ -224,7 +277,7 @@ export function criarCaixaLocal(remoto: CaixaRemoto = caixa): CaixaNoDispositivo
       if (navigator.onLine) {
         try {
           const recebida = await lerDoServidor(() => remoto.abertaDoOperadorAtual(),
-            async (sessao, ordem) => { if (sessao) await guardar([sessao], ordem) })
+            (sessao, ordem) => guardarSessaoAberta(sessao, ordem))
           const gestos = await listarGestos()
           const sobreposta = (await locais()).find((sessao) => sessao.status === 'ABERTA'
             && pendente(gestosDaSessao(gestos, sessao.id)))
@@ -299,7 +352,10 @@ export function criarCaixaLocal(remoto: CaixaRemoto = caixa): CaixaNoDispositivo
       if (sessao.status !== 'ABERTA') throw new Error('SessaoCaixa já fechada; não pode fechar novamente.')
       const gestos = gestosDaSessao(await listarGestos(), id)
       if (navigator.onLine && !pendente(gestos)) {
-        return remoto.fechar(id, valorContado)
+        const fechada = await remoto.fechar(id, valorContado)
+        // Se a rede cair antes de a sessão ser lida de novo, a guardada ainda diria ABERTA.
+        await marcarFechadaNoServidor(id)
+        return fechada
       }
       // Todas as operações conhecidas desta sessão, inclusive cada gesto das Vendas registradas
       // nela, precisam chegar ao servidor antes do fechamento.

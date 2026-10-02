@@ -5,9 +5,8 @@ import { lerIdentidade } from '../sessao/armazenamento'
 import { criarCaixaLocal, sessaoTemPendencia, ultimoGestoDaGaveta } from './caixaLocal'
 import { reais } from './dinheiro'
 import {
-  descartarGestosEnviadosDaVenda, enfileirarGesto, gestoAplicavel, gestoPendente,
-  guardarRetrato, lerRetrato, listarGestos, listarRetratosDeVendas, ordenarPorDependencia,
-  type GestoNaFila, type ValorJson,
+  enfileirarGesto, gestoAplicavel, gestoPendente, guardarRetrato, guardarRetratoDaVenda, lerRetrato,
+  listarGestos, listarRetratosDeVendas, ordenarPorDependencia, type GestoNaFila, type ValorJson,
 } from './fila'
 import * as raiz from './raizDaVenda'
 
@@ -219,10 +218,7 @@ export function criarVendaLocal(remoto: VendasDaApi = vendas, caixa: CaixaDoDisp
       const alvo = await localizar(id, true)
       if (alvo === 'servidor') {
         const recebida = await remoto.consultar(id)
-        if (temBanco()) {
-          await guardarRetrato(`venda:${id}`, recebida, 0)
-          await descartarGestosEnviadosDaVenda(id)
-        }
+        if (temBanco()) await guardarRetratoDaVenda(id, recebida)
         return recebida
       }
       return paraTela(alvo.venda, alvo.pendente)

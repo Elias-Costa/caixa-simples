@@ -5,8 +5,9 @@ import { gravarIdentidade, gravarToken } from '../sessao/armazenamento'
 import type { Identidade } from '../sessao/Identidade'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
 import {
-  conferirGesto, descartarGestosEnviadosDoCaixa, enfileirarGesto, guardarRetrato, iniciarEnvio, jaEstaNoRetrato, lerDoServidor, lerRetrato,
-  listarGestos, mudarEstadoDoGesto, recuperarEnviosInterrompidos, registrarDesfechos,
+  atualizarRetratoDoCaixa, conferirGesto, enfileirarGesto, guardarRetrato, guardarRetratoDaVenda, iniciarEnvio,
+  jaEstaNoRetrato, lerCaixaNoAparelho, lerDoServidor, lerRetrato, listarGestos, mudarEstadoDoGesto,
+  recuperarEnviosInterrompidos, registrarDesfechos, type GestoNaFila,
 } from './fila'
 
 const ana: Identidade = {
@@ -24,29 +25,103 @@ const produto = {
   payload: { nome: 'Café', preco: 7 },
 }
 
+const sessaoId = '00000000-0000-4000-8000-000000000021'
+
+/** O servidor aplica os gestos, na ordem dada; cada um recebe o número seguinte do contador. */
+async function aplicados(...gestos: GestoNaFila[]) {
+  await iniciarEnvio(gestos.map((gesto) => gesto.operacaoId))
+  await registrarDesfechos(gestos.map((gesto) => ({
+    operacaoId: gesto.operacaoId, estado: 'sent' as const, resultado: { aplicada: true },
+  })))
+}
+
+/** Grava a sessão do caixa como lida do servidor com a ordem dada. */
+async function caixaLido(ordemDaLeitura: number) {
+  await atualizarRetratoDoCaixa((atual) => ({ ...atual, sessoes: [{ id: sessaoId, ordemDaLeitura }] }))
+}
+
+async function vendaConcluida(vendaId: string) {
+  const agora = new Date().toISOString()
+  const inicio = await enfileirarGesto({ tipo: 'venda.iniciar', registroId: vendaId,
+    payload: { sessaoCaixaId: sessaoId, criadoEm: agora } })
+  const conclusao = await enfileirarGesto({ tipo: 'venda.concluir', registroId: vendaId,
+    payload: { concluidoEm: agora }, dependeDe: [inicio.operacaoId] })
+  return { inicio, conclusao }
+}
+
 beforeEach(async () => {
   await deleteDB('caixa-simples-offline')
 })
 
 describe('fila local de gestos', () => {
-  it('descarta cada gesto do Caixa só após o retrato da própria SessaoCaixa', async () => {
+  it('descarta cada gesto do Caixa só depois de a própria SessaoCaixa ser lida com ele', async () => {
     entrar(ana)
     const primeira = await enfileirarGesto({ tipo: 'caixa.suprir',
       registroId: '00000000-0000-4000-8000-000000000011', payload: { valor: 10 } })
     const segunda = await enfileirarGesto({ tipo: 'caixa.suprir',
       registroId: '00000000-0000-4000-8000-000000000012', payload: { valor: 20 } })
-    await iniciarEnvio([primeira.operacaoId, segunda.operacaoId])
-    await registrarDesfechos([primeira, segunda].map((gesto) => ({
-      operacaoId: gesto.operacaoId, estado: 'sent' as const, resultado: { aplicada: true },
-    })))
+    await aplicados(primeira, segunda)
 
-    await descartarGestosEnviadosDoCaixa([
-      { id: primeira.registroId, ordemDaLeitura: 1 },
-      { id: segunda.registroId, ordemDaLeitura: 0 },
-    ])
+    await atualizarRetratoDoCaixa((atual) => ({ ...atual, sessoes: [
+      { id: primeira.registroId, ordemDaLeitura: 1 }, { id: segunda.registroId, ordemDaLeitura: 0 },
+    ] }))
     expect((await listarGestos()).map((gesto) => gesto.operacaoId)).toEqual([segunda.operacaoId])
-    await descartarGestosEnviadosDoCaixa([{ id: segunda.registroId, ordemDaLeitura: 2 }])
+    await atualizarRetratoDoCaixa((atual) => ({ ...atual, sessoes: [
+      { id: primeira.registroId, ordemDaLeitura: 1 }, { id: segunda.registroId, ordemDaLeitura: 2 },
+    ] }))
     expect(await listarGestos()).toEqual([])
+    expect(await lerCaixaNoAparelho()).toMatchObject({ fechadasNoServidor: [], gestos: [], sessoes: [
+      { id: primeira.registroId, ordemDaLeitura: 1 }, { id: segunda.registroId, ordemDaLeitura: 2 },
+    ] })
+  })
+
+  it('descarta os gestos da Venda só quando o retrato dela e o do caixa contêm a conclusão', async () => {
+    entrar(ana)
+    // A Venda é lida antes do caixa.
+    const lidaAntes = await vendaConcluida('00000000-0000-4000-8000-000000000031')
+    await aplicados(lidaAntes.inicio, lidaAntes.conclusao)
+    await guardarRetratoDaVenda(lidaAntes.inicio.registroId, { id: lidaAntes.inicio.registroId })
+    expect(await listarGestos()).toHaveLength(2)
+    await caixaLido(1)
+    expect(await listarGestos()).toHaveLength(2)
+    await caixaLido(2)
+    expect(await listarGestos()).toEqual([])
+
+    // O caixa é lido antes da Venda.
+    const lidaDepois = await vendaConcluida('00000000-0000-4000-8000-000000000032')
+    await aplicados(lidaDepois.inicio, lidaDepois.conclusao)
+    await caixaLido(4)
+    expect(await listarGestos()).toHaveLength(2)
+    await guardarRetratoDaVenda(lidaDepois.inicio.registroId, { id: lidaDepois.inicio.registroId })
+    expect(await listarGestos()).toEqual([])
+  })
+
+  it('não descarta o gesto sem resultado, com falha ou em revisão, nem os da Venda que a revisão ainda usa', async () => {
+    entrar(ana)
+    const emRevisao = await vendaConcluida('00000000-0000-4000-8000-000000000033')
+    await iniciarEnvio([emRevisao.inicio.operacaoId, emRevisao.conclusao.operacaoId])
+    await registrarDesfechos([
+      { operacaoId: emRevisao.inicio.operacaoId, estado: 'sent', resultado: { aplicada: true } },
+      { operacaoId: emRevisao.conclusao.operacaoId, estado: 'needs_review',
+        resultado: { aplicada: true, detalhe: 'preço divergente' } },
+    ])
+    const aberta = '00000000-0000-4000-8000-000000000034'
+    const semResultado = await enfileirarGesto({ tipo: 'venda.iniciar', registroId: aberta,
+      payload: { sessaoCaixaId: sessaoId, criadoEm: new Date().toISOString() } })
+    const comFalha = await enfileirarGesto({ tipo: 'caixa.suprir', registroId: sessaoId, payload: { valor: 5 } })
+    await iniciarEnvio([comFalha.operacaoId])
+    await registrarDesfechos([{ operacaoId: comFalha.operacaoId, estado: 'failed', falha: 'Sem conexão' }])
+
+    await guardarRetratoDaVenda(emRevisao.inicio.registroId, { id: emRevisao.inicio.registroId })
+    await guardarRetratoDaVenda(aberta, { id: aberta })
+    // A conclusão em revisão foi aplicada e ainda soma na gaveta: o início dela continua.
+    expect((await listarGestos()).map((gesto) => gesto.operacaoId).sort()).toEqual([
+      emRevisao.inicio.operacaoId, emRevisao.conclusao.operacaoId, semResultado.operacaoId, comFalha.operacaoId,
+    ].sort())
+    await caixaLido(10)
+    expect((await listarGestos()).map((gesto) => gesto.operacaoId).sort()).toEqual([
+      emRevisao.conclusao.operacaoId, semResultado.operacaoId, comFalha.operacaoId,
+    ].sort())
   })
 
   it('atualiza o banco local existente sem perder gestos ao criar os retratos', async () => {
