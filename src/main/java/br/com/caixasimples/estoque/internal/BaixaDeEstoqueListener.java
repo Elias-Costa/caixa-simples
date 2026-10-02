@@ -6,12 +6,13 @@ import br.com.caixasimples.contas.application.ContaService;
 import br.com.caixasimples.shared.TenantContext;
 import br.com.caixasimples.vendas.VendaConcluida;
 import java.math.BigDecimal;
-import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -33,6 +34,12 @@ import org.springframework.transaction.support.TransactionTemplate;
  * da venda, porque as linhas não se mesclam, e a venda baixa cada produto uma vez só: as linhas
  * dele são somadas antes de pedir, e o cadastro recebe o total que a venda levou. Serviço no meio
  * dos itens não é erro: o cadastro reconhece e não baixa.
+ *
+ * <p><strong>Em ordem de id, depois do caixa.</strong> Cada produto é gravado com versão, um por
+ * vez, e na ordem do id, não na dos itens: duas conclusões com os mesmos produtos em ordens
+ * diferentes segurariam cada uma um produto e esperariam pelo outro até o banco derrubar uma
+ * delas. Na mesma ordem, a segunda para no primeiro produto e recebe o conflito de versão. O
+ * {@code @Order} do método põe este ouvinte depois do caixa, a mesma ordem em toda transação.
  *
  * <h2>Dentro da transação da conclusão</h2>
  *
@@ -75,6 +82,7 @@ class BaixaDeEstoqueListener {
      *         conta; a conclusão falha junto
      */
     @EventListener
+    @Order(2)
     public void darBaixa(VendaConcluida evento) {
         if (!TenantContext.exigirAtual().equals(evento.contaId())) {
             throw new IllegalStateException(
@@ -89,8 +97,8 @@ class BaixaDeEstoqueListener {
                 return;
             }
             // Pedir uma baixa por linha faria o cadastro recusar a segunda linha do mesmo
-            // produto, e a conclusão inteira falharia.
-            Map<UUID, BigDecimal> quantidadePorProduto = new LinkedHashMap<>();
+            // produto, e a conclusão inteira falharia. A ordem do id é a mesma em toda transação.
+            Map<UUID, BigDecimal> quantidadePorProduto = new TreeMap<>();
             for (VendaConcluida.Item item : evento.itens()) {
                 quantidadePorProduto.merge(item.produtoId(), item.quantidade(), BigDecimal::add);
             }

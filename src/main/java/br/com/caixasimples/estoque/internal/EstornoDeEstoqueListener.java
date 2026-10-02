@@ -6,12 +6,13 @@ import br.com.caixasimples.contas.application.ContaService;
 import br.com.caixasimples.shared.TenantContext;
 import br.com.caixasimples.vendas.VendaCancelada;
 import java.math.BigDecimal;
-import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -34,6 +35,12 @@ import org.springframework.transaction.support.TransactionTemplate;
  * aquela venda chegou a dar baixa nele; uma conta que ligou o controle depois da venda não tem
  * baixa a devolver, e o produto é pulado. Serviço no meio dos itens não é erro: o cadastro
  * reconhece e não devolve.
+ *
+ * <p><strong>Em ordem de id, depois do caixa.</strong> Como na baixa, cada produto é gravado com
+ * versão, um por vez, na ordem do id: dois cancelamentos com os mesmos produtos em ordens
+ * diferentes segurariam cada um um produto e esperariam pelo outro até o banco derrubar um deles.
+ * Na mesma ordem, o segundo para no primeiro produto e recebe o conflito de versão. O
+ * {@code @Order} do método põe este ouvinte depois do caixa.
  *
  * <h2>Dentro da transação do cancelamento</h2>
  *
@@ -77,6 +84,7 @@ class EstornoDeEstoqueListener {
      *         outra conta; o cancelamento falha junto
      */
     @EventListener
+    @Order(2)
     public void estornar(VendaCancelada evento) {
         if (!TenantContext.exigirAtual().equals(evento.contaId())) {
             throw new IllegalStateException("venda " + evento.vendaId()
@@ -91,8 +99,9 @@ class EstornoDeEstoqueListener {
                 return;
             }
             // Pedir uma devolução por linha faria o cadastro recusar a segunda linha do mesmo
-            // produto, e o cancelamento inteiro falharia.
-            Map<UUID, BigDecimal> quantidadePorProduto = new LinkedHashMap<>();
+            // produto, e o cancelamento inteiro falharia. A ordem do id é a mesma em toda
+            // transação.
+            Map<UUID, BigDecimal> quantidadePorProduto = new TreeMap<>();
             for (VendaCancelada.Item item : evento.itens()) {
                 quantidadePorProduto.merge(item.produtoId(), item.quantidade(), BigDecimal::add);
             }

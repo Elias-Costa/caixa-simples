@@ -8,6 +8,7 @@ import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.TenantContext;
 import br.com.caixasimples.vendas.VendaCancelada;
 import org.springframework.context.event.EventListener;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -36,6 +37,12 @@ import org.springframework.transaction.support.TransactionTemplate;
  * a mesma recusa derrubaria só o estorno, com a venda já cancelada e o dinheiro ainda contado no
  * esperado. Pelo mesmo motivo, a regra de só cancelar com o caixa aberto vale de fato: a
  * conferência da sessão e o estorno estão na mesma transação.
+ *
+ * <p><strong>Antes do estoque, sempre.</strong> O cancelamento grava a sessão de caixa e depois
+ * os produtos, na mesma ordem da conclusão, e o {@code @Order} do método a declara. Duas
+ * transações que gravassem os mesmos registros em ordens opostas esperariam uma pela outra até o
+ * banco derrubar uma delas; sem a anotação, a ordem entre os ouvintes seria a do registro dos
+ * beans, que nenhum contrato do Spring fixa.
  *
  * <p>Sem reentrega: o fato não passa pelo registro de publicação, então chega uma vez. A raiz
  * continua recusando o estorno em dobro, para qualquer chamador.
@@ -68,6 +75,7 @@ class VendaCanceladaListener {
      *         conta; o cancelamento falha junto
      */
     @EventListener
+    @Order(1)
     public void devolverDoCaixa(VendaCancelada evento) {
         Money emDinheiro = evento.parcelas().stream()
                 .filter(parcela -> parcela.forma() == FormaPagamento.DINHEIRO)

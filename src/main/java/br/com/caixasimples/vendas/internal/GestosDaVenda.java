@@ -33,7 +33,9 @@ import tools.jackson.databind.ObjectMapper;
  * sempre: a Venda de quem chama, a SessaoCaixa ABERTA para iniciar e concluir, desconto e FIADO só
  * do administrador, Cliente ativo para vincular. A Venda não tem revisão no servidor, então o gesto
  * volta sem versão e a versão que o dispositivo leu não é conferida; as regras da raiz recusam o
- * que não cabe.
+ * que não cabe. Dois envios que alteram a mesma Venda esperam um pelo outro, porque os casos de
+ * uso a leem com a trava da linha, e o segundo é decidido sobre o que o primeiro deixou: o item
+ * que chega depois da conclusão é recusado, em vez de reabrir a Venda.
  *
  * <h2>Revisão</h2>
  *

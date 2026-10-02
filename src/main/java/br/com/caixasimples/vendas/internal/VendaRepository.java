@@ -48,7 +48,12 @@ public interface VendaRepository extends JpaRepository<VendaEntity, UUID> {
 
     Optional<VendaEntity> findByRecebimentosId(UUID recebimentoId);
 
-    /** Serializa recebimentos parciais da mesma dívida antes de conferir o saldo. */
+    /**
+     * A leitura de toda alteração da Venda: trava a linha até o fim da transação, e outra escrita
+     * na mesma comanda espera por ela. No PostgreSQL vira {@code for no key update}, que não barra
+     * quem só confere a chave estrangeira da linha. A linha de outra conta nem chega à trava: o
+     * filtro de tenant a tira antes.
+     */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<VendaEntity> findLockedById(UUID id);
 

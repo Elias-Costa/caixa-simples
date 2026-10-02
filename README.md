@@ -280,7 +280,7 @@ Atalhos para avaliar o código sem percorrer o repositório inteiro.
 |---|---|---|
 | Fronteira de módulo verificada por teste | [ModularityTests.java](src/test/java/br/com/caixasimples/ModularityTests.java) | A arquitetura falha o build quando é violada, em vez de depender de disciplina |
 | PSP confinado ao adapter | [FronteiraPspTest.java](src/test/java/br/com/caixasimples/FronteiraPspTest.java) | Tipos da Efí e dependências de `pagamentos.internal` não chegam ao contrato nem aos casos de uso; o teste prova que a regra detecta um vazamento |
-| Concorrência reproduzida sem pausa | [CancelamentoERecebimentoSobConcorrenciaTest.java](src/test/java/br/com/caixasimples/vendas/CancelamentoERecebimentoSobConcorrenciaTest.java) | Outra transação segura a linha da raiz e só confirma quando o PostgreSQL mostra uma conexão esperando por ela; o cancelamento e o recebimento de fiado são recusados inteiros por conflito de versão, sem efeito pela metade |
+| Concorrência reproduzida sem pausa | [CancelamentoERecebimentoSobConcorrenciaTest.java](src/test/java/br/com/caixasimples/vendas/CancelamentoERecebimentoSobConcorrenciaTest.java) e [EscritasConcorrentesNaVendaTest.java](src/test/java/br/com/caixasimples/vendas/EscritasConcorrentesNaVendaTest.java) | Outra transação segura a linha da raiz e só confirma quando o PostgreSQL mostra as conexões esperando por ela; o cancelamento e o recebimento de fiado são recusados inteiros por conflito de versão, sem efeito pela metade, e duas escritas na mesma Venda esperam uma pela outra em vez de gravar uma por cima da outra |
 | Isolamento entre contas provado nos dois sentidos | [IsolamentoEntreContasTest.java](src/test/java/br/com/caixasimples/contas/IsolamentoEntreContasTest.java) | Segurança testada, não presumida: grava na conta A e prova que a conta B não enxerga |
 | O mecanismo por trás desse isolamento | [MultiTenancyConfiguration.java](src/main/java/br/com/caixasimples/shared/internal/MultiTenancyConfiguration.java) | Filtro no Hibernate, não em cada consulta, e o que acontece quando não há tenant no contexto |
 | Autorização explícita, sem anotação | [UsuarioContext.java](src/main/java/br/com/caixasimples/shared/UsuarioContext.java) | Quem chama vem do contexto, nunca de parâmetro, e cada caso de uso restrito pergunta na primeira linha se é o administrador ou o dono do caixa; o porquê de não haver `@PreAuthorize` nem tabela de rotas está escrito no lugar. [IdentidadeDoTokenFilter.java](src/main/java/br/com/caixasimples/contas/internal/IdentidadeDoTokenFilter.java) preenche os dois contextos e lê o usuário no banco a cada requisição, para inativar valer na hora |
@@ -377,8 +377,11 @@ esse dinheiro. Os da venda cancelada e do fiado recebido fazem o mesmo com o est
 ao estoque e o recebimento. A sessão de caixa e o produto têm versão: se outra operação alterou a
 mesma raiz no meio, a operação inteira é recusada com 409 e quem operou repete; depois do commit,
 a mesma recusa derrubaria só o efeito, com a venda já cancelada. Cada listener confere que o evento
-é da Conta da transação. O primeiro acesso da Conta também tem um ouvinte síncrono: marca e
-catálogo são gravados juntos, antes de o login responder.
+é da Conta da transação. Os da conclusão e do cancelamento declaram a ordem em que rodam, o caixa
+antes do estoque, e o estoque grava os produtos em ordem de id: duas transações que disputam os
+mesmos registros param no primeiro deles, e a segunda recebe o 409, em vez de cada uma segurar um
+registro e esperar pelo outro até o banco derrubar uma delas. O primeiro acesso da Conta
+também tem um ouvinte síncrono: marca e catálogo são gravados juntos, antes de o login responder.
 
 A sincronização em lote segue o mesmo desenho de dependência num sentido só. O módulo
 `sincronizacao` declara a porta `AplicadorDeOperacoes`, e `cadastro`, `caixa` e `vendas` a
@@ -526,6 +529,12 @@ são somas; os filtros entraram como parâmetro opcional nas consultas que já e
   escrita aceita. Os instantes gravados são os do balcão, porque é deles que depende o dia do
   faturamento e do fluxo de caixa; o relógio adiantado vai para revisão, em vez de mudar o dia em
   silêncio.
+- **Toda alteração da Venda espera a anterior.** A linha da Venda não tem versão e grava o estado
+  inteiro da raiz, então quem altera a comanda, com rede ou pelo lote, a lê com a trava da linha:
+  a segunda escrita espera a primeira confirmar e decide sobre o que ela deixou. Duas adições
+  valem as duas, e a edição que chega durante a conclusão é recusada, em vez de reabrir a venda
+  com o dinheiro já na gaveta. As consultas leem sem trava, e um teste de arquitetura recusa
+  escrita que leia a Venda sem ela.
 - **O saldo de estoque pode ficar negativo.** A venda que levou mais do que o saldo registrava já
   aconteceu no balcão; recusar a baixa não a desfaria, só impediria de registrar a venda que
   aconteceu ou deixaria o estoque mentindo por omissão. O saldo negativo é o fato a corrigir, por um ajuste de contagem, e
@@ -792,6 +801,14 @@ operação sob teste roda em outra thread, e a transação concorrente só confi
 mostra uma conexão parada na trava da linha. O cancelamento ou o recebimento é recusado inteiro
 por conflito de versão, sem efeito pela metade, e repetido dá certo, ou esbarra no caixa que já
 fechou.
+
+Duas escritas na mesma Venda também: uma transação prende a linha da comanda, e as operações
+começam uma depois da outra, cada uma quando a anterior já está parada numa trava. Duas adições
+valem as duas, duas parcelas do total não passam dele, e a edição que chega durante a conclusão,
+com rede ou pelo lote, é recusada sem reabrir a venda nem mexer no caixa e no estoque. Duas
+conclusões, e dois cancelamentos, com os mesmos produtos em ordens diferentes terminam em conflito
+de versão para a segunda, nunca em impasse. Testes de arquitetura recusam escrita em `VendaService`
+que leia a Venda sem a trava e ouvinte da conclusão ou do cancelamento sem ordem declarada.
 
 O lote de sincronização é testado de ponta a ponta por HTTP, com os gestos que o PWA grava: um
 dia inteiro sem rede num envio só, com a sangria que só cabe por causa da Venda do mesmo lote; o

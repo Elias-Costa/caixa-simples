@@ -93,6 +93,18 @@ import org.springframework.transaction.annotation.Transactional;
  * versão, e quem chamou repete, em vez de ela confirmar sem o efeito. Os eventos carregam a conta,
  * lida do contexto autenticado no ato, e os ouvintes conferem que rodam nela.
  *
+ * <p><strong>Toda alteração lê a Venda com a trava da linha</strong>, que dura até o fim da
+ * transação; só as consultas leem sem ela. A linha não tem versão e grava o estado inteiro da
+ * raiz, então duas escritas que lessem a mesma comanda sem trava gravariam uma por cima da outra:
+ * duas adições deixariam o total de uma só, e uma edição que leu ABERTA reabriria a venda que
+ * outra acabou de concluir, com o dinheiro já na gaveta. Com a trava, a segunda espera a primeira
+ * confirmar e decide sobre o que ela deixou, e o lote do dispositivo, que chega aos mesmos casos
+ * de uso, espera do mesmo jeito. As travas seguem sempre a mesma ordem: a Venda na leitura,
+ * depois a sessão de caixa e os produtos em ordem de id, gravados pelos ouvintes. Duas transações
+ * que disputam a mesma sessão ou os mesmos produtos param no primeiro registro em comum, e a
+ * segunda recebe o conflito de versão, em vez de cada uma segurar um registro e esperar pelo
+ * outro.
+ *
  * <p><strong>A Venda registrada no dispositivo sem rede</strong> chega com os ids que ele gerou e
  * com os instantes do balcão (RNF01, RNF03), pelas formas de {@link #iniciar}, de
  * {@link #registrarPagamento} e de {@link #concluir} que os recebem, e por
@@ -215,7 +227,7 @@ public class VendaService {
         if (desconto != null && !desconto.equals(Money.ZERO)) {
             UsuarioContext.exigirAdmin();
         }
-        VendaEntity linha = buscar(vendaId);
+        VendaEntity linha = travar(vendaId);
         Venda venda = linha.paraDominio();
         UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
 
@@ -260,7 +272,7 @@ public class VendaService {
         if (desconto != null && !desconto.equals(Money.ZERO)) {
             UsuarioContext.exigirAdmin();
         }
-        VendaEntity linha = buscar(vendaId);
+        VendaEntity linha = travar(vendaId);
         Venda venda = linha.paraDominio();
         UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
         Objects.requireNonNull(itemId, "id do item nao pode ser nulo");
@@ -295,7 +307,7 @@ public class VendaService {
      */
     @Transactional
     public void removerItem(UUID vendaId, UUID itemId) {
-        VendaEntity linha = buscar(vendaId);
+        VendaEntity linha = travar(vendaId);
         Venda venda = linha.paraDominio();
         UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
 
@@ -317,7 +329,7 @@ public class VendaService {
     @Transactional
     public void aplicarDesconto(UUID vendaId, Money desconto) {
         UsuarioContext.exigirAdmin();
-        VendaEntity linha = buscar(vendaId);
+        VendaEntity linha = travar(vendaId);
         Venda venda = linha.paraDominio();
         UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
 
@@ -363,8 +375,7 @@ public class VendaService {
         if (solicitacao.forma() == FormaPagamento.FIADO) {
             UsuarioContext.exigirAdmin();
         }
-        VendaEntity linha = vendas.findLockedById(vendaId)
-                .orElseThrow(() -> new VendaNaoEncontradaException(vendaId));
+        VendaEntity linha = travar(vendaId);
         Venda venda = linha.paraDominio();
         UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
         ResultadoPagamento resultado = pagamentos.pagar(solicitacao);
@@ -404,7 +415,7 @@ public class VendaService {
         if (solicitacao.forma() == FormaPagamento.FIADO) {
             UsuarioContext.exigirAdmin();
         }
-        VendaEntity linha = buscar(vendaId);
+        VendaEntity linha = travar(vendaId);
         Venda venda = linha.paraDominio();
         UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
         Objects.requireNonNull(pagamentoId, "id da parcela nao pode ser nulo");
@@ -426,8 +437,7 @@ public class VendaService {
     /** Reserva a mesma parcela na raiz uma vez, inclusive após perda da resposta HTTP. */
     @Transactional
     public Pagamento reservarPix(UUID vendaId, UUID tentativaId, Money valor, String chave) {
-        VendaEntity linha = vendas.findLockedById(vendaId)
-                .orElseThrow(() -> new VendaNaoEncontradaException(vendaId));
+        VendaEntity linha = travar(vendaId);
         Venda venda = linha.paraDominio();
         UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
         ResultadoPagamento resultado = pagamentos.pagar(
@@ -446,15 +456,14 @@ public class VendaService {
     /** Autoriza a Venda antes de buscar configuração Pix da Conta. */
     @Transactional(readOnly = true)
     public void verificarAcesso(UUID vendaId) {
-        Venda venda = buscar(vendaId).paraDominio();
+        Venda venda = lerSemTrava(vendaId).paraDominio();
         UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
     }
 
     /** Atualiza apenas os dados da cobrança; a Venda continua ABERTA e a parcela PENDENTE. */
     @Transactional
     public Pagamento atualizarCobrancaPix(UUID vendaId, UUID tentativaId, CobrancaPix cobranca) {
-        VendaEntity linha = vendas.findLockedById(vendaId)
-                .orElseThrow(() -> new VendaNaoEncontradaException(vendaId));
+        VendaEntity linha = travar(vendaId);
         Venda venda = linha.paraDominio();
         UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
         Pagamento atual = venda.getPagamentos().stream().filter(p -> p.id().equals(tentativaId))
@@ -506,8 +515,7 @@ public class VendaService {
     @Transactional
     public void confirmarPix(UUID vendaId, UUID pagamentoId, String txid, Money valor,
             String chave) {
-        VendaEntity linha = vendas.findLockedById(vendaId)
-                .orElseThrow(() -> new VendaNaoEncontradaException(vendaId));
+        VendaEntity linha = travar(vendaId);
         Venda venda = linha.paraDominio();
         boolean novaConfirmacao = venda.confirmarPix(pagamentoId, txid, valor, chave);
         if (!novaConfirmacao) {
@@ -551,8 +559,7 @@ public class VendaService {
      */
     @Transactional
     public void concluir(UUID vendaId, Instant concluidoEm) {
-        VendaEntity linha = vendas.findLockedById(vendaId)
-                .orElseThrow(() -> new VendaNaoEncontradaException(vendaId));
+        VendaEntity linha = travar(vendaId);
         Venda venda = linha.paraDominio();
         UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
         if (venda.getPagamentos().stream().anyMatch(p -> p.forma() == FormaPagamento.FIADO)) {
@@ -599,8 +606,7 @@ public class VendaService {
      */
     @Transactional
     public void cancelar(UUID vendaId) {
-        VendaEntity linha = vendas.findLockedById(vendaId)
-                .orElseThrow(() -> new VendaNaoEncontradaException(vendaId));
+        VendaEntity linha = travar(vendaId);
         Venda venda = linha.paraDominio();
         UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
         if (venda.getStatus() == StatusVenda.CANCELADA
@@ -651,7 +657,7 @@ public class VendaService {
     /** O Cliente é conferido no cadastro da Conta antes de entrar na comanda. */
     @Transactional
     public void vincularCliente(UUID vendaId, UUID clienteId) {
-        VendaEntity linha = buscar(vendaId);
+        VendaEntity linha = travar(vendaId);
         Venda venda = linha.paraDominio();
         UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
         clientes.exigirAtivo(clienteId);
@@ -676,8 +682,7 @@ public class VendaService {
             FormaPagamento forma) {
         Objects.requireNonNull(recebimentoId, "id do recebimento nao pode ser nulo");
         UsuarioContext.exigirAtual();
-        VendaEntity linha = vendas.findLockedById(vendaId)
-                .orElseThrow(() -> new VendaNaoEncontradaException(vendaId));
+        VendaEntity linha = travar(vendaId);
         Venda venda = linha.paraDominio();
         var anterior = vendas.findByRecebimentosId(recebimentoId);
         if (anterior.isPresent()) {
@@ -727,7 +732,7 @@ public class VendaService {
     @Transactional(readOnly = true)
     public ComprovanteDeRecebimento comprovanteDeRecebimento(UUID vendaId, UUID recebimentoId) {
         UsuarioContext.exigirAtual();
-        Venda venda = buscar(vendaId).paraDominio();
+        Venda venda = lerSemTrava(vendaId).paraDominio();
         Recebimento alvo = venda.getRecebimentos().stream()
                 .filter(r -> r.id().equals(recebimentoId)).findFirst()
                 .orElseThrow(() -> new IllegalArgumentException(
@@ -783,7 +788,7 @@ public class VendaService {
      */
     @Transactional(readOnly = true)
     public Comprovante comprovante(UUID vendaId) {
-        Venda venda = buscar(vendaId).paraDominio();
+        Venda venda = lerSemTrava(vendaId).paraDominio();
         UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
 
         if (venda.getStatus() != StatusVenda.CONCLUIDA) {
@@ -832,7 +837,7 @@ public class VendaService {
     /** Devolve a comanda inteira após recarga da tela, incluindo parcelas já lançadas. */
     @Transactional(readOnly = true)
     public VendaParaTela consultar(UUID vendaId) {
-        Venda venda = buscar(vendaId).paraDominio();
+        Venda venda = lerSemTrava(vendaId).paraDominio();
         UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
         return paraTela(venda);
     }
@@ -944,7 +949,21 @@ public class VendaService {
                 venda.getUsuarioId(), itens, parcelas, recebimentos);
     }
 
-    private VendaEntity buscar(UUID vendaId) {
+    /**
+     * A primeira leitura de toda alteração da Venda: trava a linha até o fim da transação. Outra
+     * escrita na mesma comanda espera, e decide depois sobre o que esta confirmou.
+     */
+    private VendaEntity travar(UUID vendaId) {
+        Objects.requireNonNull(vendaId, "id da venda nao pode ser nulo");
+        return vendas.findLockedById(vendaId)
+                .orElseThrow(() -> new VendaNaoEncontradaException(vendaId));
+    }
+
+    /**
+     * A leitura das consultas, sem trava: o PostgreSQL recusa trava em transação somente leitura,
+     * e a consulta não grava nada que outra escrita possa apagar.
+     */
+    private VendaEntity lerSemTrava(UUID vendaId) {
         Objects.requireNonNull(vendaId, "id da venda nao pode ser nulo");
         return vendas.findById(vendaId).orElseThrow(() -> new VendaNaoEncontradaException(vendaId));
     }

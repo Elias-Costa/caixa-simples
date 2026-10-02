@@ -8,6 +8,7 @@ import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.TenantContext;
 import br.com.caixasimples.vendas.VendaConcluida;
 import org.springframework.context.event.EventListener;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -37,6 +38,12 @@ import org.springframework.transaction.support.TransactionTemplate;
  * também o que deixa a sangria que vem depois, no mesmo lote enviado pelo dispositivo, encontrar
  * este dinheiro no esperado.
  *
+ * <p><strong>Antes do estoque, sempre.</strong> A conclusão grava a sessão de caixa e depois os
+ * produtos, e o {@code @Order} do método declara essa ordem, que o ouvinte do estoque completa.
+ * Duas transações que gravassem os mesmos registros em ordens opostas esperariam uma pela outra
+ * até o banco derrubar uma delas; sem a anotação, a ordem entre os ouvintes seria a do registro
+ * dos beans, que nenhum contrato do Spring fixa.
+ *
  * <p>Sem reentrega: o fato não passa pelo registro de publicação, então chega uma vez. A raiz
  * continua recusando a mesma venda duas vezes, para qualquer chamador.
  *
@@ -65,6 +72,7 @@ class VendaConcluidaListener {
      *         evento é de outra conta; a conclusão falha junto
      */
     @EventListener
+    @Order(1)
     public void lancarNoCaixa(VendaConcluida evento) {
         Money emDinheiro = evento.parcelas().stream()
                 .filter(parcela -> parcela.forma() == FormaPagamento.DINHEIRO)
