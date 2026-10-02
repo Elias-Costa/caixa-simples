@@ -98,7 +98,10 @@ novo o que o retrato do servidor já contém, e o gesto enviado só sai do apare
 retrato que o usa já contém o efeito dele: a Venda em dinheiro continua na gaveta sem rede até o
 caixa ser relido. A sessão de caixa que o servidor diz não estar mais aberta deixa de aceitar
 operação sem rede e aparece fechada, sem os valores do fechamento até a próxima leitura, enquanto
-a abertura feita no aparelho e ainda não enviada continua valendo. O cabeçalho mostra o
+a abertura feita no aparelho e ainda não enviada continua valendo. Depois de cada lançamento com
+rede que mexe na gaveta, o aparelho relê o caixa; se a rede cair antes da releitura, o saldo
+esperado aparece como indisponível sem rede e a sangria espera a próxima leitura, em vez de partir
+de um saldo antigo. O cabeçalho mostra o
 que falta enviar e o que está em revisão, e a tela de sincronização mostra cada gesto com o
 detalhe do servidor, para quem operou conferir. O administrador vê também as revisões e recusas
 de todos os aparelhos da Conta e registra no servidor que as conferiu.

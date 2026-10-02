@@ -11,7 +11,7 @@ import {
 import * as raiz from './raizDaVenda'
 
 type VendasDaApi = typeof vendas
-type CaixaDoDispositivo = Pick<ReturnType<typeof criarCaixaLocal>, 'consultar'>
+type CaixaDoDispositivo = Pick<ReturnType<typeof criarCaixaLocal>, 'consultar' | 'escreverNaGavetaComRede'>
 type ClientesDoDispositivo = Pick<typeof cadastro, 'clientes'>
 
 /** O contrato da API de vendas, com o item levando o Produto como o operador o viu na busca. */
@@ -79,6 +79,14 @@ async function localizar(id: string, leitura: boolean): Promise<NoDispositivo | 
   }
   if (!navigator.onLine) throw new Error(VENDA_DO_SERVIDOR_SEM_REDE)
   return 'servidor'
+}
+
+/**
+ * A sessão em que a Venda do servidor nasceu, pelo retrato que a tela leu antes de concluí-la ou
+ * cancelá-la. Sem o retrato, o caixa usa a sessão aberta de quem opera.
+ */
+async function sessaoDaVenda(id: string): Promise<string | undefined> {
+  return (await lerRetrato<Venda>(`venda:${id}`))?.dados.sessaoCaixaId
 }
 
 function resumo(venda: raiz.VendaNoDispositivo, pendente: boolean): ResumoDaVenda {
@@ -293,7 +301,11 @@ export function criarVendaLocal(remoto: VendasDaApi = vendas, caixa: CaixaDoDisp
     },
     async concluir(id) {
       const alvo = await localizar(id, false)
-      if (alvo === 'servidor') return remoto.concluir(id)
+      if (alvo === 'servidor') {
+        if (!temBanco()) return remoto.concluir(id)
+        // A conclusão lança na gaveta do servidor o dinheiro da Venda.
+        return caixa.escreverNaGavetaComRede(await sessaoDaVenda(id), () => remoto.concluir(id))
+      }
       if (alvo.venda.parcelas.some((parcela) => parcela.forma === 'FIADO')) {
         exigirAdmin('Só ADMIN conclui Venda com FIADO.')
       }
@@ -311,8 +323,10 @@ export function criarVendaLocal(remoto: VendasDaApi = vendas, caixa: CaixaDoDisp
     },
     async cancelar(id) {
       const alvo = await localizar(id, false)
-      if (alvo === 'servidor') return remoto.cancelar(id)
-      throw new Error(CANCELAR_DEPOIS_DE_SINCRONIZAR)
+      if (alvo !== 'servidor') throw new Error(CANCELAR_DEPOIS_DE_SINCRONIZAR)
+      if (!temBanco()) return remoto.cancelar(id)
+      // O cancelamento devolve da gaveta do servidor o dinheiro que a Venda tinha trazido.
+      return caixa.escreverNaGavetaComRede(await sessaoDaVenda(id), () => remoto.cancelar(id))
     },
     async comprovante(id) {
       if (!navigator.onLine && temBanco()) {
@@ -328,7 +342,10 @@ export function criarVendaLocal(remoto: VendasDaApi = vendas, caixa: CaixaDoDisp
       return comprovanteDoDispositivo(alvo.venda, alvo.pendente)
     },
     async receber(id, valor, forma, recebimentoId?: string) {
-      return remoto.receber(id, valor, forma, recebimentoId ?? crypto.randomUUID())
+      const receberNoServidor = () => remoto.receber(id, valor, forma, recebimentoId ?? crypto.randomUUID())
+      // Só o dinheiro entra na gaveta, e na sessão aberta de quem recebe; Pix e cartão não passam por ela.
+      if (!temBanco() || forma !== 'DINHEIRO') return receberNoServidor()
+      return caixa.escreverNaGavetaComRede(undefined, receberNoServidor)
     },
     async comprovanteDeRecebimento(id, recebimentoId) {
       return remoto.comprovanteDeRecebimento(id, recebimentoId)

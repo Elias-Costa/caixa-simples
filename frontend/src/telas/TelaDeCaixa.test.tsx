@@ -3,6 +3,7 @@ import { deleteDB } from 'idb'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { caixa, type SessaoCaixa } from '../api/caixa'
+import { SemConexao } from '../api/cliente'
 import { criarCaixaLocal } from '../offline/caixaLocal'
 import { gravarIdentidade, gravarToken } from '../sessao/armazenamento'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
@@ -131,5 +132,29 @@ describe('caixa na tela', () => {
     expect(screen.queryByText(/Valor contado:/)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Fechar e registrar diferença' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Registrar sangria' })).not.toBeInTheDocument()
+  })
+
+  it('mostra indisponível sem rede o saldo do caixa que mudou com rede e não foi relido', async () => {
+    const deHoje = { ...aberta, abertaEm: new Date().toISOString(), versao: 0, movimentos: [] }
+    vi.spyOn(caixa, 'consultar').mockResolvedValueOnce(deHoje).mockRejectedValue(new SemConexao())
+    vi.spyOn(caixa, 'suprir').mockResolvedValue(undefined)
+    gravarToken(tokenComExpiracao(new Date(Date.now() + 60 * 60 * 1000)))
+    gravarIdentidade({ usuarioId: 'u-1', nome: 'Ana', perfil: 'OPERADOR', contaId: 'c-1',
+      nomeNegocio: 'Loja da Esquina', estoqueHabilitado: false })
+    // Com rede, o aparelho guardou o caixa e lançou um suprimento; a rede caiu antes da releitura.
+    const local = criarCaixaLocal()
+    await local.consultar(deHoje.id)
+    await local.suprir(deHoje.id, 5, 'Troco', crypto.randomUUID())
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+    mostrar()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Ver meu caixa' }))
+    expect(await screen.findByText(/indisponível até a próxima leitura do caixa/)).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Valor contado'), { target: { value: '20.00' } })
+    expect(screen.queryByText(/Diferença prevista:/)).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Valor'), { target: { value: '1' } })
+    fireEvent.change(screen.getByLabelText('Motivo'), { target: { value: 'Depósito' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Registrar sangria' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('a sangria espera')
   })
 })

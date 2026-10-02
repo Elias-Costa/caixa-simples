@@ -582,29 +582,241 @@ describe('SessaoCaixa local diante do que o servidor já sabe', () => {
   })
 })
 
+/**
+ * O caixa de Ana no servidor, com 20,00 de abertura e uma Venda de 10,00 em dinheiro, guardado no
+ * aparelho com o extrato, como a tela do caixa o deixa; e a API de vendas que as escritas com rede
+ * usam.
+ */
+async function caixaComExtratoGuardado() {
+  entrar(ana)
+  rede(true)
+  const vendaAnterior = crypto.randomUUID()
+  const sessao: SessaoCaixa = { ...abertaNoServidor(20), versao: 1, valorFechamentoEsperado: 30,
+    movimentos: [movimento('VENDA', 10, vendaAnterior)] }
+  const remoto = { ...caixa, consultar: vi.fn(async (): Promise<SessaoCaixa> => sessao),
+    sangrar: vi.fn(async () => undefined), suprir: vi.fn(async () => undefined) }
+  const local = criarCaixaLocal(remoto)
+  await local.consultar(sessao.id)
+  const api = { ...apiDeVendas(), concluir: vi.fn(async () => undefined), cancelar: vi.fn(async () => undefined),
+    receber: vi.fn(async (_venda: string, _valor: number, _forma: string, recebimentoId: string) =>
+      ({ id: recebimentoId, saldoDevedor: 0 })) }
+  const vendasLocais = criarVendaLocal(api, local)
+  return { sessao, remoto, local, api, vendasLocais, vendaAnterior }
+}
+
+type CaixaComExtrato = Awaited<ReturnType<typeof caixaComExtratoGuardado>>
+
+/** Uma escrita com rede que muda a gaveta, e a sessão como o servidor fica depois dela. */
+type EscritaComRede = {
+  nome: string
+  escrever(contexto: CaixaComExtrato): Promise<unknown>
+  depois(antes: SessaoCaixa): SessaoCaixa
+}
+
+function comMovimento(antes: SessaoCaixa, esperado: number, novo: MovimentoCaixa): SessaoCaixa {
+  return { ...antes, versao: (antes.versao ?? 0) + 1, valorFechamentoEsperado: esperado,
+    movimentos: [...(antes.movimentos ?? []), novo] }
+}
+
+function tiposEValores(movimentos: MovimentoCaixa[] | undefined) {
+  return (movimentos ?? []).map(({ tipo, valor }) => ({ tipo, valor }))
+}
+
+const escritasComRede: EscritaComRede[] = [
+  {
+    nome: 'a Venda em dinheiro concluída',
+    async escrever({ sessao, api, vendasLocais }) {
+      const vendaId = crypto.randomUUID()
+      // A tela lê a Venda do servidor antes de concluí-la.
+      api.consultar.mockResolvedValue({ ...vendaDoServidor(vendaId, sessao.id), status: 'ABERTA' })
+      await vendasLocais.consultar(vendaId)
+      await vendasLocais.concluir(vendaId)
+    },
+    depois: (antes) => comMovimento(antes, 40, movimento('VENDA', 10, crypto.randomUUID())),
+  },
+  {
+    nome: 'o cancelamento da Venda em dinheiro',
+    async escrever({ sessao, api, vendasLocais, vendaAnterior }) {
+      api.consultar.mockResolvedValue(vendaDoServidor(vendaAnterior, sessao.id))
+      await vendasLocais.consultar(vendaAnterior)
+      await vendasLocais.cancelar(vendaAnterior)
+    },
+    depois: (antes) => comMovimento(antes, 20, movimento('ESTORNO', 10, antes.movimentos?.[0].vendaId ?? null)),
+  },
+  {
+    nome: 'a sangria',
+    escrever: ({ sessao, local }) => local.sangrar(sessao.id, 5, 'Depósito', crypto.randomUUID()),
+    depois: (antes) => comMovimento(antes, 25, movimento('SANGRIA', 5)),
+  },
+  {
+    nome: 'o suprimento',
+    escrever: ({ sessao, local }) => local.suprir(sessao.id, 5, 'Troco', crypto.randomUUID()),
+    depois: (antes) => comMovimento(antes, 35, movimento('SUPRIMENTO', 5)),
+  },
+  {
+    nome: 'o recebimento de fiado em dinheiro',
+    escrever: ({ vendasLocais }) => vendasLocais.receber(crypto.randomUUID(), 10, 'DINHEIRO', crypto.randomUUID()),
+    depois: (antes) => comMovimento(antes, 40, movimento('RECEBIMENTO', 10, crypto.randomUUID())),
+  },
+]
+
+describe('SessaoCaixa local depois de escrita com rede', () => {
+  it.each(escritasComRede)('relê o caixa depois de $nome, e sem rede o saldo é o do servidor', async ({
+    escrever, depois }) => {
+    const contexto = await caixaComExtratoGuardado()
+    const { sessao, remoto, local } = contexto
+    const noServidor = depois(sessao)
+    remoto.consultar.mockResolvedValue(noServidor)
+    await escrever(contexto)
+
+    rede(false)
+    const lida = await criarCaixaLocal(remoto).consultar(sessao.id)
+    expect(lida).toMatchObject({ status: 'ABERTA', versao: noServidor.versao,
+      valorFechamentoEsperado: noServidor.valorFechamentoEsperado, pendenteSincronizacao: false })
+    expect(lida.saldoDesatualizado).toBeUndefined()
+    expect(tiposEValores(lida.movimentos)).toEqual(tiposEValores(noServidor.movimentos))
+    // A sangria sem rede confere o saldo do servidor: cabe o saldo inteiro, e um centavo a mais não.
+    await expect(local.sangrar(sessao.id, noServidor.valorFechamentoEsperado + 0.01, 'Depósito'))
+      .rejects.toThrow('maior que o saldo esperado')
+    await local.sangrar(sessao.id, noServidor.valorFechamentoEsperado, 'Depósito')
+    expect(await local.consultar(sessao.id)).toMatchObject({ valorFechamentoEsperado: 0 })
+  })
+
+  it.each(escritasComRede)('não mostra sem rede o saldo antigo quando a rede cai antes de reler $nome', async ({
+    escrever, depois }) => {
+    const contexto = await caixaComExtratoGuardado()
+    const { sessao, remoto, local } = contexto
+    const noServidor = depois(sessao)
+    // A escrita chega ao servidor, e a rede cai antes de o extrato ser relido.
+    remoto.consultar.mockRejectedValueOnce(new SemConexao())
+    await escrever(contexto)
+
+    rede(false)
+    expect(await local.consultar(sessao.id)).toMatchObject({ status: 'ABERTA', saldoDesatualizado: true,
+      diferenca: null })
+    await expect(local.sangrar(sessao.id, 1, 'Depósito')).rejects.toThrow('a sangria espera')
+    expect(await listarGestos()).toEqual([])
+
+    // Com a rede de volta, a leitura pedida depois da escrita vale, e nada conta duas vezes.
+    rede(true)
+    remoto.consultar.mockResolvedValue(noServidor)
+    await local.consultar(sessao.id)
+    rede(false)
+    const relida = await criarCaixaLocal(remoto).consultar(sessao.id)
+    expect(relida).toMatchObject({ versao: noServidor.versao,
+      valorFechamentoEsperado: noServidor.valorFechamentoEsperado })
+    expect(relida.saldoDesatualizado).toBeUndefined()
+    expect(tiposEValores(relida.movimentos)).toEqual(tiposEValores(noServidor.movimentos))
+  })
+
+  it('segue sem rede com Venda, suprimento e fechamento do caixa desatualizado, e a leitura depois do envio vale', async () => {
+    const { sessao, remoto, local, vendasLocais } = await caixaComExtratoGuardado()
+    remoto.consultar.mockRejectedValueOnce(new SemConexao())
+    await local.sangrar(sessao.id, 5, 'Depósito', crypto.randomUUID())
+
+    rede(false)
+    await local.suprir(sessao.id, 5, 'Troco')
+    const { id: vendaId } = await vendasLocais.iniciar(sessao.id)
+    await vendasLocais.adicionarItem(vendaId, cafe, 1, 0)
+    await vendasLocais.pagar(vendaId, 'DINHEIRO', 6.25, 10)
+    await vendasLocais.concluir(vendaId)
+    await expect(local.sangrar(sessao.id, 1, 'Depósito')).rejects.toThrow('a sangria espera')
+    // A diferença sai do saldo que o aparelho não conhece: quem a calcula é o servidor, com o gesto.
+    expect(await local.fechar(sessao.id, 36)).toEqual({ diferenca: null })
+    expect(await local.consultar(sessao.id)).toMatchObject({ status: 'FECHADA', valorFechamentoContado: 36,
+      diferenca: null, saldoDesatualizado: true, pendenteSincronizacao: true })
+
+    rede(true)
+    await enviarFila(aplicadas(5))
+    remoto.consultar.mockResolvedValue({ ...sessao, versao: 5, status: 'FECHADA', fechadaEm: new Date().toISOString(),
+      valorFechamentoEsperado: 36.25, valorFechamentoContado: 36, diferenca: 0.25,
+      movimentos: [...(sessao.movimentos ?? []), movimento('SANGRIA', 5), movimento('SUPRIMENTO', 5),
+        movimento('VENDA', 6.25, vendaId)] })
+    await local.consultar(sessao.id)
+    rede(false)
+    const relida = await criarCaixaLocal(remoto).consultar(sessao.id)
+    expect(relida).toMatchObject({ status: 'FECHADA', versao: 5, valorFechamentoEsperado: 36.25,
+      valorFechamentoContado: 36, diferenca: 0.25, pendenteSincronizacao: false })
+    expect(relida.saldoDesatualizado).toBeUndefined()
+    expect(relida.movimentos).toHaveLength(4)
+  })
+
+  it('não guarda nem deixa tirar a marca a leitura pedida antes da escrita e respondida depois', async () => {
+    const { sessao, remoto, local } = await caixaComExtratoGuardado()
+    let responder: (lida: SessaoCaixa) => void = () => undefined
+    remoto.consultar.mockImplementationOnce(() => new Promise((resolve) => { responder = resolve }))
+      .mockRejectedValueOnce(new SemConexao())
+    const leituraAntiga = local.consultar(sessao.id)
+    await vi.waitFor(() => expect(remoto.consultar).toHaveBeenCalledTimes(2))
+    await local.sangrar(sessao.id, 5, 'Depósito', crypto.randomUUID())
+    // A leitura antiga saiu antes da sangria e volta sem ela.
+    responder(sessao)
+    await leituraAntiga
+
+    rede(false)
+    expect(await local.consultar(sessao.id)).toMatchObject({ saldoDesatualizado: true })
+    await expect(local.sangrar(sessao.id, 1, 'Depósito')).rejects.toThrow('a sangria espera')
+  })
+
+  it('não marca o recebimento de fiado em Pix, que não passa pela gaveta', async () => {
+    const { sessao, remoto, local, vendasLocais } = await caixaComExtratoGuardado()
+    await vendasLocais.receber(crypto.randomUUID(), 10, 'PIX', crypto.randomUUID())
+
+    rede(false)
+    expect((await local.consultar(sessao.id)).saldoDesatualizado).toBeUndefined()
+    expect(remoto.consultar).toHaveBeenCalledTimes(1)
+  })
+
+  it('guarda a marca só para a Conta e o usuário que escreveram', async () => {
+    const { sessao, remoto, local } = await caixaComExtratoGuardado()
+    remoto.consultar.mockRejectedValueOnce(new SemConexao())
+    await local.suprir(sessao.id, 5, 'Troco', crypto.randomUUID())
+    expect((await lerCaixaNoAparelho()).desatualizadas).toEqual([expect.objectContaining({ sessaoId: sessao.id })])
+
+    entrar({ ...ana, contaId: 'conta-b' })
+    expect(await lerCaixaNoAparelho()).toMatchObject({ sessoes: [], desatualizadas: [] })
+    entrar({ ...ana, usuarioId: 'outra' })
+    expect(await lerCaixaNoAparelho()).toMatchObject({ sessoes: [], desatualizadas: [] })
+    entrar(ana)
+    rede(false)
+    expect(await local.consultar(sessao.id)).toMatchObject({ saldoDesatualizado: true })
+  })
+})
+
 describe('mesclarSessoesLidas', () => {
   const guardada = { ...abertaNoServidor(20), ordemDaLeitura: 5 }
 
   it('não troca a sessão guardada por uma leitura mais antiga', () => {
     const lida = { ...guardada, versao: 3, valorFechamentoEsperado: 99 }
-    expect(mesclarSessoesLidas({ sessoes: [guardada], fechadasNoServidor: [] }, [lida], 4, ana.usuarioId))
-      .toEqual({ sessoes: [guardada], fechadasNoServidor: [] })
-    expect(mesclarSessoesLidas({ sessoes: [guardada], fechadasNoServidor: [] }, [lida], 5, ana.usuarioId).sessoes)
-      .toEqual([{ ...lida, ordemDaLeitura: 5 }])
+    const atual = { sessoes: [guardada], fechadasNoServidor: [], desatualizadas: [] }
+    expect(mesclarSessoesLidas(atual, [lida], 4, ana.usuarioId)).toEqual(atual)
+    expect(mesclarSessoesLidas(atual, [lida], 5, ana.usuarioId).sessoes).toEqual([{ ...lida, ordemDaLeitura: 5 }])
   })
 
   it('não volta a ABERTA a sessão guardada FECHADA e tira a marca quando o fechamento é lido', () => {
     const fechada = { ...guardada, versao: 2, status: 'FECHADA' as const, fechadaEm: new Date().toISOString(),
       valorFechamentoContado: 20, diferenca: 0 }
-    const comFechamento = mesclarSessoesLidas({ sessoes: [guardada], fechadasNoServidor: [guardada.id] },
-      [fechada], 6, ana.usuarioId)
-    expect(comFechamento).toEqual({ sessoes: [{ ...fechada, ordemDaLeitura: 6 }], fechadasNoServidor: [] })
+    const comFechamento = mesclarSessoesLidas({ sessoes: [guardada], fechadasNoServidor: [guardada.id],
+      desatualizadas: [] }, [fechada], 6, ana.usuarioId)
+    expect(comFechamento).toEqual({ sessoes: [{ ...fechada, ordemDaLeitura: 6 }], fechadasNoServidor: [],
+      desatualizadas: [] })
     expect(mesclarSessoesLidas(comFechamento, [resumo(guardada)], 7, ana.usuarioId)).toEqual(comFechamento)
+  })
+
+  it('tira a marca de desatualizada só com a leitura da sessão pedida depois dela', () => {
+    const marcada = { sessoes: [guardada], fechadasNoServidor: [],
+      desatualizadas: [{ sessaoId: guardada.id, ordem: 7 }] }
+    const lida = { ...guardada, versao: 1, valorFechamentoEsperado: 25 }
+    expect(mesclarSessoesLidas(marcada, [lida], 6, ana.usuarioId).desatualizadas).toEqual(marcada.desatualizadas)
+    expect(mesclarSessoesLidas(marcada, [lida], 7, ana.usuarioId).desatualizadas).toEqual([])
+    // O resumo de outra revisão não substitui o extrato guardado, e por isso não fala da escrita.
+    expect(mesclarSessoesLidas(marcada, [resumo(lida)], 8, ana.usuarioId).desatualizadas)
+      .toEqual(marcada.desatualizadas)
   })
 
   it('ignora a sessão de outro operador', () => {
     const deOutro = { ...abertaNoServidor(10), usuarioId: 'outra' }
-    expect(mesclarSessoesLidas({ sessoes: [], fechadasNoServidor: [] }, [deOutro], 0, ana.usuarioId))
-      .toEqual({ sessoes: [], fechadasNoServidor: [] })
+    const vazio = { sessoes: [], fechadasNoServidor: [], desatualizadas: [] }
+    expect(mesclarSessoesLidas(vazio, [deOutro], 0, ana.usuarioId)).toEqual(vazio)
   })
 })

@@ -4,10 +4,14 @@ import { caixa, type SessaoCaixa } from '../api/caixa'
 import { SemConexao } from '../api/cliente'
 import { intencaoOnline } from '../api/intencaoOnline'
 import { fiado, type Divida } from '../api/fiado'
-import { vendas, type ComprovanteDeRecebimento, type FormaPagamento } from '../api/vendas'
+import type { ComprovanteDeRecebimento, FormaPagamento } from '../api/vendas'
+import { criarVendaLocal } from '../offline/vendaLocal'
 import { useSessao } from '../sessao/useSessao'
 import { erroDeCadastro } from './erroDeCadastro'
 
+// O recebimento continua só com rede. Ele passa pelo aparelho para que o caixa guardado, usado sem
+// rede, não fique com o saldo de antes do dinheiro recebido.
+const vendas = criarVendaLocal()
 const moeda = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
 const dataHora = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
 

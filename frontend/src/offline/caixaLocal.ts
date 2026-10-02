@@ -4,18 +4,25 @@ import { lerIdentidade } from '../sessao/armazenamento'
 import { centavos, centavosDoSaldo, reais } from './dinheiro'
 import {
   atualizarRetratoDoCaixa, enfileirarGesto, gestoAplicavel, gestoPendente, jaEstaNoRetrato, lerCaixaNoAparelho,
-  lerDoServidor, listarGestos, ordenarPorDependencia, versaoDoResultado, type GestoNaFila, type RetratoDoCaixa,
+  lerDoServidor, listarGestos, marcarCaixaDesatualizado, ordenarPorDependencia, versaoDoResultado,
+  type GestoNaFila, type RetratoDoCaixa,
 } from './fila'
 import { dinheiroNaGaveta, projetarVendas, type DadosDoInicio } from './raizDaVenda'
 
 type CaixaRemoto = typeof caixa
-type CaixaNoDispositivo = Omit<CaixaRemoto, 'sangrar' | 'suprir'> & {
+type CaixaNoDispositivo = Omit<CaixaRemoto, 'sangrar' | 'suprir' | 'fechar'> & {
   sangrar(id: string, valor: number, motivo: string, movimentoId?: string): Promise<void>
   suprir(id: string, valor: number, motivo: string, movimentoId?: string): Promise<void>
+  /** Sem rede e com o saldo desatualizado, a diferença fica para o servidor calcular. */
+  fechar(id: string, valorContado: number): Promise<{ diferenca: number | null }>
+  /** Para a Venda e o fiado, que escrevem com rede na gaveta: ver escreverNaGavetaComRede. */
+  escreverNaGavetaComRede<T>(id: string | undefined, escrever: () => Promise<T>): Promise<T>
 }
 /** Cada sessão guardada leva a ordem da leitura que a trouxe, porque cada uma é lida numa hora. */
 type SessaoGuardada = SessaoCaixa & { ordemDaLeitura?: number }
 const prefixo = 'caixa.'
+const SANGRIA_ESPERA_A_LEITURA = 'Este caixa mudou com rede e o aparelho ainda não releu o saldo: '
+  + 'a sangria espera a próxima leitura do caixa, com rede.'
 
 function semBanco(): boolean {
   if ('indexedDB' in globalThis) return false
@@ -103,11 +110,13 @@ async function retratos(): Promise<SessaoGuardada[]> {
  * As sessões lidas do servidor sobre as que o aparelho já guardava. A guardada só é trocada por uma
  * leitura que não seja mais antiga que ela: a ordem da leitura nunca recua, porque o descarte já tirou
  * da fila o que a leitura mais nova continha. E o fechamento é definitivo no servidor: a leitura que
- * ainda mostra ABERTA a sessão que o aparelho tem FECHADA saiu antes do fechamento.
+ * ainda mostra ABERTA a sessão que o aparelho tem FECHADA saiu antes do fechamento. A sessão marcada
+ * como desatualizada deixa de estar quando a leitura guardada foi pedida depois da marca.
  */
 export function mesclarSessoesLidas(atual: RetratoDoCaixa<SessaoGuardada>, lidas: SessaoCaixa[],
   ordemDaLeitura: number, usuario: string): RetratoDoCaixa<SessaoGuardada> {
   const guardadas = new Map(atual.sessoes.map((sessao) => [sessao.id, sessao]))
+  const guardadasAgora = new Set<string>()
   for (const lida of lidas) {
     if (lida.usuarioId !== usuario) continue
     const anterior = guardadas.get(lida.id)
@@ -115,10 +124,12 @@ export function mesclarSessoesLidas(atual: RetratoDoCaixa<SessaoGuardada>, lidas
     if (anterior?.status === 'FECHADA' && lida.status === 'ABERTA') continue
     if (lida.movimentos) {
       guardadas.set(lida.id, { ...lida, ordemDaLeitura })
+      guardadasAgora.add(lida.id)
     } else if (!anterior?.movimentos || anterior.versao === lida.versao) {
       // O resumo do histórico não traz o extrato; o guardado continua valendo porque é da mesma
       // revisão.
       guardadas.set(lida.id, { ...anterior, ...lida, movimentos: anterior?.movimentos, ordemDaLeitura })
+      guardadasAgora.add(lida.id)
     }
     // O resumo de outra revisão não substitui um extrato guardado: ficariam os movimentos de uma
     // leitura com o esperado de outra. O extrato é trocado na próxima consulta da sessão.
@@ -126,7 +137,13 @@ export function mesclarSessoesLidas(atual: RetratoDoCaixa<SessaoGuardada>, lidas
   const sessoes = [...guardadas.values()]
   // Com o fechamento lido, a marca de fechada no servidor não tem mais o que dizer.
   const fechamentoLido = new Set(sessoes.filter((sessao) => sessao.status === 'FECHADA').map((sessao) => sessao.id))
-  return { sessoes, fechadasNoServidor: atual.fechadasNoServidor.filter((id) => !fechamentoLido.has(id)) }
+  return {
+    sessoes,
+    fechadasNoServidor: atual.fechadasNoServidor.filter((id) => !fechamentoLido.has(id)),
+    // A leitura ignorada acima não diz nada do que a escrita com rede mudou, e a marca fica.
+    desatualizadas: atual.desatualizadas.filter((marca) =>
+      !guardadasAgora.has(marca.sessaoId) || marca.ordem > ordemDaLeitura),
+  }
 }
 
 async function guardar(sessoes: SessaoCaixa[], ordemDaLeitura: number): Promise<void> {
@@ -171,7 +188,7 @@ async function marcarFechadaNoServidor(id: string): Promise<void> {
  * a Venda. O confirmado depois da leitura entra com a revisão que o servidor devolveu.
  */
 function projetar(base: SessaoGuardada | undefined, gestos: GestoNaFila[], id: string,
-  fechadaNoServidor: boolean): SessaoCaixa | undefined {
+  fechadaNoServidor: boolean, desatualizada: boolean): SessaoCaixa | undefined {
   let sessao: SessaoCaixa | undefined
   if (base) {
     const { ordemDaLeitura: _ordem, ...guardada } = base
@@ -232,15 +249,19 @@ function projetar(base: SessaoGuardada | undefined, gestos: GestoNaFila[], id: s
     sessao = { ...sessao, status: 'FECHADA', fechadaEm: null, valorFechamentoContado: null, diferenca: null,
       fechamentoSemValores: true }
   }
+  // A sessão mudou com rede depois da leitura guardada: o esperado dela ficou para trás, e a
+  // diferença do fechamento feito aqui sairia dele. O servidor a calcula quando o gesto chegar.
+  if (desatualizada) sessao = { ...sessao, saldoDesatualizado: true, diferenca: null }
   return { ...sessao, pendenteSincronizacao: pendente(gestosDaSessao(gestos, id)) }
 }
 
 async function locais(): Promise<SessaoCaixa[]> {
-  const { sessoes: base, fechadasNoServidor, gestos } = await lerCaixaNoAparelho<SessaoGuardada>()
+  const { sessoes: base, fechadasNoServidor, desatualizadas, gestos } = await lerCaixaNoAparelho<SessaoGuardada>()
   const ids = new Set([...base.map((sessao) => sessao.id),
     ...gestos.filter((gesto) => gesto.tipo === 'caixa.abrir').map((gesto) => gesto.registroId)])
   return [...ids].map((id) => projetar(base.find((sessao) => sessao.id === id), gestos, id,
-    fechadasNoServidor.includes(id))).filter((sessao): sessao is SessaoCaixa => !!sessao)
+    fechadasNoServidor.includes(id), desatualizadas.some((marca) => marca.sessaoId === id)))
+    .filter((sessao): sessao is SessaoCaixa => !!sessao)
 }
 
 async function local(id: string): Promise<SessaoCaixa> {
@@ -266,6 +287,39 @@ async function consultarLocalOuRemoto(remoto: CaixaRemoto, id: string): Promise<
   } catch (falha) {
     if (!(falha instanceof SemConexao)) throw falha
     return local(id)
+  }
+}
+
+/**
+ * Escreve com rede na gaveta de uma sessão deste usuário sem deixar no aparelho um saldo antigo tido
+ * como certo. A sessão é marcada como desatualizada antes de a escrita sair e de novo quando ela
+ * termina, com resposta ou sem, porque o servidor pode ter mudado a gaveta mesmo sem responder; em
+ * seguida o extrato é relido, e só uma leitura pedida depois da última marca a tira. Se a rede cair
+ * antes, a marca fica, e sem rede o saldo aparece como indisponível até a próxima leitura. Sem o id,
+ * a sessão é a aberta de quem opera, onde o servidor lança o recebimento de fiado.
+ */
+async function escreverNaGavetaComRede<T>(remoto: CaixaRemoto, id: string | undefined,
+  escrever: () => Promise<T>): Promise<T> {
+  // Sem armazenamento local, não há caixa guardado que possa ficar para trás.
+  if (!('indexedDB' in globalThis)) return escrever()
+  const sessoes = await locais()
+  const alvo = id ?? sessoes.find((sessao) => sessao.status === 'ABERTA')?.id
+  if (!alvo || !sessoes.some((sessao) => sessao.id === alvo)) return escrever()
+  await marcarCaixaDesatualizado(alvo)
+  try {
+    return await escrever()
+  } finally {
+    await marcarERelerSemFalhar(remoto, alvo)
+  }
+}
+
+/** A escrita já terminou, e a falha daqui não a desfaz: a sessão só continua marcada. */
+async function marcarERelerSemFalhar(remoto: CaixaRemoto, id: string): Promise<void> {
+  try {
+    await marcarCaixaDesatualizado(id)
+    await consultarLocalOuRemoto(remoto, id)
+  } catch {
+    // Sem a releitura guardada, a marca espera a próxima leitura do caixa.
   }
 }
 
@@ -361,7 +415,11 @@ export function criarCaixaLocal(remoto: CaixaRemoto = caixa): CaixaNoDispositivo
       // nela, precisam chegar ao servidor antes do fechamento.
       await enfileirar('caixa.fechar', id, { valorContado, fechadaEm: new Date().toISOString() },
         gestos.map((gesto) => gesto.operacaoId), versaoLida(sessao))
+      if (sessao.saldoDesatualizado) return { diferenca: null }
       return { diferenca: reais(centavosDoSaldo(sessao.valorFechamentoEsperado) - contado) }
+    },
+    async escreverNaGavetaComRede<T>(id: string | undefined, escrever: () => Promise<T>) {
+      return escreverNaGavetaComRede(remoto, id, escrever)
     },
   }
 }
@@ -372,16 +430,22 @@ async function movimentar(remoto: CaixaRemoto, id: string, quantia: number, moti
   const sessao = await local(id)
   if (sessao.status !== 'ABERTA') throw new Error('SessaoCaixa fechada não aceita movimento.')
   if (!motivo.trim()) throw new Error('Motivo é obrigatório para sangria e suprimento (RF14).')
-  // Com o esperado já negativo toda sangria é recusada, como no servidor: não se tira da gaveta o
-  // que não está lá, e o suprimento é que corrige o saldo.
-  if (tipo === 'caixa.sangrar' && cent > centavosDoSaldo(sessao.valorFechamentoEsperado)) {
-    throw new Error('Sangria maior que o saldo esperado da gaveta.')
-  }
   const gestos = await listarGestos()
-  if (navigator.onLine && !pendente(gestosDaSessao(gestos, id))) {
-    if (tipo === 'caixa.sangrar') return remoto.sangrar(id, quantia, motivo,
-      movimentoId ?? crypto.randomUUID())
-    return remoto.suprir(id, quantia, motivo, movimentoId ?? crypto.randomUUID())
+  const comRede = navigator.onLine && !pendente(gestosDaSessao(gestos, id))
+  if (tipo === 'caixa.sangrar') {
+    // Com o saldo guardado desatualizado, só o servidor sabe se a sangria cabe na gaveta: com rede
+    // e sem pendência ela vai direto a ele, e a que entraria na fila é recusada até a releitura.
+    if (sessao.saldoDesatualizado && !comRede) throw new Error(SANGRIA_ESPERA_A_LEITURA)
+    // Com o esperado já negativo toda sangria é recusada, como no servidor: não se tira da gaveta o
+    // que não está lá, e o suprimento é que corrige o saldo.
+    if (!sessao.saldoDesatualizado && cent > centavosDoSaldo(sessao.valorFechamentoEsperado)) {
+      throw new Error('Sangria maior que o saldo esperado da gaveta.')
+    }
+  }
+  if (comRede) {
+    const movimento = movimentoId ?? crypto.randomUUID()
+    return escreverNaGavetaComRede(remoto, id, () => tipo === 'caixa.sangrar'
+      ? remoto.sangrar(id, quantia, motivo, movimento) : remoto.suprir(id, quantia, motivo, movimento))
   }
   const ultimo = ultimoGestoDaGaveta(gestos, id)
   await enfileirar(tipo, id, { valor: quantia, motivo: motivo.trim(), criadoEm: new Date().toISOString() },

@@ -44,10 +44,21 @@ export type Retrato<T> = { dados: T; ordemDaLeitura: number }
 export type SessaoNoRetrato = { id: string; ordemDaLeitura?: number }
 
 /**
- * O que o aparelho guarda do caixa do usuário: as sessões lidas do servidor e as que o servidor já
- * disse não estarem abertas sem que o aparelho tenha lido o fechamento delas.
+ * Uma sessão que este aparelho mudou com rede e ainda não releu. A ordem é a do contador quando a
+ * marca foi feita: só uma leitura pedida a partir dela sabe o que a escrita mudou na gaveta.
  */
-export type RetratoDoCaixa<T extends SessaoNoRetrato> = { sessoes: T[]; fechadasNoServidor: string[] }
+export type SessaoDesatualizada = { sessaoId: string; ordem: number }
+
+/**
+ * O que o aparelho guarda do caixa do usuário: as sessões lidas do servidor, as que o servidor já
+ * disse não estarem abertas sem que o aparelho tenha lido o fechamento delas e as que o aparelho
+ * mudou com rede sem reler.
+ */
+export type RetratoDoCaixa<T extends SessaoNoRetrato> = {
+  sessoes: T[]
+  fechadasNoServidor: string[]
+  desatualizadas: SessaoDesatualizada[]
+}
 
 /** O que o servidor disse de um gesto enviado, ou por que ele ficou sem resposta. */
 export type Desfecho =
@@ -76,6 +87,10 @@ interface BancoDaFila extends DBSchema {
 }
 
 const NOME_DO_BANCO = 'caixa-simples-offline'
+/**
+ * Avança a cada resultado gravado e a cada marca de caixa desatualizado. A leitura do servidor
+ * durante a qual ele avançou não é guardada, porque não se sabe se já contém o que mudou.
+ */
 const CONTADOR_DE_RESULTADOS = 'resultados'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const MUDANCAS_PERMITIDAS: Record<EstadoDoGesto, EstadoDoGesto[]> = {
@@ -186,8 +201,9 @@ export async function guardarRetratos(retratos: { tipo: string; dados: unknown }
 
 type TransacaoDoDescarte = IDBPTransaction<BancoDaFila, ('retratos' | 'gestos')[], 'readwrite'>
 
-function tiposDoCaixa(usuario: string): { sessoes: string; fechadas: string } {
-  return { sessoes: `caixa:${usuario}:sessoes`, fechadas: `caixa:${usuario}:fechadasNoServidor` }
+function tiposDoCaixa(usuario: string): { sessoes: string; fechadas: string; desatualizadas: string } {
+  return { sessoes: `caixa:${usuario}:sessoes`, fechadas: `caixa:${usuario}:fechadasNoServidor`,
+    desatualizadas: `caixa:${usuario}:desatualizadas` }
 }
 
 async function retratoDoCaixa<T extends SessaoNoRetrato>(
@@ -196,13 +212,16 @@ async function retratoDoCaixa<T extends SessaoNoRetrato>(
   const tipos = tiposDoCaixa(usuario)
   const sessoes = await ler(`${conta}\u0000${tipos.sessoes}`)
   const fechadas = await ler(`${conta}\u0000${tipos.fechadas}`)
-  return { sessoes: (sessoes?.dados ?? []) as T[], fechadasNoServidor: (fechadas?.dados ?? []) as string[] }
+  const desatualizadas = await ler(`${conta}\u0000${tipos.desatualizadas}`)
+  return { sessoes: (sessoes?.dados ?? []) as T[], fechadasNoServidor: (fechadas?.dados ?? []) as string[],
+    desatualizadas: (desatualizadas?.dados ?? []) as SessaoDesatualizada[] }
 }
 
 /**
- * O caixa do usuário como o aparelho o conhece: as sessões guardadas, as fechadas no servidor e os
- * gestos, lidos numa transação só, para que um descarte feito em outra aba não caia entre a leitura
- * do retrato e a dos gestos e deixe a projeção sem um efeito que nenhum dos dois contém.
+ * O caixa do usuário como o aparelho o conhece: as sessões guardadas, as fechadas no servidor, as
+ * desatualizadas e os gestos, lidos numa transação só, para que um descarte feito em outra aba não
+ * caia entre a leitura do retrato e a dos gestos e deixe a projeção sem um efeito que nenhum dos dois
+ * contém.
  */
 export async function lerCaixaNoAparelho<T extends SessaoNoRetrato>(): Promise<RetratoDoCaixa<T> & {
   gestos: GestoNaFila[] }> {
@@ -248,7 +267,37 @@ export async function atualizarRetratoDoCaixa<T extends SessaoNoRetrato>(
       dados: novo.sessoes, ordemDaLeitura: 0 })
     await retratos.put({ chave: `${conta}\u0000${tipos.fechadas}`, conta, tipo: tipos.fechadas,
       dados: novo.fechadasNoServidor })
+    await retratos.put({ chave: `${conta}\u0000${tipos.desatualizadas}`, conta, tipo: tipos.desatualizadas,
+      dados: novo.desatualizadas })
     await descartarEnviadosDoCaixaEDasVendas(transacao, dono, conta, novo.sessoes)
+    await transacao.done
+    conferirDono(dono, sessao)
+  } finally {
+    banco.close()
+  }
+}
+
+/**
+ * Marca como desatualizada uma sessão do usuário que o aparelho vai mudar, ou acabou de mudar, com
+ * rede, e avança o contador na mesma transação. A leitura que já estava em curso deixa de ser
+ * guardada, porque o contador mudou durante ela, e a marca só sai com uma leitura da sessão pedida
+ * depois daqui. Marcar de novo a mesma sessão troca a ordem pela mais nova.
+ */
+export async function marcarCaixaDesatualizado(sessaoId: string): Promise<void> {
+  const { dono, conta, usuario, sessao } = donoDaSessao()
+  const banco = await abrirBanco()
+  try {
+    conferirDono(dono, sessao)
+    const transacao = banco.transaction(['retratos', 'contadores'], 'readwrite')
+    const contadores = transacao.objectStore('contadores')
+    const ordem = ((await contadores.get(CONTADOR_DE_RESULTADOS))?.valor ?? 0) + 1
+    await contadores.put({ chave: CONTADOR_DE_RESULTADOS, valor: ordem })
+    const retratos = transacao.objectStore('retratos')
+    const tipo = tiposDoCaixa(usuario).desatualizadas
+    const chave = `${conta}\u0000${tipo}`
+    const anteriores = ((await retratos.get(chave))?.dados ?? []) as SessaoDesatualizada[]
+    await retratos.put({ chave, conta, tipo, dados: [
+      ...anteriores.filter((marca) => marca.sessaoId !== sessaoId), { sessaoId, ordem }] })
     await transacao.done
     conferirDono(dono, sessao)
   } finally {

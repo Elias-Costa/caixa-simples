@@ -15,6 +15,11 @@ export type SessaoCaixa = {
   pendenteSincronizacao?: boolean
   /** Só do aparelho: o servidor disse que a sessão fechou, e os valores do fechamento não foram lidos. */
   fechamentoSemValores?: boolean
+  /**
+   * Só do aparelho: a sessão mudou com rede depois da última leitura guardada, e o esperado e a
+   * diferença que o aparelho tem ficaram para trás.
+   */
+  saldoDesatualizado?: boolean
 }
 
 export type MovimentoCaixa = {

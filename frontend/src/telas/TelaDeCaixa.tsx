@@ -31,7 +31,8 @@ export function TelaDeCaixa() {
   const [motivo, setMotivo] = useState('')
   const [valorContado, setValorContado] = useState('')
   const contado = valorContado.trim() ? dinheiroDigitado(valorContado) : null
-  const diferencaPrevista = selecionada && contado !== null && Number.isFinite(contado) && contado >= 0
+  const diferencaPrevista = selecionada && !selecionada.saldoDesatualizado && contado !== null
+    && Number.isFinite(contado) && contado >= 0
     ? Math.round((selecionada.valorFechamentoEsperado - contado) * 100) / 100 : null
   const [erro, setErro] = useState<string | null>(null)
   const [ocupado, setOcupado] = useState(false)
@@ -170,13 +171,18 @@ export function TelaDeCaixa() {
         {selecionada.pendenteSincronizacao && <p>Pendente de sincronização com o servidor.</p>}
         <p>Abertura: {dataHora.format(new Date(selecionada.abertaEm))}</p>
         <p>Valor inicial: {moeda.format(selecionada.valorAbertura)}</p>
-        <p>Saldo esperado: <strong>{moeda.format(selecionada.valorFechamentoEsperado)}</strong></p>
+        <p>Saldo esperado: <strong>{selecionada.saldoDesatualizado ? 'indisponível até a próxima leitura do caixa'
+          : moeda.format(selecionada.valorFechamentoEsperado)}</strong></p>
+        {selecionada.saldoDesatualizado && <p>Este caixa mudou com rede depois da última leitura feita neste
+          aparelho. Saldo, diferença e extrato atualizados aparecem quando ele for lido de novo; até lá, a
+          sangria sem rede espera.</p>}
         {selecionada.status === 'FECHADA' && (selecionada.fechamentoSemValores
           ? <p>Fechada no servidor; valor contado e diferença aparecem quando a rede voltar.</p>
           : <>
             <p>Valor contado: {moeda.format(selecionada.valorFechamentoContado ?? 0)}</p>
-            <p>Diferença: {moeda.format(selecionada.diferenca ?? 0)}
-              {' '}(positivo = falta, negativo = sobra)</p>
+            {selecionada.saldoDesatualizado ? <p>Diferença: aparece quando o caixa for lido de novo.</p>
+              : <p>Diferença: {moeda.format(selecionada.diferenca ?? 0)}
+                {' '}(positivo = falta, negativo = sobra)</p>}
           </>)}
 
         <h4>Movimentos</h4>
