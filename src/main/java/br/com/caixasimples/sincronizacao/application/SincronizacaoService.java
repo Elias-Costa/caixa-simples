@@ -67,9 +67,12 @@ import tools.jackson.databind.ObjectMapper;
  *
  * <h2>Relógio</h2>
  *
- * <p>O gesto registrado mais de {@link #TOLERANCIA_DO_RELOGIO} depois do instante em que chegou
- * ao servidor veio de um relógio adiantado. É aplicado com o instante do balcão, que decide o dia
- * dos relatórios, e vai para revisão, para o dia não mudar em silêncio.
+ * <p>O gesto com instante mais de {@link #TOLERANCIA_DO_RELOGIO} depois do instante em que chegou
+ * ao servidor veio de um relógio adiantado. São conferidos o instante da operação e o que o gesto
+ * leu do próprio conteúdo e gravou no registro, como a conclusão da Venda e a abertura, os
+ * movimentos e o fechamento do caixa: o dispositivo manda os dois em campos separados, e é o do
+ * conteúdo que decide o dia dos relatórios. O gesto é aplicado com o instante do balcão e vai para
+ * revisão, para o dia não mudar em silêncio.
  *
  * <p>Quem envia vem do contexto autenticado; o conteúdo do gesto nunca escolhe conta nem usuário
  * (RNF05).
@@ -221,7 +224,8 @@ public class SincronizacaoService {
         if (aplicacao.revisao() != null) {
             revisoes.add(aplicacao.revisao());
         }
-        if (operacao.criadoEm().isAfter(recebidaEm.plus(TOLERANCIA_DO_RELOGIO))) {
+        if (passaDaTolerancia(operacao.criadoEm(), recebidaEm)
+                || passaDaTolerancia(aplicacao.instanteGravado(), recebidaEm)) {
             revisoes.add("o relogio do dispositivo estava adiantado em relacao ao servidor; o"
                     + " instante do balcao foi mantido, e o dia do registro precisa ser conferido");
         }
@@ -230,6 +234,16 @@ public class SincronizacaoService {
                         aplicacao.versao(), null)
                 : gravar(operacao, usuarioId, recebidaEm, Resultado.APLICADA_COM_REVISAO,
                         aplicacao.versao(), String.join("; ", revisoes));
+    }
+
+    /**
+     * Se o instante do relógio do dispositivo passa mais de {@link #TOLERANCIA_DO_RELOGIO} do
+     * recebimento. A regra é mais de cinco minutos: exatamente no limite, o gesto ainda não vai
+     * para revisão. Instante ausente não passa, porque o gesto não gravou instante do conteúdo.
+     */
+    static boolean passaDaTolerancia(Instant doDispositivo, Instant recebidaEm) {
+        return doDispositivo != null
+                && doDispositivo.isAfter(recebidaEm.plus(TOLERANCIA_DO_RELOGIO));
     }
 
     private ResultadoDaOperacao gravar(OperacaoRecebida operacao, UUID usuarioId,

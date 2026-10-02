@@ -23,9 +23,10 @@ import tools.jackson.databind.ObjectMapper;
  *
  * <p>Cada gesto é o caso de uso com rede de mesmo nome, com as mesmas guardas: só o administrador
  * cadastra, edita e inativa produto; cliente é dos dois perfis. A criação usa o id e o instante que
- * o dispositivo gravou, porque a Venda registrada sem rede já aponta para esse id. A edição segue a
- * última escrita aceita pelo servidor: é aplicada sobre a versão atual, qualquer que seja a que o
- * dispositivo leu, e a revisão nova volta para ele.
+ * o dispositivo gravou, porque a Venda registrada sem rede já aponta para esse id; o instante é o
+ * da própria operação, que o lote confere contra o relógio do servidor, e por isso a aplicação não
+ * devolve instante. A edição segue a última escrita aceita pelo servidor: é aplicada sobre a versão
+ * atual, qualquer que seja a que o dispositivo leu, e a revisão nova volta para ele.
  *
  * <p>Produto ou Cliente que não existe nesta conta é recusa do gesto, e não defeito.
  */

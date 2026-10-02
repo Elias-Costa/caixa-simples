@@ -44,6 +44,10 @@ import tools.jackson.databind.ObjectMapper;
  * de algum produto da Venda também: é a situação de duas Vendas sem rede do último item, e o
  * administrador confere a contagem. A baixa acontece dentro da conclusão, então o saldo lido logo
  * depois já a conta. Pix não entra: a cobrança depende do provedor, com o cliente presente.
+ *
+ * <p>O início e a conclusão gravam o instante que leram do conteúdo e o devolvem ao lote, que o
+ * confere contra o relógio do servidor; o da conclusão decide o dia do faturamento e o do dinheiro
+ * na gaveta. O item e a parcela gravam o instante da própria operação, que o lote confere sempre.
  */
 @Component
 class GestosDaVenda implements AplicadorDeOperacoes {
@@ -108,7 +112,7 @@ class GestosDaVenda implements AplicadorDeOperacoes {
         UUID sessaoCaixaId = operacao.exigir(inicio.sessaoCaixaId(), "sessaoCaixaId");
         Instant criadoEm = operacao.exigir(inicio.criadoEm(), "criadoEm");
         vendas.iniciar(operacao.registroId(), sessaoCaixaId, criadoEm);
-        return Aplicacao.aplicada(null);
+        return Aplicacao.aplicada(null, criadoEm);
     }
 
     private Aplicacao adicionarItem(OperacaoRecebida operacao) {
@@ -146,15 +150,16 @@ class GestosDaVenda implements AplicadorDeOperacoes {
 
     private Aplicacao concluir(OperacaoRecebida operacao) {
         Conclusao conclusao = operacao.payloadComo(json, Conclusao.class);
-        vendas.concluir(operacao.registroId(), operacao.exigir(conclusao.concluidoEm(),
-                "concluidoEm"));
+        Instant concluidoEm = operacao.exigir(conclusao.concluidoEm(), "concluidoEm");
+        vendas.concluir(operacao.registroId(), concluidoEm);
 
         List<String> negativos = saldosNegativos(operacao.registroId());
         if (negativos.isEmpty()) {
-            return Aplicacao.aplicada(null);
+            return Aplicacao.aplicada(null, concluidoEm);
         }
-        return Aplicacao.comRevisao(null, "a baixa desta venda deixou o estoque negativo: "
-                + String.join(", ", negativos) + "; confira a contagem e ajuste se preciso");
+        return Aplicacao.comRevisao(null, concluidoEm,
+                "a baixa desta venda deixou o estoque negativo: " + String.join(", ", negativos)
+                        + "; confira a contagem e ajuste se preciso");
     }
 
     /**

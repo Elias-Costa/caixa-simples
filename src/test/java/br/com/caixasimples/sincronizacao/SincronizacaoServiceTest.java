@@ -18,10 +18,13 @@ import br.com.caixasimples.cadastro.internal.ProdutoRepository;
 import br.com.caixasimples.caixa.TipoMovimentoCaixa;
 import br.com.caixasimples.caixa.application.SessaoCaixaService;
 import br.com.caixasimples.caixa.domain.MovimentoCaixa;
+import br.com.caixasimples.caixa.domain.SessaoCaixa;
 import br.com.caixasimples.caixa.internal.SessaoCaixaRepository;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.UsuarioCriado;
+import br.com.caixasimples.relatorios.application.FaturamentoService;
+import br.com.caixasimples.shared.FusoDeReferencia;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.TenantContext;
 import br.com.caixasimples.shared.UsuarioContext;
@@ -37,7 +40,9 @@ import br.com.caixasimples.vendas.internal.VendaEntity;
 import br.com.caixasimples.vendas.internal.VendaRepository;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -72,6 +77,7 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
     @Autowired SessaoCaixaRepository linhasDeSessao;
     @Autowired VendaService vendas;
     @Autowired VendaRepository linhasDeVenda;
+    @Autowired FaturamentoService faturamento;
 
     @AfterEach
     void limparContexto() {
@@ -323,6 +329,128 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
     }
 
     @Test
+    @DisplayName("conclusão com o instante do conteúdo um ano à frente e a operação no horário: revisão, e o faturamento conta a Venda no dia do balcão")
+    void conclusaoComInstanteDoConteudoUmAnoAFrente() {
+        ContaCriada conta = criador.criar("Livraria Aurora", SENHA);
+        UUID produtoId = cadastrar(conta, "Caderno", "8.00");
+        UUID sessaoId = conta.comoUsuario(() -> sessoes.abrir(Money.ZERO));
+        Instant umAnoAFrente = Instant.now().plus(365, ChronoUnit.DAYS)
+                .truncatedTo(ChronoUnit.MILLIS);
+        UUID vendaId = UUID.randomUUID();
+        List<GestoDeTeste> venda = vendaNoCartao(vendaId, sessaoId, produtoId, umAnoAFrente);
+
+        List<ResultadoDaOperacao> resultados = conta.comoUsuario(() ->
+                sincronizacao.sincronizar(recebidas(venda)));
+
+        assertThat(resultados).extracting(ResultadoDaOperacao::resultado).containsExactly(
+                Resultado.APLICADA, Resultado.APLICADA, Resultado.APLICADA,
+                Resultado.APLICADA_COM_REVISAO);
+        assertThat(resultados.get(3).detalhe()).contains("relogio do dispositivo");
+        LocalDate diaDoBalcao = LocalDate.ofInstant(umAnoAFrente, FusoDeReferencia.DO_BALCAO);
+        conta.comoUsuario(() -> {
+            assertThat(linhasDeVenda.findById(vendaId).orElseThrow().paraDominio()
+                    .getConcluidoEm()).as("o instante gravado continua o do balcão")
+                    .isEqualTo(umAnoAFrente);
+            assertThat(faturamento.doDia(diaDoBalcao).quantidadeDeVendas()).isEqualTo(1);
+            assertThat(faturamento.doDia(diaDoBalcao).total()).isEqualTo(Money.de("8.00"));
+            assertThat(faturamento.doDia(LocalDate.now(FusoDeReferencia.DO_BALCAO))
+                    .quantidadeDeVendas()).as("nem no dia em que chegou").isZero();
+        });
+
+        // O reenvio devolve a mesma revisão e não conclui de novo.
+        assertThat(conta.comoUsuario(() -> sincronizacao.sincronizar(recebidas(venda))))
+                .isEqualTo(resultados);
+    }
+
+    @Test
+    @DisplayName("conclusão nos limites: o conteúdo cinco minutos à frente é aplicado; seis, ou a operação seis à frente, vão para revisão")
+    void conclusaoNosLimitesDaTolerancia() {
+        ContaCriada conta = criador.criar("Banca Aurora", SENHA);
+        UUID produtoId = cadastrar(conta, "Revista", "8.00");
+        UUID sessaoId = conta.comoUsuario(() -> sessoes.abrir(Money.ZERO));
+        // O recebimento nunca vem antes deste instante: cinco minutos depois dele é o limite, ou
+        // menos, e não vira revisão.
+        Instant agora = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        List<GestoDeTeste> noLimite = vendaNoCartao(UUID.randomUUID(), sessaoId, produtoId,
+                agora.plus(5, ChronoUnit.MINUTES));
+        List<GestoDeTeste> alem = vendaNoCartao(UUID.randomUUID(), sessaoId, produtoId,
+                agora.plus(6, ChronoUnit.MINUTES));
+        // Os campos divergem ao contrário: o conteúdo no horário e a operação adiantada.
+        List<GestoDeTeste> operacaoAdiantada = new ArrayList<>(
+                vendaNoCartao(UUID.randomUUID(), sessaoId, produtoId, agora));
+        operacaoAdiantada.set(3,
+                operacaoAdiantada.get(3).registradoEm(agora.plus(6, ChronoUnit.MINUTES)));
+
+        ResultadoDaOperacao conclusaoNoLimite = conta.comoUsuario(() ->
+                sincronizacao.sincronizar(recebidas(noLimite))).get(3);
+        ResultadoDaOperacao conclusaoAlem = conta.comoUsuario(() ->
+                sincronizacao.sincronizar(recebidas(alem))).get(3);
+        ResultadoDaOperacao conclusaoComOperacaoAdiantada = conta.comoUsuario(() ->
+                sincronizacao.sincronizar(recebidas(operacaoAdiantada))).get(3);
+
+        assertThat(conclusaoNoLimite.resultado()).isEqualTo(Resultado.APLICADA);
+        assertThat(conclusaoAlem.resultado()).isEqualTo(Resultado.APLICADA_COM_REVISAO);
+        assertThat(conclusaoAlem.detalhe()).contains("relogio do dispositivo");
+        assertThat(conclusaoComOperacaoAdiantada.resultado())
+                .isEqualTo(Resultado.APLICADA_COM_REVISAO);
+    }
+
+    @Test
+    @DisplayName("início da Venda com o instante do conteúdo além da tolerância: revisão e o instante do balcão mantido; no limite, aplicado")
+    void inicioNosLimitesDaTolerancia() {
+        ContaCriada conta = criador.criar("Sorveteria Aurora", SENHA);
+        UUID sessaoId = conta.comoUsuario(() -> sessoes.abrir(Money.ZERO));
+        Instant agora = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        UUID vendaNoLimite = UUID.randomUUID();
+        UUID vendaAlem = UUID.randomUUID();
+        GestoDeTeste noLimite = inicioEm(vendaNoLimite, sessaoId,
+                agora.plus(5, ChronoUnit.MINUTES));
+        GestoDeTeste alem = inicioEm(vendaAlem, sessaoId, agora.plus(6, ChronoUnit.MINUTES));
+
+        List<ResultadoDaOperacao> resultados = conta.comoUsuario(() ->
+                sincronizacao.sincronizar(recebidas(List.of(noLimite, alem))));
+
+        assertThat(resultados).extracting(ResultadoDaOperacao::resultado).containsExactly(
+                Resultado.APLICADA, Resultado.APLICADA_COM_REVISAO);
+        assertThat(resultados.get(1).detalhe()).contains("relogio do dispositivo");
+        conta.comoUsuario(() -> assertThat(linhasDeVenda.findById(vendaAlem).orElseThrow()
+                .paraDominio().getCriadoEm()).isEqualTo(agora.plus(6, ChronoUnit.MINUTES)));
+    }
+
+    @Test
+    @DisplayName("abertura, suprimento, sangria e fechamento com o instante do conteúdo além da tolerância: revisão e os instantes do balcão mantidos; no limite, aplicados")
+    void gestosDoCaixaNosLimitesDaTolerancia() {
+        ContaCriada conta = criador.criar("Armarinho Aurora", SENHA);
+        Instant agora = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        Instant noLimite = agora.plus(5, ChronoUnit.MINUTES);
+        Instant alem = agora.plus(6, ChronoUnit.MINUTES);
+        UUID sessaoNoLimite = UUID.randomUUID();
+        UUID sessaoAlem = UUID.randomUUID();
+
+        // Um caixa aberto por operador: o segundo expediente começa depois do fechamento do
+        // primeiro.
+        List<ResultadoDaOperacao> primeiro = conta.comoUsuario(() -> sincronizacao.sincronizar(
+                recebidas(expedienteDeCaixa(sessaoNoLimite, noLimite))));
+        List<ResultadoDaOperacao> segundo = conta.comoUsuario(() -> sincronizacao.sincronizar(
+                recebidas(expedienteDeCaixa(sessaoAlem, alem))));
+
+        assertThat(primeiro).extracting(ResultadoDaOperacao::resultado)
+                .containsOnly(Resultado.APLICADA);
+        assertThat(segundo).extracting(ResultadoDaOperacao::resultado)
+                .containsOnly(Resultado.APLICADA_COM_REVISAO);
+        assertThat(segundo).extracting(ResultadoDaOperacao::detalhe)
+                .allSatisfy(detalhe -> assertThat(detalhe).contains("relogio do dispositivo"));
+        conta.comoUsuario(() -> {
+            SessaoCaixa sessao = linhasDeSessao.findById(sessaoAlem).orElseThrow().paraDominio();
+            assertThat(sessao.getAbertaEm()).isEqualTo(alem);
+            assertThat(sessao.getMovimentos()).extracting(MovimentoCaixa::criadoEm)
+                    .containsExactly(alem, alem);
+            assertThat(sessao.getFechadaEm()).isEqualTo(alem);
+            assertThat(sessao.getDiferenca()).isEqualTo(Money.ZERO);
+        });
+    }
+
+    @Test
     @DisplayName("instante com fração abaixo do microssegundo: o reenvio devolve o resultado gravado e não aplica de novo")
     void reenvioComInstanteEmNanossegundos() {
         ContaCriada conta = criador.criar("Padaria Aurora", SENHA);
@@ -420,6 +548,47 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
         GestoDeTeste item = item(vendaId, UUID.randomUUID(), produtoId, "1", "30.00", inicio);
         GestoDeTeste parcela = parcelaNoCartao(vendaId, "30.00", item);
         return List.of(abertura, inicio, item, parcela, conclusao(vendaId, parcela, abertura));
+    }
+
+    /**
+     * Uma Venda de uma unidade a 8,00 no cartão, na sessão aberta com rede, com as operações
+     * registradas agora e o instante do balcão dado no conteúdo da conclusão.
+     */
+    private static List<GestoDeTeste> vendaNoCartao(UUID vendaId, UUID sessaoId, UUID produtoId,
+            Instant concluidoEm) {
+        GestoDeTeste inicio = inicio(vendaId, sessaoId);
+        GestoDeTeste item = item(vendaId, UUID.randomUUID(), produtoId, "1", "8.00", inicio);
+        GestoDeTeste parcela = parcelaNoCartao(vendaId, "8.00", item);
+        GestoDeTeste conclusao = GestoDeTeste.de("venda.concluir", vendaId,
+                conteudo("concluidoEm", concluidoEm.toString()), parcela);
+        return List.of(inicio, item, parcela, conclusao);
+    }
+
+    /** O início de uma Venda registrado agora, com o instante do balcão dado no conteúdo. */
+    private static GestoDeTeste inicioEm(UUID vendaId, UUID sessaoId, Instant criadoEm) {
+        return GestoDeTeste.de("venda.iniciar", vendaId,
+                conteudo("sessaoCaixaId", sessaoId, "criadoEm", criadoEm.toString()));
+    }
+
+    /**
+     * Um expediente de caixa sem rede, com as operações registradas agora e todo instante do
+     * conteúdo no instante dado: abertura com 50,00, suprimento de 10,00, sangria de 20,00 e o
+     * fechamento contando os 40,00 esperados.
+     */
+    private static List<GestoDeTeste> expedienteDeCaixa(UUID sessaoId, Instant instante) {
+        GestoDeTeste abertura = GestoDeTeste.de("caixa.abrir", sessaoId,
+                conteudo("valorAbertura", new BigDecimal("50.00"), "abertaEm",
+                        instante.toString()));
+        GestoDeTeste suprimento = GestoDeTeste.de("caixa.suprir", sessaoId,
+                conteudo("valor", new BigDecimal("10.00"), "motivo", "Troco", "criadoEm",
+                        instante.toString()), abertura).comVersaoBase(0);
+        GestoDeTeste sangria = GestoDeTeste.de("caixa.sangrar", sessaoId,
+                conteudo("valor", new BigDecimal("20.00"), "motivo", "Deposito", "criadoEm",
+                        instante.toString()), suprimento).comVersaoBase(1);
+        GestoDeTeste fechamento = GestoDeTeste.de("caixa.fechar", sessaoId,
+                conteudo("valorContado", new BigDecimal("40.00"), "fechadaEm",
+                        instante.toString()), abertura, suprimento, sangria).comVersaoBase(2);
+        return List.of(abertura, suprimento, sangria, fechamento);
     }
 
     private List<OperacaoRecebida> recebidas(List<GestoDeTeste> gestos) {

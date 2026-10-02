@@ -21,7 +21,9 @@ import tools.jackson.databind.ObjectMapper;
  * <p>Cada gesto é o caso de uso com rede de mesmo nome, com o instante do balcão: a abertura com o
  * id que o dispositivo gerou, a sangria e o suprimento com o motivo obrigatório, o fechamento com
  * o valor contado. As regras são as da raiz e do serviço de sempre, inclusive uma sessão aberta
- * por operador e a sangria que não passa do esperado.
+ * por operador e a sangria que não passa do esperado. O instante vem do conteúdo do gesto e volta
+ * ao lote, que o confere contra o relógio do servidor, porque é ele que decide o dia do caixa e
+ * do fluxo de caixa.
  *
  * <p>São fatos, e não campos a sobrescrever: a versão que o dispositivo leu não decide nada. O fato
  * entra se a raiz aceita, contra o estado que o servidor tem ao recebê-lo, e o fechamento calcula a
@@ -48,33 +50,38 @@ class GestosDoCaixa implements AplicadorDeOperacoes {
     @Override
     public Aplicacao aplicar(OperacaoRecebida operacao) {
         UUID id = operacao.registroId();
+        Instant gravadoEm;
         try {
-            switch (operacao.tipo()) {
+            gravadoEm = switch (operacao.tipo()) {
                 case "caixa.abrir" -> {
                     Abertura abertura = operacao.payloadComo(json, Abertura.class);
                     sessoes.abrir(id, operacao.dinheiro(abertura.valorAbertura(), "valorAbertura"),
                             operacao.exigir(abertura.abertaEm(), "abertaEm"));
+                    yield abertura.abertaEm();
                 }
                 case "caixa.sangrar" -> {
                     Movimento sangria = operacao.payloadComo(json, Movimento.class);
                     sessoes.registrarSangria(id, operacao.dinheiro(sangria.valor(), "valor"),
                             sangria.motivo(), operacao.exigir(sangria.criadoEm(), "criadoEm"));
+                    yield sangria.criadoEm();
                 }
                 case "caixa.suprir" -> {
                     Movimento suprimento = operacao.payloadComo(json, Movimento.class);
                     sessoes.registrarSuprimento(id, operacao.dinheiro(suprimento.valor(), "valor"),
                             suprimento.motivo(),
                             operacao.exigir(suprimento.criadoEm(), "criadoEm"));
+                    yield suprimento.criadoEm();
                 }
                 case "caixa.fechar" -> {
                     Fechamento fechamento = operacao.payloadComo(json, Fechamento.class);
                     sessoes.fechar(id,
                             operacao.dinheiro(fechamento.valorContado(), "valorContado"),
                             operacao.exigir(fechamento.fechadaEm(), "fechadaEm"));
+                    yield fechamento.fechadaEm();
                 }
                 default -> throw new OperacaoRecusadaException(
                         "gesto de caixa desconhecido: " + operacao.tipo());
-            }
+            };
         } catch (SessaoCaixaNaoEncontradaException | OperadorJaTemCaixaAbertoException recusa) {
             throw new OperacaoRecusadaException(recusa.getMessage(), recusa);
         }
@@ -82,7 +89,7 @@ class GestosDoCaixa implements AplicadorDeOperacoes {
         // A revisão só muda quando a alteração vai ao banco; sem enviar o pendente antes, a
         // leitura devolveria a revisão de antes do gesto.
         linhas.flush();
-        return Aplicacao.aplicada(linhas.findById(id).orElseThrow().getVersao());
+        return Aplicacao.aplicada(linhas.findById(id).orElseThrow().getVersao(), gravadoEm);
     }
 
     /** O conteúdo de {@code caixa.abrir}, como o dispositivo o grava. */

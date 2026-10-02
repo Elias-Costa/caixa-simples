@@ -21,6 +21,12 @@ import java.util.Set;
  * acesso negado, ou com {@link OperacaoRecusadaException} quando a exceção do módulo não é nenhuma
  * dessas, como o registro que não existe nesta conta. Quem chama grava a recusa com a mensagem.
  * Falha de banco não deve ser traduzida: ela é o que o dispositivo repete.
+ *
+ * <p><strong>O instante lido do conteúdo volta ao lote.</strong> O gesto que grava no registro um
+ * instante do próprio conteúdo, como a conclusão da Venda ou a abertura do caixa, o devolve na
+ * {@link Aplicacao}, e o lote o confere contra o relógio do servidor, como confere o instante da
+ * operação. Sem isso, um instante adiantado no conteúdo mudaria o dia dos relatórios sem revisão,
+ * mesmo com o instante da operação no horário.
  */
 public interface AplicadorDeOperacoes {
 
@@ -30,8 +36,9 @@ public interface AplicadorDeOperacoes {
     /**
      * Aplica o gesto pelos casos de uso do módulo.
      *
-     * @return a revisão do registro depois do gesto, quando ele tem revisão, e o motivo de revisão
-     *         para o administrador, quando o gesto foi aplicado com pendência
+     * @return a revisão do registro depois do gesto, quando ele tem revisão, o instante que o gesto
+     *         leu do conteúdo e gravou, quando grava um, e o motivo de revisão para o
+     *         administrador, quando o gesto foi aplicado com pendência
      * @throws OperacaoRecusadaException quando uma regra do módulo recusa o gesto
      */
     Aplicacao aplicar(OperacaoRecebida operacao);
