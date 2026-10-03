@@ -77,6 +77,11 @@ export function TelaDeLogin() {
 function mensagemDe(falha: unknown): string {
   if (falha instanceof SemConexao) return 'Sem conexão. Verifique a rede e tente de novo.'
   if (falha instanceof ErroDaApi && falha.status === 401) return 'E-mail ou senha incorretos.'
+  // O servidor diz quanto falta para a janela acabar. Sem o detalhe, como num 429 de um proxy no
+  // caminho, a tela ainda pede para esperar, em vez de sugerir tentar de novo na hora.
+  if (falha instanceof ErroDaApi && falha.status === 429) {
+    return falha.detalhe ?? 'Muitas tentativas de entrar. Aguarde alguns minutos e tente de novo.'
+  }
   if (falha instanceof ErroDaApi && falha.detalhe) return falha.detalhe
   return 'Não foi possível entrar. Tente de novo.'
 }

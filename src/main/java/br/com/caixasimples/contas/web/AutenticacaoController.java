@@ -3,10 +3,15 @@ package br.com.caixasimples.contas.web;
 import br.com.caixasimples.contas.application.AutenticacaoService;
 import br.com.caixasimples.contas.application.AutenticacaoService.Identidade;
 import br.com.caixasimples.contas.internal.CredenciaisInvalidasException;
+import br.com.caixasimples.contas.internal.LoginContidoException;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import java.util.UUID;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -33,9 +38,14 @@ class AutenticacaoController {
         this.autenticacao = autenticacao;
     }
 
+    /**
+     * A origem é o endereço que o servidor já leu da direita da cadeia de proxies confiáveis, antes
+     * do Spring: o que o cliente escreve à esquerda do cabeçalho nunca chega aqui.
+     */
     @PostMapping("/login")
-    RespostaDeLogin login(@Valid @RequestBody PedidoDeLogin pedido) {
-        return new RespostaDeLogin(autenticacao.entrar(pedido.email(), pedido.senha()));
+    RespostaDeLogin login(@Valid @RequestBody PedidoDeLogin pedido, HttpServletRequest requisicao) {
+        return new RespostaDeLogin(
+                autenticacao.entrar(pedido.email(), pedido.senha(), requisicao.getRemoteAddr()));
     }
 
     /**
@@ -67,6 +77,23 @@ class AutenticacaoController {
     @ResponseStatus(HttpStatus.UNAUTHORIZED)
     void credenciaisInvalidas() {
         // sem corpo de propósito
+    }
+
+    /**
+     * Tentativas demais da mesma origem, ou do mesmo e-mail vindo dela, viram 429 com a espera até a
+     * janela acabar: em segundos no Retry-After e em minutos na mensagem, que a tela de login mostra.
+     * Os dois arredondam para cima, para quem esperar o que foi dito não ser recusado de novo.
+     */
+    @ExceptionHandler(LoginContidoException.class)
+    ResponseEntity<ProblemDetail> loginContido(LoginContidoException contido) {
+        long segundos = (contido.espera().toMillis() + 999) / 1000;
+        long minutos = (segundos + 59) / 60;
+        ProblemDetail problema = ProblemDetail.forStatusAndDetail(HttpStatus.TOO_MANY_REQUESTS,
+                "Muitas tentativas de entrar. Tente de novo em " + minutos
+                        + (minutos == 1 ? " minuto." : " minutos."));
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(segundos))
+                .body(problema);
     }
 
     record PedidoDeLogin(@NotBlank String email, @NotBlank String senha) {

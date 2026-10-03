@@ -11,6 +11,7 @@ import br.com.caixasimples.contas.internal.VerificadorDeSenhaVazada;
 import br.com.caixasimples.shared.RegistroDeRemocoes;
 import br.com.caixasimples.vendas.CriadorDeVendaDeTeste;
 import br.com.caixasimples.vendas.internal.VendaRepository;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
@@ -40,6 +41,18 @@ public class ConfiguracaoDeTeste {
     @Primary
     RegistroDeRemocoes registroDeRemocoes() {
         return new RegistroDeRemocoesDeTeste();
+    }
+
+    /**
+     * O codificador de senha da aplicação, com o registro de cada conferência. Recebe o original
+     * pelo nome do método que o declara na configuração de segurança, porque pelo tipo ele mesmo
+     * seria o escolhido.
+     */
+    @Bean
+    @Primary
+    CodificadorDeSenhaQueRegistra codificadorDeSenhaQueRegistra(
+            @Qualifier("passwordEncoder") PasswordEncoder daAplicacao) {
+        return new CodificadorDeSenhaQueRegistra(daAplicacao);
     }
 
     /** Fixture compartilhada, declarada aqui em vez de descoberta por varredura. */

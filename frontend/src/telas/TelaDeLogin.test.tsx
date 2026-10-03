@@ -42,6 +42,37 @@ describe('TelaDeLogin', () => {
     expect(lerToken()).toBeNull()
   })
 
+  it('tentativas demais mostram a espera que o servidor informa', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        respostaJson(429, {
+          title: 'Too Many Requests',
+          status: 429,
+          detail: 'Muitas tentativas de entrar. Tente de novo em 12 minutos.',
+        }),
+      ),
+    )
+    renderizarLogin()
+
+    preencherEEnviar()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Tente de novo em 12 minutos.')
+    expect(lerToken()).toBeNull()
+    expect(screen.getByRole('button', { name: 'Entrar' })).toBeEnabled()
+  })
+
+  it('tentativas demais sem corpo ainda pedem para esperar', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 429 })))
+    renderizarLogin()
+
+    preencherEEnviar()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Muitas tentativas de entrar. Aguarde alguns minutos e tente de novo.',
+    )
+  })
+
   it('sem conexão mostra a mensagem própria', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
     renderizarLogin()

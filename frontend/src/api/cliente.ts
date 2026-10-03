@@ -9,7 +9,8 @@ export const CABECALHO_DO_TOKEN_RENOVADO = 'X-Caixa-Simples-Token'
  * O servidor responde todo erro no formato Problem Details: status, título e detalhe, mais a
  * propriedade campos quando o pedido falhou na validação, com a mensagem por campo. Os status
  * têm significado fixo para a tela: 400 é corrigir o que se digitou, 401 é sessão que não vale
- * mais, 403 é operação que o perfil não alcança, 409 é estado que mudou e precisa ser recarregado.
+ * mais, 403 é operação que o perfil não alcança, 409 é estado que mudou e precisa ser recarregado,
+ * e 429, só no login, é esperar antes de tentar de novo.
  */
 export class ErroDaApi extends Error {
   readonly status: number

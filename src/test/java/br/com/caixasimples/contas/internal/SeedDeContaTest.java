@@ -69,7 +69,7 @@ class SeedDeContaTest extends TesteDeIntegracao {
                 .get()
                 .extracting(Conta::getNomeNegocio, Conta::getTipoNegocio)
                 .containsExactly("Cafeteria Aurora", "cafeteria");
-        assertThat(autenticacao.entrar(EMAIL, SENHA)).isNotBlank();
+        assertThat(autenticacao.entrar(EMAIL, SENHA, "127.0.0.1")).isNotBlank();
         assertThat(logs.getAll()).doesNotContain(EMAIL, "Cafeteria Aurora", "Ana");
     }
 
