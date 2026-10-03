@@ -173,7 +173,8 @@ na Conta responde 404 ao iniciar a comanda ou lançar o item;
 `POST /api/vendas/{id}/pagamentos` exige `pagamentoId` no corpo e devolve o troco para as formas
 sem Pix integrado;
 `POST /api/vendas/{id}/pagamentos/pix` recebe `tentativaId` e valor, devolve parcela PENDENTE e
-estado da cobrança; o PWA mostra QR Code e copia e cola; `GET /api/vendas/{id}` permite retomar
+estado da cobrança, e responde 409, sem alterar nada, ao `tentativaId` que já é de uma parcela de
+outra Venda; o PWA mostra QR Code e copia e cola; `GET /api/vendas/{id}` permite retomar
 o mesmo QR e não expõe outra Conta;
 `POST /api/webhooks/pix/{identificador}/pix?hmac=...` recebe o aviso do PSP sem JWT de operador,
 sob mTLS, identifica a configuração da Conta pelo identificador opaco e segredo, e reconsulta a
@@ -590,7 +591,9 @@ de uso, provada por teste negativo, e nunca dependente de um valor que o cliente
   SessaoCaixa da Conta A e à Conta que tenta lançar item com produto de outra.
   O callback Pix autenticado pela configuração da Conta B não encontra o `txid` persistido na
   Conta A; a lista de conciliação também devolve somente Vendas da Conta autenticada. O teste
-  HTTP de cancelamento recusa a tentativa da Conta B antes de chamar o PSP da Conta A.
+  HTTP de cancelamento recusa a tentativa da Conta B antes de chamar o PSP da Conta A. A Conta B
+  que pede cobrança Pix com o id de uma parcela da Conta A é recusada pela chave primária, sem ler
+  nem alterar a Conta A.
 - **Os listeners da venda nunca trocam de conta.** Todos rodam na transação de quem publica e
   recusam o evento de outra conta, com teste para cada um que prova que a conta do evento não
   recebe nada quando ele é publicado sob outra. A conta vai dentro do evento, lida do contexto

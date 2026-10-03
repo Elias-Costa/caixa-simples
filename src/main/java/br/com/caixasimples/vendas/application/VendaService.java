@@ -434,12 +434,31 @@ public class VendaService {
         return resultado.troco();
     }
 
-    /** Reserva a mesma parcela na raiz uma vez, inclusive após perda da resposta HTTP. */
+    /**
+     * Reserva a mesma parcela na raiz uma vez, inclusive após perda da resposta HTTP.
+     *
+     * <p>O id da tentativa vem do dispositivo e vira o id da parcela. Se ele já é de uma parcela de
+     * outra Venda desta conta, a reserva é recusada antes de gravar: a linha da parcela não tem
+     * versão, e gravar outra com o mesmo id mesclaria a nova sobre a existente, que mudaria de
+     * comanda e de conteúdo. Na mesma Venda, quem decide é a raiz: a mesma tentativa Pix, com o
+     * mesmo valor, devolve a parcela já reservada, e qualquer diferença é recusada. Um id de outra
+     * conta não aparece na consulta, e a chave primária recusa a gravação sem ler nem alterar a
+     * outra conta, assim como recusa a segunda de duas reservas simultâneas com o mesmo id novo.
+     *
+     * @throws IllegalStateException se o id da tentativa já é de uma parcela de outra Venda desta
+     *                               conta, ou se a mesma Venda já o usou com outro conteúdo
+     */
     @Transactional
     public Pagamento reservarPix(UUID vendaId, UUID tentativaId, Money valor, String chave) {
         VendaEntity linha = travar(vendaId);
         Venda venda = linha.paraDominio();
         UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
+        Objects.requireNonNull(tentativaId, "id da tentativa Pix nao pode ser nulo");
+        var dona = vendas.findByPagamentosId(tentativaId);
+        if (dona.isPresent() && !dona.get().getId().equals(vendaId)) {
+            throw new IllegalStateException("tentativa Pix " + tentativaId
+                    + " ja pertence a outra venda; a parcela existente nao e alterada.");
+        }
         ResultadoPagamento resultado = pagamentos.pagar(
                 SolicitacaoPagamento.de(FormaPagamento.PIX, valor));
         if (resultado.status() != StatusPagamento.PENDENTE) {
