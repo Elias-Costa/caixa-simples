@@ -12,18 +12,22 @@ na infraestrutura de build do Northflank, e ela vê o código deste repositório
 | Arquivo | O que é |
 |---|---|
 | [`Dockerfile`](../Dockerfile) | Imagem do jar único, com a API e o aplicativo na mesma origem |
-| [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) | Testes Java e do front-end, build e lint a cada push no `main` e a cada pull request; no push verde, o gatilho da publicação |
+| [`.dockerignore`](../.dockerignore) e [`.dockerignore`](.dockerignore) desta pasta | O que cada build de imagem enxerga: só o que compila o jar, e só os scripts que a imagem da cópia copia |
+| [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) | Testes Java e do front-end, build, lint e avisos de segurança das dependências a cada push no `main` e a cada pull request, e os avisos também uma vez por semana; no push verde, o gatilho da publicação |
 | [`northflank.json`](../northflank.json) | Template: projeto, banco, builds, serviço, jobs, grupos de segredo e o fluxo de publicação |
+| [`dependencias/`](dependencias/) | A verificação dos avisos de segurança das dependências e das imagens, e as exceções fundamentadas a ela |
 | [`copia/`](copia/) | Imagem do job, a cópia, a restauração e a conferência entre as duas |
 | [`carga/carga.mjs`](carga/carga.mjs) | Carga de correção contra uma instalação |
 | [`ensaio/compose.yaml`](ensaio/compose.yaml) | A produção em miniatura, na máquina local |
 
 ## Do push à produção
 
-1. O push no `main` dispara o CI: `sh mvnw -B -ntp verify`, que roda os testes Java contra um
-   PostgreSQL em contêiner, os testes e o build do front-end e gera o jar, e depois o lint do
-   front-end.
-2. Com os dois verdes, e com a variável do repositório `PUBLICAR_NO_NORTHFLANK` valendo `true`, o
+1. O push no `main` dispara o CI, com dois jobs em paralelo. Um roda `sh mvnw -B -ntp verify`, que
+   roda os testes Java contra um PostgreSQL em contêiner, os testes e o build do front-end e gera o
+   jar, e depois o lint do front-end. O outro constrói as duas imagens do commit e confere os avisos
+   de segurança das dependências delas e do front-end (ver
+   [Avisos de segurança das dependências](#avisos-de-segurança-das-dependências)).
+2. Com os dois jobs verdes, e com a variável do repositório `PUBLICAR_NO_NORTHFLANK` valendo `true`, o
    job `publicar` chama o gatilho do fluxo `publicacao` com o commit. Sem a variável, o CI testa e
    não publica. O gatilho é um endereço secreto que só dispara esse fluxo: quem o tiver consegue,
    no máximo, publicar outro commit deste repositório.
@@ -46,11 +50,61 @@ Os testes do front-end rodam no build da imagem, porque fazem parte do empacotam
 não, porque sobem um PostgreSQL em contêiner e o build não tem Docker; quem os garante é o CI, antes
 da publicação.
 
+O build enxerga só o que o [`.dockerignore`](../.dockerignore) da raiz deixa passar: o wrapper do
+Maven, o `pom.xml`, `src/main/` e `frontend/`, sem os gerados do front-end e sem configuração local,
+chave, certificado ou registro de execução que alguém deixe nessas pastas. Um arquivo desses em
+`src/main/resources` entraria no jar, e em `frontend/public` seria servido pela aplicação a quem o
+pedisse. Os padrões começam com `**/` porque, no `.dockerignore`, um padrão sem barra só vale na raiz.
+A imagem da cópia tem contexto próprio, esta pasta, e um [`.dockerignore`](.dockerignore) próprio,
+que deixa entrar só os scripts e as consultas que ela copia: o ambiente do ensaio, uma chave ou o
+resultado de uma carga deixados aqui não chegam ao build.
+
 A JVM foi medida sob a carga de correção com meia CPU, no limite de 512 MB e no de 1 GB do plano da
 hospedagem: `-XX:+UseSerialGC -XX:MaxRAMPercentage=45 -XX:+ExitOnOutOfMemoryError`, pelo
 `JAVA_TOOL_OPTIONS` da imagem. O porquê de cada valor está no próprio `Dockerfile`. Um
 `JAVA_TOOL_OPTIONS` definido no serviço substitui o da imagem inteiro: repita os três valores e meça
 de novo com a carga.
+
+## Avisos de segurança das dependências
+
+O CI confere os avisos de segurança publicados para o que vai ao ar: as bibliotecas Java dentro da
+imagem da aplicação, os pacotes das duas imagens e o `package-lock.json` do front-end, inclusive as
+dependências de build, que geram o pacote e o service worker servidos. A ferramenta é o Trivy, pela
+imagem oficial presa por digest em [`dependencias/verificar.sh`](dependencias/verificar.sh), que
+constrói as duas imagens do checkout e as examina. Roda a cada push no `main`, a cada pull request e
+uma vez por semana, num job sem segredo nenhum. O mesmo script roda na máquina, com o Docker de pé,
+inclusive no Git Bash do Windows:
+
+```bash
+sh operacao/dependencias/verificar.sh
+```
+
+As bases de avisos ficam no volume `caixa-simples-trivy`, e os builds usam `--pull`, então as
+imagens base guardadas na máquina são atualizadas a cada execução.
+
+**O que barra a publicação:** aviso alto ou crítico que já tenha versão corrigida. Antes do portão,
+cada alvo tem o relatório completo no log, com as severidades menores e os avisos ainda sem correção,
+que não barram. O job `publicar` só roda com a verificação verde. A execução semanal confere o
+`main` sem publicar, para um aviso novo numa dependência que não mudou aparecer sem esperar o próximo
+push; a falha dela é avisada pelo GitHub a quem mexeu por último na agenda do workflow, e o GitHub
+desliga a agenda de um repositório público depois de 60 dias sem atividade.
+
+**Exceção fundamentada:** um aviso que barra, mas não alcança o que é publicado, ou cuja correção
+ainda não pode entrar, vai para [`dependencias/excecoes.yaml`](dependencias/excecoes.yaml) com o
+pacote, o porquê e a data de revisão, no máximo 90 dias à frente. Vencida a data, o aviso volta a
+barrar até alguém revisar. A justificativa é pública. O purl do pacote sai no relatório da ferramenta
+com `--format json`.
+
+**Ajustes que a verificação sustenta:** o `pom.xml` fixa versões do Tomcat e do Jackson mais novas
+que as gerenciadas pelo Spring Boot, e as duas linhas saem quando ele gerenciar versões iguais ou mais
+novas; a imagem da cópia apaga o `gosu` que a imagem base traz para um ponto de entrada que ela não
+usa.
+
+**O que fica de fora:** as dependências de teste do Java e os plugins do Maven, que não vão para a
+imagem; os binários do PostgreSQL da imagem base da cópia, compilados nela, sem registro de pacote
+para a ferramenta conferir; e a base examinada é a da tag no dia da verificação, que pode mudar até
+o build da hospedagem. Trocar a versão da ferramenta é trocar o digest no script, conferido em mais de
+um registro.
 
 ## O template da hospedagem
 

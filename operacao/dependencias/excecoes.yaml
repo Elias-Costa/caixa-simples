@@ -1,0 +1,18 @@
+# Exceções fundamentadas aos avisos que barrariam a publicação, lidas por verificar.sh.
+#
+# Cada exceção diz qual aviso, em que pacote, por que ele não alcança o que é publicado ou por que
+# esperar é aceitável, e até quando vale. A data de revisão fica no máximo 90 dias à frente do dia em
+# que a exceção entra; vencida, a ferramenta volta a barrar o aviso até alguém revisar. A
+# justificativa é pública, como o resto do repositório.
+#
+# Formato de cada exceção:
+#
+#   - id: CVE-2026-00000
+#     purls:
+#       - pkg:npm/pacote@1.2.3
+#     statement: Por que o aviso não alcança o que é publicado, ou o que falta para corrigi-lo.
+#     expired_at: 2026-12-31
+#
+# O purl, com o tipo, o nome e a versão do pacote, sai no relatório da ferramenta em JSON. Sem
+# purls, a exceção valeria para o mesmo aviso em qualquer pacote, e por isso ele é obrigatório aqui.
+vulnerabilities: []

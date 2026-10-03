@@ -16,6 +16,11 @@
 	<properties>
 		<java.version>21</java.version>
 		<spring-modulith.version>2.1.1</spring-modulith.version>
+		<!-- O Spring Boot 4.1.1 gerencia o Tomcat 11.0.24 e o Jackson 3.1.5, que têm avisos de
+		     segurança altos e críticos corrigidos nas versões abaixo. As duas linhas saem quando a
+		     versão do Spring Boot gerenciar estas ou mais novas. -->
+		<tomcat.version>11.0.26</tomcat.version>
+		<jackson-bom.version>3.1.7</jackson-bom.version>
 	</properties>
 	<dependencies>
 		<dependency>

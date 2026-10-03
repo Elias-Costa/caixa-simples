@@ -1,0 +1,9 @@
+# Contexto da imagem do job da cópia, que é a pasta operacao/ inteira, e não a raiz do repositório:
+# o .dockerignore da raiz não vale aqui. Lista de permissão: entram só os scripts e as consultas das
+# duas pastas que a imagem copia. O resto, como o ambiente do ensaio local, uma chave deixada nesta
+# pasta ou o resultado de uma carga, fica fora sem precisar ser nomeado.
+*
+!copia/*.sh
+!copia/*.sql
+!exclusao/*.sh
+!exclusao/*.sql

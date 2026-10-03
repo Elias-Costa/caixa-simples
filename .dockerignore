@@ -11,3 +11,23 @@
 frontend/node/
 frontend/node_modules/
 frontend/dist/
+
+# O que a reinclusão das pastas acima traria de volta de uma cópia local e que não pode chegar ao
+# builder nem à imagem: configuração da máquina, chaves e certificados, e registros de execução, que
+# podem guardar dado pessoal. Em src/main/resources, um arquivo desses entraria no jar; em
+# frontend/public, sairia servido pela aplicação a quem o pedisse. Nada disso é necessário ao build,
+# nem como exemplo. O prefixo **/ é o que faz a linha valer em qualquer pasta: aqui, ao contrário do
+# .gitignore, um padrão sem barra só vale na raiz do contexto.
+**/.env
+**/.env.*
+**/*.pem
+**/*.p12
+**/*.pfx
+**/*.jks
+**/*.keystore
+**/*.key
+**/certs/
+**/application-local.*
+**/application-*secret*.*
+**/*.log
+**/logs/

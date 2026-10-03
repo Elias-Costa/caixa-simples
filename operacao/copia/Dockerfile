@@ -2,7 +2,10 @@
 # maior do servidor, o age para cifrar e o rclone para enviar e buscar.
 FROM postgres:17-alpine
 
-RUN apk add --no-cache age rclone jq
+# O gosu vem da imagem base só para o ponto de entrada dela, que esta imagem desliga, e nenhum
+# script daqui o chama. Apagado, ele não traz para cá os avisos de segurança da versão do Go com que
+# foi compilado; se a base o puser em outro caminho, a verificação de dependências volta a acusá-lo.
+RUN apk add --no-cache age rclone jq && rm -f /usr/local/bin/gosu
 
 # O destino do rclone é configurado só por variáveis (RCLONE_CONFIG_<NOME>_*). Vazio, este caminho
 # diz ao rclone que não há arquivo de configuração, e o log do job não abre com o aviso de que ele

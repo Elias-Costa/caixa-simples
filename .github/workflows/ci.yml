@@ -1,24 +1,30 @@
 # Portão entre o push e a produção: a publicação só é disparada no commit em que os testes, o build
-# e o lint passaram.
+# e o lint passaram e nenhuma dependência tem aviso de segurança que barre a publicação.
 name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
+  # Um aviso novo pode surgir para uma dependência que não mudou. Uma vez por semana, só a
+  # verificação das dependências roda contra o main, sem publicar; a falha da execução agendada é
+  # avisada pelo GitHub a quem mexeu por último nesta agenda.
+  schedule:
+    - cron: '17 9 * * 1'
 
 permissions:
   contents: read
 
 # Um push novo no mesmo ramo torna a execução anterior inútil: o que vai ser publicado é o último
-# commit.
+# commit. O evento entra no grupo para a execução agendada não cancelar a de um push.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   verificar:
     name: Testes, build e lint
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -42,6 +48,19 @@ jobs:
         working-directory: frontend
         run: PATH="$PWD/node:$PATH" npm run lint
 
+  # Avisos de segurança das dependências: as duas imagens construídas deste commit e o package-lock
+  # do front-end, pelo mesmo script que se roda na máquina. Fica num job à parte, sem segredo
+  # nenhum, porque a ferramenta é de terceiro e roda com acesso ao Docker do executor.
+  dependencias:
+    name: Avisos de segurança das dependências
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Verificação das dependências e das imagens
+        run: sh operacao/dependencias/verificar.sh
+
   # Pede à hospedagem que construa e publique este commit. O endereço do gatilho é o segredo: ele só
   # dispara o fluxo declarado lá, que constrói o commit informado e o publica, e não dá acesso a
   # mais nada. A variável do repositório liga a publicação; sem ela, o CI testa e não publica, que
@@ -49,7 +68,7 @@ jobs:
   # da janela de manutenção.
   publicar:
     name: Publicação
-    needs: verificar
+    needs: [verificar, dependencias]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.PUBLICAR_NO_NORTHFLANK == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 5

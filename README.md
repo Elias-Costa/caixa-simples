@@ -658,7 +658,9 @@ nem cadastros, que só conferem a chave da conta.
 Nenhum segredo mora no repositório. Chave de assinatura e credenciais vêm de variável de ambiente, e
 a aplicação recusa subir sem a chave, em vez de cair num valor padrão que seria idêntico em toda
 instalação. O template da hospedagem declara os segredos só pelo nome, e a chave de assinatura é
-gerada pelo próprio provedor, sem passar por ninguém.
+gerada pelo próprio provedor, sem passar por ninguém. O build da imagem também não leva
+configuração local, chave ou certificado esquecidos nas pastas do código, e cada publicação espera a
+verificação dos avisos de segurança das dependências e das imagens.
 
 Atrás da entrada da hospedagem, o endereço de origem sai do `X-Forwarded-For` lido da direita para
 a esquerda, atravessando só a rede interna e os proxies que uma variável declarar: o que o cliente
@@ -863,7 +865,13 @@ vida e de prontidão respondem sem token e sem consultar o banco. A execução a
 Conta tem teste próprio, sem servidor web, como roda em produção.
 
 A cada push no `main` e a cada pull request, o GitHub Actions roda a suíte Java, os testes e o
-build do front-end e o lint, e a publicação só é disparada no commit em que tudo passou. Fora da
+build do front-end e o lint, e, em paralelo, constrói as duas imagens do commit e confere os avisos
+de segurança publicados para as bibliotecas Java dentro delas, para os pacotes das imagens e para o
+`package-lock` do front-end, inclusive as dependências de build. Um aviso alto ou crítico que já
+tenha correção barra a publicação; a exceção fundamentada entra num arquivo versionado, com data de
+revisão de no máximo 90 dias, e vencida volta a barrar. A mesma verificação roda uma vez por semana,
+sem publicar, e na máquina pelo mesmo script. A publicação só é disparada no commit em que tudo
+passou. Fora da
 suíte, uma carga de correção roda contra a imagem com os limites dos planos da hospedagem: em três
 Contas ao mesmo tempo, cem Vendas com rede e um lote de gestos sem rede enviado duas vezes,
 conferidos contra a lista de Vendas, o relatório do dia e o fechamento do caixa, que tem de dar
@@ -876,7 +884,9 @@ servidores no país. A hospedagem é o Northflank, num projeto numa região no B
 para o armazenamento de objetos da AWS, também no Brasil, um segundo fornecedor.
 
 O artefato é um só: o jar com a API e o aplicativo na mesma origem, numa imagem Docker que roda
-sem root. Um template versionado descreve o ambiente inteiro, com os segredos só pelo nome: o
+sem root. O build da imagem só enxerga o que compila o jar: configuração local, chave, certificado
+ou registro de execução deixados nas pastas do código ficam fora dele, para não entrarem no jar nem
+serem servidos pela aplicação. Um template versionado descreve o ambiente inteiro, com os segredos só pelo nome: o
 PostgreSQL gerenciado, os serviços que constroem as imagens, o serviço da aplicação, os jobs do seed
 e da cópia e o fluxo de publicação. O CI dispara esse fluxo só no commit em que tudo passou, por um
 endereço que não serve para mais nada; o fluxo constrói aquele commit e o publica. A instância nova
@@ -907,7 +917,7 @@ do template ao ensaio local, está em [operacao/README.md](operacao/README.md).
 | Build | Maven, via wrapper versionado |
 | Testes | JUnit 5, AssertJ e Testcontainers |
 | Frontend | PWA em React 19, Vite 8 e TypeScript, com React Router, service worker gerado por Workbox, IndexedDB via `idb` e Vitest; empacotado no jar pelo Maven, com o Node fixado no `pom.xml` |
-| Infraestrutura | Imagem Docker do jar único e template do Northflank numa região no Brasil, com o PostgreSQL 17 gerenciado; CI no GitHub Actions, que dispara a publicação; cópia cifrada de hora em hora com age, enviada pelo rclone ao S3 da AWS no Brasil; ensaiados localmente, com o primeiro deploy público ainda por fazer |
+| Infraestrutura | Imagem Docker do jar único e template do Northflank numa região no Brasil, com o PostgreSQL 17 gerenciado; CI no GitHub Actions, que dispara a publicação, com os avisos de segurança das dependências e das imagens conferidos pelo Trivy; cópia cifrada de hora em hora com age, enviada pelo rclone ao S3 da AWS no Brasil; ensaiados localmente, com o primeiro deploy público ainda por fazer |
 
 A escolha de versão não é acidental. Spring Boot 3.x perde suporte OSS em junho de 2026, então um
 projeto novo não deveria nascer nele; o Spring Modulith 2.1.x é a linha compatível com o Boot 4.1.
@@ -917,10 +927,11 @@ projeto novo não deveria nascer nele; o Spring Modulith 2.1.x é a linha compat
 ```
 Dockerfile                  imagem do jar único, com a API e o aplicativo
 northflank.json             template da hospedagem: banco, builds, serviço, jobs e publicação
-.github/workflows/          CI a cada push no main e a cada pull request, e o gatilho da publicação
+.github/workflows/          CI a cada push no main, a cada pull request e uma vez por semana, e o gatilho da publicação
 operacao
 ├── copia/                  imagem do job, cópia cifrada de hora em hora, restauração e conferência
 ├── carga/                  carga de correção contra uma instalação
+├── dependencias/           verificação dos avisos de segurança das dependências e das imagens, e as exceções
 ├── ensaio/                 a produção em miniatura, nos limites dos planos da hospedagem
 └── exclusao/               encerramento da Conta e remoção dos seus dados
 src
