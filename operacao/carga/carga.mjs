@@ -16,7 +16,9 @@
 //   CARGA_SENHA=... node operacao/carga/carga.mjs
 //
 // Cada e-mail é o administrador de uma Conta, todos com a mesma senha. O caixa dele não pode estar
-// aberto: o fechamento só confere se o caixa tiver apenas as Vendas da carga.
+// aberto: o fechamento só confere se o caixa tiver apenas as Vendas da carga. A Conta precisa de um
+// plano pago ativo, porque a carga confere o relatório do dia, e do plano completo se o controle de
+// estoque estiver ligado; a carga confere isso antes de começar.
 
 import { randomUUID } from 'node:crypto';
 
@@ -117,6 +119,17 @@ async function entrar(email) {
   conta.identidade = await chamar(conta, 'GET', '/api/auth/eu', '/api/auth/eu', undefined, [200]);
   if (conta.identidade.perfil !== 'ADMIN') {
     throw new Error(`${email} não é administrador: o fiado e o relatório pedem esse perfil`);
+  }
+  // Relatório e estoque são recursos do plano: sem eles, a carga pararia no meio com 409.
+  const recursos = conta.identidade.recursos ?? [];
+  const plano = `${conta.identidade.plano}, ${conta.identidade.situacaoDoPlano}`;
+  if (!recursos.includes('RELATORIOS')) {
+    throw new Error(`a Conta de ${email} não tem relatório no plano (${plano}): `
+      + 'ative um plano pago pelo pedido de plano antes da carga');
+  }
+  if (conta.identidade.estoqueHabilitado && !recursos.includes('ESTOQUE')) {
+    throw new Error(`a Conta de ${email} tem o controle de estoque ligado sem o estoque no plano `
+      + `(${plano}): ative o plano completo antes da carga`);
   }
   return conta;
 }

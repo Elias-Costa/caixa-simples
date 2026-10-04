@@ -1,5 +1,6 @@
 package br.com.caixasimples.contas.application;
 
+import br.com.caixasimples.contas.RecursoDoPlano;
 import br.com.caixasimples.contas.internal.Conta;
 import br.com.caixasimples.contas.internal.ContaRepository;
 import br.com.caixasimples.contas.internal.Credencial;
@@ -46,16 +47,18 @@ public class UsuarioService {
     private final PasswordEncoder encoder;
     private final PoliticaDeSenha politica;
     private final RegistroDeRemocoes registroDeRemocoes;
+    private final ContaService contaService;
 
     UsuarioService(ContaRepository contas, UsuarioRepository usuarios,
             CredencialRepository credenciais, PasswordEncoder encoder, PoliticaDeSenha politica,
-            RegistroDeRemocoes registroDeRemocoes) {
+            RegistroDeRemocoes registroDeRemocoes, ContaService contaService) {
         this.contas = contas;
         this.usuarios = usuarios;
         this.credenciais = credenciais;
         this.encoder = encoder;
         this.politica = politica;
         this.registroDeRemocoes = registroDeRemocoes;
+        this.contaService = contaService;
     }
 
     /**
@@ -68,7 +71,9 @@ public class UsuarioService {
      *
      * @return o id do usuário criado, gerado na aplicação
      * @throws br.com.caixasimples.shared.AcessoNegadoException se quem chama não é ADMIN
-     * @throws PlanoSemMultiusuarioException se o plano da conta só admite um usuário
+     * @throws RecursoForaDoPlanoException se o plano da conta só admite um usuário
+     * @throws PlanoSuspensoException se os recursos pagos estão suspensos; os usuários que já
+     *         existem continuam entrando
      * @throws br.com.caixasimples.contas.internal.SenhaRecusadaException se a senha é curta,
      *         vazada ou não pôde ser verificada
      * @throws EmailJaCadastradoException se o e-mail já tem login, nesta ou em outra conta
@@ -81,9 +86,7 @@ public class UsuarioService {
         String emailNormalizado = exigirTexto(email, "email");
 
         Conta conta = contaDoContexto();
-        if (!conta.getPlano().permiteMultiusuario()) {
-            throw new PlanoSemMultiusuarioException(conta.getPlano());
-        }
+        contaService.exigirRecurso(RecursoDoPlano.MULTIUSUARIO);
 
         // Falha antes de gravar qualquer coisa se a senha não servir.
         politica.exigirValida(senha);

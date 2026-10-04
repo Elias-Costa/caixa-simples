@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useState } from 'react'
+import { MemoryRouter } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { contas } from '../api/contas'
 import { ErroDaApi } from '../api/cliente'
@@ -59,5 +60,23 @@ describe('administração na tela', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('o plano admite um único usuário')
     expect(screen.getByText('Ana')).toBeInTheDocument()
+  })
+
+  it('sem o estoque no plano, ligar o controle fica indisponível e a tela aponta o plano', async () => {
+    vi.spyOn(contas, 'configuracao').mockResolvedValue({ estoqueHabilitado: false })
+    const definir = vi.spyOn(contas, 'definirEstoque')
+    render(<MemoryRouter>
+      <SessaoContext.Provider value={{
+        identidade: { ...admin, plano: 'GRATIS', recursos: [] },
+        entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(),
+      }}>
+        <TelaDeConfiguracao />
+      </SessaoContext.Provider>
+    </MemoryRouter>)
+
+    expect(await screen.findByRole('switch', { name: 'Ligar controle de estoque' })).toBeDisabled()
+    expect(screen.getByText(/faz parte do plano Completo/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Plano' })).toHaveAttribute('href', '/plano')
+    expect(definir).not.toHaveBeenCalled()
   })
 })

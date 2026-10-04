@@ -27,7 +27,8 @@ import org.springframework.web.context.WebApplicationContext;
  *
  * <p>Não estende {@link TesteDeIntegracao}: a base monta o MockMvc, que só existe com servidor web,
  * e é exatamente o contexto sem ele que se quer provar aqui. Por isso repete o que a base faz, o
- * PostgreSQL em contêiner, a chave de assinatura aleatória e o verificador de senha vazada sem rede.
+ * PostgreSQL em contêiner, a chave de assinatura aleatória, o verificador de senha vazada sem rede
+ * e as mensalidades e o segredo dos planos, que a aplicação exige também nesta execução avulsa.
  */
 @SpringBootTest(webEnvironment = WebEnvironment.NONE, properties = {
         "spring.profiles.active=seed",
@@ -50,6 +51,7 @@ class SeedSemServidorWebTest {
         new SecureRandom().nextBytes(aleatoria);
         registro.add("caixa-simples.jwt.secret",
                 () -> Base64.getUrlEncoder().withoutPadding().encodeToString(aleatoria));
+        TesteDeIntegracao.registrarPlanos(registro);
     }
 
     @Test

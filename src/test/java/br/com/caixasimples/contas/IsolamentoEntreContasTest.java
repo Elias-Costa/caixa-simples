@@ -1,14 +1,21 @@
 package br.com.caixasimples.contas;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 
 import br.com.caixasimples.TesteDeIntegracao;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
+import br.com.caixasimples.contas.application.PedidoDePlanoNaoEncontradoException;
+import br.com.caixasimples.contas.application.PlanoService;
+import br.com.caixasimples.contas.internal.AssinaturaDePedido;
 import br.com.caixasimples.contas.internal.Credencial;
 import br.com.caixasimples.contas.internal.CredencialRepository;
+import br.com.caixasimples.contas.internal.PedidoDePlano;
+import br.com.caixasimples.contas.internal.PedidoDePlanoRepository;
 import br.com.caixasimples.contas.internal.Usuario;
 import br.com.caixasimples.contas.internal.UsuarioRepository;
 import br.com.caixasimples.shared.TenantContext;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -35,6 +42,15 @@ class IsolamentoEntreContasTest extends TesteDeIntegracao {
 
     @Autowired
     private CriadorDeContaDeTeste criador;
+
+    @Autowired
+    private PedidoDePlanoRepository pedidos;
+
+    @Autowired
+    private PlanoService planos;
+
+    @Autowired
+    private AssinaturaDePedido assinatura;
 
     @AfterEach
     void limparContexto() {
@@ -67,6 +83,33 @@ class IsolamentoEntreContasTest extends TesteDeIntegracao {
             assertThat(usuarios.findAll())
                     .extracting(Usuario::getId)
                     .containsExactly(contaA.usuarioId());
+        });
+    }
+
+    @Test
+    @DisplayName("conta B não enxerga nem aplica o pedido de plano da conta A, nem com o código certo")
+    void contaNaoEnxergaPedidoDePlanoDeOutraConta() {
+        ContaCriada contaA = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
+        ContaCriada contaB = criador.criar("Salao Vizinho", SENHA_DE_TESTE);
+        UUID pedidoDeA = contaA.comoUsuario(() -> planos.pedir(Plano.COMPLETO)).id();
+        String codigoDeA = assinatura.codigo(pedidoDeA, Plano.COMPLETO);
+
+        contaB.comoUsuario(() -> {
+            assertThat(pedidos.findById(pedidoDeA)).as("findById atravessando tenant").isEmpty();
+            assertThat(pedidos.findAll()).as("listagem da conta B").isEmpty();
+            assertThat(pedidos.findBySituacao(PedidoDePlano.Situacao.ABERTO))
+                    .as("derived query da conta B")
+                    .isEmpty();
+            assertThat(planos.consultar().pedidoAberto()).isNull();
+            assertThatExceptionOfType(PedidoDePlanoNaoEncontradoException.class)
+                    .isThrownBy(() -> planos.aplicarCodigo(pedidoDeA, codigoDeA));
+            assertThat(planos.consultar().plano()).isEqualTo(Plano.GRATIS);
+        });
+
+        contaA.comoUsuario(() -> {
+            assertThat(pedidos.findById(pedidoDeA)).isPresent();
+            assertThat(planos.consultar().plano()).as("o código não foi gasto pela outra conta")
+                    .isEqualTo(Plano.GRATIS);
         });
     }
 

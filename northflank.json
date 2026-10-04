@@ -8,7 +8,10 @@
     "COPIA_AWS_SECRET_ACCESS_KEY": "",
     "REMOCOES_BUCKET": "",
     "REMOCOES_AWS_ACCESS_KEY_ID": "",
-    "REMOCOES_AWS_SECRET_ACCESS_KEY": ""
+    "REMOCOES_AWS_SECRET_ACCESS_KEY": "",
+    "PLANO_SECRET": "",
+    "MENSALIDADE_CAIXA_SIMPLES": "",
+    "MENSALIDADE_COMPLETO": ""
   },
   "spec": {
     "kind": "Workflow",
@@ -178,7 +181,7 @@
                 "ref": "segredosAplicacao",
                 "spec": {
                   "name": "segredos-aplicacao",
-                  "description": "Guarda a chave dos tokens e o acesso ao banco.",
+                  "description": "Guarda a chave dos tokens, o segredo dos códigos e as mensalidades dos planos e o acesso ao banco.",
                   "type": "secret",
                   "secretType": "environment",
                   "priority": 10,
@@ -201,7 +204,10 @@
                   ],
                   "secrets": {
                     "variables": {
-                      "CAIXA_SIMPLES_JWT_SECRET": "${fn.randomSecret(64)}"
+                      "CAIXA_SIMPLES_JWT_SECRET": "${fn.randomSecret(64)}",
+                      "CAIXA_SIMPLES_PLANO_SECRET": "${args.PLANO_SECRET}",
+                      "CAIXA_SIMPLES_MENSALIDADE_CAIXA_SIMPLES": "${args.MENSALIDADE_CAIXA_SIMPLES}",
+                      "CAIXA_SIMPLES_MENSALIDADE_COMPLETO": "${args.MENSALIDADE_COMPLETO}"
                     },
                     "files": {}
                   }

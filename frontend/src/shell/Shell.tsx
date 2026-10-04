@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import { useRegisterSW } from 'virtual:pwa-register/react'
 import type { Perfil } from '../sessao/Identidade'
 import { useSessao } from '../sessao/useSessao'
+import { avisoDoPlano } from './avisoDoPlano'
 import { itensDoMenu } from './menu'
 import { useOnline } from './useOnline'
 import { ContextoDoShellReact } from './ContextoDoShell'
@@ -10,8 +11,9 @@ import { SincronizacaoContext, useEnvioAutomatico } from './sincronizacao'
 
 /**
  * A moldura de toda tela: quem está operando e em que negócio, a navegação e os avisos que
- * valem para o aplicativo inteiro (sem rede, fila por enviar, revisão por conferir, versão nova).
- * É também onde a fila do aparelho é enviada sozinha, uma vez para o aplicativo inteiro.
+ * valem para o aplicativo inteiro (sem rede, fila por enviar, revisão por conferir, versão nova,
+ * vencimento do plano). É também onde a fila do aparelho é enviada sozinha, uma vez para o
+ * aplicativo inteiro.
  */
 export function Shell() {
   const { identidade, sair } = useSessao()
@@ -26,6 +28,7 @@ export function Shell() {
   } = useRegisterSW()
 
   if (!identidade) return null
+  const vencimento = avisoDoPlano(identidade)
 
   function encerrar() {
     sair()
@@ -72,6 +75,12 @@ export function Shell() {
           <button type="button" className="botao" onClick={() => updateServiceWorker(true)}>
             Atualizar
           </button>
+        </div>
+      )}
+      {vencimento && (
+        <div className="faixa" role="status">
+          <span>{vencimento}</span>
+          <Link className="botao" to="/plano">Renovar</Link>
         </div>
       )}
       {faixaDeContexto && <div className="faixa" role="status">{faixaDeContexto}</div>}

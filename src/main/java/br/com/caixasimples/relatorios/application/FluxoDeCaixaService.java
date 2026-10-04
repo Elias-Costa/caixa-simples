@@ -1,6 +1,8 @@
 package br.com.caixasimples.relatorios.application;
 
 import br.com.caixasimples.caixa.TipoMovimentoCaixa;
+import br.com.caixasimples.contas.RecursoDoPlano;
+import br.com.caixasimples.contas.application.ContaService;
 import br.com.caixasimples.relatorios.internal.MovimentoCaixaParaRelatorioRepository;
 import br.com.caixasimples.relatorios.internal.TotalPorTipoDeMovimento;
 import br.com.caixasimples.shared.Money;
@@ -40,14 +42,19 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p><strong>É relatório do administrador (RF30):</strong> o fluxo é o da conta inteira, e o
  * operador não o lê.
+ *
+ * <p>Depois do perfil, o plano: relatório é recurso pago, recusado no plano gratuito e com
+ * os recursos pagos suspensos.
  */
 @Service
 public class FluxoDeCaixaService {
 
     private final MovimentoCaixaParaRelatorioRepository movimentos;
+    private final ContaService contas;
 
-    FluxoDeCaixaService(MovimentoCaixaParaRelatorioRepository movimentos) {
+    FluxoDeCaixaService(MovimentoCaixaParaRelatorioRepository movimentos, ContaService contas) {
         this.movimentos = movimentos;
+        this.contas = contas;
     }
 
     /**
@@ -62,6 +69,7 @@ public class FluxoDeCaixaService {
     @Transactional(readOnly = true)
     public FluxoDeCaixa doPeriodo(LocalDate inicio, LocalDate fim) {
         UsuarioContext.exigirAdmin();
+        contas.exigirRecurso(RecursoDoPlano.RELATORIOS);
         Periodo periodo = new Periodo(inicio, fim);
 
         List<TotalPorTipoDeMovimento> linhas = movimentos.totaisPorTipoEntre(

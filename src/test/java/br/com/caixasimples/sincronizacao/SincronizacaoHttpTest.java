@@ -12,6 +12,7 @@ import br.com.caixasimples.TesteDeIntegracao;
 import br.com.caixasimples.contas.AutenticadorDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
+import br.com.caixasimples.contas.Plano;
 import br.com.caixasimples.shared.FusoDeReferencia;
 import br.com.caixasimples.shared.Perfil;
 import java.math.BigDecimal;
@@ -52,6 +53,7 @@ class SincronizacaoHttpTest extends TesteDeIntegracao {
     @DisplayName("um dia inteiro sem rede num lote: ids e instantes do balcão, sangria que só cabe com a Venda")
     void diaInteiroSemRedeNumLote() throws Exception {
         ContaCriada conta = criador.criar("Cafeteria Aurora", SENHA);
+        criador.contratar(conta.contaId(), Plano.CAIXA_SIMPLES);
         RequestPostProcessor admin = autenticador.como(conta);
         DiaSemRede dia = new DiaSemRede();
 

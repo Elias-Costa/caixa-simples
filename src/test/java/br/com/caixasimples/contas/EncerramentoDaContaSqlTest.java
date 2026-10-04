@@ -6,6 +6,7 @@ import br.com.caixasimples.TesteDeIntegracao;
 import br.com.caixasimples.cadastro.internal.ClienteService;
 import br.com.caixasimples.cadastro.internal.ClienteService.DadosDoCliente;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
+import br.com.caixasimples.contas.application.PlanoService;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -20,6 +21,7 @@ class EncerramentoDaContaSqlTest extends TesteDeIntegracao {
     @Autowired CriadorDeContaDeTeste criador;
     @Autowired ClienteService clientes;
     @Autowired JdbcTemplate banco;
+    @Autowired PlanoService planos;
 
     @Test
     void encerraUmaContaSemApagarAOutra() throws Exception {
@@ -27,6 +29,9 @@ class EncerramentoDaContaSqlTest extends TesteDeIntegracao {
         ContaCriada preservada = criador.criar("Conta preservada", "senha longa de teste");
         encerrada.comoUsuario(() -> clientes.cadastrar(new DadosDoCliente("Cliente antigo", null)));
         preservada.comoUsuario(() -> clientes.cadastrar(new DadosDoCliente("Cliente atual", null)));
+        // Um pedido substituído e outro aberto: os dois apontam para o usuário que sai depois deles.
+        encerrada.comoUsuario(() -> planos.pedir(Plano.CAIXA_SIMPLES));
+        encerrada.comoUsuario(() -> planos.pedir(Plano.COMPLETO));
 
         String sql = Files.readString(Path.of("operacao/exclusao/apagar-conta.sql"))
                 .replace("\\set ON_ERROR_STOP on", "")
@@ -39,7 +44,7 @@ class EncerramentoDaContaSqlTest extends TesteDeIntegracao {
                 preservada.contaId().valor())).isEqualTo(1);
         for (String tabela : List.of("usuario", "credencial", "cliente", "produto", "sessao_caixa",
                 "movimento_caixa", "venda", "item_venda", "pagamento", "recebimento",
-                "movimento_estoque", "operacao_sincronizada")) {
+                "movimento_estoque", "operacao_sincronizada", "pedido_de_plano")) {
             assertThat(banco.queryForObject("SELECT count(*) FROM " + tabela + " WHERE conta_id = ?",
                     Integer.class, encerrada.contaId().valor())).as(tabela).isZero();
         }

@@ -23,6 +23,7 @@ import br.com.caixasimples.caixa.internal.SessaoCaixaRepository;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.UsuarioCriado;
+import br.com.caixasimples.contas.Plano;
 import br.com.caixasimples.relatorios.application.FaturamentoService;
 import br.com.caixasimples.shared.FusoDeReferencia;
 import br.com.caixasimples.shared.Money;
@@ -332,6 +333,7 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
     @DisplayName("conclusão com o instante do conteúdo um ano à frente e a operação no horário: revisão, e o faturamento conta a Venda no dia do balcão")
     void conclusaoComInstanteDoConteudoUmAnoAFrente() {
         ContaCriada conta = criador.criar("Livraria Aurora", SENHA);
+        criador.contratar(conta.contaId(), Plano.CAIXA_SIMPLES);
         UUID produtoId = cadastrar(conta, "Caderno", "8.00");
         UUID sessaoId = conta.comoUsuario(() -> sessoes.abrir(Money.ZERO));
         Instant umAnoAFrente = Instant.now().plus(365, ChronoUnit.DAYS)

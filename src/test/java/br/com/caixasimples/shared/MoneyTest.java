@@ -93,6 +93,23 @@ class MoneyTest {
     }
 
     @Test
+    @DisplayName("a proporção multiplica antes e divide uma vez, com um só arredondamento no fim")
+    void proporcaoComUmSoArredondamento() {
+        // 40 por 1 dia em 31 dá 1,290322...: um só arredondamento chega a 1,29.
+        assertThat(Money.de("40.00").proporcionalArredondando(1, 31)).isEqualTo(Money.de("1.29"));
+        // 10 por 1 dia em 8 dá exatamente 1,25; 0,05 por 1 em 2 dá 0,025, que sobe para 0,03.
+        assertThat(Money.de("10.00").proporcionalArredondando(1, 8)).isEqualTo(Money.de("1.25"));
+        assertThat(Money.de("0.05").proporcionalArredondando(1, 2)).isEqualTo(Money.de("0.03"));
+        assertThat(Money.de("40.00").proporcionalArredondando(0, 30)).isEqualTo(Money.ZERO);
+        assertThat(Money.de("40.00").proporcionalArredondando(30, 30)).isEqualTo(Money.de("40.00"));
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> Money.de("40.00").proporcionalArredondando(1, 0));
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> Money.de("40.00").proporcionalArredondando(-1, 30));
+    }
+
+    @Test
     void zeroEhZeroEmDuasCasas() {
         assertThat(Money.ZERO).isEqualTo(Money.de("0.00"));
         assertThat(Money.ZERO).hasToString("0.00");

@@ -14,6 +14,7 @@ import br.com.caixasimples.cadastro.internal.ProdutoRepository;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.UsuarioCriado;
+import br.com.caixasimples.contas.Plano;
 import br.com.caixasimples.estoque.application.ControleDeEstoqueDesligadoException;
 import br.com.caixasimples.estoque.application.EstoqueService;
 import br.com.caixasimples.shared.AcessoNegadoException;
@@ -64,6 +65,7 @@ class EstoqueServiceTest extends TesteDeIntegracao {
     @DisplayName("com o controle de estoque desligado, ajuste, mínimo e alerta são recusados e nada muda")
     void comControleDesligadoOsTresCasosDeUsoRecusam() {
         ContaCriada salao = criador.criar("Salao Aurora", SENHA_DE_TESTE);
+        criador.contratar(salao.contaId(), Plano.COMPLETO);
         UUID shampooId = cadastrar(salao, "Shampoo");
 
         assertThatExceptionOfType(ControleDeEstoqueDesligadoException.class)
@@ -87,6 +89,7 @@ class EstoqueServiceTest extends TesteDeIntegracao {
     @DisplayName("com o controle ligado, o ajuste move o saldo e o mínimo decide quem entra no alerta")
     void comControleLigadoAjusteEMinimoChegamAoCadastro() {
         ContaCriada cafeteria = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
+        criador.contratar(cafeteria.contaId(), Plano.COMPLETO);
         criador.habilitarEstoque(cafeteria.contaId());
         UUID leiteId = cadastrar(cafeteria, "Leite");
         UUID cafeId = cadastrar(cafeteria, "Cafe em graos");
@@ -124,6 +127,7 @@ class EstoqueServiceTest extends TesteDeIntegracao {
     @DisplayName("ajuste sem motivo é recusado mesmo com o controle ligado: a regra é da raiz")
     void ajusteSemMotivoERecusado() {
         ContaCriada cafeteria = criador.criar("Padaria Aurora", SENHA_DE_TESTE);
+        criador.contratar(cafeteria.contaId(), Plano.COMPLETO);
         criador.habilitarEstoque(cafeteria.contaId());
         UUID paoId = cadastrar(cafeteria, "Pao frances");
 
@@ -140,7 +144,9 @@ class EstoqueServiceTest extends TesteDeIntegracao {
     @DisplayName("a lista de uma conta não traz o produto de outra, e o ajuste não o alcança (RNF05)")
     void contaNaoEnxergaNemAjustaProdutoDeOutraConta() {
         ContaCriada contaA = criador.criar("Mercearia Aurora", SENHA_DE_TESTE);
+        criador.contratar(contaA.contaId(), Plano.COMPLETO);
         ContaCriada contaB = criador.criar("Loja da Esquina", SENHA_DE_TESTE);
+        criador.contratar(contaB.contaId(), Plano.COMPLETO);
         criador.habilitarEstoque(contaA.contaId());
         criador.habilitarEstoque(contaB.contaId());
         UUID arrozDaContaA = cadastrar(contaA, "Arroz");
@@ -173,6 +179,7 @@ class EstoqueServiceTest extends TesteDeIntegracao {
     @DisplayName("o operador não ajusta, não define mínimo nem lê o alerta, mesmo com o controle ligado (RF30)")
     void operadorNaoMexeNoEstoque() {
         ContaCriada mercearia = criador.criar("Mercearia com Atendente", SENHA_DE_TESTE);
+        criador.contratar(mercearia.contaId(), Plano.COMPLETO);
         criador.habilitarEstoque(mercearia.contaId());
         UsuarioCriado operador = criador.criarOperadorEm(mercearia.contaId(), "Atendente");
         UUID arrozId = cadastrar(mercearia, "Arroz");

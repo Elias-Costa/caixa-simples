@@ -1,5 +1,8 @@
 package br.com.caixasimples.contas.application;
 
+import br.com.caixasimples.contas.Plano;
+import br.com.caixasimples.contas.RecursoDoPlano;
+import br.com.caixasimples.contas.SituacaoDoPlano;
 import br.com.caixasimples.contas.internal.Conta;
 import br.com.caixasimples.contas.internal.ContaRepository;
 import br.com.caixasimples.contas.internal.ContencaoDeLogin;
@@ -11,12 +14,15 @@ import br.com.caixasimples.contas.internal.LoginContidoException;
 import br.com.caixasimples.contas.internal.Usuario;
 import br.com.caixasimples.contas.internal.UsuarioRepository;
 import br.com.caixasimples.shared.ContaId;
+import br.com.caixasimples.shared.FusoDeReferencia;
 import br.com.caixasimples.shared.Perfil;
 import br.com.caixasimples.shared.TenantContext;
 import br.com.caixasimples.shared.UsuarioAutenticado;
 import br.com.caixasimples.shared.UsuarioContext;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -148,6 +154,9 @@ public class AutenticacaoService {
      * não precisam saber o nome: o tipo serve à oferta do catálogo inicial (RF32), e o
      * interruptor do estoque decide se o menu de estoque aparece (RF17).
      *
+     * <p>O plano vem junto porque o menu esconde o que ele não inclui ou o que está suspenso, e o
+     * administrador vê o aviso de vencimento ao abrir o aplicativo, sem depender de outra tela.
+     *
      * <p>Aqui a transação pode existir, ao contrário do login: o tenant já está no contexto
      * antes de ela abrir.
      *
@@ -168,18 +177,26 @@ public class AutenticacaoService {
                 .orElseThrow(() -> new IllegalStateException(
                         "conta do contexto nao existe: " + contaId));
 
+        LocalDate hoje = LocalDate.now(FusoDeReferencia.DO_BALCAO);
         return new Identidade(usuario.getId(), usuario.getNome(), atual.perfil(),
                 conta.getId(), conta.getNomeNegocio(), conta.getTipoNegocio(),
-                conta.isEstoqueHabilitado());
+                conta.isEstoqueHabilitado(), conta.getPlano(), conta.situacao(hoje),
+                conta.getProximoVencimento(), conta.inicioDaSuspensao(), conta.recursos(hoje));
     }
 
     /**
      * Quem está operando e em que negócio.
      *
-     * @param tipoNegocio nulo quando a conta foi criada sem tipo, e então não há catálogo
-     *                    inicial a oferecer
+     * @param tipoNegocio       nulo quando a conta foi criada sem tipo, e então não há catálogo
+     *                          inicial a oferecer
+     * @param vencimentoDoPlano nulo no plano gratuito
+     * @param inicioDaSuspensao o primeiro dia sem os recursos pagos se não houver renovação; nulo
+     *                          no plano gratuito
+     * @param recursos          os recursos do plano que valem hoje
      */
     public record Identidade(UUID usuarioId, String nome, Perfil perfil, UUID contaId,
-            String nomeNegocio, String tipoNegocio, boolean estoqueHabilitado) {
+            String nomeNegocio, String tipoNegocio, boolean estoqueHabilitado, Plano plano,
+            SituacaoDoPlano situacaoDoPlano, LocalDate vencimentoDoPlano,
+            LocalDate inicioDaSuspensao, Set<RecursoDoPlano> recursos) {
     }
 }

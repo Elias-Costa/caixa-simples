@@ -1,5 +1,7 @@
 package br.com.caixasimples.relatorios.application;
 
+import br.com.caixasimples.contas.RecursoDoPlano;
+import br.com.caixasimples.contas.application.ContaService;
 import br.com.caixasimples.pagamentos.FormaPagamento;
 import br.com.caixasimples.pagamentos.StatusPagamento;
 import br.com.caixasimples.relatorios.internal.TotaisDeVendas;
@@ -50,6 +52,9 @@ import org.springframework.transaction.annotation.Transactional;
  * operador: o operador não lê faturamento, nem o próprio. A pergunta é feita uma vez, no método
  * em que todas as sobrecargas desembocam.
  *
+ * <p>Depois do perfil, o plano: relatório é recurso pago, recusado no plano gratuito e com
+ * os recursos pagos suspensos.
+ *
  * <p>O pacote não é exposto aos outros módulos: quem chama daqui é a camada web deste mesmo
  * módulo. Ninguém depende de relatórios.
  */
@@ -57,9 +62,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class FaturamentoService {
 
     private final VendaParaRelatorioRepository vendas;
+    private final ContaService contas;
 
-    FaturamentoService(VendaParaRelatorioRepository vendas) {
+    FaturamentoService(VendaParaRelatorioRepository vendas, ContaService contas) {
         this.vendas = vendas;
+        this.contas = contas;
     }
 
     /**
@@ -119,6 +126,7 @@ public class FaturamentoService {
     @Transactional(readOnly = true)
     public Faturamento doPeriodo(LocalDate inicio, LocalDate fim, Filtros filtros) {
         UsuarioContext.exigirAdmin();
+        contas.exigirRecurso(RecursoDoPlano.RELATORIOS);
         Periodo periodo = new Periodo(inicio, fim);
         Objects.requireNonNull(filtros, "filtros nao podem ser nulos; sem filtro, use Filtros.nenhum()");
 

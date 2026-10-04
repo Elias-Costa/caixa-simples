@@ -1,5 +1,6 @@
 package br.com.caixasimples.contas.web;
 
+import br.com.caixasimples.contas.RecursoDoPlano;
 import br.com.caixasimples.contas.application.AutenticacaoService;
 import br.com.caixasimples.contas.application.AutenticacaoService.Identidade;
 import br.com.caixasimples.contas.internal.CredenciaisInvalidasException;
@@ -7,6 +8,8 @@ import br.com.caixasimples.contas.internal.LoginContidoException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -66,7 +69,12 @@ class AutenticacaoController {
                 identidade.contaId(),
                 identidade.nomeNegocio(),
                 identidade.tipoNegocio(),
-                identidade.estoqueHabilitado());
+                identidade.estoqueHabilitado(),
+                identidade.plano().name(),
+                identidade.situacaoDoPlano().name(),
+                identidade.vencimentoDoPlano(),
+                identidade.inicioDaSuspensao(),
+                identidade.recursos().stream().map(RecursoDoPlano::name).toList());
     }
 
     /**
@@ -103,9 +111,13 @@ class AutenticacaoController {
     }
 
     /**
-     * @param tipoNegocio omitido no JSON quando a conta não tem tipo
+     * @param tipoNegocio       omitido no JSON quando a conta não tem tipo
+     * @param vencimentoDoPlano omitido no plano gratuito
+     * @param inicioDaSuspensao omitido no plano gratuito
      */
     record RespostaDeIdentidade(UUID usuarioId, String nome, String perfil, UUID contaId,
-            String nomeNegocio, String tipoNegocio, boolean estoqueHabilitado) {
+            String nomeNegocio, String tipoNegocio, boolean estoqueHabilitado, String plano,
+            String situacaoDoPlano, LocalDate vencimentoDoPlano, LocalDate inicioDaSuspensao,
+            List<String> recursos) {
     }
 }

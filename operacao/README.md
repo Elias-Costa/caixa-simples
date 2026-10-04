@@ -18,6 +18,7 @@ na infraestrutura de build do Northflank, e ela vê o código deste repositório
 | [`dependencias/`](dependencias/) | A verificação dos avisos de segurança das dependências e das imagens, e as exceções fundamentadas a ela |
 | [`copia/`](copia/) | Imagem do job, a cópia, a restauração e a conferência entre as duas |
 | [`carga/carga.mjs`](carga/carga.mjs) | Carga de correção contra uma instalação |
+| [`plano/codigo.mjs`](plano/codigo.mjs) | O código de ativação de um pedido de plano, gerado depois do Pix conferido |
 | [`ensaio/compose.yaml`](ensaio/compose.yaml) | A produção em miniatura, na máquina local |
 
 ## Do push à produção
@@ -119,7 +120,7 @@ O [`northflank.json`](../northflank.json) descreve o ambiente inteiro, sem segre
 | serviço `caixa-simples` | deployment service, `nf-compute-50`, uma instância, porta 8080 pública | a aplicação |
 | job `seed` | job avulso, `nf-compute-50` | cria uma Conta |
 | job `copia` | job agendado, `nf-compute-10`, `0 * * * *`, sem duas execuções ao mesmo tempo | a cópia cifrada |
-| `segredos-aplicacao` | grupo de segredos, só do serviço e do seed | banco e chave dos tokens |
+| `segredos-aplicacao` | grupo de segredos, só do serviço e do seed | banco, chave dos tokens, segredo dos códigos de plano e mensalidades |
 | `segredos-copia` | grupo de segredos, só do job da cópia | banco, chave pública e credencial do bucket |
 | `segredos-remocoes` | grupo de segredos, só do serviço | credencial de gravação do bucket de remoções |
 | `segredos-pix-efi` | grupo de segredos, só do serviço | credenciais Pix de cada Conta, preenchidas no painel |
@@ -135,6 +136,8 @@ e nunca no arquivo:
 | `COPIA_AWS_ACCESS_KEY_ID` e `COPIA_AWS_SECRET_ACCESS_KEY` | Chave de acesso do usuário do job no IAM |
 | `REMOCOES_BUCKET` | Nome do bucket separado das remoções, sem o ciclo de vida das cópias |
 | `REMOCOES_AWS_ACCESS_KEY_ID` e `REMOCOES_AWS_SECRET_ACCESS_KEY` | Credencial limitada à gravação dos objetos de remoção |
+| `PLANO_SECRET` | Segredo dos códigos de ativação de plano, com ao menos 32 bytes; ver [Pedido de plano](#pedido-de-plano-e-código-de-ativação) |
+| `MENSALIDADE_CAIXA_SIMPLES` e `MENSALIDADE_COMPLETO` | Mensalidades em reais, com ponto decimal; a do completo maior que a do intermediário |
 
 O arquivo traz só `apiVersion`, `arguments` e `spec`, o formato que o Northflank lê de um
 repositório; nome, execução automática e concorrência do template se configuram na criação dele.
@@ -154,6 +157,8 @@ nunca mais mexe nele.
 | `CAIXA_SIMPLES_DB_URL` | `JDBC_POSTGRES_URI` do addon, apelidada no grupo `segredos-aplicacao` | URL JDBC interna, já com o TLS do addon |
 | `CAIXA_SIMPLES_DB_USER` e `CAIXA_SIMPLES_DB_PASSWORD` | `USERNAME` e `PASSWORD` do addon, pelo mesmo grupo | Credencial do usuário comum do banco, não a do administrador |
 | `CAIXA_SIMPLES_JWT_SECRET` | Gerada pelo Northflank na primeira execução do template e guardada no grupo | Assinatura dos tokens, com ao menos 32 bytes. Trocá-la obriga todo mundo a entrar de novo |
+| `CAIXA_SIMPLES_PLANO_SECRET` | Argumento `PLANO_SECRET`, pelo grupo `segredos-aplicacao` | Confere o código de ativação de cada pedido de plano. A aplicação não sobe sem ele |
+| `CAIXA_SIMPLES_MENSALIDADE_CAIXA_SIMPLES` e `CAIXA_SIMPLES_MENSALIDADE_COMPLETO` | Argumentos das mensalidades, pelo mesmo grupo | Valor dos pedidos de plano. A aplicação não sobe sem elas |
 | `CAIXA_SIMPLES_PORT` | Template | 8080, a porta pública do serviço |
 | `CAIXA_SIMPLES_PROXIES_CONFIAVEIS` | Opcional | Declara um proxy público na frente da aplicação; ver [Borda](#borda) |
 | `CAIXA_SIMPLES_REMOCOES_BUCKET` e `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` | Grupo `segredos-remocoes` | Grava o registro mínimo antes de uma exclusão |
@@ -188,8 +193,9 @@ num caminho escolhido na hora, como `/segredos/efi/<uuid da Conta>.p12`; é esse
 8. Pelo shell do serviço, conferir `cat /sys/fs/cgroup/memory.max`: 1073741824 é o limite em que a
    JVM foi medida. Um limite menor pede nova medição com a carga.
 9. Conferir a [borda](#borda) pelo access log.
-10. Criar as Contas de teste pelo [seed](#criar-uma-conta), rodar a [carga](#carga-de-correção)
-    e ensaiar a [restauração](#restauração) pelos dois caminhos.
+10. Criar as Contas de teste pelo [seed](#criar-uma-conta), ativar nelas o plano completo pelo
+    [pedido de plano](#pedido-de-plano-e-código-de-ativação), rodar a
+    [carga](#carga-de-correção) e ensaiar a [restauração](#restauração) pelos dois caminhos.
 
 ## Borda
 
@@ -258,6 +264,40 @@ visíveis para quem acessa o projeto, que de todo modo já alcança o banco. A s
 política de qualquer senha, inclusive a verificação de vazamento.
 
 **No ensaio local**, pelo serviço `seed` do compose; ver [Ensaio local](#ensaio-local).
+
+## Pedido de plano e código de ativação
+
+Toda Conta nasce no plano gratuito. O administrador pede a adesão, o upgrade ou a renovação na tela
+Plano do aplicativo, manda o texto do pedido pelo canal de atendimento e faz o Pix do valor. O
+pedido sozinho não muda nada: o plano só vale com o código, e o código só sai depois do Pix
+conferido no extrato.
+
+1. Conferir no extrato o Pix com o valor do pedido. O upgrade cobra a diferença das mensalidades
+   pelos dias que faltam até o vencimento, calculada com o crédito no dia do pedido: se o crédito
+   caiu em outro dia, recalcular e acertar a diferença pelo canal antes do código.
+2. Gerar o código com o id e o plano do texto do pedido:
+
+   ```bash
+   CAIXA_SIMPLES_PLANO_SECRET=<segredo> node operacao/plano/codigo.mjs <id do pedido> <plano>
+   ```
+
+   O plano vai como no texto (`Caixa Simples`, `Completo`) ou como no sistema. O script só
+   calcula: não toca o banco nem a Conta, e o mesmo pedido sempre dá o mesmo código.
+3. Mandar o código ao administrador, que o aplica na tela Plano.
+
+O código vale para um pedido só. Se a Conta pediu de novo antes de aplicar, o pedido anterior foi
+substituído e o código dele é recusado: gere o do pedido mais recente. Aplicar o mesmo código duas
+vezes não ativa duas vezes.
+
+O segredo é o argumento `PLANO_SECRET` do template, gerado uma vez com `openssl rand -base64 48` e
+guardado também fora do Northflank, com o mantenedor, porque o script precisa dele. Trocá-lo invalida
+os códigos ainda não aplicados. As mensalidades são os argumentos `MENSALIDADE_CAIXA_SIMPLES` e
+`MENSALIDADE_COMPLETO`; mudar uma delas vale para os pedidos seguintes, e o pedido aberto mantém o
+valor do dia em que foi feito.
+
+O plano pago vence todo mês no dia da adesão. O administrador vê o aviso sete dias antes; depois do
+vencimento, os recursos pagos seguem por sete dias e param no oitavo, até a renovação. Venda, caixa
+e cadastro nunca param.
 
 ## Cópia de hora em hora cifrada
 
@@ -445,12 +485,18 @@ fazem o papel dos dois destinos. Comandos a partir da raiz do repositório:
 # Chave dos tokens do ensaio: qualquer valor aleatório com ao menos 32 bytes.
 export CAIXA_SIMPLES_JWT_SECRET="$(openssl rand -base64 48)"
 
+# Segredo dos códigos de plano e mensalidades do ensaio: valores só para o teste.
+export CAIXA_SIMPLES_PLANO_SECRET="$(openssl rand -base64 48)"
+export CAIXA_SIMPLES_MENSALIDADE_CAIXA_SIMPLES=10.00 CAIXA_SIMPLES_MENSALIDADE_COMPLETO=20.00
+
 # Aplicação em http://localhost:18080, depois das migrations e do healthcheck.
 docker compose -f operacao/ensaio/compose.yaml up -d --build --wait banco app
 
-# Uma Conta por execução; para a carga, três, com a mesma senha.
+# Uma Conta por execução; para a carga, três, com a mesma senha. Cada uma pede o plano completo
+# na tela Plano, e o código sai do script com o segredo exportado acima.
 CAIXA_SIMPLES_SEED_NOME_NEGOCIO="Loja da Esquina" CAIXA_SIMPLES_SEED_EMAIL=<e-mail> \
 CAIXA_SIMPLES_SEED_SENHA=<senha> docker compose -f operacao/ensaio/compose.yaml run --rm seed
+node operacao/plano/codigo.mjs <id do pedido> Completo
 
 # Carga, e a memória do contêiner depois dela.
 CARGA_URL=http://localhost:18080 CARGA_EMAILS=<e-mail 1>,<e-mail 2>,<e-mail 3> CARGA_SENHA=<senha> \
@@ -491,4 +537,7 @@ meta.
 
 Roda contra o ambiente publicado antes da primeira Conta real, em Contas de teste criadas pelo seed,
 e de novo depois de qualquer troca de plano ou de parâmetro da JVM. Cada e-mail é o administrador de
-uma Conta, todos com a mesma senha, e o caixa dele precisa estar fechado.
+uma Conta, todos com a mesma senha, e o caixa dele precisa estar fechado. A Conta precisa do plano
+completo ativado pelo [pedido de plano](#pedido-de-plano-e-código-de-ativação), porque a carga
+confere o relatório do dia e usa o estoque quando ele está ligado; sem o recurso, ela para antes de
+começar.

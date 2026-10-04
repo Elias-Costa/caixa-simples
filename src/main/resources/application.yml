@@ -46,6 +46,14 @@ caixa-simples:
     # 24h contadas do último contato com o servidor: toda resposta autenticada devolve um token novo.
     # Essa é a janela de resistência offline exigida pelo RNF01.
     validade: 24h
+  planos:
+    # Assina o código que ativa cada pedido de plano. O mantenedor usa o mesmo valor no script que
+    # gera o código. Sem valor padrão, como a chave do token, e com ao menos 32 bytes.
+    segredo: ${CAIXA_SIMPLES_PLANO_SECRET}
+    # Mensalidades em reais, com ponto decimal. Sem valor padrão: preço não mora no repositório,
+    # e a aplicação não sobe sem elas.
+    mensalidade-caixa-simples: ${CAIXA_SIMPLES_MENSALIDADE_CAIXA_SIMPLES}
+    mensalidade-completo: ${CAIXA_SIMPLES_MENSALIDADE_COMPLETO}
 
 server:
   port: ${CAIXA_SIMPLES_PORT:8080}

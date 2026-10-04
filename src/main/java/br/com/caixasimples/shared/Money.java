@@ -22,8 +22,9 @@ import java.util.Objects;
  * {@link #subtrair} existem porque o saldo esperado da sessão de caixa acompanha os movimentos em
  * tempo real, não porque um tipo monetário costuma ter as quatro operações.
  * {@link #multiplicarArredondando} existe porque o item da venda vale quantidade vezes preço
- * unitário, e é a única operação daqui que pode produzir fração de centavo. Divisão continua fora,
- * porque nada a usa.
+ * unitário, e {@link #proporcionalArredondando} porque o upgrade de plano cobra a diferença das
+ * mensalidades pelos dias que faltam no período. As duas são as únicas operações daqui que podem
+ * produzir fração de centavo, e o nome de cada uma diz que arredonda.
  */
 public record Money(BigDecimal valor) {
 
@@ -64,8 +65,9 @@ public record Money(BigDecimal valor) {
     }
 
     /**
-     * Arredonda para duas casas com {@link RoundingMode#HALF_UP}. É o único ponto do sistema que
-     * arredonda dinheiro, e o nome existe para que a chamada denuncie isso na linha em que aparece.
+     * Arredonda para duas casas com {@link RoundingMode#HALF_UP}. Com
+     * {@link #proporcionalArredondando}, é o único ponto do sistema que arredonda dinheiro, e o
+     * nome existe para que a chamada denuncie isso na linha em que aparece.
      */
     public static Money arredondando(BigDecimal valor) {
         Objects.requireNonNull(valor, "valor nao pode ser nulo");
@@ -112,6 +114,28 @@ public record Money(BigDecimal valor) {
     public Money multiplicarArredondando(BigDecimal quantidade) {
         Objects.requireNonNull(quantidade, "quantidade nao pode ser nula");
         return arredondando(valor.multiply(quantidade));
+    }
+
+    /**
+     * A parte deste valor que corresponde a {@code parte} de {@code todo}, arredondada a duas
+     * casas com {@link RoundingMode#HALF_UP}.
+     *
+     * <p><strong>Multiplica antes e divide uma vez só</strong>, de modo que o arredondamento
+     * acontece num ponto, no fim. Calcular primeiro a fração e depois multiplicar arredondaria
+     * duas vezes, e uma dízima como um dia em trinta e um poderia mudar o centavo.
+     *
+     * @param parte quantos dos {@code todo} são cobrados; zero dá zero
+     * @param todo  o total de que a parte é tirada, positivo
+     */
+    public Money proporcionalArredondando(long parte, long todo) {
+        if (todo <= 0) {
+            throw new IllegalArgumentException("todo tem de ser positivo: " + todo);
+        }
+        if (parte < 0) {
+            throw new IllegalArgumentException("parte nao pode ser negativa: " + parte);
+        }
+        return new Money(valor.multiply(BigDecimal.valueOf(parte))
+                .divide(BigDecimal.valueOf(todo), ESCALA, ARREDONDAMENTO));
     }
 
     public boolean isNegativo() {

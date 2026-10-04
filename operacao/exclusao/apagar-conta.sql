@@ -20,6 +20,8 @@ DELETE FROM sessao_caixa WHERE conta_id IN (SELECT id FROM conta_encerrada);
 DELETE FROM produto WHERE conta_id IN (SELECT id FROM conta_encerrada);
 DELETE FROM cliente WHERE conta_id IN (SELECT id FROM conta_encerrada);
 DELETE FROM credencial WHERE conta_id IN (SELECT id FROM conta_encerrada);
+-- O pedido de plano aponta para quem pediu e para quem aplicou: sai antes do usuário.
+DELETE FROM pedido_de_plano WHERE conta_id IN (SELECT id FROM conta_encerrada);
 DELETE FROM usuario WHERE conta_id IN (SELECT id FROM conta_encerrada);
 DELETE FROM conta WHERE id IN (SELECT id FROM conta_encerrada);
 COMMIT;

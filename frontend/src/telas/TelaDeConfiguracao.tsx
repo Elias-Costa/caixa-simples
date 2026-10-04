@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router'
 import { contas } from '../api/contas'
 import { sessaoAtual } from '../sessao/armazenamento'
+import { temRecurso } from '../sessao/Identidade'
 import { useSessao } from '../sessao/useSessao'
 import { erroDeCadastro } from './erroDeCadastro'
 
@@ -39,6 +41,11 @@ export function TelaDeConfiguracao() {
     }
   }
 
+  // Ligar exige o estoque do plano; desligar, não: um controle ligado pode ser desligado enquanto
+  // não houver movimento, mesmo sem o plano.
+  const semPlanoParaLigar = habilitado === false && !!identidade
+    && !temRecurso(identidade, 'ESTOQUE')
+
   return <section className="relatorios">
     <h2 className="titulo">Configuração da Conta</h2>
     {erro && <p className="mensagem-erro" role="alert">{erro}</p>}
@@ -48,8 +55,10 @@ export function TelaDeConfiguracao() {
         <p>{habilitado ? 'Ligado' : 'Desligado'}</p>
         <p>Quando ligado, vendas de produtos movimentam o saldo e o menu Estoque fica disponível.</p>
         <p>Depois do primeiro movimento de estoque, o controle não pode ser desligado.</p>
+        {semPlanoParaLigar && <p>O controle de estoque faz parte do plano Completo, sem
+          suspensão. Veja a tela <Link to="/plano">Plano</Link>.</p>}
         <button className="botao" type="button" role="switch" aria-checked={habilitado}
-          disabled={salvando} onClick={() => void alternar()}>
+          disabled={salvando || semPlanoParaLigar} onClick={() => void alternar()}>
           {salvando ? 'Salvando...' : habilitado ? 'Desligar controle de estoque' : 'Ligar controle de estoque'}
         </button>
       </>}

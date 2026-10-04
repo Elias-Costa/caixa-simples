@@ -7,12 +7,15 @@ import br.com.caixasimples.contas.internal.CredencialRepository;
 import br.com.caixasimples.contas.internal.Usuario;
 import br.com.caixasimples.contas.internal.UsuarioRepository;
 import br.com.caixasimples.shared.ContaId;
+import br.com.caixasimples.shared.FusoDeReferencia;
 import br.com.caixasimples.shared.Perfil;
 import br.com.caixasimples.shared.TenantContext;
 import br.com.caixasimples.shared.UsuarioAutenticado;
 import br.com.caixasimples.shared.UsuarioContext;
+import java.time.LocalDate;
 import java.util.UUID;
 import java.util.function.Supplier;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
@@ -31,13 +34,15 @@ public class CriadorDeContaDeTeste {
     private final UsuarioRepository usuarios;
     private final CredencialRepository credenciais;
     private final PasswordEncoder encoder;
+    private final JdbcTemplate jdbc;
 
     public CriadorDeContaDeTeste(ContaRepository contas, UsuarioRepository usuarios,
-            CredencialRepository credenciais, PasswordEncoder encoder) {
+            CredencialRepository credenciais, PasswordEncoder encoder, JdbcTemplate jdbc) {
         this.contas = contas;
         this.usuarios = usuarios;
         this.credenciais = credenciais;
         this.encoder = encoder;
+        this.jdbc = jdbc;
     }
 
     public ContaCriada criar(String nomeNegocio, String senha) {
@@ -104,13 +109,30 @@ public class CriadorDeContaDeTeste {
     }
 
     /**
-     * Troca o plano da conta (RF31). Conta nasce no plano grátis, e só o plano mais alto admite
-     * mais de um usuário; o caso de uso de troca de plano ainda não existe.
+     * Contrata um plano pago para a conta, como se o código de adesão tivesse sido aplicado hoje
+     * (RF31). Conta nasce no plano grátis, sem relatórios, estoque nem segundo usuário; o teste que
+     * usa um desses recursos contrata o plano no preparo, sem passar pelo pedido.
      */
-    public void trocarPlano(ContaId contaId, Plano plano) {
+    public void contratar(ContaId contaId, Plano plano) {
         Conta conta = contas.findById(contaId.valor()).orElseThrow();
-        conta.trocarPlano(plano);
+        conta.ativarPlano(plano, LocalDate.now(FusoDeReferencia.DO_BALCAO));
         contas.save(conta);
+    }
+
+    /**
+     * Põe o vencimento do plano pago a tantos dias de hoje: zero é o dia do vencimento, sete o
+     * último da tolerância, oito o primeiro da suspensão, e um número negativo o deixa no futuro.
+     * Por SQL, porque a aplicação nunca recua um vencimento.
+     */
+    public void vencerPlano(ContaId contaId, int diasDepoisDoVencimento) {
+        LocalDate vencimento = LocalDate.now(FusoDeReferencia.DO_BALCAO)
+                .minusDays(diasDepoisDoVencimento);
+        int alteradas = jdbc.update("UPDATE conta SET proximo_vencimento = ?, dia_de_vencimento = ?"
+                + " WHERE id = ? AND plano <> 'GRATIS'",
+                vencimento, vencimento.getDayOfMonth(), contaId.valor());
+        if (alteradas != 1) {
+            throw new IllegalStateException("so a conta com plano pago tem vencimento: " + contaId);
+        }
     }
 
     /**

@@ -23,8 +23,8 @@ describe('itensDoMenu', () => {
     expect(rotulos({ ...base, estoqueHabilitado: true })).not.toContain('Estoque')
   })
 
-  it('administrador vê também relatórios, usuários e configuração', () => {
-    expect(rotulos({ ...base, perfil: 'ADMIN' })).toEqual([
+  it('administrador vê também relatórios, usuários, configuração e plano', () => {
+    expect(rotulos({ ...base, perfil: 'ADMIN', recursos: ['RELATORIOS'] })).toEqual([
       'Vender',
       'Caixa',
       'Produtos',
@@ -34,10 +34,28 @@ describe('itensDoMenu', () => {
       'Relatórios',
       'Usuários',
       'Configuração',
+      'Plano',
     ])
   })
 
   it('administrador vê estoque só quando a conta ligou o controle', () => {
-    expect(rotulos({ ...base, perfil: 'ADMIN', estoqueHabilitado: true })).toContain('Estoque')
+    expect(rotulos({ ...base, perfil: 'ADMIN', estoqueHabilitado: true, recursos: ['ESTOQUE'] }))
+      .toContain('Estoque')
+  })
+
+  it('sem o recurso no plano, ou com ele suspenso, relatórios e estoque somem do menu', () => {
+    const semRecurso = rotulos({ ...base, perfil: 'ADMIN', estoqueHabilitado: true, recursos: [] })
+    expect(semRecurso).not.toContain('Relatórios')
+    expect(semRecurso).not.toContain('Estoque')
+    expect(semRecurso).toContain('Plano')
+  })
+
+  it('identidade guardada antes da lista de recursos mantém o menu, e o servidor decide', () => {
+    expect(rotulos({ ...base, perfil: 'ADMIN', estoqueHabilitado: true }))
+      .toEqual(expect.arrayContaining(['Estoque', 'Relatórios']))
+  })
+
+  it('operador não vê o plano', () => {
+    expect(rotulos({ ...base, recursos: ['RELATORIOS'] })).not.toContain('Plano')
   })
 })

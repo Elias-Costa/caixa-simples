@@ -12,6 +12,7 @@ import { TelaDeVenda } from './telas/TelaDeVenda'
 import { TelaDeRelatorios } from './telas/TelaDeRelatorios'
 import { TelaDeUsuarios } from './telas/TelaDeUsuarios'
 import { TelaDeConfiguracao } from './telas/TelaDeConfiguracao'
+import { TelaDoPlano } from './telas/TelaDoPlano'
 import { TelaDeEstoque } from './telas/TelaDeEstoque'
 import { TelaDeFiado } from './telas/TelaDeFiado'
 import { TelaDeSincronizacao } from './telas/TelaDeSincronizacao'
@@ -38,12 +39,16 @@ export function App() {
           <Route path="sincronizacao" element={<TelaDeSincronizacao />} />
 
           <Route element={<ExigeAdmin />}>
-            <Route path="relatorios" element={<TelaDeRelatorios />} />
             <Route path="usuarios" element={<TelaDeUsuarios />} />
             <Route path="configuracao" element={<TelaDeConfiguracao />} />
+            <Route path="plano" element={<TelaDoPlano />} />
           </Route>
 
-          <Route element={<ExigeAdmin comEstoque />}>
+          <Route element={<ExigeAdmin recurso="RELATORIOS" />}>
+            <Route path="relatorios" element={<TelaDeRelatorios />} />
+          </Route>
+
+          <Route element={<ExigeAdmin comEstoque recurso="ESTOQUE" />}>
             <Route path="estoque" element={<TelaDeEstoque />} />
           </Route>
 

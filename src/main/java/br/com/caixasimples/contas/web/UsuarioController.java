@@ -1,7 +1,6 @@
 package br.com.caixasimples.contas.web;
 
 import br.com.caixasimples.contas.application.EmailJaCadastradoException;
-import br.com.caixasimples.contas.application.PlanoSemMultiusuarioException;
 import br.com.caixasimples.contas.application.UltimoAdministradorException;
 import br.com.caixasimples.contas.application.UsuarioNaoEncontradoException;
 import br.com.caixasimples.contas.application.UsuarioService;
@@ -65,8 +64,7 @@ class UsuarioController {
         return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, excecao.getMessage());
     }
 
-    @ExceptionHandler({EmailJaCadastradoException.class, UltimoAdministradorException.class,
-            PlanoSemMultiusuarioException.class})
+    @ExceptionHandler({EmailJaCadastradoException.class, UltimoAdministradorException.class})
     ProblemDetail conflito(RuntimeException excecao) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, excecao.getMessage());
     }

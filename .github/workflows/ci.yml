@@ -48,6 +48,11 @@ jobs:
         working-directory: frontend
         run: PATH="$PWD/node:$PATH" npm run lint
 
+      # O script que gera o código de ativação dos pedidos de plano confere o mesmo vetor fixo que a
+      # suíte Java confere na aplicação: se os dois divergissem, o código entregue seria recusado.
+      - name: Teste do script do código de plano
+        run: PATH="$PWD/frontend/node:$PATH" node --test operacao/plano/codigo.test.mjs
+
   # Avisos de segurança das dependências: as duas imagens construídas deste commit e o package-lock
   # do front-end, pelo mesmo script que se roda na máquina. Fica num job à parte, sem segredo
   # nenhum, porque a ferramenta é de terceiro e roda com acesso ao Docker do executor.

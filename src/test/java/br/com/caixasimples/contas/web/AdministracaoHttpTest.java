@@ -1,6 +1,7 @@
 package br.com.caixasimples.contas.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -42,7 +43,7 @@ class AdministracaoHttpTest extends TesteDeIntegracao {
     @Test
     void adminDoCompletoCriaOperadorQueEntraEListaSemEmail() throws Exception {
         ContaCriada conta = criador.criar("Loja das Palmeiras", SENHA);
-        criador.trocarPlano(conta.contaId(), Plano.COMPLETO);
+        criador.contratar(conta.contaId(), Plano.COMPLETO);
         String email = "operador-" + UUID.randomUUID() + "@exemplo.test";
 
         String corpo = http.perform(post("/api/usuarios")
@@ -103,6 +104,7 @@ class AdministracaoHttpTest extends TesteDeIntegracao {
     @Test
     void configuracaoEPorContaEHistoricoImpedeDesligar() throws Exception {
         ContaCriada primeira = criador.criar("Mercado da Praça", SENHA);
+        criador.contratar(primeira.contaId(), Plano.COMPLETO);
         ContaCriada segunda = criador.criar("Mercado da Rua", SENHA);
         http.perform(put("/api/conta/configuracao").with(autenticador.como(primeira))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -136,6 +138,13 @@ class AdministracaoHttpTest extends TesteDeIntegracao {
         http.perform(get("/api/conta/configuracao").with(autenticador.como(primeira)))
                 .andExpect(jsonPath("$.estoqueHabilitado").value(true));
 
+        // Ligar o controle exige o plano que inclui o estoque; no plano grátis, a recusa é do plano.
+        http.perform(put("/api/conta/configuracao").with(autenticador.como(segunda))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"estoqueHabilitado\":true}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.detail").value(containsString("plano Completo")));
+        criador.contratar(segunda.contaId(), Plano.COMPLETO);
         http.perform(put("/api/conta/configuracao").with(autenticador.como(segunda))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"estoqueHabilitado\":true}"))
