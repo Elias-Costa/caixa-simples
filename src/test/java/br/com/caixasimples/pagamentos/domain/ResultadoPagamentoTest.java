@@ -3,7 +3,6 @@ package br.com.caixasimples.pagamentos.domain;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.assertThatNoException;
-import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
 import br.com.caixasimples.pagamentos.FormaPagamento;
 import br.com.caixasimples.pagamentos.StatusPagamento;
@@ -65,8 +64,11 @@ class ResultadoPagamentoTest {
     @DisplayName("valor recebido é obrigatório mesmo quando o cliente paga certo")
     void recusaRecebidoNulo() {
         // Nulo não significa pagou o valor exato: quem pagou certo repete o valor da parcela.
-        assertThatNullPointerException()
-                .isThrownBy(() -> ResultadoPagamento.emDinheiro(Money.de("50.00"), null));
+        // A recusa é de argumento, a mesma do valor recebido em forma sem troco, para a rota
+        // HTTP responder 400 com o motivo.
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> ResultadoPagamento.emDinheiro(Money.de("50.00"), null))
+                .withMessageContaining("valor recebido em dinheiro e obrigatorio");
     }
 
     @Test

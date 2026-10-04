@@ -54,14 +54,17 @@ public record ResultadoPagamento(FormaPagamento forma, Money valor, StatusPagame
      * @param valor         quanto desta venda está sendo pago em dinheiro
      * @param valorRecebido o que veio na mão do cliente, obrigatório e nunca menor que
      *                      {@code valor}
-     * @throws NullPointerException     se {@code valorRecebido} é nulo
-     * @throws IllegalArgumentException se {@code valorRecebido} é menor que {@code valor}
+     * @throws IllegalArgumentException se {@code valorRecebido} é nulo ou menor que
+     *                                  {@code valor}
      */
     public static ResultadoPagamento emDinheiro(Money valor, Money valorRecebido) {
         Objects.requireNonNull(valor, "valor do pagamento nao pode ser nulo");
-        Objects.requireNonNull(valorRecebido,
-                "valor recebido em dinheiro e obrigatorio; informe o proprio valor da parcela "
-                        + "quando o cliente pagar o valor exato");
+        // A falta do valor recebido é pedido incompleto de quem registra, como o valor recebido
+        // numa forma sem troco, e por isso é recusa de argumento, não defeito do programa.
+        if (valorRecebido == null) {
+            throw new IllegalArgumentException("valor recebido em dinheiro e obrigatorio; "
+                    + "informe o proprio valor da parcela quando o cliente pagar o valor exato");
+        }
 
         Money troco = valorRecebido.subtrair(valor);
         if (troco.isNegativo()) {

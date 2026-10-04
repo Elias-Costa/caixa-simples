@@ -336,6 +336,36 @@ class VendaHttpTest extends TesteDeIntegracao {
     }
 
     @Test
+    void dinheiroSemValorRecebidoResponde400SemGravarParcela() throws Exception {
+        ContaCriada conta = criador.criar("PDV Troco", SENHA);
+        UUID produto = produto(conta);
+        UUID sessao = conta.comoUsuario(() -> caixas.abrir(Money.ZERO));
+        RequestPostProcessor admin = autenticador.como(conta);
+        UUID venda = criarVenda(admin, sessao);
+        http.perform(post("/api/vendas/{id}/itens", venda).with(admin)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"produtoId\":\"" + produto + "\",\"quantidade\":1,\"desconto\":0}"))
+                .andExpect(status().isCreated());
+
+        // Sem o valor entregue não há troco a calcular: o pedido está incompleto, e a resposta
+        // diz o que falta em vez de um 500 sem detalhe, que pareceria defeito do servidor.
+        UUID pagamentoId = UUID.randomUUID();
+        http.perform(post("/api/vendas/{id}/pagamentos", venda).with(admin)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"pagamentoId\":\"" + pagamentoId
+                        + "\",\"forma\":\"DINHEIRO\",\"valor\":12.50}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail")
+                        .value(containsString("valor recebido em dinheiro e obrigatorio")));
+        http.perform(get("/api/vendas/{id}", venda).with(admin))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.parcelas").isEmpty());
+
+        // A recusa não gravou nada com o id: o mesmo pedido, completo, passa como o primeiro.
+        pagar(admin, venda, pagamentoId, "DINHEIRO", "12.50", null)
+                .andExpect(status().isOk()).andExpect(jsonPath("$.troco").value(0.0));
+    }
+
+    @Test
     void sessaoOuProdutoQueNaoExisteNaContaResponde404() throws Exception {
         ContaCriada contaA = criador.criar("PDV E", SENHA);
         ContaCriada contaB = criador.criar("PDV F", SENHA);

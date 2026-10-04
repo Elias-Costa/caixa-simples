@@ -182,8 +182,8 @@ itens, total, parcelas e recebimentos, com o NSU de cada um em cartão; `POST /a
 na Conta responde 404 ao iniciar a comanda ou lançar o item;
 `PUT /api/vendas/{id}/desconto` é só do administrador;
 `POST /api/vendas/{id}/pagamentos` exige `pagamentoId` no corpo, aceita `nsu` no cartão e devolve o
-troco para as formas sem Pix integrado; o NSU com mais de 40 caracteres, fora do cartão ou ausente no
-cartão de uma Conta que o exige responde 400;
+troco para as formas sem Pix integrado; o dinheiro sem `valorRecebido` e o NSU com mais de 40
+caracteres, fora do cartão ou ausente no cartão de uma Conta que o exige respondem 400;
 `POST /api/vendas/{id}/pagamentos/pix` recebe `tentativaId` e valor, devolve parcela PENDENTE e
 estado da cobrança, e responde 409, sem alterar nada, ao `tentativaId` que já é de uma parcela de
 outra Venda; o PWA mostra QR Code e copia e cola; `GET /api/vendas/{id}` permite retomar
