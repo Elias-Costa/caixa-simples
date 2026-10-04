@@ -129,7 +129,15 @@ public class CriadorDeVendaDeTeste {
         return gravar(contaId, montar(sessaoCaixaId, usuarioId, itens, StatusVenda.ABERTA, null));
     }
 
-    private UUID gravar(ContaId contaId, Venda venda) {
+    /**
+     * Grava uma venda que o teste montou inteira por {@code Venda.reconstituir}, com as parcelas e
+     * os recebimentos que quiser, cada um no seu instante.
+     *
+     * <p>Existe para a conferência do cartão, cujo dia é o do lançamento de cada pagamento e não o
+     * da conclusão: o teste precisa de parcela lançada num dia em venda concluída no outro, e de
+     * recebimento de fiado no caixa de outra pessoa. A raiz recusa o que viola as invariantes dela.
+     */
+    public UUID gravar(ContaId contaId, Venda venda) {
         return TenantContext.executarComo(contaId, () ->
                 vendas.save(VendaEntity.de(venda)).getId());
     }

@@ -18,15 +18,17 @@ type ClientesDoDispositivo = Pick<typeof cadastro, 'clientes'>
 export type VendasDoPdv = Omit<VendasDaApi, 'adicionarItem' | 'pagar' | 'receber'> & {
   adicionarItem(id: string, produto: Produto, quantidade: number, desconto: number): Promise<{ id: string }>
   pagar(id: string, forma: Parameters<VendasDaApi['pagar']>[1], valor: number,
-    valorRecebido?: number, pagamentoId?: string): Promise<{ troco: number }>
+    valorRecebido?: number, pagamentoId?: string, nsu?: string): Promise<{ troco: number }>
   receber(id: string, valor: number, forma: Parameters<VendasDaApi['receber']>[2],
-    recebimentoId?: string): Promise<{ id: string; saldoDevedor: number }>
+    recebimentoId?: string, nsu?: string): Promise<{ id: string; saldoDevedor: number }>
 }
 
 const VENDA_DO_SERVIDOR_SEM_REDE = 'Esta Venda está no servidor e continua quando a rede voltar. '
   + 'Para vender agora, comece uma nova venda.'
 const CANCELAR_DEPOIS_DE_SINCRONIZAR = 'Esta Venda foi registrada neste dispositivo e ainda não chegou '
   + 'ao servidor. O cancelamento fica disponível depois da sincronização.'
+export const NSU_EXIGIDO = 'Informe o NSU do comprovante da maquininha: esta Conta exige o NSU no '
+  + 'pagamento em cartão.'
 
 /** Uma Venda que continua neste dispositivo, remontada dos gestos gravados. */
 type NoDispositivo = { gestos: GestoNaFila[]; venda: raiz.VendaNoDispositivo; pendente: boolean }
@@ -43,6 +45,17 @@ function usuarioAtual(): string {
 
 function exigirAdmin(mensagem: string): void {
   if (lerIdentidade()?.perfil !== 'ADMIN') throw new Error(mensagem)
+}
+
+/**
+ * A exigência do NSU como o aparelho a conhece, da identidade. Sem rede é a única conferência antes
+ * de o gesto ser gravado; se a Conta passou a exigir depois da última leitura da identidade, o
+ * servidor grava a parcela e a marca para o administrador conferir.
+ */
+function exigirNsuSeAContaExige(forma: string, nsu: string | null): void {
+  if (forma === 'CARTAO' && nsu === null && lerIdentidade()?.nsuObrigatorio === true) {
+    throw new Error(NSU_EXIGIDO)
+  }
 }
 
 function ultimoGesto(gestos: GestoNaFila[], prefixo: string, id: string): GestoNaFila | undefined {
@@ -117,7 +130,7 @@ function paraTela(venda: raiz.VendaNoDispositivo, pendente: boolean): Venda {
     })),
     parcelas: venda.parcelas.map((parcela) => ({
       id: parcela.id, forma: parcela.forma, valor: reais(parcela.valorCentavos), status: parcela.status,
-      troco: reais(parcela.trocoCentavos), pix: null,
+      troco: reais(parcela.trocoCentavos), pix: null, nsu: parcela.nsu ?? undefined,
     })),
     recebimentos: [],
   }
@@ -280,13 +293,18 @@ export function criarVendaLocal(remoto: VendasDaApi = vendas, caixa: CaixaDoDisp
       await enfileirar('venda.aplicarDesconto', id, dados, operacoes(ultimoGesto(alvo.gestos, 'venda.', id)),
         alvo.venda.versao)
     },
-    async pagar(id, forma, valor, valorRecebido, pagamentoId) {
+    async pagar(id, forma, valor, valorRecebido, pagamentoId, nsu) {
+      // Conferida antes de escolher o caminho: com rede o servidor recusaria igual, e sem rede
+      // ninguém mais confere antes de o gesto ficar gravado.
+      const nsuDaParcela = raiz.normalizarNsu(nsu)
+      exigirNsuSeAContaExige(forma, nsuDaParcela)
       const alvo = await localizar(id, false)
       if (alvo === 'servidor') return remoto.pagar(id, forma, valor, valorRecebido,
-        pagamentoId ?? crypto.randomUUID())
+        pagamentoId ?? crypto.randomUUID(), nsuDaParcela ?? undefined)
       if (forma === 'FIADO') exigirAdmin('Só ADMIN registra Venda com FIADO.')
       const dados: raiz.DadosDaParcela = {
         pagamentoId: crypto.randomUUID(), forma, valor, valorRecebido: valorRecebido ?? null,
+        nsu: nsuDaParcela,
       }
       const paga = raiz.registrarPagamento(alvo.venda, dados)
       await enfileirar('venda.registrarPagamento', id, dados,
@@ -341,8 +359,11 @@ export function criarVendaLocal(remoto: VendasDaApi = vendas, caixa: CaixaDoDisp
       }
       return comprovanteDoDispositivo(alvo.venda, alvo.pendente)
     },
-    async receber(id, valor, forma, recebimentoId?: string) {
-      const receberNoServidor = () => remoto.receber(id, valor, forma, recebimentoId ?? crypto.randomUUID())
+    async receber(id, valor, forma, recebimentoId?: string, nsu?: string) {
+      // O recebimento só acontece com rede, e quem confere a exigência do NSU é o servidor.
+      const nsuDoRecebimento = raiz.normalizarNsu(nsu) ?? undefined
+      const receberNoServidor = () => remoto.receber(id, valor, forma,
+        recebimentoId ?? crypto.randomUUID(), nsuDoRecebimento)
       // Só o dinheiro entra na gaveta, e na sessão aberta de quem recebe; Pix e cartão não passam por ela.
       if (!temBanco() || forma !== 'DINHEIRO') return receberNoServidor()
       return caixa.escreverNaGavetaComRede(undefined, receberNoServidor)

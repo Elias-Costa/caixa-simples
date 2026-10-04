@@ -4,13 +4,14 @@ import br.com.caixasimples.pagamentos.FormaPagamento;
 import br.com.caixasimples.pagamentos.StatusPagamento;
 import br.com.caixasimples.vendas.StatusVenda;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
 
 /**
- * As consultas do faturamento sobre {@link VendaParaRelatorio}.
+ * As consultas do faturamento e da conferência do cartão sobre {@link VendaParaRelatorio}.
  *
  * <p><strong>Herda de {@link Repository}, o marcador do Spring Data, e não de
  * {@code JpaRepository}</strong>, de propósito: assim a interface não tem {@code save},
@@ -90,8 +91,8 @@ public interface VendaParaRelatorioRepository extends Repository<VendaParaRelato
      * {@link #totaisEntre}: mesmo status, mesmo intervalo semiaberto pelo instante da conclusão,
      * mesmo operador opcional, pelos mesmos motivos.
      *
-     * <p>O filtro de tenant da entidade raiz basta para o isolamento (RNF05): uma venda só se
-     * junta às suas próprias parcelas, que a chave estrangeira prende à mesma conta.
+     * <p>O isolamento vem do tenant declarado em cada mapeamento da consulta, a venda e a parcela
+     * (RNF05); a chave estrangeira só garante que a venda existe, não que é da mesma conta.
      */
     @Query("""
             select new br.com.caixasimples.relatorios.internal.TotaisDeVendas(
@@ -111,6 +112,60 @@ public interface VendaParaRelatorioRepository extends Repository<VendaParaRelato
             @Param("statusDaParcela") StatusPagamento statusDaParcela,
             @Param("fiado") FormaPagamento fiado,
             @Param("pendente") StatusPagamento pendente,
+            @Param("inicio") Instant inicio, @Param("fim") Instant fim,
+            @Param("usuarioId") UUID usuarioId);
+
+    /**
+     * As parcelas de uma forma lançadas no intervalo, de todos os operadores ou de um só, em ordem
+     * de lançamento, para a conferência do cartão contra o extrato da operadora.
+     *
+     * <p><strong>O intervalo é o do lançamento da parcela</strong>, e não o da conclusão da venda:
+     * a cobrança passada às 23h58 de uma venda concluída à 0h02 está no extrato do dia anterior, e
+     * é lá que precisa ser achada. Pelo mesmo motivo entram as vendas de toda situação: a cobrança
+     * de uma venda cancelada depois, ou de uma comanda que ficou aberta, também está no extrato, e
+     * a situação volta na linha para o dono saber o que esperar dela. O status da parcela não
+     * filtra, porque o cartão é lançado à mão e nasce confirmado.
+     *
+     * <p>O operador é o da venda, o mesmo do filtro por operador do faturamento (RF24). A ordem
+     * desempata pelo id, para duas parcelas do mesmo instante saírem sempre na mesma ordem.
+     */
+    @Query("""
+            select new br.com.caixasimples.relatorios.internal.LancamentoEmCartao(
+                p.id, v.id, p.criadoEm, p.valor, v.usuarioId, v.status, p.nsu)
+            from VendaParaRelatorio v
+              join PagamentoParaRelatorio p on p.vendaId = v.id
+            where p.forma = :forma
+              and p.criadoEm >= :inicio
+              and p.criadoEm < :fim
+              and (:usuarioId is null or v.usuarioId = :usuarioId)
+            order by p.criadoEm, p.id
+            """)
+    List<LancamentoEmCartao> parcelasLancadasEntre(@Param("forma") FormaPagamento forma,
+            @Param("inicio") Instant inicio, @Param("fim") Instant fim,
+            @Param("usuarioId") UUID usuarioId);
+
+    /**
+     * Os recebimentos de fiado de uma forma lançados no intervalo, de todos os operadores ou de um
+     * só, em ordem de lançamento, para a mesma conferência.
+     *
+     * <p>Mesmo intervalo e mesma ordem de {@link #parcelasLancadasEntre}. O operador, aqui, é o
+     * dono da sessão de caixa em que o fiado entrou, e não o da venda: quem recebe pode ser outra
+     * pessoa, no caixa dela, dias depois. Por isso a consulta junta
+     * {@link SessaoCaixaParaRelatorio}, escrita na consulta como as outras junções.
+     */
+    @Query("""
+            select new br.com.caixasimples.relatorios.internal.LancamentoEmCartao(
+                r.id, v.id, r.criadoEm, r.valor, s.usuarioId, v.status, r.nsu)
+            from VendaParaRelatorio v
+              join RecebimentoParaRelatorio r on r.vendaId = v.id
+              join SessaoCaixaParaRelatorio s on s.id = r.sessaoCaixaId
+            where r.forma = :forma
+              and r.criadoEm >= :inicio
+              and r.criadoEm < :fim
+              and (:usuarioId is null or s.usuarioId = :usuarioId)
+            order by r.criadoEm, r.id
+            """)
+    List<LancamentoEmCartao> recebimentosLancadosEntre(@Param("forma") FormaPagamento forma,
             @Param("inicio") Instant inicio, @Param("fim") Instant fim,
             @Param("usuarioId") UUID usuarioId);
 }

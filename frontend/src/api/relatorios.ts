@@ -1,5 +1,5 @@
 import { chamarApi } from './cliente'
-import type { FormaPagamento } from './vendas'
+import type { FormaPagamento, StatusVenda } from './vendas'
 
 /** Datas como AAAA-MM-DD, no dia do balcão; os dois extremos entram no período. */
 export type Faturamento = {
@@ -45,6 +45,28 @@ export type FluxoDeCaixa = {
 }
 
 /**
+ * Um pagamento em cartão do dia, para bater com o extrato da operadora: a parcela de uma venda, de
+ * qualquer situação, ou o recebimento de um fiado. O operador é quem lançou: o da venda na parcela,
+ * quem recebeu no fiado. O NSU não vem quando não foi informado.
+ */
+export type LancamentoEmCartao = {
+  id: string
+  origem: 'PARCELA' | 'RECEBIMENTO'
+  vendaId: string
+  lancadoEm: string
+  valor: number
+  operadorId: string
+  situacaoDaVenda: StatusVenda
+  nsu?: string
+}
+
+/** Um dia só, em ordem de lançamento. */
+export type ConferenciaDoCartao = {
+  dia: string
+  lancamentos: LancamentoEmCartao[]
+}
+
+/**
  * Filtro ausente fica fora da consulta: escrito, ele chegaria ao servidor como o texto undefined,
  * que ele recusa.
  */
@@ -67,4 +89,8 @@ export const relatorios = {
     })),
   fluxoDeCaixa: (inicio: string, fim: string) =>
     chamarApi<FluxoDeCaixa>(comParametros('/api/relatorios/fluxo-de-caixa', { inicio, fim })),
+  conferenciaDoCartao: (dia: string, operadorId?: string) =>
+    chamarApi<ConferenciaDoCartao>(comParametros('/api/relatorios/conferencia-do-cartao', {
+      dia, operadorId,
+    })),
 }

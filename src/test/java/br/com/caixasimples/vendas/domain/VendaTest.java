@@ -310,7 +310,7 @@ class VendaTest {
                     Money.ZERO, Instant.now());
             // A CONCLUIDA precisa da parcela que a fecha, senão reconstituir a recusa. A CANCELADA
             // não tem regra de pagamento, e vai com a mesma parcela por simplicidade.
-            Pagamento parcela = Pagamento.novo(UUID.randomUUID(), FormaPagamento.DINHEIRO,
+            Pagamento parcela = new Pagamento(UUID.randomUUID(), FormaPagamento.DINHEIRO,
                     Money.de("9.00"), StatusPagamento.CONFIRMADO, Money.ZERO, Instant.now());
             Venda venda = Venda.reconstituir(UUID.randomUUID(), SESSAO, OPERADOR, null, status,
                     Money.de("9.00"), Money.ZERO, Instant.now(), Instant.now(), List.of(item),
@@ -559,9 +559,9 @@ class VendaTest {
     void reconstituirRecusaConcluidaSemPagamentoQueFeche() {
         ItemVenda item = ItemVenda.novo(UUID.randomUUID(), CAFE, DOIS, Money.de("4.50"),
                 Money.ZERO, Instant.now());
-        Pagamento parcial = Pagamento.novo(UUID.randomUUID(), FormaPagamento.PIX,
+        Pagamento parcial = new Pagamento(UUID.randomUUID(), FormaPagamento.PIX,
                 Money.de("5.00"), StatusPagamento.CONFIRMADO, Money.ZERO, Instant.now());
-        Pagamento pendente = Pagamento.novo(UUID.randomUUID(), FormaPagamento.PIX,
+        Pagamento pendente = new Pagamento(UUID.randomUUID(), FormaPagamento.PIX,
                 Money.de("9.00"), StatusPagamento.PENDENTE, Money.ZERO, Instant.now());
 
         assertThatIllegalStateException()
@@ -595,7 +595,7 @@ class VendaTest {
     void reconstituirRecusaConcluidaSemInstante() {
         ItemVenda item = ItemVenda.novo(UUID.randomUUID(), CAFE, DOIS, Money.de("4.50"),
                 Money.ZERO, Instant.now());
-        Pagamento parcela = Pagamento.novo(UUID.randomUUID(), FormaPagamento.PIX,
+        Pagamento parcela = new Pagamento(UUID.randomUUID(), FormaPagamento.PIX,
                 Money.de("9.00"), StatusPagamento.CONFIRMADO, Money.ZERO, Instant.now());
 
         // A conta fecha, mas a linha não sabe quando: é estado que a raiz nunca produz.

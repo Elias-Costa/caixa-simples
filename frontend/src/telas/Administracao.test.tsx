@@ -31,9 +31,9 @@ function ComSessaoEConfig() {
 describe('administração na tela', () => {
   it('liga o estoque e mostra o menu imediatamente', async () => {
     gravarToken('token-admin')
-    vi.spyOn(contas, 'configuracao').mockResolvedValue({ estoqueHabilitado: false })
+    vi.spyOn(contas, 'configuracao').mockResolvedValue({ estoqueHabilitado: false, nsuObrigatorio: false })
     const definir = vi.spyOn(contas, 'definirEstoque')
-      .mockResolvedValue({ estoqueHabilitado: true })
+      .mockResolvedValue({ estoqueHabilitado: true, nsuObrigatorio: false })
     render(<ComSessaoEConfig />)
 
     fireEvent.click(await screen.findByRole('switch', { name: 'Ligar controle de estoque' }))
@@ -63,7 +63,7 @@ describe('administração na tela', () => {
   })
 
   it('sem o estoque no plano, ligar o controle fica indisponível e a tela aponta o plano', async () => {
-    vi.spyOn(contas, 'configuracao').mockResolvedValue({ estoqueHabilitado: false })
+    vi.spyOn(contas, 'configuracao').mockResolvedValue({ estoqueHabilitado: false, nsuObrigatorio: false })
     const definir = vi.spyOn(contas, 'definirEstoque')
     render(<MemoryRouter>
       <SessaoContext.Provider value={{
@@ -78,5 +78,30 @@ describe('administração na tela', () => {
     expect(screen.getByText(/faz parte do plano Completo/)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Plano' })).toHaveAttribute('href', '/plano')
     expect(definir).not.toHaveBeenCalled()
+  })
+
+  it('exige o NSU no cartão mesmo no plano grátis e guarda a exigência na identidade', async () => {
+    gravarToken('token-admin')
+    vi.spyOn(contas, 'configuracao').mockResolvedValue({ estoqueHabilitado: false, nsuObrigatorio: false })
+    const definir = vi.spyOn(contas, 'definirNsu')
+      .mockResolvedValue({ estoqueHabilitado: false, nsuObrigatorio: true })
+    const atualizarIdentidade = vi.fn()
+    render(<MemoryRouter>
+      <SessaoContext.Provider value={{
+        identidade: { ...admin, plano: 'GRATIS', recursos: [] },
+        entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade,
+      }}>
+        <TelaDeConfiguracao />
+      </SessaoContext.Provider>
+    </MemoryRouter>)
+
+    expect(await screen.findByText('Opcional')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('switch', { name: 'Exigir o NSU no cartão' }))
+    await waitFor(() => expect(definir).toHaveBeenCalledWith(true))
+    expect(await screen.findByRole('switch', { name: 'Deixar o NSU opcional' }))
+      .toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByText('Obrigatório')).toBeInTheDocument()
+    expect(atualizarIdentidade).toHaveBeenCalledWith(
+      expect.objectContaining({ nsuObrigatorio: true, estoqueHabilitado: false }), expect.anything())
   })
 })

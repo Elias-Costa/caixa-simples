@@ -8,6 +8,7 @@ import { fiado } from '../api/fiado'
 import { intencaoOnline, type IntencaoOnline } from '../api/intencaoOnline'
 import type { Comprovante, ConciliacaoPix, FormaPagamento, ResumoDaVenda, Venda } from '../api/vendas'
 import { criarCaixaLocal } from '../offline/caixaLocal'
+import { normalizarNsu } from '../offline/raizDaVenda'
 import { criarVendaLocal } from '../offline/vendaLocal'
 import { useContextoDoShell } from '../shell/ContextoDoShell'
 import { useSincronizacao } from '../shell/sincronizacao'
@@ -85,6 +86,7 @@ export function TelaDeVenda() {
   const [forma, setForma] = useState<FormaPagamento>('DINHEIRO')
   const [valorPagamento, setValorPagamento] = useState('')
   const [valorRecebido, setValorRecebido] = useState('')
+  const [nsu, setNsu] = useState('')
   const [troco, setTroco] = useState<number>()
   const [erro, setErro] = useState<string>()
   const [ocupado, setOcupado] = useState(false)
@@ -250,6 +252,8 @@ export function TelaDeVenda() {
     const valor = valorPagamento ? numero(valorPagamento) : atual.faltaPagar
     const recebido = formaEscolhida === 'DINHEIRO'
       ? (valorRecebido ? numero(valorRecebido) : valor) : undefined
+    // O campo fica escondido fora do cartão, e o que foi digitado nele antes da troca não vai junto.
+    const nsuDaParcela = formaEscolhida === 'CARTAO' ? nsu : undefined
     setOcupado(true); setErro(undefined)
     let intencao: IntencaoOnline | undefined
     try {
@@ -262,14 +266,17 @@ export function TelaDeVenda() {
         await atualizar(atual.id)
         return
       }
+      // O NSU entra já sem os espaços das pontas, como o servidor compara o reenvio.
       intencao = await intencaoOnline(`/api/vendas/${atual.id}/pagamentos`,
-        { forma: formaEscolhida, valor, valorRecebido: recebido ?? null }, identidade)
-      const resultado = await vendas.pagar(atual.id, formaEscolhida, valor, recebido, intencao.id)
+        { forma: formaEscolhida, valor, valorRecebido: recebido ?? null, nsu: normalizarNsu(nsuDaParcela) },
+        identidade)
+      const resultado = await vendas.pagar(atual.id, formaEscolhida, valor, recebido, intencao.id,
+        nsuDaParcela)
       setTroco(resultado.troco)
       if (concluirJunto) await concluir(atual.id)
       else await atualizar(atual.id)
       intencao.confirmar()
-      setValorPagamento(''); setValorRecebido('')
+      setValorPagamento(''); setValorRecebido(''); setNsu('')
     } catch (falha) {
       setErro(falha instanceof SemConexao && intencao
         ? 'Sem conexão. Tente registrar a mesma parcela quando a rede voltar.'
@@ -278,7 +285,7 @@ export function TelaDeVenda() {
       const idDaIntencao = intencao?.id
       if (idDaIntencao && atualizada?.parcelas.some((parcela) => parcela.id === idDaIntencao)) {
         intencao?.confirmar()
-        setValorPagamento(''); setValorRecebido('')
+        setValorPagamento(''); setValorRecebido(''); setNsu('')
       }
     } finally { setOcupado(false) }
   }
@@ -395,7 +402,7 @@ export function TelaDeVenda() {
         <section className="pdv__painel">
           <div className="pdv__topo"><h3>Comanda</h3>
             <button className="botao botao--secundario" type="button" onClick={() => {
-              setAtual(undefined); setComprovante(undefined); setTroco(undefined); setForma('DINHEIRO'); buscaRef.current?.focus()
+              setAtual(undefined); setComprovante(undefined); setTroco(undefined); setForma('DINHEIRO'); setNsu(''); buscaRef.current?.focus()
             }}>Nova venda</button>
           </div>
           {!atual ? <p>Busque e escolha o primeiro produto para iniciar.</p> : <>
@@ -433,6 +440,7 @@ export function TelaDeVenda() {
             {atual.parcelas.length > 0 && <ul className="pdv__parcelas">
               {atual.parcelas.map((parcela) => <li key={parcela.id}>{parcela.forma}: {moeda.format(parcela.valor)}
                 {parcela.troco > 0 && ` · troco ${moeda.format(parcela.troco)}`}
+                {parcela.nsu && ` · NSU ${parcela.nsu}`}
                 {parcela.pix && <div>
                   <strong>Pix {parcela.status === 'PENDENTE' ? 'aguardando confirmação' : parcela.status.toLowerCase()}</strong>
                   {' · '}{parcela.status === 'RECUSADO' ? 'cobrança removida'
@@ -478,6 +486,13 @@ export function TelaDeVenda() {
                   <input type="number" min="0" step="0.01" value={valorRecebido}
                     placeholder={(valorPagamento ? numero(valorPagamento) : atual.faltaPagar).toFixed(2)}
                     onChange={(evento) => setValorRecebido(evento.target.value)} />
+                </label>}
+                {/* Sem limite de tamanho no campo: o navegador cortaria o número colado com espaços
+                    em volta, que o servidor aceita depois de tirar os espaços. */}
+                {formaEscolhida === 'CARTAO' && <label>
+                  {identidade?.nsuObrigatorio ? 'NSU do comprovante' : 'NSU do comprovante (opcional)'}
+                  <input value={nsu} autoComplete="off" required={identidade?.nsuObrigatorio === true}
+                    onChange={(evento) => setNsu(evento.target.value)} />
                 </label>}
                 <div className="pdv__acoes">
                   <button className="botao botao--secundario" disabled={ocupado}>Registrar parcela</button>

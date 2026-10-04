@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { contas, type UsuarioDaConta } from '../api/contas'
-import { relatorios, type Faturamento, type FluxoDeCaixa, type MaisVendidos } from '../api/relatorios'
-import type { FormaPagamento } from '../api/vendas'
+import {
+  relatorios, type ConferenciaDoCartao, type Faturamento, type FluxoDeCaixa, type MaisVendidos,
+} from '../api/relatorios'
+import type { FormaPagamento, StatusVenda } from '../api/vendas'
 import { hojeNoBalcao } from '../dataDoBalcao'
 import { erroDeCadastro } from './erroDeCadastro'
 
 const moeda = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
 // Venda fracionada é real: até três casas, e nenhuma quando a quantidade é inteira.
 const numero = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 3 })
+// A hora do balcão, a mesma do extrato da maquininha que a conferência acompanha.
+const hora = new Intl.DateTimeFormat('pt-BR', { timeStyle: 'short', timeZone: 'America/Bahia' })
 
 const TAMANHO_DO_RANKING = 10
 
@@ -21,11 +25,20 @@ const FORMAS: { forma: FormaPagamento; rotulo: string }[] = [
 
 type FaturamentoDaForma = { forma: FormaPagamento; rotulo: string; faturamento: Faturamento }
 
+// A venda cancelada lembra o estorno que deve haver na maquininha; a concluída é o caso comum.
+const SITUACAO_NA_CONFERENCIA: Record<StatusVenda, string> = {
+  CONCLUIDA: '',
+  ABERTA: ' · venda ainda aberta',
+  CANCELADA: ' · venda cancelada: confira o estorno na maquininha',
+}
+
 type Consulta = {
   faturamento: Faturamento
   porForma: FaturamentoDaForma[]
   maisVendidos: MaisVendidos
   fluxo: FluxoDeCaixa
+  /** Só existe quando o período é um dia: a conferência lista em vez de somar. */
+  conferencia: ConferenciaDoCartao | null
   /** Quem foi consultado, e não quem está escolhido agora no seletor. */
   operador: UsuarioDaConta | null
 }
@@ -40,12 +53,14 @@ function doPeriodo(inicio: string, fim: string): string {
 }
 
 /**
- * Faturamento, mais vendidos e fluxo de caixa de um período, numa consulta só (RF21 a RF24).
+ * Faturamento, mais vendidos e fluxo de caixa de um período, numa consulta só (RF21 a RF24), e a
+ * conferência do cartão quando o período é um dia.
  *
- * Os três cartões falam do mesmo período, então saem juntos ou nenhum sai: o erro de uma chamada
- * vale para a tela inteira. A quebra por forma é o faturamento pedido uma vez por forma, com o
- * filtro do servidor. O operador escolhido vale para o faturamento e o ranking; o fluxo de caixa é
- * a gaveta da Conta inteira e não tem esse filtro.
+ * Os cartões falam do mesmo período, então saem juntos ou nenhum sai: o erro de uma chamada vale
+ * para a tela inteira. A quebra por forma é o faturamento pedido uma vez por forma, com o filtro do
+ * servidor. O operador escolhido vale para o faturamento, o ranking e a conferência; o fluxo de
+ * caixa é a gaveta da Conta inteira e não tem esse filtro. A conferência não é soma, e por isso é
+ * de um dia só: a tela abre em hoje, e com um período maior o cartão pede um dia.
  */
 export function TelaDeRelatorios() {
   const [inicio, setInicio] = useState(hojeNoBalcao)
@@ -64,15 +79,18 @@ export function TelaDeRelatorios() {
     setResultado(null)
     const id = operador?.id
     try {
-      const [faturamento, porForma, maisVendidos, fluxo] = await Promise.all([
+      const [faturamento, porForma, maisVendidos, fluxo, conferencia] = await Promise.all([
         relatorios.faturamento(de, ate, { operadorId: id }),
         Promise.all(FORMAS.map(async ({ forma, rotulo }) => ({
           forma, rotulo, faturamento: await relatorios.faturamento(de, ate, { forma, operadorId: id }),
         }))),
         relatorios.maisVendidos(de, ate, TAMANHO_DO_RANKING, id),
         relatorios.fluxoDeCaixa(de, ate),
+        de === ate ? relatorios.conferenciaDoCartao(de, id) : Promise.resolve(null),
       ])
-      if (pedido === pedidoAtual.current) setResultado({ faturamento, porForma, maisVendidos, fluxo, operador })
+      if (pedido === pedidoAtual.current) {
+        setResultado({ faturamento, porForma, maisVendidos, fluxo, conferencia, operador })
+      }
     } catch (falha) {
       if (pedido === pedidoAtual.current) setErro(erroDeCadastro(falha))
     } finally {
@@ -138,6 +156,7 @@ export function TelaDeRelatorios() {
       <CartaoDoFaturamento consulta={resultado} />
       <CartaoDosMaisVendidos consulta={resultado} />
       <CartaoDoFluxoDeCaixa consulta={resultado} />
+      <CartaoDaConferencia consulta={resultado} usuarios={usuarios} />
     </div>}
   </section>
 }
@@ -177,6 +196,40 @@ function CartaoDosMaisVendidos({ consulta }: { consulta: Consulta }) {
         </li>)}
       </ol>}
     <p className="relatorios__nota">Os {TAMANHO_DO_RANKING} primeiros, pela quantidade que saiu.</p>
+  </section>
+}
+
+function CartaoDaConferencia({ consulta, usuarios }: { consulta: Consulta; usuarios: UsuarioDaConta[] }) {
+  const { conferencia, operador } = consulta
+  if (!conferencia) {
+    return <section className="relatorios__cartao">
+      <h3>Conferência do cartão</h3>
+      <p>A conferência é de um dia só, como o extrato da maquininha. Escolha o mesmo dia no início e no
+        fim para ver os pagamentos em cartão com o NSU de cada um.</p>
+    </section>
+  }
+  const { lancamentos } = conferencia
+  const semNsu = lancamentos.filter((lancamento) => !lancamento.nsu).length
+  // O nome vem da lista de usuários; sem ela, a linha mostra o começo do id de quem lançou.
+  const nomeDe = (id: string) => usuarios.find((usuario) => usuario.id === id)?.nome ?? `operador ${id.slice(0, 8)}`
+  return <section className="relatorios__cartao">
+    <h3>Conferência do cartão {doPeriodo(conferencia.dia, conferencia.dia)}</h3>
+    {operador && <p>Lançamentos de {operador.nome}</p>}
+    {lancamentos.length === 0 ? <p>Nenhum pagamento em cartão neste dia.</p> : <>
+      <p>{lancamentos.length} {lancamentos.length === 1 ? 'pagamento' : 'pagamentos'} em cartão
+        {semNsu > 0 && `, ${semNsu} sem NSU`}</p>
+      <ul className="relatorios__conferencia">
+        {lancamentos.map((lancamento) => <li key={lancamento.id}>
+          <span><strong>{hora.format(new Date(lancamento.lancadoEm))}</strong> · {moeda.format(lancamento.valor)}
+            {' · '}{lancamento.nsu ? `NSU ${lancamento.nsu}` : <span className="relatorios__sem-nsu">sem NSU</span>}</span>
+          <span>{nomeDe(lancamento.operadorId)}
+            {' · '}{lancamento.origem === 'RECEBIMENTO' ? 'fiado recebido' : 'venda'} {lancamento.vendaId.slice(0, 8)}
+            {SITUACAO_NA_CONFERENCIA[lancamento.situacaoDaVenda]}</span>
+        </li>)}
+      </ul>
+    </>}
+    <p className="relatorios__nota">Cada pagamento fica no dia e na hora em que foi lançado, como no
+      extrato da maquininha, mesmo de venda aberta ou cancelada depois.</p>
   </section>
 }
 

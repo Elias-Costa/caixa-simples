@@ -120,16 +120,16 @@ Venda continuam.
 | Módulo | Estado | O que existe hoje |
 |---|---|---|
 | `shared` | Implementado | `Money`, `ContaId`, `FusoDeReferencia` e os dois contextos da requisição: `TenantContext`, a conta em operação, e `UsuarioContext`, quem está operando e com que perfil, com as duas perguntas de autorização que todo caso de uso restrito faz na primeira linha. O registro mínimo de remoções é gravado em objetos separados das cópias do banco; sem essa gravação, a remoção é recusada. O tratamento transversal de erro da API devolve Problem Details: recusa por perfil vira 403, estado inválido vira 409 e indisponibilidade do registro vira 503. O shell do PWA sai daqui, com o fallback que devolve a mesma página para qualquer rota do cliente e nunca para a API |
-| `contas` | Implementado | `Conta`, `Usuario`, `Credencial`, login por JWT com contenção de tentativas repetidas, política de senha, provisionamento de conta, as perguntas que os outros módulos fazem à conta em operação, se o controle de estoque está ligado e se o plano dá direito a um recurso, e a gestão de usuários: o administrador cria operador ou administrador com login próprio, lista e inativa pela API e pelo PWA, com mais de um usuário só no plano mais alto e a conta nunca sem administrador. Inativar apaga a credencial e libera o e-mail; o administrador pode anonimizar o nome depois. A configuração liga o controle de estoque e só o desliga antes do primeiro movimento; o menu reage imediatamente à mudança. O filtro que resolve o token lê o usuário no banco a cada requisição, então inativar vale na requisição seguinte, e o perfil que vale é o do banco, não o do token. O primeiro login do administrador marca a Conta e publica o primeiro acesso na mesma transação que copia o catálogo sugerido. A troca de plano pela própria Conta grava o pedido, confere o código de ativação recalculando a assinatura do pedido, sem guardá-lo, e mantém o ciclo mensal com aviso, tolerância e suspensão só dos recursos pagos; pedir e aplicar travam a linha da Conta, e a aplicação repetida não ativa duas vezes. Quem está autenticado pergunta em `/api/auth/eu` e recebe o próprio nome, o negócio, o tipo dele, se o estoque está ligado e o plano, com a situação e os recursos que valem hoje: é o cabeçalho de toda tela |
+| `contas` | Implementado | `Conta`, `Usuario`, `Credencial`, login por JWT com contenção de tentativas repetidas, política de senha, provisionamento de conta, as perguntas que os outros módulos fazem à conta em operação, se o controle de estoque está ligado e se o plano dá direito a um recurso, e a gestão de usuários: o administrador cria operador ou administrador com login próprio, lista e inativa pela API e pelo PWA, com mais de um usuário só no plano mais alto e a conta nunca sem administrador. Inativar apaga a credencial e libera o e-mail; o administrador pode anonimizar o nome depois. A configuração liga o controle de estoque e só o desliga antes do primeiro movimento, e liga ou desliga, em qualquer plano, a exigência do NSU no pagamento em cartão; o menu reage imediatamente à mudança. O filtro que resolve o token lê o usuário no banco a cada requisição, então inativar vale na requisição seguinte, e o perfil que vale é o do banco, não o do token. O primeiro login do administrador marca a Conta e publica o primeiro acesso na mesma transação que copia o catálogo sugerido. A troca de plano pela própria Conta grava o pedido, confere o código de ativação recalculando a assinatura do pedido, sem guardá-lo, e mantém o ciclo mensal com aviso, tolerância e suspensão só dos recursos pagos; pedir e aplicar travam a linha da Conta, e a aplicação repetida não ativa duas vezes. Quem está autenticado pergunta em `/api/auth/eu` e recebe o próprio nome, o negócio, o tipo dele, se o estoque está ligado, se o cartão exige o NSU e o plano, com a situação e os recursos que valem hoje: é o cabeçalho de toda tela |
 | `cadastro` | Implementado, com cadastro local recebido pelo lote | `Produto` com atributos `JSONB`, busca por nome ou código para o balcão, `Cliente` como vertical slice, catálogo sugerido por tipo de negócio e copiado no primeiro login do administrador, e o agregado inteiro: `MovimentoEstoque` como membro, com a baixa por venda, o estorno por cancelamento e o ajuste manual gravando movimento e saldo na mesma transação, o estoque mínimo de cada produto e a resposta de quais estão com estoque baixo. A API expõe a revisão de Produto e Cliente; o PWA guarda listas por Conta e gestos por usuário para cadastrar, editar e inativar os dois sem rede, além de reativar Cliente, após a preparação online. Só o administrador remove Cliente: o nome vira `Cliente removido`, o contato sai e o cadastro não volta às listas; dívida ou comanda aberta impede a remoção. Os dois perfis consultam produtos e cadastram clientes no balcão. Os gestos do dispositivo chegam pelo lote de sincronização, com o id e o instante gravados sem rede |
 | `caixa` | Implementado, com gestos locais recebidos pelo lote | `SessaoCaixa`: abertura, sangria, suprimento, fechamento com conferência, histórico por operador e por dia, consulta da sessão aberta do usuário atual e extrato de uma sessão com a Venda de origem nos movimentos. A API e o PWA permitem operar e conferir o caixa, com o esperado visível antes de informar o contado. Sangria e suprimento online recebem o id do movimento do aparelho e aceitam o reenvio igual sem lançá-lo de novo. Sem rede, o PWA guarda os gestos por Conta e usuário, recompõe a sessão após recarga, conta no esperado o dinheiro das Vendas concluídas no dispositivo e mostra a diferença antes do fechamento. O dinheiro em espécie de cada venda concluída entra na gaveta pelo evento, na mesma transação da conclusão e com o instante dela, uma vez só; o cancelamento o estorna. Abertura, sangria, suprimento e fechamento feitos sem rede chegam pelo lote com o id e os instantes do balcão, e o fechamento calcula a diferença com o que o servidor conhece. O caixa é de quem o abriu: o operador só lança, fecha e consulta a própria sessão e só pede o próprio histórico; o administrador toca qualquer sessão da conta, inclusive para fechar o caixa de outro operador |
 | `pagamentos` | Implementado para cobrança, confirmação e cancelamento Pix | Strategy por forma: dinheiro com troco, cartão manual, FIADO pendente e Pix integrado. `PixGateway` usa um adapter Efí por Conta para criar, remover e reconsultar a cobrança pelo `txid`; só o Pix comprovado na consulta quita a parcela (RF25). Credenciais de homologação ainda não foram exercitadas |
-| `vendas` | Implementado, com Venda local recebida pelo lote | Agregado `Venda`, com `ItemVenda`, `Pagamento` e `Recebimento` como membros. A comanda copia o preço, permite divisão de formas e desconto pelo ADMIN. O Cliente ativo pode ser vinculado à Venda; só o ADMIN registra FIADO e conclui a Venda com sua parcela pendente. Qualquer perfil recebe a dívida na própria SessaoCaixa, em lançamentos parciais; o saldo vem das parcelas e dos recebimentos. O comprovante da Venda mostra o valor pendente e cada recebimento tem comprovante próprio (RF33). Confirmação Pix reconsultada conclui uma vez quando a cobertura e a SessaoCaixa permitem; Pix tardio fica visível para conciliação do ADMIN. O cancelamento recusa o Pix pendente só após remoção comprovada no PSP e mantém o Pix pago para devolução manual. Conclusão e cancelamento publicam eventos para caixa e estoque, e recebimento publica evento para caixa; todos são ouvidos na transação de quem publica. O operador só altera suas Vendas, salvo o recebimento de fiado da Conta. Sem rede, o PWA monta, recebe e conclui a Venda no dispositivo com as mesmas regras da raiz e imprime o comprovante marcado como pendente; a Venda aberta com rede espera a rede voltar, e o cancelamento fica para depois da sincronização. No lote, a Venda chega com os ids da Venda, do item e da parcela gerados no dispositivo, o preço visto e os instantes do balcão |
+| `vendas` | Implementado, com Venda local recebida pelo lote | Agregado `Venda`, com `ItemVenda`, `Pagamento` e `Recebimento` como membros. A comanda copia o preço, permite divisão de formas e desconto pelo ADMIN. O Cliente ativo pode ser vinculado à Venda; só o ADMIN registra FIADO e conclui a Venda com sua parcela pendente. Qualquer perfil recebe a dívida na própria SessaoCaixa, em lançamentos parciais; o saldo vem das parcelas e dos recebimentos. O comprovante da Venda mostra o valor pendente e cada recebimento tem comprovante próprio (RF33). Confirmação Pix reconsultada conclui uma vez quando a cobertura e a SessaoCaixa permitem; Pix tardio fica visível para conciliação do ADMIN. O cancelamento recusa o Pix pendente só após remoção comprovada no PSP e mantém o Pix pago para devolução manual. Conclusão e cancelamento publicam eventos para caixa e estoque, e recebimento publica evento para caixa; todos são ouvidos na transação de quem publica. O operador só altera suas Vendas, salvo o recebimento de fiado da Conta. A parcela e o recebimento em cartão levam o NSU do comprovante da maquininha, opcional ou exigido pela Conta, que aparece no detalhe da Venda e não no comprovante. Sem rede, o PWA monta, recebe e conclui a Venda no dispositivo com as mesmas regras da raiz e imprime o comprovante marcado como pendente; a Venda aberta com rede espera a rede voltar, e o cancelamento fica para depois da sincronização. No lote, a Venda chega com os ids da Venda, do item e da parcela gerados no dispositivo, o preço visto e os instantes do balcão |
 | `estoque` | Implementado para o PWA online | o ouvinte da venda concluída: quando a conta ligou o controle de estoque, cada produto vendido vira uma baixa, pedida ao cadastro, dono do agregado; serviço no meio dos itens não gera nada, a baixa acontece na mesma transação da conclusão, e a mesma venda não baixa duas vezes. E os casos de uso que uma pessoa aciona: ajuste manual com motivo obrigatório, perda, quebra ou contagem, com a diferença carregando o sinal; estoque mínimo por produto; e o alerta de estoque baixo como consulta, a lista dos produtos ativos no mínimo ou abaixo. A API e o PWA listam saldos e mínimos, ajustam o saldo, definem o mínimo e mostram o alerta; a contagem na tela mostra a diferença antes de gravar. A Conta sem o estoque no plano, ou com ele suspenso, e a com controle desligado recebem 409, e o operador, 403; a baixa pela Venda não pergunta o plano. O ouvinte da venda cancelada devolve cada produto que a venda baixou, uma vez só, na mesma transação do cancelamento |
-| `relatorios` | Implementado | Faturamento do dia e de um período, produtos mais vendidos e fluxo de caixa da gaveta. Venda concluída com FIADO conta no faturamento no dia da conclusão; recebimento em dinheiro conta no fluxo no dia da entrada, sem faturar outra vez (RF33). Filtros combináveis de faturamento por forma e operador incluem a parcela FIADO pendente. O módulo lê mapeamentos imutáveis de venda, item, produto, pagamento e movimento de caixa, e os três relatórios são do administrador, num plano pago sem suspensão. A API e o PWA mostram os três para o mesmo período, com o faturamento repartido por forma de pagamento e o filtro de operador no faturamento e no ranking |
-| `sincronizacao` | Implementado, com envio automático pelo PWA | Recebe o lote de gestos que o dispositivo registrou sem rede, até 100 por envio, e aplica cada um pelos casos de uso do módulo dono, que implementa a porta deste: cadastro, caixa e vendas. Uma transação por operação, com o resultado gravado junto, por Conta e id de operação: o reenvio devolve o gravado, o mesmo id com outro conteúdo é recusado, e duas requisições simultâneas não aplicam duas vezes. Dependência que ainda não chegou pede reenvio; o gesto seguinte de um registro recusado é recusado, e o de outro registro é tentado. O item fica com o preço visto no balcão e vai para revisão quando difere do vigente; também vão a conclusão que deixou o estoque negativo e o gesto com instante adiantado mais de cinco minutos, seja o da operação ou o que ele grava no registro. O administrador lista as revisões e recusas de todos os usuários da Conta e registra quem conferiu e quando. Ao remover Cliente, o conteúdo de seus gestos gravados é anonimizado e o reenvio antigo entra em conflito. O PWA descarta o gesto enviado quando todo retrato que o usa já contém o efeito dele |
+| `relatorios` | Implementado | Faturamento do dia e de um período, produtos mais vendidos, fluxo de caixa da gaveta e a conferência do cartão de um dia. Venda concluída com FIADO conta no faturamento no dia da conclusão; recebimento em dinheiro conta no fluxo no dia da entrada, sem faturar outra vez (RF33). Filtros combináveis de faturamento por forma e operador incluem a parcela FIADO pendente. A conferência lista cada pagamento em cartão no dia e na hora em que foi lançado, parcela de venda de qualquer situação ou fiado recebido, com quem lançou, a situação da venda e o NSU ou a marca de que falta, para bater com o extrato da operadora. O módulo lê mapeamentos imutáveis de venda, item, produto, pagamento, recebimento, sessão de caixa e movimento de caixa, e os quatro relatórios são do administrador, num plano pago sem suspensão. A API e o PWA mostram os três primeiros para o mesmo período, com o faturamento repartido por forma de pagamento, e a conferência quando o período é um dia; o filtro de operador vale para o faturamento, o ranking e a conferência |
+| `sincronizacao` | Implementado, com envio automático pelo PWA | Recebe o lote de gestos que o dispositivo registrou sem rede, até 100 por envio, e aplica cada um pelos casos de uso do módulo dono, que implementa a porta deste: cadastro, caixa e vendas. Uma transação por operação, com o resultado gravado junto, por Conta e id de operação: o reenvio devolve o gravado, o mesmo id com outro conteúdo é recusado, e duas requisições simultâneas não aplicam duas vezes. Dependência que ainda não chegou pede reenvio; o gesto seguinte de um registro recusado é recusado, e o de outro registro é tentado. O item fica com o preço visto no balcão e vai para revisão quando difere do vigente; também vão a conclusão que deixou o estoque negativo, a parcela em cartão que chega sem o NSU que a Conta exige, gravada mesmo assim, e o gesto com instante adiantado mais de cinco minutos, seja o da operação ou o que ele grava no registro. O administrador lista as revisões e recusas de todos os usuários da Conta e registra quem conferiu e quando. Ao remover Cliente, o conteúdo de seus gestos gravados é anonimizado e o reenvio antigo entra em conflito. O PWA descarta o gesto enviado quando todo retrato que o usa já contém o efeito dele |
 
-**Schema.** Vinte e duas migrations Flyway, de `V1` a `V22`: conta, usuário e credencial; produto; cliente;
+**Schema.** Vinte e três migrations Flyway, de `V1` a `V23`: conta, usuário e credencial; produto; cliente;
 catálogo de referência; o agregado de caixa, com a regra de uma sessão aberta por operador; o
 agregado de venda, com a venda, seus itens e seus pagamentos; o outbox de eventos de domínio do
 Spring Modulith, cujo DDL foi gerado a partir da entidade do framework em vez de escrito de
@@ -148,7 +148,9 @@ instante de recebimento, e o índice único pela Conta e pelo id da operação q
 inofensivo. A `V20` acrescenta a esse registro quem conferiu a revisão ou a recusa e quando, com
 os índices parciais da lista do administrador. A `V21` acrescenta `removido_em` ao Cliente para
 distinguir a anonimização a pedido da inativação comum. A `V22` dá à Conta paga o dia e o próximo
-vencimento e cria o pedido de plano, com um aberto por Conta.
+vencimento e cria o pedido de plano, com um aberto por Conta. A `V23` acrescenta o NSU à parcela e ao
+recebimento de fiado em cartão, recusado no banco fora do cartão, vazio ou com espaço nas pontas, e à
+Conta a exigência dele, que nasce desligada.
 
 O [aviso de privacidade](frontend/src/telas/TelaDePrivacidade.tsx) é público, inclusive antes do
 login. O ADMIN pede o encerramento da Conta pelo canal indicado nele. O procedimento em
@@ -175,12 +177,13 @@ oferece `GET` e `POST /api/produtos`, `PUT /api/produtos/{id}` e
 `POST /api/clientes/{id}/remover`, esta última só do administrador.
 O PDV busca produto em `GET /api/produtos/busca?termo=...` e usa `GET` e `POST /api/vendas`
 para listar as vendas de uma SessaoCaixa e iniciar uma comanda. `GET /api/vendas/{id}` devolve
-itens, total e parcelas; `POST /api/vendas/{id}/itens` e
+itens, total, parcelas e recebimentos, com o NSU de cada um em cartão; `POST /api/vendas/{id}/itens` e
 `DELETE /api/vendas/{id}/itens/{itemId}` montam a comanda; SessaoCaixa ou produto que não existe
 na Conta responde 404 ao iniciar a comanda ou lançar o item;
 `PUT /api/vendas/{id}/desconto` é só do administrador;
-`POST /api/vendas/{id}/pagamentos` exige `pagamentoId` no corpo e devolve o troco para as formas
-sem Pix integrado;
+`POST /api/vendas/{id}/pagamentos` exige `pagamentoId` no corpo, aceita `nsu` no cartão e devolve o
+troco para as formas sem Pix integrado; o NSU com mais de 40 caracteres, fora do cartão ou ausente no
+cartão de uma Conta que o exige responde 400;
 `POST /api/vendas/{id}/pagamentos/pix` recebe `tentativaId` e valor, devolve parcela PENDENTE e
 estado da cobrança, e responde 409, sem alterar nada, ao `tentativaId` que já é de uma parcela de
 outra Venda; o PWA mostra QR Code e copia e cola; `GET /api/vendas/{id}` permite retomar
@@ -197,7 +200,8 @@ respondendo 503 quando não consegue comprovar que a cobrança parou de aceitar 
 um cancelamento de Venda com Pix integrado já cancelada não repete o efeito;
 `GET /api/vendas/{id}/comprovante` traz o dado não fiscal para a tela. Para RF33,
 `GET /api/fiado/clientes/{clienteId}/saldo` e `GET /api/fiado/dividas` mostram a dívida;
-`POST /api/vendas/{id}/recebimentos` exige `recebimentoId` no corpo e registra cada entrada;
+`POST /api/vendas/{id}/recebimentos` exige `recebimentoId` no corpo, aceita `nsu` no cartão, com a
+mesma regra da parcela, e registra cada entrada;
 o reenvio igual devolve 200 com o saldo devedor atual, e o primeiro envio devolve 201;
 `GET /api/vendas/{id}/recebimentos/{recebimentoId}/comprovante` traz seu comprovante.
 O caixa oferece `GET` e `POST /api/caixa/sessoes`,
@@ -207,21 +211,28 @@ O caixa oferece `GET` e `POST /api/caixa/sessoes`,
 `POST /api/caixa/sessoes/{id}/fechamento`. O histórico recebe o dia e, opcionalmente, o operador;
 a consulta por id devolve o extrato, e as listas carregam só os totais. As quatro rotas online de
 dinheiro aceitam o mesmo id e conteúdo sem repetir o efeito; conteúdo diferente para o id recebe
-409. Parcela repetida devolve o troco gravado, sangria e suprimento repetidos devolvem 204.
+409, inclusive quando só o NSU muda; o reenvio igual responde como da primeira vez mesmo que a
+exigência do NSU tenha ligado depois. Parcela repetida devolve o troco gravado, sangria e suprimento
+repetidos devolvem 204.
 O faturamento usa `GET /api/relatorios/faturamento/dia?dia=...` e
 `GET /api/relatorios/faturamento?inicio=...&fim=...`; os dois devolvem o período, o total e
 a quantidade de vendas, e a rota do período aceita ainda `forma` e `operadorId`, que se combinam.
 Os mais vendidos usam `GET /api/relatorios/mais-vendidos?inicio=...&fim=...&limite=...`, com
 `operadorId` opcional, e devolvem as posições com nome, unidade, quantidade e valor; o fluxo de
 caixa usa `GET /api/relatorios/fluxo-de-caixa?inicio=...&fim=...` e devolve o total de cada tipo
-de movimento, as entradas, as saídas e o saldo. As rotas de relatório recusam o OPERADOR com 403,
-a Conta sem relatório no plano com 409 e o período invertido com 400; operador de outra Conta dá
-zero ou lista vazia.
+de movimento, as entradas, as saídas e o saldo. A conferência do cartão usa
+`GET /api/relatorios/conferencia-do-cartao?dia=...`, com `operadorId` opcional, e devolve os
+pagamentos em cartão do dia em ordem de lançamento, cada um com a origem, parcela ou recebimento, a
+Venda e a situação dela, o valor, quem lançou e o NSU, que falta na resposta quando não foi
+informado. As rotas de relatório recusam o OPERADOR com 403, a Conta sem relatório no plano com 409,
+o período invertido e o dia ausente com 400; operador de outra Conta dá zero ou lista vazia.
 Usuários usam `GET` e `POST /api/usuarios` e
 `POST /api/usuarios/{id}/inativar` e `POST /api/usuarios/{id}/anonimizar`; a lista não expõe e-mail, a criação num plano sem
 multiusuário responde 409 e a inativação do último administrador também. A configuração usa
-`GET` e `PUT /api/conta/configuracao`, com `estoqueHabilitado` booleano; depois do primeiro
-movimento de estoque, a tentativa de desligar responde 409. Essas rotas são só do administrador.
+`GET` e `PUT /api/conta/configuracao`, com `estoqueHabilitado` booleano, e
+`PUT /api/conta/configuracao/nsu`, com `nsuObrigatorio`, que não depende do plano; as duas mudanças
+devolvem a configuração inteira, e depois do primeiro movimento de estoque a tentativa de desligar o
+controle responde 409. Essas rotas são só do administrador.
 O plano usa `GET /api/conta/plano`, com o plano, a situação, as mensalidades, o que pode ser pedido
 hoje e o pedido aberto; `POST /api/conta/plano/pedidos`, que grava o pedido, responde 201 e
 substitui o aberto; e `POST /api/conta/plano/pedidos/{id}/codigo`, que aplica o código: o errado
@@ -277,6 +288,9 @@ produto. No caixa, quem opera abre a sessão, lança sangria e suprimento, vê o
 do dia e fecha com o saldo esperado à vista e a diferença apurada. No PDV, a busca aceita nome,
 código e multiplicador de quantidade; a comanda mostra o total, o que já foi pago e o que falta,
 admite pagamento dividido e exibe o troco. Uma venda simples em dinheiro fecha em até seis toques.
+No cartão, o PDV e a tela Fiado pedem o NSU do comprovante da maquininha, opcional ou obrigatório
+conforme a Conta; o aparelho sabe da exigência pela identidade e recusa sem rede a parcela que viria
+sem ele, e a lista de parcelas da comanda mostra o número gravado.
 O comprovante usa a impressão do navegador e o compartilhamento do dispositivo quando disponível.
 Na Venda, o Cliente ativo selecionado aparece na faixa de contexto do shell com seu saldo devedor;
 a tela Fiado lista as dívidas e registra recebimentos parciais na SessaoCaixa aberta de quem recebe.
@@ -288,7 +302,10 @@ cartão para cada um: o faturamento com uma linha por forma de pagamento, que so
 mais vendidos, com quantidade, unidade e valor; e o fluxo de caixa da gaveta, com entradas, saídas e
 saldo. Quando a Conta tem mais de um usuário, um seletor de operador, que lista também os inativos,
 filtra o faturamento e o ranking; o fluxo de caixa é da gaveta inteira e avisa que o filtro não vale
-para ele.
+para ele. Com o início igual ao fim, que é como a tela abre, um quarto cartão traz a conferência do
+cartão do dia, filtrada pelo mesmo operador, com a hora do balcão, o valor, o NSU ou a marca de que
+falta, quem lançou e o aviso de estorno na venda cancelada; com um período maior, ele pede um dia.
+A tela Configuração liga e desliga a exigência do NSU e guarda a mudança na identidade do aparelho.
 Um cliente HTTP só envia o token da sessão aberta nesta aba, troca-o pelo renovado quando a resposta
 pertence à mesma sessão e traduz todo erro no mesmo objeto, lido do Problem Details. Respostas de
 uma Conta anterior são descartadas depois de uma troca de sessão, inclusive entre abas.
@@ -331,7 +348,7 @@ Atalhos para avaliar o código sem percorrer o repositório inteiro.
 | Sincronização idempotente por operação | [SincronizacaoService.java](src/main/java/br/com/caixasimples/sincronizacao/application/SincronizacaoService.java) e [AplicadorDeOperacoes.java](src/main/java/br/com/caixasimples/sincronizacao/AplicadorDeOperacoes.java) | Uma transação por gesto, com o resultado gravado junto e um índice único pela Conta e pelo id da operação: o reenvio devolve o gravado e o envio simultâneo não aplica duas vezes. A ordem vem das dependências, e o que repete ou vai para revisão está escrito no lugar. Cada módulo aplica os próprios gestos pela porta, como em [GestosDaVenda.java](src/main/java/br/com/caixasimples/vendas/internal/GestosDaVenda.java), sem expor os casos de uso |
 | O envio da fila e a projeção que não conta duas vezes | [envio.ts](frontend/src/offline/envio.ts) e [fila.ts](frontend/src/offline/fila.ts) | Uma rodada por vez com a trava do navegador, lotes em ordem de dependência, e cada resposta vira um estado com o porquê: sem resposta é falha, porque o servidor pode ter aplicado. O número de ordem de cada resultado, comparado ao guardado com o retrato, diz o que o servidor já contém, e o retrato lido com gesto incerto não é guardado |
 | Callback Pix e conciliação | [WebhookPixController.java](src/main/java/br/com/caixasimples/vendas/web/WebhookPixController.java) e [VendaPixService.java](src/main/java/br/com/caixasimples/vendas/application/VendaPixService.java) | O aviso autenticado localiza a parcela da Conta, reconsulta o PSP e deixa a raiz confirmar uma vez; a lista de conciliação mostra ao ADMIN dinheiro recebido após fechamento ou cancelamento |
-| Relatórios HTTP e no PWA | [FaturamentoController.java](src/main/java/br/com/caixasimples/relatorios/web/FaturamentoController.java) e [TelaDeRelatorios.tsx](frontend/src/telas/TelaDeRelatorios.tsx) | A tela pede o mesmo período aos três relatórios de uma vez e monta a quebra por forma de pagamento com o filtro da rota, uma chamada por forma; os casos de uso restringem as consultas ao administrador, ao plano e à Conta autenticada |
+| Relatórios HTTP e no PWA | [FaturamentoController.java](src/main/java/br/com/caixasimples/relatorios/web/FaturamentoController.java) e [TelaDeRelatorios.tsx](frontend/src/telas/TelaDeRelatorios.tsx) | A tela pede o mesmo período aos três relatórios de uma vez e monta a quebra por forma de pagamento com o filtro da rota, uma chamada por forma, e pede a conferência do cartão quando o período é um dia; os casos de uso restringem as consultas ao administrador, ao plano e à Conta autenticada |
 | Estoque HTTP e no PWA | [EstoqueController.java](src/main/java/br/com/caixasimples/estoque/web/EstoqueController.java) e [TelaDeEstoque.tsx](frontend/src/telas/TelaDeEstoque.tsx) | A API exige controle ligado e perfil ADMIN; a tela mostra saldo, mínimo e alerta e calcula a diferença da contagem antes do ajuste |
 | O servidor entregando o aplicativo | [PwaConfiguration.java](src/main/java/br/com/caixasimples/shared/web/PwaConfiguration.java) | Fallback de página única escrito à mão, com o porquê de cada caso: rota do cliente recebe o shell, arquivo que não existe e rota da API que não existe recebem 404, e os cabeçalhos de cache são explícitos porque o cache heurístico do navegador seguraria uma página antiga. Fora de `/api` tudo é público, e a razão está em [SecurityConfiguration.java](src/main/java/br/com/caixasimples/contas/internal/SecurityConfiguration.java) |
 | O cliente HTTP do aplicativo | [cliente.ts](frontend/src/api/cliente.ts) | Um lugar só envia o token, aceita a renovação da sessão que fez a chamada e traduz o Problem Details em um erro com status, detalhe e mensagem por campo; nenhuma tela precisa lembrar disso. A sessão no dispositivo, e o que acontece na abertura sem rede ou na troca entre abas, está em [SessaoProvider.tsx](frontend/src/sessao/SessaoProvider.tsx); a navegação por perfil, que esconde o que a API recusaria mas não decide autorização, em [menu.ts](frontend/src/shell/menu.ts) |
@@ -379,7 +396,7 @@ Nem todo módulo tem as quatro: uma camada nasce quando há o que colocar nela. 
 consomem, `sincronizacao` tem o do lote e o da lista de revisões, e `shared` tem `web/` com o que é transversal, o
 tratamento de erro e a entrega do aplicativo; `cadastro` acomoda `Cliente` inteiro em `internal/`,
 porque um slice sem invariante não precisa de `domain/`; `relatorios` não tem `domain/` porque
-não tem regra a proteger: ele lê colunas e soma; e `sincronizacao` também não tem, porque a regra
+não tem regra a proteger: ele lê colunas, soma e lista; e `sincronizacao` também não tem, porque a regra
 de cada gesto é do módulo dono: ele guarda a ordem, a transação e o registro do resultado.
 
 A autorização por perfil mora na camada `application/`, como a primeira linha de cada caso de uso
@@ -395,7 +412,7 @@ fatos, chamadas diretas fazem perguntas.* O Spring Modulith só expõe o pacote-
 então a camada `application/` é exposta nomeadamente onde outro módulo precisa perguntar algo, e
 `domain/` e `internal/` seguem ocultos: `vendas` copia o preço do produto, e pede o nome dele para
 o comprovante, recebendo um record da camada de aplicação de `cadastro`, nunca a raiz de agregado
-alheia. A exceção é `pagamentos`, que
+alheia, e pergunta à camada de aplicação de `contas` se a Conta exige o NSU no cartão. A exceção é `pagamentos`, que
 expõe também o `domain/`: ele não tem agregado, e o que mora lá é a interface do Strategy e os dois
 records imutáveis que são o contrato de pagar, o pedido e o resultado, sem os quais ninguém
 consegue chamar o serviço de pagamento.
@@ -614,7 +631,9 @@ de uso, provada por teste negativo, e nunca dependente de um valor que o cliente
   Os filtros por forma de pagamento e por operador têm a mesma prova: a conta que pede o
   faturamento ou o ranking pelo operador de outra recebe zero ou vazio, porque o id existe, mas
   não nela. As rotas HTTP repetem a prova: nenhuma das três deixa uma Conta ler a outra, e o
-  operador de fora dá zero ou vazio no faturamento e no ranking. O cadastro HTTP também prova as listas de produtos e clientes vazias na outra Conta,
+  operador de fora dá zero ou vazio no faturamento e no ranking. A conferência do cartão tem a
+  mesma prova, pelo caso de uso e por HTTP, com as junções ao recebimento e à sessão de caixa, e a
+  exigência do NSU ligada numa Conta não alcança a venda nem o lote da outra. O cadastro HTTP também prova as listas de produtos e clientes vazias na outra Conta,
   inclusive a lista de clientes inativos, e o 404 ao tentar editar pelo id alheio. O primeiro
   acesso aplica a cada Conta uma cópia própria do catálogo sugerido.
   O caixa HTTP também prova que a Conta B não encontra a sessão da Conta A, recebe histórico vazio
@@ -799,15 +818,26 @@ editar um agregado através de outro.
   remoção de um Cliente anonimiza o payload dos gestos dele. O índice único pela Conta e pelo id da
   operação é o que torna o reenvio inofensivo. Não é agregado de domínio: não tem regra de negócio,
   só a memória do que já foi aplicado.
-- **As tabelas de venda, item de venda, produto, pagamento e movimento de caixa têm um segundo
-  mapeamento, somente leitura**, no módulo de relatórios: imutável, com as colunas que o relatório usa e
+- **O NSU do cartão é anotação da parcela, e a exigência é da Conta.** O número do comprovante da
+  maquininha não passa pela estratégia de pagamento, que decide status e troco; a parcela e o
+  recebimento o guardam como texto livre de até 40 caracteres, sem os espaços das pontas, e o
+  recusam fora do cartão, e o banco repete as regras. Se a Conta exige o NSU, quem confere é o caso
+  de uso com rede, depois do reenvio igual, porque ligar a exigência não alcança o que já foi
+  gravado; a parcela feita sem rede que chega sem ele é gravada e vai para revisão, porque o
+  pagamento aconteceu. Repetido não é recusado: o número só é único dentro de cada operadora.
+- **As tabelas de venda, item de venda, produto, pagamento, recebimento, sessão de caixa e movimento
+  de caixa têm um segundo mapeamento, somente leitura**, no módulo de relatórios: imutável, com as colunas que o relatório usa e
   nenhuma outra, sem construtor que a instancie. O esquema é o contrato entre os dois
   mapeamentos, versionado nas migrations, e o Hibernate valida os dois na subida: renomear uma
   coluna no módulo dono derruba a aplicação no deploy, que é o modo certo de falhar, e não com
   relatório em branco. Os mapeamentos de produto e de pagamento nem têm repositório: existem para
   ser alvo de junção; o de produto traz o nome atual para o ranking mesmo depois de o produto ser
   inativado, e o de pagamento é o que permite somar por forma o valor de cada parcela, e não o
-  total da venda que a usou.
+  total da venda que a usou. Os de recebimento e de sessão de caixa também não têm: servem à
+  conferência do cartão, cujo operador do fiado recebido é o dono do caixa em que ele entrou.
+- **A conferência do cartão é do dia do lançamento, não da conclusão.** A parcela passada às 23h58
+  de uma venda concluída à 0h02 fica no dia anterior, como no extrato da maquininha, e entram as
+  vendas abertas e canceladas, com a situação, porque a cobrança delas também está no extrato.
 - **O fluxo de caixa é o da gaveta, e o dia é o do movimento.** O caixa só registra dinheiro em
   espécie, então entradas são vendas em dinheiro e reforços de troco, saídas são retiradas e
   estornos de venda cancelada, e o saldo é a diferença; o troco inicial da sessão não é
@@ -991,7 +1021,7 @@ src
 │   │   ├── relatorios/     application, web, internal
 │   │   └── sincronizacao/  a porta que os módulos donos implementam; application, web, internal
 │   └── resources
-│       └── db/migration/   V1 a V22, imutáveis depois de publicadas
+│       └── db/migration/   V1 a V23, imutáveis depois de publicadas
 ├── test/java/br/com/caixasimples
 │   ├── ModularityTests     fitness function das fronteiras
 │   ├── TesteDeIntegracao   base com Testcontainers, herdada pelos testes de banco

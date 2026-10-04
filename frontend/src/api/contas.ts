@@ -17,7 +17,8 @@ export type NovoUsuario = {
   senha: string
 }
 
-export type ConfiguracaoDaConta = { estoqueHabilitado: boolean }
+/** As duas rotas de mudança respondem a configuração inteira. */
+export type ConfiguracaoDaConta = { estoqueHabilitado: boolean; nsuObrigatorio: boolean }
 
 export type TipoDePedido = 'ADESAO' | 'UPGRADE' | 'RENOVACAO'
 
@@ -64,6 +65,10 @@ export const contas = {
   definirEstoque: (estoqueHabilitado: boolean) =>
     chamarApi<ConfiguracaoDaConta>('/api/conta/configuracao', {
       metodo: 'PUT', corpo: { estoqueHabilitado },
+    }),
+  definirNsu: (nsuObrigatorio: boolean) =>
+    chamarApi<ConfiguracaoDaConta>('/api/conta/configuracao/nsu', {
+      metodo: 'PUT', corpo: { nsuObrigatorio },
     }),
   /** Quem está operando, relido depois de uma mudança que o menu precisa refletir. */
   identidade: () => chamarApi<Identidade>('/api/auth/eu'),

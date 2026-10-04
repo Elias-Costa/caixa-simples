@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ErroDaApi } from '../api/cliente'
 import { contas, type UsuarioDaConta } from '../api/contas'
-import { relatorios } from '../api/relatorios'
+import { relatorios, type LancamentoEmCartao } from '../api/relatorios'
 import { hojeNoBalcao } from '../dataDoBalcao'
 import { TelaDeRelatorios } from './TelaDeRelatorios'
 
@@ -21,8 +21,26 @@ function mostrarData(dia: string): string {
   return `${data}/${mes}/${ano}`
 }
 
+// Uma parcela com NSU, lançada pela titular às 9h05 do balcão, e um fiado recebido às 10h30 por
+// alguém que não está na lista, numa venda cancelada depois e sem NSU.
+const lancamentos = (dia: string): LancamentoEmCartao[] => [
+  {
+    id: 'parcela-1', origem: 'PARCELA', vendaId: '3f2b8c1a-0000-4000-8000-000000000001',
+    lancadoEm: `${dia}T12:05:00Z`, valor: 7, operadorId: 'usuario-ana', situacaoDaVenda: 'CONCLUIDA',
+    nsu: '004512',
+  },
+  {
+    id: 'recebimento-1', origem: 'RECEBIMENTO', vendaId: '9a8b7c6d-0000-4000-8000-000000000002',
+    lancadoEm: `${dia}T13:30:00Z`, valor: 12, operadorId: 'f00dbabe-0000-4000-8000-000000000003',
+    situacaoDaVenda: 'CANCELADA',
+  },
+]
+
 function prepararApi(usuarios: UsuarioDaConta[] = [titular]) {
   return {
+    conferencia: vi.spyOn(relatorios, 'conferenciaDoCartao').mockImplementation(async (dia) => ({
+      dia, lancamentos: lancamentos(dia),
+    })),
     faturamento: vi.spyOn(relatorios, 'faturamento').mockImplementation(async (inicio, fim, filtros = {}) => {
       const [total, quantidadeDeVendas] = porForma[filtros.forma ?? 'TODAS']
       return { inicio, fim, total, quantidadeDeVendas }
@@ -94,6 +112,22 @@ describe('relatórios na tela', () => {
     expect(screen.queryByLabelText('Operador')).not.toBeInTheDocument()
   })
 
+  it('a conferência do cartão lista o dia com a hora do balcão, o NSU ou a falta dele e a situação da venda', async () => {
+    const api = prepararApi()
+    render(<TelaDeRelatorios />)
+
+    const conferencia = await waitFor(() => cartao(/^Conferência do cartão de/))
+    expect(api.conferencia).toHaveBeenCalledWith(hoje, undefined)
+    expect(within(conferencia).getByText(/2 pagamentos em cartão/)).toHaveTextContent(', 1 sem NSU')
+    const linhas = within(conferencia).getAllByRole('listitem')
+    expect(linhas).toHaveLength(2)
+    expect(linhas[0]).toHaveTextContent(/^09:05 · R\$\s7,00 · NSU 004512/)
+    expect(linhas[0]).toHaveTextContent(/Ana · venda 3f2b8c1a$/)
+    expect(linhas[1]).toHaveTextContent(/^10:30 · R\$\s12,00 · sem NSU/)
+    expect(linhas[1]).toHaveTextContent(
+      /operador f00dbabe · fiado recebido 9a8b7c6d · venda cancelada: confira o estorno na maquininha$/)
+  })
+
   it('consulta o período escolhido nos três relatórios e volta para hoje', async () => {
     const api = prepararApi()
     render(<TelaDeRelatorios />)
@@ -106,6 +140,9 @@ describe('relatórios na tela', () => {
     expect(await screen.findByText('Faturamento de 01/09/2026 a 15/09/2026')).toBeInTheDocument()
     expect(screen.getByText('Mais vendidos de 01/09/2026 a 15/09/2026')).toBeInTheDocument()
     expect(screen.getByText('Fluxo de caixa de 01/09/2026 a 15/09/2026')).toBeInTheDocument()
+    // A conferência não é soma: com mais de um dia, o cartão pede um dia só, sem consultar.
+    expect(within(cartao(/^Conferência do cartão$/)).getByText(/é de um dia só/)).toBeInTheDocument()
+    expect(api.conferencia).toHaveBeenCalledTimes(1)
     expect(api.faturamento).toHaveBeenCalledWith('2026-09-01', '2026-09-15', { forma: 'PIX', operadorId: undefined })
     expect(api.maisVendidos).toHaveBeenCalledWith('2026-09-01', '2026-09-15', 10, undefined)
     expect(api.fluxo).toHaveBeenCalledWith('2026-09-01', '2026-09-15')
@@ -137,6 +174,8 @@ describe('relatórios na tela', () => {
     expect(api.faturamento).toHaveBeenCalledWith(hoje, hoje, { operadorId: 'usuario-beatriz' })
     expect(api.faturamento).toHaveBeenCalledWith(hoje, hoje, { forma: 'CARTAO', operadorId: 'usuario-beatriz' })
     expect(api.maisVendidos).toHaveBeenLastCalledWith(hoje, hoje, 10, 'usuario-beatriz')
+    expect(api.conferencia).toHaveBeenLastCalledWith(hoje, 'usuario-beatriz')
+    expect(screen.getByText('Lançamentos de Beatriz')).toBeInTheDocument()
     expect(api.fluxo).toHaveBeenLastCalledWith(hoje, hoje)
     expect(within(cartao(/^Fluxo de caixa/)).getByText(/o filtro de\s+operador não vale para ele/))
       .toBeInTheDocument()
@@ -151,10 +190,12 @@ describe('relatórios na tela', () => {
       inicio, fim, vendas: 0, suprimentos: 0, sangrias: 0, estornos: 0, recebimentos: 0,
       entradas: 0, saidas: 0, saldo: 0,
     }))
+    vi.spyOn(relatorios, 'conferenciaDoCartao').mockImplementation(async (dia) => ({ dia, lancamentos: [] }))
     vi.spyOn(contas, 'usuarios').mockResolvedValue([titular])
     render(<TelaDeRelatorios />)
 
     expect(await screen.findByText('Nenhuma venda concluída neste período.')).toBeInTheDocument()
+    expect(screen.getByText('Nenhum pagamento em cartão neste dia.')).toBeInTheDocument()
     expect(screen.getByText('Nenhum produto vendido neste período.')).toBeInTheDocument()
     expect(linha(cartao(/^Fluxo de caixa/), 'Saldo')).toHaveTextContent(/0,00/)
   })

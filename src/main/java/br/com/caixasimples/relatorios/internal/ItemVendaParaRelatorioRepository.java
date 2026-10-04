@@ -30,9 +30,9 @@ public interface ItemVendaParaRelatorioRepository extends Repository<ItemVendaPa
      *
      * <p><strong>As junções são por id, escritas na consulta</strong>, e não por associação
      * mapeada na entidade: a venda dá o status e o instante da conclusão, o produto dá o nome e a
-     * unidade, e nenhum dos dois precisa ser navegável fora daqui. O filtro de tenant da entidade
-     * raiz basta para o isolamento (RNF05): um item só se junta à sua própria venda e ao seu
-     * próprio produto, que a chave estrangeira prende à mesma conta.
+     * unidade, e nenhum dos dois precisa ser navegável fora daqui. O isolamento vem do tenant
+     * declarado em cada mapeamento da consulta, o item, a venda e o produto (RNF05); as chaves
+     * estrangeiras só garantem que a venda e o produto existem, não que são da mesma conta.
      *
      * <p><strong>O valor é somado com o mesmo arredondamento do domínio.</strong> Cada item vale
      * quantidade vezes preço, arredondado para centavos <em>naquele item</em>, menos o desconto;

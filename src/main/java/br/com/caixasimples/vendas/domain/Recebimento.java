@@ -6,9 +6,21 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
-/** Lançamento imutável de uma entrada de fiado, membro do agregado Venda. */
+/**
+ * Lançamento imutável de uma entrada de fiado, membro do agregado Venda.
+ *
+ * <p>O recebimento em cartão também passa na maquininha e aparece no extrato da operadora, por
+ * isso pode levar o NSU do comprovante, com a mesma regra da parcela da venda.
+ *
+ * @param nsu só em cartão; sem espaços nas pontas, nulo quando não foi informado
+ */
 public record Recebimento(UUID id, UUID sessaoCaixaId, Money valor, FormaPagamento forma,
-        Instant criadoEm) {
+        Instant criadoEm, String nsu) {
+
+    public Recebimento(UUID id, UUID sessaoCaixaId, Money valor, FormaPagamento forma,
+            Instant criadoEm) {
+        this(id, sessaoCaixaId, valor, forma, criadoEm, null);
+    }
 
     public Recebimento {
         Objects.requireNonNull(id, "id do recebimento nao pode ser nulo");
@@ -22,13 +34,15 @@ public record Recebimento(UUID id, UUID sessaoCaixaId, Money valor, FormaPagamen
         if (forma == FormaPagamento.FIADO) {
             throw new IllegalArgumentException("fiado nao e forma de receber uma divida");
         }
+        nsu = Nsu.normalizar(nsu);
+        if (nsu != null && forma != FormaPagamento.CARTAO) {
+            throw new IllegalArgumentException(
+                    "NSU so existe em cartao; recebimento em " + forma + " veio com NSU.");
+        }
     }
 
-    static Recebimento novo(UUID sessaoCaixaId, Money valor, FormaPagamento forma) {
-        return novo(UUID.randomUUID(), sessaoCaixaId, valor, forma);
-    }
-
-    static Recebimento novo(UUID id, UUID sessaoCaixaId, Money valor, FormaPagamento forma) {
-        return new Recebimento(id, sessaoCaixaId, valor, forma, Instant.now());
+    static Recebimento novo(UUID id, UUID sessaoCaixaId, Money valor, FormaPagamento forma,
+            String nsu) {
+        return new Recebimento(id, sessaoCaixaId, valor, forma, Instant.now(), nsu);
     }
 }

@@ -247,6 +247,95 @@ class VendaHttpTest extends TesteDeIntegracao {
     }
 
     @Test
+    void nsuDoCartaoExigidoPelaContaVoltaNoDetalheENaoNoComprovante() throws Exception {
+        ContaCriada conta = criador.criar("PDV NSU", SENHA);
+        UUID produto = produto(conta);
+        UUID sessao = conta.comoUsuario(() -> caixas.abrir(Money.ZERO));
+        RequestPostProcessor admin = autenticador.como(conta);
+        UUID venda = criarVenda(admin, sessao);
+        http.perform(post("/api/vendas/{id}/itens", venda).with(admin)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"produtoId\":\"" + produto + "\",\"quantidade\":2,\"desconto\":0}"))
+                .andExpect(status().isCreated());
+        http.perform(put("/api/conta/configuracao/nsu").with(admin)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"nsuObrigatorio\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nsuObrigatorio").value(true));
+
+        pagar(admin, venda, UUID.randomUUID(), "CARTAO", "10", null)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value(containsString("exige o NSU")));
+        pagar(admin, venda, UUID.randomUUID(), "CARTAO", "10", "   ")
+                .andExpect(status().isBadRequest());
+        pagar(admin, venda, UUID.randomUUID(), "CARTAO", "10", "A".repeat(41))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value(containsString("limite e 40")));
+        pagar(admin, venda, UUID.randomUUID(), "PIX", "10", "004512")
+                .andExpect(status().isBadRequest());
+        pagar(admin, venda, UUID.randomUUID(), "DINHEIRO", "10", "004512")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value(containsString("NSU so existe em cartao")));
+
+        UUID pagamentoId = UUID.randomUUID();
+        pagar(admin, venda, pagamentoId, "CARTAO", "10", " 004512 ")
+                .andExpect(status().isOk()).andExpect(jsonPath("$.troco").value(0.0));
+        // O reenvio compara o NSU já sem os espaços; outro NSU com o mesmo id é conflito.
+        pagar(admin, venda, pagamentoId, "CARTAO", "10", "004512")
+                .andExpect(status().isOk());
+        pagar(admin, venda, pagamentoId, "CARTAO", "10", "004513")
+                .andExpect(status().isConflict());
+        pagar(admin, venda, UUID.randomUUID(), "DINHEIRO", "15", null)
+                .andExpect(status().isOk());
+        http.perform(post("/api/vendas/{id}/conclusao", venda).with(admin))
+                .andExpect(status().isNoContent());
+
+        http.perform(get("/api/vendas/{id}", venda).with(admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.parcelas.length()").value(2))
+                .andExpect(jsonPath("$.parcelas[?(@.forma == 'CARTAO')].nsu").value("004512"));
+        http.perform(get("/api/vendas/{id}/comprovante", venda).with(admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.parcelas[0].nsu").doesNotExist())
+                .andExpect(jsonPath("$.parcelas[1].nsu").doesNotExist());
+
+        UUID cliente = uuidDaResposta(http.perform(post("/api/clientes").with(admin)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"nome\":\"Lia\",\"contato\":null}"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString());
+        UUID fiada = criarVenda(admin, sessao);
+        http.perform(post("/api/vendas/{id}/itens", fiada).with(admin)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"produtoId\":\"" + produto + "\",\"quantidade\":2,\"desconto\":0}"))
+                .andExpect(status().isCreated());
+        http.perform(put("/api/vendas/{id}/cliente", fiada).with(admin)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"clienteId\":\"" + cliente + "\"}"))
+                .andExpect(status().isNoContent());
+        pagar(admin, fiada, UUID.randomUUID(), "FIADO", "25", null).andExpect(status().isOk());
+        http.perform(post("/api/vendas/{id}/conclusao", fiada).with(admin))
+                .andExpect(status().isNoContent());
+
+        UUID recebimentoId = UUID.randomUUID();
+        http.perform(post("/api/vendas/{id}/recebimentos", fiada).with(admin)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"recebimentoId\":\"" + recebimentoId
+                        + "\",\"valor\":5,\"forma\":\"CARTAO\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value(containsString("exige o NSU")));
+        http.perform(post("/api/vendas/{id}/recebimentos", fiada).with(admin)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"recebimentoId\":\"" + recebimentoId
+                        + "\",\"valor\":5,\"forma\":\"CARTAO\",\"nsu\":\"778899\"}"))
+                .andExpect(status().isCreated());
+        http.perform(get("/api/vendas/{id}", fiada).with(admin))
+                .andExpect(jsonPath("$.recebimentos[0].nsu").value("778899"));
+        http.perform(get("/api/vendas/{id}/recebimentos/{recebimento}/comprovante", fiada,
+                recebimentoId).with(admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nsu").doesNotExist());
+    }
+
+    @Test
     void sessaoOuProdutoQueNaoExisteNaContaResponde404() throws Exception {
         ContaCriada contaA = criador.criar("PDV E", SENHA);
         ContaCriada contaB = criador.criar("PDV F", SENHA);
@@ -292,6 +381,17 @@ class VendaHttpTest extends TesteDeIntegracao {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"sessaoCaixaId\":\"" + sessao + "\"}"))
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString());
+    }
+
+    private ResultActions pagar(RequestPostProcessor usuario, UUID venda, UUID pagamentoId,
+            String forma, String valor, String nsu) throws Exception {
+        // Dinheiro vai com o valor exato recebido, que a forma exige.
+        String recebido = forma.equals("DINHEIRO") ? ",\"valorRecebido\":" + valor : "";
+        String comNsu = nsu == null ? "" : ",\"nsu\":" + json.writeValueAsString(nsu);
+        return http.perform(post("/api/vendas/{id}/pagamentos", venda).with(usuario)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"pagamentoId\":\"" + pagamentoId + "\",\"forma\":\"" + forma
+                        + "\",\"valor\":" + valor + recebido + comNsu + "}"));
     }
 
     private UUID uuidDaResposta(String corpo) {

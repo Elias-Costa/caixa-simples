@@ -449,6 +449,22 @@ public class Venda {
      */
     public void registrarPagamento(UUID pagamentoId, FormaPagamento forma, Money valor,
             StatusPagamento status, Money troco, Instant criadoEm) {
+        registrarPagamento(pagamentoId, forma, valor, status, troco, criadoEm, null);
+    }
+
+    /**
+     * O mesmo lançamento, com o NSU do comprovante da maquininha quando a parcela é em cartão.
+     *
+     * <p>A raiz não pergunta se a Conta exige o NSU: a exigência é configuração da Conta, que a
+     * raiz não enxerga, e vale só para o que é lançado depois de ligada. Quem a confere é o caso de
+     * uso.
+     *
+     * @param nsu nulo ou em branco quando não foi informado
+     * @throws IllegalArgumentException além dos casos acima, se o NSU vem fora do cartão ou passa
+     *                                  do tamanho máximo
+     */
+    public void registrarPagamento(UUID pagamentoId, FormaPagamento forma, Money valor,
+            StatusPagamento status, Money troco, Instant criadoEm, String nsu) {
         exigirAberta();
         Objects.requireNonNull(pagamentoId, "id da parcela nao pode ser nulo");
         if (pagamentos.stream().anyMatch(existente -> existente.id().equals(pagamentoId))) {
@@ -473,7 +489,7 @@ public class Venda {
         if (forma == FormaPagamento.FIADO && parcelaFiado() != null) {
             throw new IllegalStateException("a venda aceita uma unica parcela FIADO");
         }
-        pagamentos.add(Pagamento.novo(pagamentoId, forma, valor, status, troco, criadoEm));
+        pagamentos.add(Pagamento.novo(pagamentoId, forma, valor, status, troco, criadoEm, nsu));
     }
 
     /** Reserva uma tentativa Pix identificada antes de chamar o provedor. */
@@ -664,6 +680,17 @@ public class Venda {
 
     public Recebimento receber(UUID recebimentoId, UUID sessaoCaixaId, Money valor,
             FormaPagamento forma) {
+        return receber(recebimentoId, sessaoCaixaId, valor, forma, null);
+    }
+
+    /**
+     * O mesmo recebimento, com o NSU do comprovante da maquininha quando é em cartão. Como na
+     * parcela, a exigência da Conta é conferida pelo caso de uso.
+     *
+     * @param nsu nulo ou em branco quando não foi informado
+     */
+    public Recebimento receber(UUID recebimentoId, UUID sessaoCaixaId, Money valor,
+            FormaPagamento forma, String nsu) {
         Objects.requireNonNull(recebimentoId, "id do recebimento nao pode ser nulo");
         if (recebimentos.stream().anyMatch(existente -> existente.id().equals(recebimentoId))) {
             throw new IllegalStateException("recebimento ja existe nesta venda: " + recebimentoId);
@@ -675,7 +702,8 @@ public class Venda {
         if (fiado == null) {
             throw new IllegalStateException("venda nao possui parcela FIADO");
         }
-        Recebimento recebimento = Recebimento.novo(recebimentoId, sessaoCaixaId, valor, forma);
+        Recebimento recebimento = Recebimento.novo(recebimentoId, sessaoCaixaId, valor, forma,
+                nsu);
         if (valor.subtrair(saldoDevedor()).valor().signum() > 0) {
             throw new IllegalArgumentException("recebimento supera o saldo devedor da venda");
         }

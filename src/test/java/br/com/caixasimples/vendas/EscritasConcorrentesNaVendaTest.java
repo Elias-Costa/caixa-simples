@@ -166,10 +166,10 @@ class EscritasConcorrentesNaVendaTest extends TesteDeIntegracao {
         List<CompletableFuture<Money>> disputa = comAVendaPresa(conta, vendaId,
                 () -> vendas.registrarPagamento(vendaId, UUID.randomUUID(),
                         SolicitacaoPagamento.de(FormaPagamento.CARTAO, Money.de("8.00")),
-                        Instant.now()),
+                        Instant.now(), null),
                 () -> vendas.registrarPagamento(vendaId, UUID.randomUUID(),
                         SolicitacaoPagamento.de(FormaPagamento.CARTAO, Money.de("8.00")),
-                        Instant.now()));
+                        Instant.now(), null));
 
         aguardar(disputa);
         conta.comoUsuario(() -> {

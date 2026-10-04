@@ -9,26 +9,28 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.UUID;
 import org.hibernate.annotations.Immutable;
 import org.hibernate.annotations.TenantId;
 
 /**
  * A tabela {@code pagamento} vista pelos relatórios: um segundo mapeamento da mesma tabela, com as
- * colunas que o faturamento por forma de pagamento lê e nada mais.
+ * colunas que o faturamento por forma de pagamento e a conferência do cartão leem e nada mais.
  *
  * <p>Segue o desenho de {@link VendaParaRelatorio}, pelos mesmos motivos, e, como
  * {@link ProdutoParaRelatorio}, <strong>não tem repositório</strong>: existe para ser alvo de
- * junção na consulta do faturamento por forma, que parte da venda. Pagamento é membro do agregado
- * Venda e nunca teve repositório próprio; este mapeamento não muda isso.
+ * junção nas consultas do faturamento por forma e da conferência, que partem da venda. Pagamento é
+ * membro do agregado Venda e nunca teve repositório próprio; este mapeamento não muda isso.
  *
  * <p><strong>É esta tabela, e não a venda, que diz quanto entrou por cada forma.</strong> Uma
  * venda paga metade em dinheiro e metade em Pix são duas parcelas, cada uma com a sua forma e o
  * seu valor, e o filtro por forma soma o valor de cada parcela, não o total da venda: assim o que
  * entrou em dinheiro, em Pix e em cartão, somado, bate com o faturamento sem filtro.
  *
- * <p>{@code contaId} filtra pelo {@link TenantId}; a junção por id de venda alcança só linhas que a
- * chave estrangeira já prende à mesma conta (RNF05).
+ * <p>{@code contaId} filtra pelo {@link TenantId}, também quando a tabela entra por junção: é ele
+ * que isola, e não a chave estrangeira, que só garante que a venda existe, não que é da mesma conta
+ * (RNF05).
  */
 @Entity
 @Immutable
@@ -57,6 +59,17 @@ public class PagamentoParaRelatorio {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private StatusPagamento status;
+
+    /**
+     * Quando a parcela foi lançada, em UTC. É este instante, e não a conclusão da venda, que põe a
+     * parcela no dia da conferência do cartão: o extrato da maquininha mostra a hora da cobrança.
+     */
+    @Column(name = "criado_em", nullable = false)
+    private Instant criadoEm;
+
+    /** Só em cartão; nulo quando não foi informado. */
+    @Column(length = 40)
+    private String nsu;
 
     protected PagamentoParaRelatorio() {
         // exigido pelo JPA, e o unico construtor de proposito: ninguem instancia esta classe

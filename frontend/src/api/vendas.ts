@@ -39,6 +39,8 @@ export type ParcelaDaVenda = {
   troco: number
   pix?: null | { txid: string; expiraEm: string; copiaECola: string | null;
     estado: 'AGUARDANDO' | 'DISPONIVEL' | 'INCERTA' }
+  /** Só no cartão, e não vem quando não foi informado. */
+  nsu?: string
 }
 
 export type Venda = ResumoDaVenda & {
@@ -49,7 +51,10 @@ export type Venda = ResumoDaVenda & {
   faltaPagar: number
   itens: ItemDaVenda[]
   parcelas: ParcelaDaVenda[]
-  recebimentos: { id: string; sessaoCaixaId: string; valor: number; forma: FormaPagamento; criadoEm: string }[]
+  recebimentos: {
+    id: string; sessaoCaixaId: string; valor: number; forma: FormaPagamento; criadoEm: string
+    nsu?: string
+  }[]
 }
 
 export type Comprovante = {
@@ -98,9 +103,9 @@ export const vendas = {
   descontar: (id: string, valor: number) =>
     chamarApi<void>(`/api/vendas/${id}/desconto`, { metodo: 'PUT', corpo: { valor } }),
   pagar: (id: string, forma: FormaPagamento, valor: number, valorRecebido: number | undefined,
-    pagamentoId: string) =>
+    pagamentoId: string, nsu?: string) =>
     chamarApi<{ troco: number }>(`/api/vendas/${id}/pagamentos`, {
-      metodo: 'POST', corpo: { pagamentoId, forma, valor, valorRecebido },
+      metodo: 'POST', corpo: { pagamentoId, forma, valor, valorRecebido, nsu },
     }),
   cobrarPix: (id: string, tentativaId: string, valor: number) =>
     chamarApi<ParcelaDaVenda>(`/api/vendas/${id}/pagamentos/pix`, {
@@ -111,9 +116,9 @@ export const vendas = {
   cancelar: (id: string) =>
     chamarApi<void>(`/api/vendas/${id}/cancelamento`, { metodo: 'POST' }),
   comprovante: (id: string) => chamarApi<Comprovante>(`/api/vendas/${id}/comprovante`),
-  receber: (id: string, valor: number, forma: FormaPagamento, recebimentoId: string) =>
+  receber: (id: string, valor: number, forma: FormaPagamento, recebimentoId: string, nsu?: string) =>
     chamarApi<{ id: string; saldoDevedor: number }>(`/api/vendas/${id}/recebimentos`, {
-      metodo: 'POST', corpo: { recebimentoId, valor, forma },
+      metodo: 'POST', corpo: { recebimentoId, valor, forma, nsu },
     }),
   comprovanteDeRecebimento: (id: string, recebimentoId: string) =>
     chamarApi<ComprovanteDeRecebimento>(`/api/vendas/${id}/recebimentos/${recebimentoId}/comprovante`),

@@ -5,6 +5,7 @@ import br.com.caixasimples.cadastro.application.ConsultaDeClienteParaVenda;
 import br.com.caixasimples.pagamentos.FormaPagamento;
 import br.com.caixasimples.cadastro.application.ProdutoService.ProdutoParaComprovante;
 import br.com.caixasimples.cadastro.application.ProdutoService.ProdutoParaVenda;
+import br.com.caixasimples.contas.application.ContaService;
 import br.com.caixasimples.pagamentos.StatusPagamento;
 import br.com.caixasimples.pagamentos.domain.CobrancaPix;
 import br.com.caixasimples.pagamentos.application.PaymentService;
@@ -23,6 +24,7 @@ import br.com.caixasimples.vendas.VendaCancelada;
 import br.com.caixasimples.vendas.VendaConcluida;
 import br.com.caixasimples.vendas.FiadoRecebido;
 import br.com.caixasimples.vendas.domain.ItemVenda;
+import br.com.caixasimples.vendas.domain.Nsu;
 import br.com.caixasimples.vendas.domain.Pagamento;
 import br.com.caixasimples.vendas.domain.Recebimento;
 import br.com.caixasimples.vendas.domain.Venda;
@@ -71,6 +73,14 @@ import org.springframework.transaction.annotation.Transactional;
  * colateral, porque o serviço de pagamentos não abre transação nem grava nada; quem grava a
  * parcela é o agregado Venda, dono dela, e grava o troco junto, para o comprovante sair igual
  * numa reimpressão. O troco também volta a quem chamou, para a tela mostrar no ato.
+ *
+ * <p><strong>A quarta pergunta é ao módulo de contas</strong>: se a Conta exige o NSU do
+ * comprovante da maquininha no pagamento em cartão. A exigência é configuração da Conta, e não
+ * regra da raiz, porque não alcança o que foi lançado antes de ligada. Vale para a parcela e para
+ * o recebimento de fiado lançados com rede, e só depois de o reenvio igual responder como da
+ * primeira vez: ligar a exigência não transforma em erro um pedido que já tinha dado certo. A
+ * parcela lançada sem rede não é recusada por ela, porque o pagamento aconteceu; quem a aplica
+ * marca a falta para o administrador conferir.
  *
  * <p><strong>O preço vem do cadastro, nunca de quem chama.</strong> {@link #adicionarItem} recebe
  * o id do produto e consulta o preço vigente na hora de lançar; um preço vindo do payload seria
@@ -152,17 +162,20 @@ public class VendaService {
     private final CaixaParaVenda caixa;
     private final PaymentService pagamentos;
     private final PixCobrancaService pix;
+    private final ContaService contas;
     private final ApplicationEventPublisher eventos;
 
     VendaService(VendaRepository vendas, ProdutoService produtos, ConsultaDeClienteParaVenda clientes,
             CaixaParaVenda caixa,
-            PaymentService pagamentos, PixCobrancaService pix, ApplicationEventPublisher eventos) {
+            PaymentService pagamentos, PixCobrancaService pix, ContaService contas,
+            ApplicationEventPublisher eventos) {
         this.vendas = vendas;
         this.produtos = produtos;
         this.clientes = clientes;
         this.caixa = caixa;
         this.pagamentos = pagamentos;
         this.pix = pix;
+        this.contas = contas;
         this.eventos = eventos;
     }
 
@@ -360,13 +373,23 @@ public class VendaService {
      */
     @Transactional
     public Money registrarPagamento(UUID vendaId, SolicitacaoPagamento solicitacao) {
-        return registrarPagamento(vendaId, UUID.randomUUID(), solicitacao, Instant.now());
+        return registrarPagamentoOnline(vendaId, UUID.randomUUID(), solicitacao, null);
     }
 
-    /** Repete uma parcela online apenas quando o registro existente tem o mesmo conteúdo. */
+    /**
+     * A parcela lançada com rede, com o id que o dispositivo gerou e o NSU, quando em cartão.
+     * Repetida com o mesmo id, responde como da primeira vez apenas quando o registro existente
+     * tem o mesmo conteúdo, NSU incluído.
+     *
+     * @param nsu o NSU do comprovante da maquininha; nulo ou em branco quando não foi informado
+     * @throws IllegalArgumentException além dos casos acima, se o NSU vem fora do cartão ou passa
+     *                                  do tamanho máximo, ou se falta no cartão e a Conta o exige
+     * @throws IllegalStateException    além dos casos acima, se o id já foi usado com outro
+     *                                  conteúdo
+     */
     @Transactional
     public Money registrarPagamentoOnline(UUID vendaId, UUID pagamentoId,
-            SolicitacaoPagamento solicitacao) {
+            SolicitacaoPagamento solicitacao, String nsu) {
         Objects.requireNonNull(pagamentoId, "id da parcela nao pode ser nulo");
         Objects.requireNonNull(solicitacao, "solicitacao de pagamento nao pode ser nula");
         if (solicitacao.forma() == FormaPagamento.PIX) {
@@ -375,6 +398,7 @@ public class VendaService {
         if (solicitacao.forma() == FormaPagamento.FIADO) {
             UsuarioContext.exigirAdmin();
         }
+        String nsuNormalizado = Nsu.normalizar(nsu);
         VendaEntity linha = travar(vendaId);
         Venda venda = linha.paraDominio();
         UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
@@ -387,13 +411,15 @@ public class VendaService {
             if (!anterior.get().getId().equals(vendaId)
                     || parcela.forma() != resultado.forma()
                     || !parcela.valor().equals(resultado.valor())
-                    || !parcela.troco().equals(resultado.troco())) {
+                    || !parcela.troco().equals(resultado.troco())
+                    || !Objects.equals(parcela.nsu(), nsuNormalizado)) {
                 throw new IllegalStateException("id da parcela ja usado com outro conteudo");
             }
             return parcela.troco();
         }
+        exigirNsuSeAContaExige(resultado.forma(), nsuNormalizado);
         venda.registrarPagamento(pagamentoId, resultado.forma(), resultado.valor(),
-                resultado.status(), resultado.troco(), Instant.now());
+                resultado.status(), resultado.troco(), Instant.now(), nsuNormalizado);
         linha.atualizarCom(venda);
         vendas.save(linha);
         return resultado.troco();
@@ -403,11 +429,16 @@ public class VendaService {
      * A mesma parcela, com o id e o instante que o dispositivo gravou ao lançá-la sem rede. O
      * troco é recalculado aqui pela mesma regra, e não copiado do dispositivo.
      *
+     * <p>Não confere a exigência do NSU: o pagamento aconteceu no balcão, e recusá-lo deixaria de
+     * fora uma venda de fato. Quem aplica o gesto pergunta {@link ContaService#nsuObrigatorio} e
+     * marca a parcela sem NSU para o administrador conferir.
+     *
+     * @param nsu o NSU do comprovante da maquininha; nulo nos gestos que não o trazem
      * @throws IllegalStateException além dos casos acima, se já existe parcela com este id
      */
     @Transactional
     public Money registrarPagamento(UUID vendaId, UUID pagamentoId,
-            SolicitacaoPagamento solicitacao, Instant criadoEm) {
+            SolicitacaoPagamento solicitacao, Instant criadoEm, String nsu) {
         Objects.requireNonNull(solicitacao, "solicitacao de pagamento nao pode ser nula");
         if (solicitacao.forma() == FormaPagamento.PIX) {
             throw new IllegalArgumentException("Pix integrado exige a rota de cobranca com tentativaId");
@@ -427,7 +458,7 @@ public class VendaService {
 
         ResultadoPagamento resultado = pagamentos.pagar(solicitacao);
         venda.registrarPagamento(pagamentoId, resultado.forma(), resultado.valor(),
-                resultado.status(), resultado.troco(), criadoEm);
+                resultado.status(), resultado.troco(), criadoEm, nsu);
 
         linha.atualizarCom(venda);
         vendas.save(linha);
@@ -692,15 +723,23 @@ public class VendaService {
      */
     @Transactional
     public RecebimentoRegistrado receber(UUID vendaId, Money valor, FormaPagamento forma) {
-        return receberOnline(vendaId, UUID.randomUUID(), valor, forma);
+        return receberOnline(vendaId, UUID.randomUUID(), valor, forma, null);
     }
 
-    /** O recebimento confirmado pode ser reenviado mesmo depois do fechamento da sessão. */
+    /**
+     * O recebimento confirmado pode ser reenviado mesmo depois do fechamento da sessão, com o mesmo
+     * conteúdo, NSU incluído.
+     *
+     * @param nsu o NSU do comprovante da maquininha; nulo ou em branco quando não foi informado
+     * @throws IllegalArgumentException se o NSU vem fora do cartão ou passa do tamanho máximo, ou
+     *                                  se falta no cartão e a Conta o exige
+     */
     @Transactional
     public RecebimentoRegistrado receberOnline(UUID vendaId, UUID recebimentoId, Money valor,
-            FormaPagamento forma) {
+            FormaPagamento forma, String nsu) {
         Objects.requireNonNull(recebimentoId, "id do recebimento nao pode ser nulo");
         UsuarioContext.exigirAtual();
+        String nsuNormalizado = Nsu.normalizar(nsu);
         VendaEntity linha = travar(vendaId);
         Venda venda = linha.paraDominio();
         var anterior = vendas.findByRecebimentosId(recebimentoId);
@@ -709,19 +748,33 @@ public class VendaService {
                     .filter(existente -> existente.id().equals(recebimentoId))
                     .findFirst().orElseThrow();
             if (!anterior.get().getId().equals(vendaId)
-                    || !recebimento.valor().equals(valor) || recebimento.forma() != forma) {
+                    || !recebimento.valor().equals(valor) || recebimento.forma() != forma
+                    || !Objects.equals(recebimento.nsu(), nsuNormalizado)) {
                 throw new IllegalStateException("id do recebimento ja usado com outro conteudo");
             }
             return new RecebimentoRegistrado(recebimentoId, venda.saldoDevedor(), true);
         }
+        exigirNsuSeAContaExige(forma, nsuNormalizado);
         UUID sessaoId = caixa.sessaoAbertaDoOperadorAtual().orElseThrow(() ->
                 new IllegalStateException("abra o proprio caixa antes de receber fiado"));
-        Recebimento recebimento = venda.receber(recebimentoId, sessaoId, valor, forma);
+        Recebimento recebimento = venda.receber(recebimentoId, sessaoId, valor, forma,
+                nsuNormalizado);
         linha.atualizarCom(venda);
         vendas.save(linha);
         eventos.publishEvent(new FiadoRecebido(TenantContext.exigirAtual(), vendaId,
                 recebimento.id(), sessaoId, recebimento.valor(), recebimento.forma()));
         return new RecebimentoRegistrado(recebimento.id(), venda.saldoDevedor());
+    }
+
+    /**
+     * Recusa o cartão sem NSU quando a Conta o exige. A forma vem primeiro para que só o cartão
+     * sem NSU custe a pergunta à Conta.
+     */
+    private void exigirNsuSeAContaExige(FormaPagamento forma, String nsu) {
+        if (forma == FormaPagamento.CARTAO && nsu == null && contas.nsuObrigatorio()) {
+            throw new IllegalArgumentException("a Conta exige o NSU do comprovante da maquininha"
+                    + " no pagamento em cartao");
+        }
     }
 
     /** Dívida de um Cliente da Conta, calculada das Vendas e dos recebimentos. */
@@ -895,11 +948,11 @@ public class VendaService {
                 venda.getValorTotal(), pago, venda.getValorTotal().subtrair(pago), itens,
                 venda.getPagamentos().stream().map(parcela -> new ParcelaParaTela(parcela.id(),
                         parcela.forma(), parcela.valor(), parcela.status(), parcela.troco(),
-                        parcela.cobrancaPix()))
+                        parcela.cobrancaPix(), parcela.nsu()))
                         .toList(),
                 venda.getRecebimentos().stream().map(recebimento -> new RecebimentoParaTela(
                         recebimento.id(), recebimento.sessaoCaixaId(), recebimento.valor(),
-                        recebimento.forma(), recebimento.criadoEm())).toList());
+                        recebimento.forma(), recebimento.criadoEm(), recebimento.nsu())).toList());
     }
 
     public record ResumoDaVenda(UUID id, UUID sessaoCaixaId, UUID usuarioId,
@@ -917,12 +970,17 @@ public class VendaService {
             Money precoUnitario, Money desconto, Money subtotal) {
     }
 
+    /**
+     * O NSU aparece aqui, no detalhe da venda, e não no comprovante: o cliente já o leva no
+     * comprovante da maquininha.
+     */
     public record ParcelaParaTela(UUID id, br.com.caixasimples.pagamentos.FormaPagamento forma,
-            Money valor, StatusPagamento status, Money troco, CobrancaPix cobrancaPix) {
+            Money valor, StatusPagamento status, Money troco, CobrancaPix cobrancaPix,
+            String nsu) {
     }
 
     public record RecebimentoParaTela(UUID id, UUID sessaoCaixaId, Money valor,
-            FormaPagamento forma, Instant criadoEm) {
+            FormaPagamento forma, Instant criadoEm, String nsu) {
     }
 
     /**

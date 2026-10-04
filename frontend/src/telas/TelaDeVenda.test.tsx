@@ -6,6 +6,7 @@ import { caixa } from '../api/caixa'
 import { fiado } from '../api/fiado'
 import { vendas, type Comprovante, type Venda } from '../api/vendas'
 import { SessaoContext } from '../sessao/contexto'
+import type { Identidade } from '../sessao/Identidade'
 import { TelaDeVenda } from './TelaDeVenda'
 
 afterEach(() => { vi.restoreAllMocks(); sessionStorage.clear() })
@@ -34,10 +35,10 @@ const comprovante: Comprovante = {
   valorFiado: 0, saldoDevedor: 0,
 }
 
-function mostrar(perfil: 'ADMIN' | 'OPERADOR' = 'OPERADOR') {
+function mostrar(perfil: 'ADMIN' | 'OPERADOR' = 'OPERADOR', extra: Partial<Identidade> = {}) {
   render(<MemoryRouter><SessaoContext.Provider value={{
     identidade: { usuarioId: 'usuario-1', nome: 'Ana', perfil,
-      contaId: 'conta-1', nomeNegocio: 'Loja da Esquina', estoqueHabilitado: false },
+      contaId: 'conta-1', nomeNegocio: 'Loja da Esquina', estoqueHabilitado: false, ...extra },
     entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(),
   }}><TelaDeVenda /></SessaoContext.Provider></MemoryRouter>)
 }
@@ -155,11 +156,60 @@ describe('PDV no tablet', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Receber e concluir' }))
 
     await waitFor(() => expect(pagar).toHaveBeenCalledWith('venda-1', 'DINHEIRO', 12.5, 15,
-      expect.any(String)))
+      expect.any(String), undefined))
     await waitFor(() => expect(concluir).toHaveBeenCalledWith('venda-1'))
     expect(await screen.findByLabelText('Comprovante não fiscal')).toHaveTextContent('Troco: R$ 2,50')
     expect(toques).toBeLessThanOrEqual(6)
     document.removeEventListener('click', contar)
+  })
+
+  it('pede o NSU no cartão, manda o número sem os espaços e o mostra na lista de parcelas', async () => {
+    let paga = false
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([{ id: comanda.id,
+      sessaoCaixaId: comanda.sessaoCaixaId, usuarioId: comanda.usuarioId,
+      status: 'ABERTA', total: comanda.total, criadoEm: comanda.criadoEm }])
+    vi.spyOn(vendas, 'consultar').mockImplementation(async () => paga
+      ? { ...comanda, pago: 12.5, faltaPagar: 0, parcelas: [{ id: 'parcela-1', forma: 'CARTAO',
+        valor: 12.5, status: 'CONFIRMADO', troco: 0, nsu: '004512' }] }
+      : comanda)
+    const pagar = vi.spyOn(vendas, 'pagar').mockImplementation(async () => {
+      paga = true
+      return { troco: 0 }
+    })
+    mostrar('OPERADOR', { nsuObrigatorio: true })
+
+    fireEvent.click(await screen.findByRole('button', { name: /ABERTA.*retomar ou cancelar/ }))
+    expect(await screen.findByLabelText('Forma')).toHaveValue('DINHEIRO')
+    expect(screen.queryByLabelText(/NSU do comprovante/)).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Forma'), { target: { value: 'CARTAO' } })
+    const campo = screen.getByLabelText('NSU do comprovante')
+    expect(campo).toBeRequired()
+    fireEvent.change(campo, { target: { value: ' 004512 ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Registrar parcela' }))
+
+    await waitFor(() => expect(pagar).toHaveBeenCalledWith('venda-1', 'CARTAO', 12.5, undefined,
+      expect.any(String), '004512'))
+    expect(await screen.findByText('CARTAO: R$ 12,50 · NSU 004512', { normalizer: (texto) =>
+      texto.replace(/\s+/g, ' ').trim() })).toBeInTheDocument()
+  })
+
+  it('sem a exigência, o NSU do cartão é opcional e a parcela vai sem ele', async () => {
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([{ id: comanda.id,
+      sessaoCaixaId: comanda.sessaoCaixaId, usuarioId: comanda.usuarioId,
+      status: 'ABERTA', total: comanda.total, criadoEm: comanda.criadoEm }])
+    vi.spyOn(vendas, 'consultar').mockResolvedValue(comanda)
+    const pagar = vi.spyOn(vendas, 'pagar').mockResolvedValue({ troco: 0 })
+    mostrar()
+
+    fireEvent.click(await screen.findByRole('button', { name: /ABERTA.*retomar ou cancelar/ }))
+    fireEvent.change(await screen.findByLabelText('Forma'), { target: { value: 'CARTAO' } })
+    expect(screen.getByLabelText('NSU do comprovante (opcional)')).not.toBeRequired()
+    fireEvent.click(screen.getByRole('button', { name: 'Registrar parcela' }))
+
+    await waitFor(() => expect(pagar).toHaveBeenCalledWith('venda-1', 'CARTAO', 12.5, undefined,
+      expect.any(String), undefined))
   })
 
   it('mostra comanda ABERTA da sessão para retomar ou cancelar após recarga', async () => {
@@ -212,7 +262,7 @@ describe('PDV no tablet', () => {
     fireEvent.change(await screen.findByLabelText('Forma'), { target: { value: 'FIADO' } })
     fireEvent.click(screen.getByRole('button', { name: 'Registrar fiado e concluir' }))
     await waitFor(() => expect(pagar).toHaveBeenCalledWith('venda-1', 'FIADO', 12.5, undefined,
-      expect.any(String)))
+      expect.any(String), undefined))
     expect(await screen.findByLabelText('Comprovante não fiscal'))
       .toHaveTextContent('Valor pendente: R$ 12,50')
   })

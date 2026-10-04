@@ -12,5 +12,9 @@
  * filtros além do período (RF24) são do faturamento, por forma de pagamento e por operador, e do
  * ranking, por operador; o fluxo de caixa não os tem, porque é só dinheiro em espécie e o
  * operador da gaveta é assunto do histórico do caixa.
+ *
+ * <p>A conferência do cartão não é soma: é a lista dos pagamentos em cartão de um dia só, com o
+ * NSU de cada um, para bater com o extrato da operadora. Usa o mesmo {@code Periodo}, com um dia,
+ * e o mesmo filtro por operador.
  */
 package br.com.caixasimples.relatorios.application;

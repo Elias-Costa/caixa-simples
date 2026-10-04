@@ -22,6 +22,11 @@ export type Identidade = {
   nomeNegocio: string
   tipoNegocio?: string
   estoqueHabilitado: boolean
+  /**
+   * Se o cartão exige o NSU do comprovante da maquininha. Guardado para o aparelho recusar a parcela
+   * sem ele antes de gravá-la sem rede; falta na identidade guardada antes dele, e então não exige.
+   */
+  nsuObrigatorio?: boolean
   plano?: Plano
   situacaoDoPlano?: SituacaoDoPlano
   vencimentoDoPlano?: string

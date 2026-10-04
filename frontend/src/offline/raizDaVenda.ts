@@ -36,6 +36,7 @@ export type ParcelaNoDispositivo = Readonly<{
   valorCentavos: number
   status: 'CONFIRMADO' | 'PENDENTE'
   trocoCentavos: number
+  nsu: string | null
 }>
 
 export type VendaNoDispositivo = Readonly<{
@@ -72,8 +73,27 @@ export type DadosDaParcela = {
   forma: FormaPagamento
   valor: number
   valorRecebido: number | null
+  /** Falta nos gestos gravados antes de o aparelho conhecer o NSU, e vale como não informado. */
+  nsu?: string | null
 }
 export type DadosDaConclusao = { concluidoEm: string }
+
+/** O mesmo limite da coluna do NSU no servidor. */
+export const TAMANHO_MAXIMO_DO_NSU = 40
+
+/**
+ * O NSU do comprovante da maquininha como o servidor o grava: sem os espaços das pontas, e nulo
+ * quando o campo ficou em branco. A comparação do reenvio e o gesto usam o mesmo texto que o
+ * servidor vai guardar.
+ */
+export function normalizarNsu(nsu: string | null | undefined): string | null {
+  const cortado = (nsu ?? '').trim()
+  if (cortado === '') return null
+  if (cortado.length > TAMANHO_MAXIMO_DO_NSU) {
+    throw new Error(`O NSU tem ${cortado.length} caracteres; o limite é ${TAMANHO_MAXIMO_DO_NSU}.`)
+  }
+  return cortado
+}
 
 /** O maior valor de numeric(12,3), a coluna da quantidade, em milésimos. */
 const MAIOR_QUANTIDADE_EM_MILESIMOS = 999_999_999_999
@@ -222,6 +242,10 @@ export function vincularCliente(venda: VendaNoDispositivo, clienteId: string): V
 /**
  * Lança uma parcela. Não conclui a Venda, mesmo quando fecha a conta: quem conclui é concluir.
  * O troco sai do que o cliente entregou menos o valor da parcela, e só o dinheiro devolve troco.
+ *
+ * O NSU só existe no cartão. Se a Conta o exige, quem confere é vendaLocal, antes de gravar o
+ * gesto, e não esta função: ela também remonta os gestos já gravados, inclusive os de antes de a
+ * exigência ligar, e nenhum deles pode deixar de valer depois.
  */
 export function registrarPagamento(venda: VendaNoDispositivo, dados: DadosDaParcela): VendaNoDispositivo {
   exigirAberta(venda)
@@ -230,6 +254,10 @@ export function registrarPagamento(venda: VendaNoDispositivo, dados: DadosDaParc
   const valor = centavos(dados.valor, 'Valor da parcela')
   if (valor === 0) throw new Error('O valor da parcela tem de ser positivo.')
   const valorRecebido = dados.valorRecebido ?? null
+  const nsu = normalizarNsu(dados.nsu)
+  if (nsu !== null && forma !== 'CARTAO') {
+    throw new Error('O NSU só existe no pagamento em cartão.')
+  }
 
   let trocoCentavos = 0
   if (forma === 'DINHEIRO') {
@@ -256,7 +284,7 @@ export function registrarPagamento(venda: VendaNoDispositivo, dados: DadosDaParc
   }
   const parcela: ParcelaNoDispositivo = {
     id: dados.pagamentoId, forma, valorCentavos: valor,
-    status: forma === 'FIADO' ? 'PENDENTE' : 'CONFIRMADO', trocoCentavos,
+    status: forma === 'FIADO' ? 'PENDENTE' : 'CONFIRMADO', trocoCentavos, nsu,
   }
   return avancar(venda, { parcelas: [...venda.parcelas, parcela] })
 }

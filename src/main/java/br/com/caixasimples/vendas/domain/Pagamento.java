@@ -36,6 +36,12 @@ import java.util.UUID;
  * <p>O Pix integrado leva {@link CobrancaPix}: txid, chave, vencimento e código para retomar a
  * tentativa. Uma linha histórica de Pix manual continua sem esses dados.
  *
+ * <p>O cartão pode levar o NSU do comprovante da maquininha, que deixa o dono conferir a parcela
+ * contra o extrato da operadora: o cartão lançado à mão não passa pela gaveta, e o fechamento do
+ * caixa não acusaria um dinheiro lançado como cartão. O NSU entra no lançamento e não é corrigido
+ * depois, como o valor. Se a Conta o exige, quem confere é o caso de uso, porque a exigência não
+ * alcança a parcela já gravada sem ele.
+ *
  * @param id       gerado na aplicação e nunca pelo banco (RNF01)
  * @param forma    como esta parcela foi paga
  * @param valor    o valor desta parcela, não o total da venda; zero vale, negativo não
@@ -44,13 +50,14 @@ import java.util.UUID;
  * @param troco    o que voltou para o cliente nesta parcela; zero fora de dinheiro e quando o
  *                 cliente pagou o valor exato, nunca nulo
  * @param criadoEm momento do lançamento, em UTC
+ * @param nsu      só em cartão; sem espaços nas pontas, nulo quando não foi informado
  */
 public record Pagamento(UUID id, FormaPagamento forma, Money valor, StatusPagamento status,
-        Money troco, Instant criadoEm, CobrancaPix cobrancaPix) {
+        Money troco, Instant criadoEm, CobrancaPix cobrancaPix, String nsu) {
 
     public Pagamento(UUID id, FormaPagamento forma, Money valor, StatusPagamento status,
             Money troco, Instant criadoEm) {
-        this(id, forma, valor, status, troco, criadoEm, null);
+        this(id, forma, valor, status, troco, criadoEm, null, null);
     }
 
     public Pagamento {
@@ -79,6 +86,12 @@ public record Pagamento(UUID id, FormaPagamento forma, Money valor, StatusPagame
         if (cobrancaPix != null && forma != FormaPagamento.PIX) {
             throw new IllegalArgumentException("cobranca Pix exige parcela PIX");
         }
+        nsu = Nsu.normalizar(nsu);
+        if (nsu != null && forma != FormaPagamento.CARTAO) {
+            // Recusado, e não descartado em silêncio, como o valor recebido informado no cartão.
+            throw new IllegalArgumentException(
+                    "NSU so existe em cartao; parcela em " + forma + " veio com NSU.");
+        }
     }
 
     /**
@@ -91,20 +104,20 @@ public record Pagamento(UUID id, FormaPagamento forma, Money valor, StatusPagame
      * hora no servidor, ou os do balcão quando a parcela foi lançada no dispositivo sem rede.
      */
     static Pagamento novo(UUID id, FormaPagamento forma, Money valor, StatusPagamento status,
-            Money troco, Instant criadoEm) {
-        return new Pagamento(id, forma, valor, status, troco, criadoEm);
+            Money troco, Instant criadoEm, String nsu) {
+        return new Pagamento(id, forma, valor, status, troco, criadoEm, null, nsu);
     }
 
     static Pagamento pixPendente(UUID id, Money valor, CobrancaPix cobranca) {
         return new Pagamento(id, FormaPagamento.PIX, valor, StatusPagamento.PENDENTE,
-                Money.ZERO, Instant.now(), Objects.requireNonNull(cobranca));
+                Money.ZERO, Instant.now(), Objects.requireNonNull(cobranca), null);
     }
 
     Pagamento comCobranca(CobrancaPix cobranca) {
-        return new Pagamento(id, forma, valor, status, troco, criadoEm, cobranca);
+        return new Pagamento(id, forma, valor, status, troco, criadoEm, cobranca, nsu);
     }
 
     Pagamento comStatus(StatusPagamento novoStatus) {
-        return new Pagamento(id, forma, valor, novoStatus, troco, criadoEm, cobrancaPix);
+        return new Pagamento(id, forma, valor, novoStatus, troco, criadoEm, cobrancaPix, nsu);
     }
 }

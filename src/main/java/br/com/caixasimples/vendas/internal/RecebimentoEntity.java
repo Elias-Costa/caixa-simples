@@ -39,6 +39,10 @@ class RecebimentoEntity {
     @Column(name = "criado_em", nullable = false, updatable = false)
     private Instant criadoEm;
 
+    /** Só em cartão, nulo quando não foi informado. */
+    @Column(length = 40, updatable = false)
+    private String nsu;
+
     protected RecebimentoEntity() {
         // exigido pelo JPA
     }
@@ -49,6 +53,7 @@ class RecebimentoEntity {
         this.valor = recebimento.valor().valor();
         this.forma = recebimento.forma();
         this.criadoEm = recebimento.criadoEm();
+        this.nsu = recebimento.nsu();
     }
 
     static RecebimentoEntity de(Recebimento recebimento) {
@@ -56,7 +61,7 @@ class RecebimentoEntity {
     }
 
     Recebimento paraDominio() {
-        return new Recebimento(id, sessaoCaixaId, Money.de(valor), forma, criadoEm);
+        return new Recebimento(id, sessaoCaixaId, Money.de(valor), forma, criadoEm, nsu);
     }
 
     UUID getId() {

@@ -24,8 +24,9 @@ import org.hibernate.annotations.TenantId;
  * que parte dele.
  *
  * <p>{@code contaId} filtra toda consulta pelo {@link TenantId}. É o filtro desta entidade, a raiz
- * da consulta, que isola o ranking por conta (RNF05); as junções por id de venda e de produto
- * alcançam só linhas que a chave estrangeira já prende à mesma conta.
+ * da consulta, que isola o ranking por conta (RNF05); a venda e o produto da junção têm o tenant
+ * no próprio mapeamento, e as chaves estrangeiras só garantem que eles existem, não que são da
+ * mesma conta.
  */
 @Entity
 @Immutable

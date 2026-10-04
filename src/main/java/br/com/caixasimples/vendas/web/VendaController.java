@@ -109,7 +109,7 @@ class VendaController {
         Money recebido = pedido.valorRecebido() == null ? null : Money.de(pedido.valorRecebido());
         Money troco = vendas.registrarPagamentoOnline(id, pedido.pagamentoId(),
                 new SolicitacaoPagamento(pedido.forma(),
-                        Money.de(pedido.valor()), recebido));
+                        Money.de(pedido.valor()), recebido), pedido.nsu());
         return new Troco(troco.valor());
     }
 
@@ -135,7 +135,7 @@ class VendaController {
     ResponseEntity<RecebimentoRegistradoNaResposta> receber(@PathVariable UUID id,
             @Valid @RequestBody PedidoDeRecebimento pedido) {
         var registrado = vendas.receberOnline(id, pedido.recebimentoId(), Money.de(pedido.valor()),
-                pedido.forma());
+                pedido.forma(), pedido.nsu());
         return ResponseEntity.status(registrado.repetido() ? HttpStatus.OK : HttpStatus.CREATED)
                 .location(URI.create("/api/vendas/" + id + "/recebimentos/"
                         + registrado.id() + "/comprovante"))
@@ -172,16 +172,21 @@ class VendaController {
     record PedidoDeCliente(@NotNull UUID clienteId) {
     }
 
+    /** O NSU segue a regra do pedido de pagamento. */
     record PedidoDeRecebimento(@NotNull UUID recebimentoId,
             @NotNull @DecimalMin("0.01") @Digits(integer = 10, fraction = 2)
-            BigDecimal valor, @NotNull FormaPagamento forma) {
+            BigDecimal valor, @NotNull FormaPagamento forma, String nsu) {
     }
 
+    /**
+     * O NSU não leva limite de tamanho aqui: o domínio o confere depois de cortar os espaços das
+     * pontas, e um número colado com espaços em volta passaria do limite sem passar de fato.
+     */
     record PedidoDePagamento(@NotNull UUID pagamentoId, @NotNull FormaPagamento forma,
             @NotNull @DecimalMin("0.01") @Digits(integer = 10, fraction = 2)
             BigDecimal valor,
             @DecimalMin("0.00") @Digits(integer = 10, fraction = 2)
-            BigDecimal valorRecebido) {
+            BigDecimal valorRecebido, String nsu) {
     }
 
     record PedidoDePix(@NotNull UUID tentativaId,
@@ -243,10 +248,10 @@ class VendaController {
     }
 
     record RecebimentoNaResposta(UUID id, UUID sessaoCaixaId, BigDecimal valor,
-            FormaPagamento forma, Instant criadoEm) {
+            FormaPagamento forma, Instant criadoEm, String nsu) {
         static RecebimentoNaResposta de(VendaService.RecebimentoParaTela r) {
             return new RecebimentoNaResposta(r.id(), r.sessaoCaixaId(), r.valor().valor(),
-                    r.forma(), r.criadoEm());
+                    r.forma(), r.criadoEm(), r.nsu());
         }
     }
 
@@ -259,15 +264,17 @@ class VendaController {
     }
 
     record ParcelaNaResposta(UUID id, FormaPagamento forma, BigDecimal valor,
-            StatusPagamento status, BigDecimal troco, PixNaResposta pix) {
+            StatusPagamento status, BigDecimal troco, PixNaResposta pix, String nsu) {
         static ParcelaNaResposta de(VendaService.ParcelaParaTela parcela) {
             return new ParcelaNaResposta(parcela.id(), parcela.forma(), parcela.valor().valor(),
-                    parcela.status(), parcela.troco().valor(), PixNaResposta.de(parcela.cobrancaPix()));
+                    parcela.status(), parcela.troco().valor(), PixNaResposta.de(parcela.cobrancaPix()),
+                    parcela.nsu());
         }
 
         static ParcelaNaResposta de(br.com.caixasimples.vendas.domain.Pagamento parcela) {
             return new ParcelaNaResposta(parcela.id(), parcela.forma(), parcela.valor().valor(),
-                    parcela.status(), parcela.troco().valor(), PixNaResposta.de(parcela.cobrancaPix()));
+                    parcela.status(), parcela.troco().valor(), PixNaResposta.de(parcela.cobrancaPix()),
+                    parcela.nsu());
         }
     }
 

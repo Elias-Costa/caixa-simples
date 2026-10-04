@@ -13,6 +13,10 @@ import org.springframework.stereotype.Component;
  * de fora porque nada no sistema os usaria: sem comunicação com a maquininha, seriam campos
  * digitados de novo pelo operador só para serem guardados.
  *
+ * <p>O NSU do comprovante da maquininha é a exceção, porque tem uso: com ele o dono confere cada
+ * pagamento contra o extrato da operadora. Mas não passa por aqui. Ele não muda o status nem o
+ * troco, que é o que esta estratégia decide; é anotação da parcela, e quem a guarda é a venda.
+ *
  * <p>Débito e crédito são a mesma forma. Distingui-los mudaria o que o operador tem de informar no
  * balcão sem mudar nada no que o sistema faz com o valor.
  *

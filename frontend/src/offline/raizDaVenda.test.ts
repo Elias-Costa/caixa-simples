@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { GestoNaFila } from './fila'
 import {
   abrirVenda, adicionarItem, aplicarDesconto, concluir, dinheiroNaGaveta, faltaPagar, lancado,
-  projetarVendas, registrarPagamento, removerItem, total, vincularCliente,
-  type DadosDaParcela, type DadosDoItem, type VendaNoDispositivo,
+  normalizarNsu, projetarVendas, registrarPagamento, removerItem, TAMANHO_MAXIMO_DO_NSU, total,
+  vincularCliente, type DadosDaParcela, type DadosDoItem, type VendaNoDispositivo,
 } from './raizDaVenda'
 
 const agora = '2026-09-25T15:00:00.000Z'
@@ -115,6 +115,50 @@ describe('raiz da Venda no dispositivo', () => {
 
     const brinde = concluir(adicionarItem(nova(), item({ precoUnitario: 0 })), agora)
     expect(brinde.status).toBe('CONCLUIDA')
+  })
+
+  it('guarda o NSU do cartão sem os espaços das pontas e o recusa nas outras formas', () => {
+    expect(normalizarNsu(undefined)).toBeNull()
+    expect(normalizarNsu(null)).toBeNull()
+    expect(normalizarNsu('   ')).toBeNull()
+    expect(normalizarNsu(' 004512 ')).toBe('004512')
+    expect(normalizarNsu(` ${'A'.repeat(TAMANHO_MAXIMO_DO_NSU)} `)).toHaveLength(40)
+    expect(() => normalizarNsu('A'.repeat(41))).toThrow('o limite é 40')
+
+    const venda = adicionarItem(nova(), item({ precoUnitario: 10 }))
+    expect(registrarPagamento(venda, parcela({ forma: 'CARTAO', valor: 4, nsu: ' Ab-12 ' }))
+      .parcelas[0].nsu).toBe('Ab-12')
+    expect(registrarPagamento(venda, parcela({ forma: 'CARTAO', valor: 4, nsu: '  ' }))
+      .parcelas[0].nsu).toBeNull()
+    expect(() => registrarPagamento(venda, parcela({ forma: 'DINHEIRO', valor: 4, valorRecebido: 4,
+      nsu: '004512' }))).toThrow('só existe no pagamento em cartão')
+    expect(() => registrarPagamento(venda, parcela({ forma: 'FIADO', valor: 4, nsu: '004512' })))
+      .toThrow('só existe no pagamento em cartão')
+    expect(() => registrarPagamento(venda, parcela({ forma: 'CARTAO', valor: 4, nsu: 'A'.repeat(41) })))
+      .toThrow('o limite é 40')
+    // Em branco fora do cartão é não informado, e não um NSU fora do lugar.
+    expect(registrarPagamento(venda, parcela({ forma: 'DINHEIRO', valor: 4, valorRecebido: 4, nsu: ' ' }))
+      .parcelas[0].nsu).toBeNull()
+    expect(venda.parcelas).toHaveLength(0)
+  })
+
+  it('remonta o gesto de cartão gravado sem o campo do NSU', () => {
+    const gesto = (operacaoId: string, tipo: string, payload: GestoNaFila['payload'],
+      dependeDe: string[]): GestoNaFila => ({
+      operacaoId, registroId: 'venda-1', tipo, payload, dependeDe, estado: 'queued', criadoEm: agora,
+    })
+    const inicio = gesto('op-1', 'venda.iniciar', { sessaoCaixaId: 'sessao-1', criadoEm: agora }, [])
+    const cafe = gesto('op-2', 'venda.adicionarItem', { itemId: 'item-1', produtoId: 'produto-1',
+      nome: 'Café', quantidade: 1, precoUnitario: 10, desconto: 0, versaoProduto: 3 }, ['op-1'])
+    const semCampo = gesto('op-3', 'venda.registrarPagamento', { pagamentoId: 'pagamento-1',
+      forma: 'CARTAO', valor: 4, valorRecebido: null }, ['op-2'])
+    const comNsu = gesto('op-4', 'venda.registrarPagamento', { pagamentoId: 'pagamento-2',
+      forma: 'CARTAO', valor: 6, valorRecebido: null, nsu: '004512' }, ['op-3'])
+    const conclusao = gesto('op-5', 'venda.concluir', { concluidoEm: agora }, ['op-4'])
+
+    const venda = projetarVendas([inicio, cafe, semCampo, comNsu, conclusao], 'ana').get('venda-1')
+    expect(venda?.status).toBe('CONCLUIDA')
+    expect(venda?.parcelas.map((parcela) => parcela.nsu)).toEqual([null, '004512'])
   })
 
   it('põe na gaveta só o dinheiro confirmado', () => {

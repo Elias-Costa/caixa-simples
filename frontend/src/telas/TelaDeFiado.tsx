@@ -5,6 +5,7 @@ import { SemConexao } from '../api/cliente'
 import { intencaoOnline } from '../api/intencaoOnline'
 import { fiado, type Divida } from '../api/fiado'
 import type { ComprovanteDeRecebimento, FormaPagamento } from '../api/vendas'
+import { normalizarNsu } from '../offline/raizDaVenda'
 import { criarVendaLocal } from '../offline/vendaLocal'
 import { useSessao } from '../sessao/useSessao'
 import { erroDeCadastro } from './erroDeCadastro'
@@ -30,6 +31,7 @@ export function TelaDeFiado() {
   const [selecionada, setSelecionada] = useState<Divida>()
   const [valor, setValor] = useState('')
   const [forma, setForma] = useState<FormaPagamento>('DINHEIRO')
+  const [nsu, setNsu] = useState('')
   const [comprovante, setComprovante] = useState<ComprovanteDeRecebimento>()
   const [erro, setErro] = useState<string>()
   const [ocupado, setOcupado] = useState(false)
@@ -57,13 +59,16 @@ export function TelaDeFiado() {
     setOcupado(true); setErro(undefined)
     try {
       const quantia = Number(valor.replace(',', '.'))
+      // O NSU só vai no cartão, e já sem os espaços das pontas, como o servidor compara o reenvio.
+      const nsuDoRecebimento = forma === 'CARTAO' ? nsu : undefined
       const intencao = await intencaoOnline(`/api/vendas/${selecionada.vendaId}/recebimentos`,
-        { valor: quantia, forma }, identidade)
-      const registrado = await vendas.receber(selecionada.vendaId, quantia, forma, intencao.id)
+        { valor: quantia, forma, nsu: normalizarNsu(nsuDoRecebimento) }, identidade)
+      const registrado = await vendas.receber(selecionada.vendaId, quantia, forma, intencao.id,
+        nsuDoRecebimento)
       setComprovante(await vendas.comprovanteDeRecebimento(selecionada.vendaId, registrado.id))
       await carregar()
       intencao.confirmar()
-      setValor('')
+      setValor(''); setNsu('')
     } catch (falha) {
       setErro(falha instanceof SemConexao
         ? 'Sem conexão. Tente registrar o mesmo recebimento quando a rede voltar.'
@@ -95,7 +100,7 @@ export function TelaDeFiado() {
             <p>Venda {divida.vendaId.slice(0, 8)} · {dataHora.format(new Date(divida.concluidoEm))}</p>
             <p>Saldo: {moeda.format(divida.saldoDevedor)}</p></div>
           {sessao && <button type="button" className="botao botao--secundario"
-            onClick={() => { setSelecionada(divida); setComprovante(undefined); setValor('') }}>
+            onClick={() => { setSelecionada(divida); setComprovante(undefined); setValor(''); setNsu('') }}>
             Receber</button>}
         </li>)}</ul>}
     </>}
@@ -110,6 +115,10 @@ export function TelaDeFiado() {
           <option value="DINHEIRO">Dinheiro</option><option value="PIX">Pix manual</option>
           <option value="CARTAO">Cartão manual</option>
         </select></label>
+      {forma === 'CARTAO' && <label>
+        {identidade?.nsuObrigatorio ? 'NSU do comprovante' : 'NSU do comprovante (opcional)'}
+        <input value={nsu} autoComplete="off" required={identidade?.nsuObrigatorio === true}
+          onChange={(evento) => setNsu(evento.target.value)} /></label>}
       <div className="cadastro__acoes"><button className="botao" disabled={ocupado}>Registrar recebimento</button>
         <button type="button" className="botao botao--secundario"
           onClick={() => setSelecionada(undefined)}>Cancelar</button></div>

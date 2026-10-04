@@ -173,6 +173,80 @@ describe('Venda no dispositivo', () => {
     expect((await local.consultar(id)).status).toBe('ABERTA')
   })
 
+  it('grava o NSU do cartão no gesto e recusa o cartão sem ele quando a identidade traz a exigência', async () => {
+    entrar({ ...operadora, nsuObrigatorio: true })
+    rede(false)
+    await prepararCadastro()
+    const api = apiDeVendas()
+    const caixaLocal = criarCaixaLocal()
+    const { id: sessaoId } = await caixaLocal.abrir(0)
+    const local = criarVendaLocal(api, caixaLocal)
+    const { id } = await local.iniciar(sessaoId)
+    await local.adicionarItem(id, cafe, 2, 0)
+    const antes = (await listarGestos()).length
+
+    await expect(local.pagar(id, 'CARTAO', 6.25)).rejects.toThrow('exige o NSU')
+    await expect(local.pagar(id, 'CARTAO', 6.25, undefined, undefined, '   ')).rejects.toThrow('exige o NSU')
+    await expect(local.pagar(id, 'CARTAO', 6.25, undefined, undefined, 'A'.repeat(41)))
+      .rejects.toThrow('o limite é 40')
+    await expect(local.pagar(id, 'DINHEIRO', 6.25, 10, undefined, '004512'))
+      .rejects.toThrow('só existe no pagamento em cartão')
+    expect(await listarGestos()).toHaveLength(antes)
+
+    // Com a exigência, o dinheiro segue sem NSU, e o cartão grava o número sem os espaços.
+    await local.pagar(id, 'DINHEIRO', 6.25, 10)
+    await local.pagar(id, 'CARTAO', 6.25, undefined, undefined, ' 004512 ')
+    const pagamentos = (await listarGestos()).filter((gesto) => gesto.tipo === 'venda.registrarPagamento')
+    expect(pagamentos.map((gesto) => gesto.payload)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ forma: 'DINHEIRO', nsu: null }),
+      expect.objectContaining({ forma: 'CARTAO', nsu: '004512' }),
+    ]))
+    const consultada = await local.consultar(id)
+    expect(consultada.parcelas.find((parcela) => parcela.forma === 'CARTAO')?.nsu).toBe('004512')
+    expect(consultada.parcelas.find((parcela) => parcela.forma === 'DINHEIRO')?.nsu).toBeUndefined()
+    expect(api.pagar).not.toHaveBeenCalled()
+  })
+
+  it('a exigência ligada depois não impede de remontar e concluir a Venda paga sem NSU', async () => {
+    entrar(operadora)
+    rede(false)
+    await prepararCadastro()
+    const api = apiDeVendas()
+    const caixaLocal = criarCaixaLocal()
+    const { id: sessaoId } = await caixaLocal.abrir(0)
+    const local = criarVendaLocal(api, caixaLocal)
+    const { id } = await local.iniciar(sessaoId)
+    await local.adicionarItem(id, cafe, 1, 0)
+    await local.pagar(id, 'CARTAO', 6.25)
+
+    entrar({ ...operadora, nsuObrigatorio: true })
+    const recarregada = criarVendaLocal(api, criarCaixaLocal())
+    expect(await recarregada.consultar(id)).toMatchObject({ faltaPagar: 0,
+      parcelas: [{ forma: 'CARTAO', valor: 6.25 }] })
+    await recarregada.concluir(id)
+    expect((await recarregada.consultar(id)).status).toBe('CONCLUIDA')
+  })
+
+  it('com rede, confere a exigência antes do servidor e manda o NSU sem os espaços', async () => {
+    entrar({ ...operadora, nsuObrigatorio: true })
+    rede(true)
+    const api = { ...apiDeVendas(),
+      receber: vi.fn().mockResolvedValue({ id: 'recebimento-1', saldoDevedor: 0 }) }
+    api.pagar.mockResolvedValue({ troco: 0 })
+    const local = criarVendaLocal(api, criarCaixaLocal())
+
+    await expect(local.pagar('venda-do-servidor', 'CARTAO', 6.25)).rejects.toThrow('exige o NSU')
+    expect(api.pagar).not.toHaveBeenCalled()
+    await local.pagar('venda-do-servidor', 'CARTAO', 6.25, undefined, 'parcela-1', ' 004512 ')
+    expect(api.pagar).toHaveBeenCalledWith('venda-do-servidor', 'CARTAO', 6.25, undefined,
+      'parcela-1', '004512')
+    // O recebimento só acontece com rede: o servidor confere a exigência, e o aparelho só corta.
+    await local.receber('venda-do-servidor', 5, 'CARTAO', 'recebimento-1', ' 778899 ')
+    expect(api.receber).toHaveBeenCalledWith('venda-do-servidor', 5, 'CARTAO', 'recebimento-1', '778899')
+    await local.receber('venda-do-servidor', 5, 'PIX', 'recebimento-2', '  ')
+    expect(api.receber).toHaveBeenLastCalledWith('venda-do-servidor', 5, 'PIX', 'recebimento-2', undefined)
+  })
+
   it('usa a API com rede e sem pendência, e a Venda do servidor não continua sem rede', async () => {
     entrar(operadora)
     rede(true)
@@ -188,7 +262,7 @@ describe('Venda no dispositivo', () => {
     await local.concluir('venda-do-servidor')
     expect(api.adicionarItem).toHaveBeenCalledWith('venda-do-servidor', cafe.id, 1, 0)
     expect(api.pagar).toHaveBeenCalledWith('venda-do-servidor', 'CARTAO', 6.25, undefined,
-      expect.any(String))
+      expect.any(String), undefined)
     expect(api.concluir).toHaveBeenCalledWith('venda-do-servidor')
     expect(await listarGestos()).toEqual([])
 

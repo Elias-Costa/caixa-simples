@@ -70,6 +70,7 @@ class AutenticacaoController {
                 identidade.nomeNegocio(),
                 identidade.tipoNegocio(),
                 identidade.estoqueHabilitado(),
+                identidade.nsuObrigatorio(),
                 identidade.plano().name(),
                 identidade.situacaoDoPlano().name(),
                 identidade.vencimentoDoPlano(),
@@ -116,8 +117,8 @@ class AutenticacaoController {
      * @param inicioDaSuspensao omitido no plano gratuito
      */
     record RespostaDeIdentidade(UUID usuarioId, String nome, String perfil, UUID contaId,
-            String nomeNegocio, String tipoNegocio, boolean estoqueHabilitado, String plano,
-            String situacaoDoPlano, LocalDate vencimentoDoPlano, LocalDate inicioDaSuspensao,
-            List<String> recursos) {
+            String nomeNegocio, String tipoNegocio, boolean estoqueHabilitado,
+            boolean nsuObrigatorio, String plano, String situacaoDoPlano,
+            LocalDate vencimentoDoPlano, LocalDate inicioDaSuspensao, List<String> recursos) {
     }
 }

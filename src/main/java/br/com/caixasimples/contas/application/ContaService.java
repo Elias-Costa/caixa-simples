@@ -16,8 +16,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Casos de uso da Conta em operação: consultar e configurar o estoque, marcar o primeiro acesso e
- * conferir se o plano dá direito a um recurso.
+ * Casos de uso da Conta em operação: consultar e configurar o estoque e a exigência do NSU no
+ * cartão, marcar o primeiro acesso e conferir se o plano dá direito a um recurso.
  *
  * <p><strong>Nenhum método recebe a conta como parâmetro, e essa ausência é a regra.</strong>
  * {@code Conta} é a única entidade de negócio sem filtro automático de tenant, porque o id dela
@@ -26,9 +26,10 @@ import org.springframework.transaction.annotation.Transactional;
  * onde perguntar.
  *
  * <p>O módulo de estoque pergunta se a conta ligou o controle (RF17) antes de dar baixa numa
- * venda concluída. O login chama a marca do primeiro acesso (RF32) dentro deste módulo, que
- * publica o fato para o cadastro reagir sem receber uma chamada direta de escrita. Estoque e
- * relatórios perguntam pelo recurso do plano antes de cada caso de uso pago.
+ * venda concluída, e o módulo de vendas pergunta se ela exige o NSU antes de gravar um pagamento
+ * em cartão. O login chama a marca do primeiro acesso (RF32) dentro deste módulo, que publica o
+ * fato para o cadastro reagir sem receber uma chamada direta de escrita. Estoque e relatórios
+ * perguntam pelo recurso do plano antes de cada caso de uso pago.
  */
 @Service
 public class ContaService {
@@ -95,11 +96,23 @@ public class ContaService {
                         "conta do contexto nao existe: " + contaId));
     }
 
-    /** A configuração é restrita ao administrador, embora a pergunta operacional seja pública. */
+    /**
+     * Se a conta em operação exige o NSU do comprovante da maquininha no pagamento em cartão. A
+     * venda pergunta antes de gravar a parcela e o recebimento de fiado lançados com rede, e o
+     * aplicador dos gestos sem rede pergunta para marcar a parcela que chegou sem ele.
+     *
+     * @throws br.com.caixasimples.shared.TenantNaoResolvidoException se não há conta no contexto
+     */
     @Transactional(readOnly = true)
-    public boolean configuracaoDeEstoque() {
+    public boolean nsuObrigatorio() {
+        return contaDoContexto().isNsuObrigatorio();
+    }
+
+    /** A configuração é restrita ao administrador, embora as perguntas operacionais sejam públicas. */
+    @Transactional(readOnly = true)
+    public ConfiguracaoDaConta configuracao() {
         UsuarioContext.exigirAdmin();
-        return estoqueHabilitado();
+        return ConfiguracaoDaConta.de(contaDoContexto());
     }
 
     /**
@@ -113,7 +126,7 @@ public class ContaService {
      * @throws PlanoSuspensoException se liga com os recursos pagos suspensos
      */
     @Transactional
-    public boolean definirEstoqueHabilitado(boolean habilitado) {
+    public ConfiguracaoDaConta definirEstoqueHabilitado(boolean habilitado) {
         UsuarioContext.exigirAdmin();
         ContaId contaId = TenantContext.exigirAtual();
         Conta conta = contas.buscarParaAtualizar(contaId.valor())
@@ -126,7 +139,34 @@ public class ContaService {
             throw new EstoqueComMovimentosException();
         }
         conta.definirEstoqueHabilitado(habilitado);
-        return conta.isEstoqueHabilitado();
+        return ConfiguracaoDaConta.de(conta);
+    }
+
+    /**
+     * Liga ou desliga a exigência do NSU no pagamento em cartão da Conta autenticada.
+     *
+     * <p>Não pergunta pelo plano: o campo e a exigência são da venda, que todo plano tem, e um NSU
+     * anotado em qualquer plano aparece na conferência quando o plano a incluir. Ligar não alcança
+     * o passado; o pagamento já gravado sem NSU continua válido. A linha fica travada como na
+     * configuração do estoque, para duas mudanças simultâneas não se sobreporem.
+     */
+    @Transactional
+    public ConfiguracaoDaConta definirNsuObrigatorio(boolean obrigatorio) {
+        UsuarioContext.exigirAdmin();
+        ContaId contaId = TenantContext.exigirAtual();
+        Conta conta = contas.buscarParaAtualizar(contaId.valor())
+                .orElseThrow(() -> new IllegalStateException(
+                        "conta do contexto nao existe: " + contaId));
+        conta.definirNsuObrigatorio(obrigatorio);
+        return ConfiguracaoDaConta.de(conta);
+    }
+
+    /** O que o administrador configura na Conta, como a tela o mostra. */
+    public record ConfiguracaoDaConta(boolean estoqueHabilitado, boolean nsuObrigatorio) {
+
+        private static ConfiguracaoDaConta de(Conta conta) {
+            return new ConfiguracaoDaConta(conta.isEstoqueHabilitado(), conta.isNsuObrigatorio());
+        }
     }
 
     /**

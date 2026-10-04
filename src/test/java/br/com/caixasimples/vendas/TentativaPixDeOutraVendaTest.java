@@ -155,7 +155,7 @@ class TentativaPixDeOutraVendaTest extends TesteDeIntegracao {
         UUID parcelaEmDinheiro = UUID.randomUUID();
         balcao.conta().comoUsuario(() -> {
             vendas.registrarPagamentoOnline(vendaA, parcelaEmDinheiro,
-                    SolicitacaoPagamento.emDinheiro(VALOR, Money.de("20.00")));
+                    SolicitacaoPagamento.emDinheiro(VALOR, Money.de("20.00")), null);
             vendas.concluir(vendaA);
         });
         cobrancasDevolvem("codigo-pix-da-venda-b");

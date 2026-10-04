@@ -312,6 +312,12 @@ body {
 .relatorios__linhas li > :last-child, .relatorios__linha > :last-child { white-space: nowrap; }
 .relatorios__soma { font-weight: 700; }
 .relatorios__nota { margin-bottom: 0; color: #52605b; font-size: 0.85rem; }
+/* A conferência do cartão põe cada pagamento em duas linhas: o NSU tem até 40 caracteres e não cabe
+   ao lado do valor na tela estreita. */
+.relatorios__conferencia { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.relatorios__conferencia li { display: grid; gap: 2px; padding-bottom: 8px; border-bottom: 1px solid var(--cor-borda); overflow-wrap: anywhere; }
+.relatorios__conferencia li:last-child { padding-bottom: 0; border-bottom: 0; }
+.relatorios__sem-nsu { color: var(--cor-erro); font-weight: 700; }
 
 .estoque { max-width: 1100px; margin: 0 auto; }
 .estoque__lista { padding-left: 20px; display: grid; gap: 8px; }

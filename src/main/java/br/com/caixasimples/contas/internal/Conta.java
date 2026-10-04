@@ -58,6 +58,9 @@ public class Conta {
     @Column(name = "estoque_habilitado", nullable = false)
     private boolean estoqueHabilitado;
 
+    @Column(name = "nsu_obrigatorio", nullable = false)
+    private boolean nsuObrigatorio;
+
     @Column(name = "catalogo_inicial_aplicado", nullable = false)
     private boolean catalogoInicialAplicado;
 
@@ -78,6 +81,7 @@ public class Conta {
         this.tipoNegocio = tipoNegocio;
         this.plano = Objects.requireNonNull(plano, "plano nao pode ser nulo");
         this.estoqueHabilitado = false;
+        this.nsuObrigatorio = false;
         this.catalogoInicialAplicado = false;
         this.criadoEm = Instant.now();
     }
@@ -112,6 +116,14 @@ public class Conta {
     /** Negócio baseado em serviço opera com o módulo de estoque desligado (RF17). */
     public boolean isEstoqueHabilitado() {
         return estoqueHabilitado;
+    }
+
+    /**
+     * Se o pagamento em cartão lançado com rede exige o NSU do comprovante da maquininha. Nasce
+     * desligada, para ninguém receber um campo obrigatório sem pedir.
+     */
+    public boolean isNsuObrigatorio() {
+        return nsuObrigatorio;
     }
 
     public boolean isCatalogoInicialAplicado() {
@@ -252,5 +264,10 @@ public class Conta {
     /** Liga ou desliga o controle de estoque desta conta (RF17). */
     public void definirEstoqueHabilitado(boolean habilitado) {
         this.estoqueHabilitado = habilitado;
+    }
+
+    /** Liga ou desliga a exigência do NSU no pagamento em cartão. */
+    public void definirNsuObrigatorio(boolean obrigatorio) {
+        this.nsuObrigatorio = obrigatorio;
     }
 }

@@ -43,4 +43,18 @@ describe('chamadas dos relatórios', () => {
     await relatorios.fluxoDeCaixa('2026-09-01', '2026-09-15')
     expect(caminhoPedido(fluxo)).toBe('/api/relatorios/fluxo-de-caixa?inicio=2026-09-01&fim=2026-09-15')
   })
+
+  it('a conferência do cartão leva um dia e, quando houver, o operador', async () => {
+    gravarToken('token-de-teste')
+    const daConta = vi.fn().mockResolvedValue(respostaVazia())
+    vi.stubGlobal('fetch', daConta)
+    await relatorios.conferenciaDoCartao('2026-09-15')
+    expect(caminhoPedido(daConta)).toBe('/api/relatorios/conferencia-do-cartao?dia=2026-09-15')
+
+    const doOperador = vi.fn().mockResolvedValue(respostaVazia())
+    vi.stubGlobal('fetch', doOperador)
+    await relatorios.conferenciaDoCartao('2026-09-15', 'usuario-1')
+    expect(caminhoPedido(doOperador))
+      .toBe('/api/relatorios/conferencia-do-cartao?dia=2026-09-15&operadorId=usuario-1')
+  })
 })

@@ -4,6 +4,7 @@ import br.com.caixasimples.cadastro.application.ConsultaDeClienteParaVenda.Clien
 import br.com.caixasimples.cadastro.application.ProdutoNaoEncontradoException;
 import br.com.caixasimples.cadastro.application.ProdutoService;
 import br.com.caixasimples.cadastro.application.ProdutoService.EstoqueDoProduto;
+import br.com.caixasimples.contas.application.ContaService;
 import br.com.caixasimples.pagamentos.FormaPagamento;
 import br.com.caixasimples.pagamentos.application.FormaDePagamentoNaoSuportadaException;
 import br.com.caixasimples.pagamentos.domain.SolicitacaoPagamento;
@@ -16,6 +17,7 @@ import br.com.caixasimples.vendas.SessaoCaixaNaoEncontradaParaVendaException;
 import br.com.caixasimples.vendas.application.VendaNaoEncontradaException;
 import br.com.caixasimples.vendas.application.VendaService;
 import br.com.caixasimples.vendas.domain.ItemVenda;
+import br.com.caixasimples.vendas.domain.Nsu;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
@@ -45,6 +47,11 @@ import tools.jackson.databind.ObjectMapper;
  * administrador confere a contagem. A baixa acontece dentro da conclusão, então o saldo lido logo
  * depois já a conta. Pix não entra: a cobrança depende do provedor, com o cliente presente.
  *
+ * <p>A parcela em cartão que chega sem NSU numa Conta que o exige é gravada sem ele e aplicada com
+ * revisão. O pagamento aconteceu, e recusá-lo deixaria de fora uma venda de fato; aceitá-lo em
+ * silêncio abriria um jeito de contornar a exigência lançando sem rede. A exigência é a da Conta
+ * na chegada do gesto, porque o dispositivo sem rede pode não saber que ela ligou.
+ *
  * <p>O início e a conclusão gravam o instante que leram do conteúdo e o devolvem ao lote, que o
  * confere contra o relógio do servidor; o da conclusão decide o dia do faturamento e o do dinheiro
  * na gaveta. O item e a parcela gravam o instante da própria operação, que o lote confere sempre.
@@ -55,13 +62,15 @@ class GestosDaVenda implements AplicadorDeOperacoes {
     private final VendaService vendas;
     private final VendaRepository linhas;
     private final ProdutoService produtos;
+    private final ContaService contas;
     private final ObjectMapper json;
 
     GestosDaVenda(VendaService vendas, VendaRepository linhas, ProdutoService produtos,
-            ObjectMapper json) {
+            ContaService contas, ObjectMapper json) {
         this.vendas = vendas;
         this.linhas = linhas;
         this.produtos = produtos;
+        this.contas = contas;
         this.json = json;
     }
 
@@ -140,11 +149,16 @@ class GestosDaVenda implements AplicadorDeOperacoes {
         }
         Money recebido = parcela.valorRecebido() == null
                 ? null : operacao.dinheiro(parcela.valorRecebido(), "valorRecebido");
+        Money valor = operacao.dinheiro(parcela.valor(), "valor");
+        String nsu = Nsu.normalizar(parcela.nsu());
         vendas.registrarPagamento(operacao.registroId(),
                 operacao.exigir(parcela.pagamentoId(), "pagamentoId"),
-                new SolicitacaoPagamento(forma, operacao.dinheiro(parcela.valor(), "valor"),
-                        recebido),
-                operacao.criadoEm());
+                new SolicitacaoPagamento(forma, valor, recebido), operacao.criadoEm(), nsu);
+        if (forma == FormaPagamento.CARTAO && nsu == null && contas.nsuObrigatorio()) {
+            return Aplicacao.comRevisao(null, "a parcela de " + valor + " em cartao chegou sem o"
+                    + " NSU que a Conta exige; confira o comprovante da maquininha e o extrato da"
+                    + " operadora");
+        }
         return Aplicacao.aplicada(null);
     }
 
@@ -208,9 +222,12 @@ class GestosDaVenda implements AplicadorDeOperacoes {
     record Vinculo(UUID clienteId) {
     }
 
-    /** O conteúdo de {@code venda.registrarPagamento}; o troco é recalculado no servidor. */
+    /**
+     * O conteúdo de {@code venda.registrarPagamento}; o troco é recalculado no servidor. O NSU é
+     * nulo quando o dispositivo não o enviou.
+     */
     record Parcela(UUID pagamentoId, FormaPagamento forma, BigDecimal valor,
-            BigDecimal valorRecebido) {
+            BigDecimal valorRecebido, String nsu) {
     }
 
     /** O conteúdo de {@code venda.concluir}. */

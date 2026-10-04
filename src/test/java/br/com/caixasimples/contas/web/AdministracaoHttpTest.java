@@ -157,6 +157,62 @@ class AdministracaoHttpTest extends TesteDeIntegracao {
     }
 
     @Test
+    void exigenciaDoNsuEPorContaLivreEmTodoPlanoEChegaAoAparelho() throws Exception {
+        ContaCriada primeira = criador.criar("Café da Praça", SENHA);
+        ContaCriada segunda = criador.criar("Café da Rua", SENHA);
+        http.perform(get("/api/conta/configuracao").with(autenticador.como(primeira)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.estoqueHabilitado").value(false))
+                .andExpect(jsonPath("$.nsuObrigatorio").value(false));
+
+        // O plano grátis liga: a exigência é da venda, que todo plano tem.
+        http.perform(put("/api/conta/configuracao/nsu").with(autenticador.como(primeira))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nsuObrigatorio\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nsuObrigatorio").value(true))
+                .andExpect(jsonPath("$.estoqueHabilitado").value(false));
+        http.perform(get("/api/auth/eu").with(autenticador.como(primeira)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nsuObrigatorio").value(true));
+        http.perform(get("/api/conta/configuracao").with(autenticador.como(segunda)))
+                .andExpect(jsonPath("$.nsuObrigatorio").value(false));
+        http.perform(get("/api/auth/eu").with(autenticador.como(segunda)))
+                .andExpect(jsonPath("$.nsuObrigatorio").value(false));
+        // A segunda muda a própria exigência, mesmo mandando o id da primeira no corpo, que é
+        // ignorado: a Conta é sempre a do token (RNF05).
+        http.perform(put("/api/conta/configuracao/nsu").with(autenticador.como(segunda))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nsuObrigatorio\":false,\"contaId\":\""
+                                + primeira.contaId().valor() + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nsuObrigatorio").value(false));
+        http.perform(get("/api/auth/eu").with(autenticador.como(primeira)))
+                .andExpect(jsonPath("$.nsuObrigatorio").value(true));
+
+        // A rota do estoque responde a configuração inteira, com a exigência intacta.
+        criador.contratar(primeira.contaId(), Plano.COMPLETO);
+        http.perform(put("/api/conta/configuracao").with(autenticador.como(primeira))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"estoqueHabilitado\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.estoqueHabilitado").value(true))
+                .andExpect(jsonPath("$.nsuObrigatorio").value(true));
+
+        http.perform(put("/api/conta/configuracao/nsu").with(autenticador.como(primeira))
+                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isBadRequest());
+        http.perform(put("/api/conta/configuracao/nsu").with(autenticador.como(primeira))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nsuObrigatorio\":false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nsuObrigatorio").value(false))
+                .andExpect(jsonPath("$.estoqueHabilitado").value(true));
+        http.perform(get("/api/auth/eu").with(autenticador.como(primeira)))
+                .andExpect(jsonPath("$.nsuObrigatorio").value(false));
+    }
+
+    @Test
     void operadorRecebe403EmTodasAsRotasDeAdministracao() throws Exception {
         ContaCriada operador = criador.criar("Ponto do Operador", SENHA, Perfil.OPERADOR, true);
         http.perform(get("/api/usuarios").with(autenticador.como(operador)))
@@ -175,5 +231,13 @@ class AdministracaoHttpTest extends TesteDeIntegracao {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"estoqueHabilitado\":true}"))
                 .andExpect(status().isForbidden());
+        http.perform(put("/api/conta/configuracao/nsu").with(autenticador.como(operador))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nsuObrigatorio\":true}"))
+                .andExpect(status().isForbidden());
+        // O operador não configura, mas o aparelho dele recebe a exigência para o balcão.
+        http.perform(get("/api/auth/eu").with(autenticador.como(operador)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nsuObrigatorio").value(false));
     }
 }

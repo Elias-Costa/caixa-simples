@@ -14,8 +14,9 @@ import java.util.Objects;
  * para a mesma regra ficar diferente. Visibilidade de pacote: é forma interna dos casos de uso,
  * e as respostas deles seguem devolvendo os dois dias como {@link LocalDate}.
  *
- * <p>Sem limite de tamanho: cada relatório é uma agregação, e devolve o mesmo punhado de linhas
- * seja de um dia ou de um ano.
+ * <p>Sem limite de tamanho: cada relatório de período é uma agregação, e devolve o mesmo punhado
+ * de linhas seja de um dia ou de um ano. A conferência do cartão, que lista em vez de somar, usa o
+ * período de um dia só, com o início igual ao fim.
  *
  * @param inicio o primeiro dia, obrigatório
  * @param fim    o último dia, obrigatório e incluído; pode ser o mesmo que o primeiro

@@ -98,12 +98,20 @@ public record GestoDeTeste(UUID operacaoId, UUID registroId, String tipo,
                 BigDecimal.ZERO, "versaoProduto", 0), depende);
     }
 
-    /** Uma parcela sem troco, em cartão. */
+    /** Uma parcela sem troco, em cartão, sem o campo do NSU, como os gestos que não o trazem. */
     public static GestoDeTeste parcelaNoCartao(UUID vendaId, String valor,
             GestoDeTeste... depende) {
         return de("venda.registrarPagamento", vendaId, conteudo("pagamentoId", UUID.randomUUID(),
                 "forma", "CARTAO", "valor", new BigDecimal(valor),
                 "valorRecebido", null), depende);
+    }
+
+    /** Uma parcela em cartão com o NSU anotado no balcão. */
+    public static GestoDeTeste parcelaNoCartaoComNsu(UUID vendaId, String valor, String nsu,
+            GestoDeTeste... depende) {
+        return de("venda.registrarPagamento", vendaId, conteudo("pagamentoId", UUID.randomUUID(),
+                "forma", "CARTAO", "valor", new BigDecimal(valor), "valorRecebido", null,
+                "nsu", nsu), depende);
     }
 
     /** A conclusão com o instante do balcão de agora. */

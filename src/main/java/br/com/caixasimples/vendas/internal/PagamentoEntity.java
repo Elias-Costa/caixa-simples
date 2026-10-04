@@ -73,6 +73,10 @@ class PagamentoEntity {
     @Column(name = "pix_estado")
     private CobrancaPix.Estado pixEstado;
 
+    /** Só em cartão, nulo quando não foi informado; gravado no lançamento e nunca alterado. */
+    @Column(length = 40, updatable = false)
+    private String nsu;
+
     protected PagamentoEntity() {
         // exigido pelo JPA
     }
@@ -84,6 +88,7 @@ class PagamentoEntity {
         this.status = pagamento.status();
         this.troco = pagamento.troco().valor();
         this.criadoEm = pagamento.criadoEm();
+        this.nsu = pagamento.nsu();
         atualizarCobranca(pagamento.cobrancaPix());
     }
 
@@ -97,7 +102,7 @@ class PagamentoEntity {
                 : new CobrancaPix(pixTxid, pixChaveRecebedora, pixExpiraEm,
                         pixCopiaECola, pixEstado);
         return new Pagamento(id, forma, Money.de(valor), status, Money.de(troco), criadoEm,
-                cobranca);
+                cobranca, nsu);
     }
 
     void atualizarCobranca(CobrancaPix cobranca) {

@@ -180,7 +180,8 @@ public class AutenticacaoService {
         LocalDate hoje = LocalDate.now(FusoDeReferencia.DO_BALCAO);
         return new Identidade(usuario.getId(), usuario.getNome(), atual.perfil(),
                 conta.getId(), conta.getNomeNegocio(), conta.getTipoNegocio(),
-                conta.isEstoqueHabilitado(), conta.getPlano(), conta.situacao(hoje),
+                conta.isEstoqueHabilitado(), conta.isNsuObrigatorio(), conta.getPlano(),
+                conta.situacao(hoje),
                 conta.getProximoVencimento(), conta.inicioDaSuspensao(), conta.recursos(hoje));
     }
 
@@ -192,10 +193,13 @@ public class AutenticacaoService {
      * @param vencimentoDoPlano nulo no plano gratuito
      * @param inicioDaSuspensao o primeiro dia sem os recursos pagos se não houver renovação; nulo
      *                          no plano gratuito
+     * @param nsuObrigatorio    se o pagamento em cartão exige o NSU; o aparelho guarda o valor
+     *                          para recusar a parcela sem ele antes de gravá-la sem rede
      * @param recursos          os recursos do plano que valem hoje
      */
     public record Identidade(UUID usuarioId, String nome, Perfil perfil, UUID contaId,
-            String nomeNegocio, String tipoNegocio, boolean estoqueHabilitado, Plano plano,
+            String nomeNegocio, String tipoNegocio, boolean estoqueHabilitado,
+            boolean nsuObrigatorio, Plano plano,
             SituacaoDoPlano situacaoDoPlano, LocalDate vencimentoDoPlano,
             LocalDate inicioDaSuspensao, Set<RecursoDoPlano> recursos) {
     }
