@@ -12,18 +12,29 @@ import br.com.caixasimples.caixa.application.SessaoCaixaService;
 import br.com.caixasimples.contas.AutenticadorDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
+import br.com.caixasimples.contas.CriadorDeContaDeTeste.UsuarioCriado;
 import br.com.caixasimples.contas.Plano;
+import br.com.caixasimples.pagamentos.FormaPagamento;
 import br.com.caixasimples.shared.FusoDeReferencia;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.Perfil;
 import br.com.caixasimples.vendas.CriadorDeVendaDeTeste;
+import br.com.caixasimples.vendas.CriadorDeVendaDeTeste.ItemDeTeste;
+import br.com.caixasimples.vendas.CriadorDeVendaDeTeste.ParcelaDeTeste;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
-/** O contrato HTTP do faturamento preserva o isolamento e a recusa por perfil (RF21, RNF05). */
+/**
+ * O contrato HTTP do faturamento preserva o isolamento e a recusa por perfil (RF21, RNF05), e a
+ * rota do período aceita os filtros por forma e operador (RF24).
+ */
 class FaturamentoHttpTest extends TesteDeIntegracao {
 
     private static final String SENHA = "uma senha longa de teste";
@@ -91,6 +102,72 @@ class FaturamentoHttpTest extends TesteDeIntegracao {
                         .param("fim", DIA.minusDays(1).toString())
                         .with(autenticador.como(admin)))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void rotaDoPeriodoFiltraPorFormaEOperadorSemAtravessarContas() throws Exception {
+        ContaCriada conta = criador.criar("Loja dos Filtros", SENHA);
+        criador.contratar(conta.contaId(), Plano.CAIXA_SIMPLES);
+        ContaCriada outra = criador.criar("Loja de Fora", SENHA);
+        UsuarioCriado operador = criador.criarOperadorEm(conta.contaId(), "Atendente");
+        Cenario doTitular = prepararCenario(conta);
+        UUID caixaDoOperador = operador.comoUsuario(() -> sessoes.abrir(Money.ZERO));
+        Instant noDia = FusoDeReferencia.inicioDoDia(DIA).plusSeconds(3600);
+
+        // O titular vende trinta, dez em dinheiro e vinte em Pix; o operador, sete no cartão.
+        vendas.criarConcluidaComParcelasEm(conta.contaId(), doTitular.sessaoId(),
+                conta.usuarioId(),
+                List.of(ItemDeTeste.unitario(doTitular.produtoId(), Money.de("30.00"))),
+                List.of(ParcelaDeTeste.confirmada(FormaPagamento.DINHEIRO, Money.de("10.00")),
+                        ParcelaDeTeste.confirmada(FormaPagamento.PIX, Money.de("20.00"))),
+                noDia);
+        vendas.criarConcluidaComParcelasEm(conta.contaId(), caixaDoOperador,
+                operador.usuarioId(),
+                List.of(ItemDeTeste.unitario(doTitular.produtoId(), Money.de("7.00"))),
+                List.of(ParcelaDeTeste.confirmada(FormaPagamento.CARTAO, Money.de("7.00"))),
+                noDia.plusSeconds(60));
+
+        esperar(faturamentoDoDia(conta, null, null), 37.0, 2);
+        // As quatro formas somam o total; a venda dividida conta uma vez em cada forma que usou.
+        esperar(faturamentoDoDia(conta, "DINHEIRO", null), 10.0, 1);
+        esperar(faturamentoDoDia(conta, "PIX", null), 20.0, 1);
+        esperar(faturamentoDoDia(conta, "CARTAO", null), 7.0, 1);
+        esperar(faturamentoDoDia(conta, "FIADO", null), 0.0, 0);
+        esperar(faturamentoDoDia(conta, null, operador.usuarioId()), 7.0, 1);
+        esperar(faturamentoDoDia(conta, "PIX", conta.usuarioId()), 20.0, 1);
+        esperar(faturamentoDoDia(conta, "PIX", operador.usuarioId()), 0.0, 0);
+        // O id existe, mas é de outra Conta: zero, e não a venda de lá nem erro (RNF05).
+        esperar(faturamentoDoDia(conta, null, outra.usuarioId()), 0.0, 0);
+
+        faturamentoDoDia(conta, "BOLETO", null).andExpect(status().isBadRequest());
+        http.perform(get("/api/relatorios/faturamento")
+                        .param("inicio", DIA.toString()).param("fim", DIA.toString())
+                        .param("operadorId", "nao-e-um-id")
+                        .with(autenticador.como(conta)))
+                .andExpect(status().isBadRequest());
+    }
+
+    /** O faturamento do dia pela rota do período, com os filtros que não forem nulos. */
+    private ResultActions faturamentoDoDia(ContaCriada conta, String forma, UUID operadorId)
+            throws Exception {
+        MockHttpServletRequestBuilder pedido = get("/api/relatorios/faturamento")
+                .param("inicio", DIA.toString())
+                .param("fim", DIA.toString())
+                .with(autenticador.como(conta));
+        if (forma != null) {
+            pedido.param("forma", forma);
+        }
+        if (operadorId != null) {
+            pedido.param("operadorId", operadorId.toString());
+        }
+        return http.perform(pedido);
+    }
+
+    private static void esperar(ResultActions resposta, double total, int quantidadeDeVendas)
+            throws Exception {
+        resposta.andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(total))
+                .andExpect(jsonPath("$.quantidadeDeVendas").value(quantidadeDeVendas));
     }
 
     private Cenario prepararCenario(ContaCriada conta) {

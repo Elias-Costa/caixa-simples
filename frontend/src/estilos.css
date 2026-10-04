@@ -299,8 +299,19 @@ body {
 .relatorios__cartao h3 { margin-top: 0; }
 .relatorios__formulario { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; }
 .relatorios__formulario label { display: grid; gap: 8px; }
-.relatorios__formulario input { min-height: var(--toque); padding: 8px; border: 1px solid var(--cor-borda); border-radius: var(--raio); font: inherit; }
+.relatorios__formulario input, .relatorios__formulario select { min-height: var(--toque); padding: 8px; border: 1px solid var(--cor-borda); border-radius: var(--raio); font: inherit; }
 .relatorios__total { margin: 8px 0; font-size: 2rem; font-weight: 700; }
+.relatorios__cartoes { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--espaco); align-items: start; }
+.relatorios__cartoes .relatorios__cartao { margin-bottom: 0; }
+.relatorios__cartao h4 { margin: 16px 0 8px; }
+.relatorios__linhas, .relatorios__ranking { display: grid; gap: 8px; margin: 0; }
+.relatorios__linhas { list-style: none; padding: 0; }
+.relatorios__ranking { padding-left: 24px; }
+.relatorios__linhas li, .relatorios__linha { display: flex; justify-content: space-between; gap: 12px; overflow-wrap: anywhere; }
+/* O valor fica numa linha só, à direita; quem quebra, na tela estreita, é o rótulo ou o nome. */
+.relatorios__linhas li > :last-child, .relatorios__linha > :last-child { white-space: nowrap; }
+.relatorios__soma { font-weight: 700; }
+.relatorios__nota { margin-bottom: 0; color: #52605b; font-size: 0.85rem; }
 
 .estoque { max-width: 1100px; margin: 0 auto; }
 .estoque__lista { padding-left: 20px; display: grid; gap: 8px; }
