@@ -124,6 +124,31 @@ describe('fila local de gestos', () => {
     ].sort())
   })
 
+  it('o descarte de outra Conta ou de outro usuário não toca os gestos enviados da Ana', async () => {
+    entrar(ana)
+    const vendaId = '00000000-0000-4000-8000-000000000035'
+    const suprimento = await enfileirarGesto({ tipo: 'caixa.suprir', registroId: sessaoId, payload: { valor: 5 } })
+    const inicio = await enfileirarGesto({ tipo: 'venda.iniciar', registroId: vendaId,
+      payload: { sessaoCaixaId: sessaoId, criadoEm: new Date().toISOString() } })
+    await aplicados(suprimento, inicio)
+    const daAna = [suprimento.operacaoId, inicio.operacaoId].sort()
+
+    // Outra Conta com o mesmo id de usuário, e outro usuário da mesma Conta, guardam depois dos
+    // resultados da Ana uma leitura do mesmo caixa e a mesma Venda.
+    for (const outro of [{ ...ana, contaId: 'conta-b' }, { ...ana, usuarioId: 'bia' }]) {
+      entrar(outro)
+      await caixaLido(99)
+      await guardarRetratoDaVenda(vendaId, { id: vendaId })
+    }
+
+    entrar(ana)
+    expect((await listarGestos()).map((gesto) => gesto.operacaoId).sort()).toEqual(daAna)
+    // As leituras da própria Ana, sim, os descartam.
+    await caixaLido(99)
+    await guardarRetratoDaVenda(vendaId, { id: vendaId })
+    expect(await listarGestos()).toEqual([])
+  })
+
   it('atualiza o banco local existente sem perder gestos ao criar os retratos', async () => {
     const antigo = await openDB('caixa-simples-offline', 1, {
       upgrade(banco) {

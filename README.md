@@ -688,7 +688,9 @@ exige. Não há revogação de token, e sim de usuário: inativar alguém derrub
 requisição seguinte. No aplicativo, o token e a identidade de quem entrou ficam guardados no
 dispositivo, e é isso que permite abrir o aplicativo sem rede. Cada login inicia uma sessão nova
 no navegador; token e identidade ficam vinculados a ela, cada aba só usa a sessão com que abriu,
-e uma troca em outra aba remove a identidade anterior da tela. O custo aceito, e escrito, é que
+e uma troca em outra aba remove a identidade anterior da tela. O que uma escrita começada antes de
+uma troca de sessão ainda faria no aparelho, como marcar e reler o caixa ou guardar a identidade,
+não alcança a sessão que entrou depois, na mesma aba ou em outra. O custo aceito, e escrito, é que
 quem pega o tablet destravado entra até o token expirar. O cliente nunca envia conta nem perfil em
 requisição nenhuma, e a navegação por perfil apenas esconde o que o servidor recusaria: a
 autorização continua sendo do caso de uso.

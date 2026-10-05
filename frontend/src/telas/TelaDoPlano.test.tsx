@@ -3,9 +3,14 @@ import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ErroDaApi } from '../api/cliente'
 import { contas, type EstadoDoPlano, type PedidoDePlano } from '../api/contas'
-import { gravarToken } from '../sessao/armazenamento'
+import {
+  fixarSessaoDaAba, gravarIdentidade, gravarToken, lerIdentidade, sessaoAtual,
+} from '../sessao/armazenamento'
 import { SessaoContext } from '../sessao/contexto'
 import type { Identidade } from '../sessao/Identidade'
+import { SessaoProvider } from '../sessao/SessaoProvider'
+import { tokenComExpiracao } from '../sessao/tokenDeTeste'
+import { useSessao } from '../sessao/useSessao'
 import { itensDoMenu } from '../shell/menu'
 import { TelaDoPlano } from './TelaDoPlano'
 
@@ -34,6 +39,25 @@ const pedido: PedidoDePlano = {
   situacao: 'ABERTO', criadoEm: '2026-10-03T12:00:00Z',
 }
 
+/** O que o servidor responde ao código certo do pedido. */
+const completoEmDia: EstadoDoPlano = {
+  plano: 'COMPLETO', situacao: 'EM_DIA', vencimento: '2026-11-03',
+  inicioDaSuspensao: '2026-11-11', recursos: ['RELATORIOS', 'ESTOQUE', 'MULTIUSUARIO'],
+  mensalidadeCaixaSimples: 30, mensalidadeCompleto: 70,
+  propostas: [{ tipo: 'RENOVACAO', plano: 'COMPLETO', valor: 70,
+    periodoInicio: '2026-11-03', periodoFim: '2026-12-03' }],
+}
+
+const adminNoCompleto: Identidade = {
+  ...admin, plano: 'COMPLETO', situacaoDoPlano: 'EM_DIA', recursos: ['RELATORIOS', 'ESTOQUE', 'MULTIUSUARIO'],
+}
+
+const daContaB: Identidade = {
+  usuarioId: 'bia', nome: 'Bia', perfil: 'ADMIN', contaId: 'conta-b',
+  nomeNegocio: 'Loja da Esquina', estoqueHabilitado: false, plano: 'GRATIS',
+  situacaoDoPlano: 'SEM_MENSALIDADE', recursos: [],
+}
+
 /** O formato de moeda separa o símbolo do número com espaço inseparável; \s também o aceita. */
 const pedirCompleto = /^Pedir o Completo \(R\$\s70,00 por mês\)$/
 const pedirCaixaSimples = /^Pedir o Caixa Simples \(R\$\s30,00 por mês\)$/
@@ -46,6 +70,34 @@ function ComSessao() {
     <p>Menu: {itensDoMenu(identidade).map((item) => item.rotulo).join(', ')}</p>
     <TelaDoPlano />
   </SessaoContext.Provider>
+}
+
+/** A Ana entra; a pergunta da abertura ao servidor fica sem resposta, e a identidade só muda pela tela. */
+function abrirComoAna(): string {
+  gravarToken(tokenComExpiracao(new Date(Date.now() + 24 * 60 * 60 * 1000)))
+  gravarIdentidade(admin)
+  vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise<Response>(() => undefined)))
+  return sessaoAtual()!
+}
+
+/** Outra aba entra na Conta B; esta continua presa à sessão com que abriu. */
+function outraAbaEntraNaContaB(sessaoDestaAba: string): void {
+  gravarToken(tokenComExpiracao(new Date(Date.now() + 23 * 60 * 60 * 1000)))
+  gravarIdentidade(daContaB)
+  fixarSessaoDaAba(sessaoDestaAba)
+}
+
+function MenuDaAba() {
+  const { identidade } = useSessao()
+  return <p>Menu: {identidade ? itensDoMenu(identidade).map((item) => item.rotulo).join(', ') : 'ninguém'}</p>
+}
+
+/** A tela com o provedor de sessão de verdade, que grava a identidade da sessão da aba. */
+function PlanoComProvedorReal() {
+  return <SessaoProvider>
+    <MenuDaAba />
+    <TelaDoPlano />
+  </SessaoProvider>
 }
 
 describe('tela do plano', () => {
@@ -98,17 +150,8 @@ describe('tela do plano', () => {
   it('aplica o código, relê a identidade e o menu passa a mostrar os recursos do plano', async () => {
     gravarToken('token-admin')
     vi.spyOn(contas, 'plano').mockResolvedValue({ ...gratis, pedidoAberto: pedido })
-    const aplicar = vi.spyOn(contas, 'aplicarCodigo').mockResolvedValue({
-      plano: 'COMPLETO', situacao: 'EM_DIA', vencimento: '2026-11-03',
-      inicioDaSuspensao: '2026-11-11', recursos: ['RELATORIOS', 'ESTOQUE', 'MULTIUSUARIO'],
-      mensalidadeCaixaSimples: 30, mensalidadeCompleto: 70,
-      propostas: [{ tipo: 'RENOVACAO', plano: 'COMPLETO', valor: 70,
-        periodoInicio: '2026-11-03', periodoFim: '2026-12-03' }],
-    })
-    vi.spyOn(contas, 'identidade').mockResolvedValue({
-      ...admin, plano: 'COMPLETO', situacaoDoPlano: 'EM_DIA',
-      recursos: ['RELATORIOS', 'ESTOQUE', 'MULTIUSUARIO'],
-    })
+    const aplicar = vi.spyOn(contas, 'aplicarCodigo').mockResolvedValue(completoEmDia)
+    vi.spyOn(contas, 'identidade').mockResolvedValue(adminNoCompleto)
     render(<ComSessao />)
 
     fireEvent.change(await screen.findByLabelText('Código de ativação'),
@@ -121,6 +164,41 @@ describe('tela do plano', () => {
       { name: /^Renovar o Completo de 03\/11\/2026 a 02\/12\/2026 \(R\$\s70,00\)$/ }))
       .toBeInTheDocument()
     expect(await screen.findByText(/Menu:.*Relatórios/)).toBeInTheDocument()
+  })
+
+  it('pelo provedor de sessão real, o código aplicado leva o plano à identidade da sessão e ao menu', async () => {
+    abrirComoAna()
+    vi.spyOn(contas, 'plano').mockResolvedValue({ ...gratis, pedidoAberto: pedido })
+    vi.spyOn(contas, 'aplicarCodigo').mockResolvedValue(completoEmDia)
+    vi.spyOn(contas, 'identidade').mockResolvedValue(adminNoCompleto)
+    render(<PlanoComProvedorReal />)
+    expect(screen.getByText(/^Menu:/)).not.toHaveTextContent('Relatórios')
+
+    fireEvent.change(await screen.findByLabelText('Código de ativação'),
+      { target: { value: '2jsy pfpp bna2 yxnn' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicar código' }))
+
+    expect(await screen.findByText(/Menu:.*Relatórios/)).toBeInTheDocument()
+    expect(lerIdentidade()).toEqual(adminNoCompleto)
+  })
+
+  it('não grava a identidade relida na sessão da Conta que outra aba abriu', async () => {
+    const sessaoDaAna = abrirComoAna()
+    vi.spyOn(contas, 'plano').mockResolvedValue({ ...gratis, pedidoAberto: pedido })
+    vi.spyOn(contas, 'aplicarCodigo').mockResolvedValue(completoEmDia)
+    // O cliente HTTP recusaria a releitura, saída depois que outra aba trocou a sessão; aqui ela
+    // responde mesmo assim, para provar que o provedor também recusa a identidade.
+    const releitura = vi.spyOn(contas, 'identidade').mockResolvedValue(adminNoCompleto)
+    render(<PlanoComProvedorReal />)
+    const campo = await screen.findByLabelText('Código de ativação')
+
+    outraAbaEntraNaContaB(sessaoDaAna)
+    fireEvent.change(campo, { target: { value: '2jsy pfpp bna2 yxnn' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicar código' }))
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Renovar o Completo/ })).toBeEnabled())
+    expect(releitura).toHaveBeenCalled()
+    expect(lerIdentidade()).toEqual(daContaB)
   })
 
   it('mostra a recusa do código sem perder o pedido aberto', async () => {

@@ -1,6 +1,6 @@
 import { caixa, type MovimentoCaixa, type SessaoCaixa } from '../api/caixa'
 import { SemConexao } from '../api/cliente'
-import { lerIdentidade } from '../sessao/armazenamento'
+import { lerIdentidade, sessaoAtual, sessaoDaAba } from '../sessao/armazenamento'
 import { centavos, centavosDoSaldo, reais } from './dinheiro'
 import {
   atualizarRetratoDoCaixa, enfileirarGesto, gestoAplicavel, gestoPendente, jaEstaNoRetrato, lerCaixaNoAparelho,
@@ -296,12 +296,14 @@ async function consultarLocalOuRemoto(remoto: CaixaRemoto, id: string): Promise<
  * termina, com resposta ou sem, porque o servidor pode ter mudado a gaveta mesmo sem responder; em
  * seguida o extrato é relido, e só uma leitura pedida depois da última marca a tira. Se a rede cair
  * antes, a marca fica, e sem rede o saldo aparece como indisponível até a próxima leitura. Sem o id,
- * a sessão é a aberta de quem opera, onde o servidor lança o recebimento de fiado.
+ * a sessão é a aberta de quem opera, onde o servidor lança o recebimento de fiado. A escrita pertence
+ * à sessão de login em que começou: ver marcarERelerSemFalhar.
  */
 async function escreverNaGavetaComRede<T>(remoto: CaixaRemoto, id: string | undefined,
   escrever: () => Promise<T>): Promise<T> {
   // Sem armazenamento local, não há caixa guardado que possa ficar para trás.
   if (!('indexedDB' in globalThis)) return escrever()
+  const sessaoDoLogin = sessaoAtual()
   const sessoes = await locais()
   const alvo = id ?? sessoes.find((sessao) => sessao.status === 'ABERTA')?.id
   if (!alvo || !sessoes.some((sessao) => sessao.id === alvo)) return escrever()
@@ -309,17 +311,26 @@ async function escreverNaGavetaComRede<T>(remoto: CaixaRemoto, id: string | unde
   try {
     return await escrever()
   } finally {
-    await marcarERelerSemFalhar(remoto, alvo)
+    await marcarERelerSemFalhar(remoto, alvo, sessaoDoLogin)
   }
 }
 
-/** A escrita já terminou, e a falha daqui não a desfaz: a sessão só continua marcada. */
-async function marcarERelerSemFalhar(remoto: CaixaRemoto, id: string): Promise<void> {
+/**
+ * A escrita já terminou, e a falha daqui não a desfaz: a sessão só continua marcada. Se a sessão de
+ * login da aba mudou enquanto a escrita esperava a resposta, nada é marcado nem relido: com outra
+ * Conta, a marca levaria o id desta SessaoCaixa ao espaço dela no aparelho, e a releitura sairia com
+ * o token dela. A marca feita antes da escrita continua no espaço de quem escreveu e o avisa no
+ * próximo login.
+ */
+async function marcarERelerSemFalhar(remoto: CaixaRemoto, id: string,
+  sessaoDoLogin: string | null): Promise<void> {
+  if (sessaoDoLogin === null || sessaoAtual() !== sessaoDoLogin || sessaoDaAba() !== sessaoDoLogin) return
   try {
     await marcarCaixaDesatualizado(id)
     await consultarLocalOuRemoto(remoto, id)
   } catch {
-    // Sem a releitura guardada, a marca espera a próxima leitura do caixa.
+    // Sem a releitura guardada, a marca espera a próxima leitura do caixa. A troca de login durante a
+    // marca ou a releitura também para aqui: a fila recusa a sessão que mudou no meio da gravação.
   }
 }
 

@@ -52,10 +52,14 @@ export function SessaoProvider({ children }: { children: ReactNode }) {
     setIdentidade(null)
   }, [])
 
+  // A identidade só é gravada e mostrada na sessão de login desta aba. Outra aba pode ter entrado em
+  // outra Conta, e o que esta aba recebeu não pode chegar à identidade dela: o cliente HTTP já recusa a
+  // resposta de outra sessão, e esta guarda vale mesmo sem isso.
   const atualizarIdentidade = useCallback((atual: Identidade, sessao: string) => {
-    if (sessaoAtual() !== sessao) return
+    const daAba = () => sessaoAtual() === sessao && sessaoDaAba() === sessao
+    if (!daAba()) return
     gravarIdentidade(atual, sessao)
-    if (sessaoAtual() === sessao) setIdentidade(atual)
+    if (daAba()) setIdentidade(atual)
   }, [])
 
   const entrar = useCallback(async (email: string, senha: string) => {

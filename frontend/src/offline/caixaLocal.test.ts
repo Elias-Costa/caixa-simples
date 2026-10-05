@@ -3,11 +3,11 @@ import { deleteDB } from 'idb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Produto } from '../api/cadastro'
 import { caixa, type MovimentoCaixa, type SessaoCaixa } from '../api/caixa'
-import { SemConexao } from '../api/cliente'
+import { SemConexao, SessaoAlterada } from '../api/cliente'
 import type { OperacaoDoLote } from '../api/sincronizacao'
 import { vendas, type Venda } from '../api/vendas'
 import { hojeNoBalcao } from '../dataDoBalcao'
-import { gravarIdentidade, gravarToken } from '../sessao/armazenamento'
+import { gravarIdentidade, gravarToken, lerToken, limparSessao } from '../sessao/armazenamento'
 import type { Identidade } from '../sessao/Identidade'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
 import { criarCaixaLocal, mesclarSessoesLidas } from './caixaLocal'
@@ -490,6 +490,29 @@ describe('SessaoCaixa local diante do que o servidor já sabe', () => {
     expect((await lerCaixaNoAparelho()).fechadasNoServidor).toEqual([])
   })
 
+  it('guarda a marca de fechada no servidor só para a Conta e o usuário que a leram', async () => {
+    entrar(ana)
+    rede(true)
+    const sessao = abertaNoServidor(20)
+    const remoto = { ...caixa, abertaDoOperadorAtual: abertaRemota(sessao),
+      consultar: vi.fn(async () => sessao) }
+    const local = criarCaixaLocal(remoto)
+    await local.consultar(sessao.id)
+    remoto.abertaDoOperadorAtual.mockResolvedValue(undefined)
+    await local.abertaDoOperadorAtual()
+    expect((await lerCaixaNoAparelho()).fechadasNoServidor).toEqual([sessao.id])
+
+    // Outra Conta com o mesmo id de usuário, e outro usuário da mesma Conta, no mesmo aparelho.
+    entrar({ ...ana, contaId: 'conta-b' })
+    expect(await lerCaixaNoAparelho()).toMatchObject({ sessoes: [], fechadasNoServidor: [] })
+    entrar({ ...ana, usuarioId: 'outra' })
+    expect(await lerCaixaNoAparelho()).toMatchObject({ sessoes: [], fechadasNoServidor: [] })
+
+    entrar(ana)
+    rede(false)
+    expect(await local.consultar(sessao.id)).toMatchObject({ status: 'FECHADA', fechamentoSemValores: true })
+  })
+
   it('não traz de volta o caixa fechado com rede quando a rede cai logo depois', async () => {
     entrar(ana)
     rede(true)
@@ -780,6 +803,45 @@ describe('SessaoCaixa local depois de escrita com rede', () => {
     entrar(ana)
     rede(false)
     expect(await local.consultar(sessao.id)).toMatchObject({ saldoDesatualizado: true })
+  })
+
+  it('não marca nem relê no espaço de quem entrou na aba durante a escrita na gaveta', async () => {
+    entrar(ana)
+    rede(true)
+    const tokenDaAna = lerToken()
+    const sessao = abertaNoServidor(20)
+    let responderSangria: (resposta: Response) => void = () => undefined
+    // Como o servidor: a sessão da Ana só é mostrada a quem chega com o token dela. A sangria fica
+    // sem resposta até o teste soltá-la.
+    const servidor = vi.fn((_caminho: string, opcoes?: RequestInit) => {
+      if (opcoes?.method === 'POST') return new Promise<Response>((resolve) => { responderSangria = resolve })
+      const daAna = new Headers(opcoes?.headers).get('Authorization') === `Bearer ${tokenDaAna}`
+      return Promise.resolve(daAna
+        ? new Response(JSON.stringify(sessao), { status: 200, headers: { 'Content-Type': 'application/json' } })
+        : new Response(JSON.stringify({ title: 'Not Found' }), { status: 404 }))
+    })
+    vi.stubGlobal('fetch', servidor)
+    const local = criarCaixaLocal()
+    await local.consultar(sessao.id)
+
+    const sangria = local.sangrar(sessao.id, 5, 'Depósito', crypto.randomUUID())
+    await vi.waitFor(() => expect(servidor)
+      .toHaveBeenCalledWith(`/api/caixa/sessoes/${sessao.id}/sangrias`, expect.anything()))
+    // A Ana sai, e a Bia, de outra Conta, entra na mesma aba antes da resposta, com outro token.
+    limparSessao()
+    gravarToken(tokenComExpiracao(new Date(Date.now() + 2 * 60 * 60 * 1000)))
+    gravarIdentidade({ ...ana, contaId: 'conta-b', usuarioId: 'bia', nome: 'Bia', nomeNegocio: 'Loja da Esquina' })
+    responderSangria(new Response(null, { status: 204 }))
+    await expect(sangria).rejects.toBeInstanceOf(SessaoAlterada)
+
+    expect(await lerCaixaNoAparelho()).toMatchObject({ sessoes: [], desatualizadas: [] })
+    expect(servidor.mock.calls.filter(([, opcoes]) => opcoes?.method === 'GET')).toHaveLength(1)
+
+    // A marca feita antes da escrita ficou no espaço da Ana e a avisa no próximo login.
+    entrar(ana)
+    rede(false)
+    expect(await local.consultar(sessao.id)).toMatchObject({ saldoDesatualizado: true })
+    await expect(local.sangrar(sessao.id, 1, 'Depósito')).rejects.toThrow('a sangria espera')
   })
 })
 

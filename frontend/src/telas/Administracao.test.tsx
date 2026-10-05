@@ -4,9 +4,14 @@ import { MemoryRouter } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { contas } from '../api/contas'
 import { ErroDaApi } from '../api/cliente'
-import { gravarToken } from '../sessao/armazenamento'
+import {
+  fixarSessaoDaAba, gravarIdentidade, gravarToken, lerIdentidade, sessaoAtual,
+} from '../sessao/armazenamento'
 import { SessaoContext } from '../sessao/contexto'
 import type { Identidade } from '../sessao/Identidade'
+import { SessaoProvider } from '../sessao/SessaoProvider'
+import { tokenComExpiracao } from '../sessao/tokenDeTeste'
+import { useSessao } from '../sessao/useSessao'
 import { itensDoMenu } from '../shell/menu'
 import { TelaDeConfiguracao } from './TelaDeConfiguracao'
 import { TelaDeUsuarios } from './TelaDeUsuarios'
@@ -16,6 +21,42 @@ afterEach(() => vi.restoreAllMocks())
 const admin: Identidade = {
   usuarioId: 'admin', nome: 'Ana', perfil: 'ADMIN', contaId: 'conta',
   nomeNegocio: 'Loja', estoqueHabilitado: false,
+}
+
+const daContaB: Identidade = {
+  usuarioId: 'bia', nome: 'Bia', perfil: 'ADMIN', contaId: 'conta-b',
+  nomeNegocio: 'Loja da Esquina', estoqueHabilitado: false,
+}
+
+/** A Ana entra; a pergunta da abertura ao servidor fica sem resposta, e a identidade só muda pela tela. */
+function abrirComoAna(): string {
+  gravarToken(tokenComExpiracao(new Date(Date.now() + 24 * 60 * 60 * 1000)))
+  gravarIdentidade(admin)
+  vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise<Response>(() => undefined)))
+  return sessaoAtual()!
+}
+
+/** Outra aba entra na Conta B; esta continua presa à sessão com que abriu. */
+function outraAbaEntraNaContaB(sessaoDestaAba: string): void {
+  gravarToken(tokenComExpiracao(new Date(Date.now() + 23 * 60 * 60 * 1000)))
+  gravarIdentidade(daContaB)
+  fixarSessaoDaAba(sessaoDestaAba)
+}
+
+function IdentidadeDaAba() {
+  const { identidade } = useSessao()
+  return <p>{identidade
+    ? `Na aba: ${identidade.nome}, NSU ${identidade.nsuObrigatorio ? 'exigido' : 'livre'}` : 'Na aba: ninguém'}</p>
+}
+
+/** A tela com o provedor de sessão de verdade, que grava a identidade da sessão da aba. */
+function ConfiguracaoComProvedorReal() {
+  return <MemoryRouter>
+    <SessaoProvider>
+      <IdentidadeDaAba />
+      <TelaDeConfiguracao />
+    </SessaoProvider>
+  </MemoryRouter>
 }
 
 function ComSessaoEConfig() {
@@ -103,5 +144,33 @@ describe('administração na tela', () => {
     expect(screen.getByText('Obrigatório')).toBeInTheDocument()
     expect(atualizarIdentidade).toHaveBeenCalledWith(
       expect.objectContaining({ nsuObrigatorio: true, estoqueHabilitado: false }), expect.anything())
+  })
+
+  it('pelo provedor de sessão real, guarda a exigência do NSU na identidade da sessão da aba', async () => {
+    abrirComoAna()
+    vi.spyOn(contas, 'configuracao').mockResolvedValue({ estoqueHabilitado: false, nsuObrigatorio: false })
+    vi.spyOn(contas, 'definirNsu').mockResolvedValue({ estoqueHabilitado: false, nsuObrigatorio: true })
+    render(<ConfiguracaoComProvedorReal />)
+
+    fireEvent.click(await screen.findByRole('switch', { name: 'Exigir o NSU no cartão' }))
+
+    expect(await screen.findByText('Na aba: Ana, NSU exigido')).toBeInTheDocument()
+    expect(lerIdentidade()).toEqual({ ...admin, nsuObrigatorio: true })
+  })
+
+  it('não grava a identidade desta aba na sessão da Conta que outra aba abriu', async () => {
+    const sessaoDaAna = abrirComoAna()
+    vi.spyOn(contas, 'configuracao').mockResolvedValue({ estoqueHabilitado: false, nsuObrigatorio: false })
+    // O cliente HTTP recusaria esta chamada, saída depois que outra aba trocou a sessão; aqui ela
+    // responde mesmo assim, para provar que o provedor também recusa a identidade.
+    vi.spyOn(contas, 'definirNsu').mockResolvedValue({ estoqueHabilitado: false, nsuObrigatorio: true })
+    render(<ConfiguracaoComProvedorReal />)
+    const exigir = await screen.findByRole('switch', { name: 'Exigir o NSU no cartão' })
+
+    outraAbaEntraNaContaB(sessaoDaAna)
+    fireEvent.click(exigir)
+
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Deixar o NSU opcional' })).toBeEnabled())
+    expect(lerIdentidade()).toEqual(daContaB)
   })
 })

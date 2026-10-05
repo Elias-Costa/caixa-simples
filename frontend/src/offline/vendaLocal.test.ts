@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cadastro, type Produto } from '../api/cadastro'
 import { caixa, type SessaoCaixa } from '../api/caixa'
 import type { OperacaoDoLote } from '../api/sincronizacao'
-import { vendas } from '../api/vendas'
+import { vendas, type Comprovante, type Venda } from '../api/vendas'
 import { gravarIdentidade, gravarToken } from '../sessao/armazenamento'
 import type { Identidade } from '../sessao/Identidade'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
@@ -318,6 +318,71 @@ describe('Venda no dispositivo', () => {
 
     entrar(operadora)
     expect((await local.consultar(id)).itens).toHaveLength(1)
+  })
+
+  it('não mostra sem rede a Venda nem o comprovante que outra Conta leu do servidor', async () => {
+    entrar(operadora)
+    rede(true)
+    const sessaoCaixaId = crypto.randomUUID()
+    const venda: Venda = {
+      id: crypto.randomUUID(), sessaoCaixaId, usuarioId: operadora.usuarioId, status: 'CONCLUIDA', total: 6.25,
+      criadoEm: new Date().toISOString(), clienteId: null, saldoDevedor: 0, descontoDaVenda: 0, pago: 6.25,
+      faltaPagar: 0, recebimentos: [],
+      itens: [{ id: crypto.randomUUID(), produtoId: cafe.id, nome: cafe.nome, quantidade: 1, precoUnitario: 6.25,
+        desconto: 0, subtotal: 6.25 }],
+      parcelas: [{ id: crypto.randomUUID(), forma: 'CARTAO', valor: 6.25, status: 'CONFIRMADO', troco: 0,
+        nsu: '004512' }],
+    }
+    const comprovante: Comprovante = {
+      vendaId: venda.id, usuarioId: venda.usuarioId, concluidoEm: venda.criadoEm,
+      linhas: [{ produtoId: cafe.id, nome: cafe.nome, unidade: 'un', quantidade: 1, precoUnitario: 6.25,
+        valorBruto: 6.25, desconto: 0, subtotal: 6.25 }],
+      somaDosItens: 6.25, descontoDaVenda: 0, valorTotal: 6.25,
+      parcelas: [{ forma: 'CARTAO', valor: 6.25, troco: 0 }], troco: 0, valorFiado: 0, saldoDevedor: 0,
+    }
+    const api = apiDeVendas()
+    api.consultar.mockResolvedValue(venda)
+    api.comprovante.mockResolvedValue(comprovante)
+    const local = criarVendaLocal(api, criarCaixaLocal())
+    // Lidos com rede, os dois ficam guardados para a consulta sem rede.
+    await local.consultar(venda.id)
+    await local.comprovante(venda.id)
+
+    rede(false)
+    entrar({ ...operadora, contaId: 'conta-b', nomeNegocio: 'Loja da Esquina' })
+    await expect(local.consultar(venda.id)).rejects.toThrow('continua quando a rede voltar')
+    await expect(local.comprovante(venda.id)).rejects.toThrow('continua quando a rede voltar')
+    expect(await local.daSessao(sessaoCaixaId)).toEqual([])
+
+    entrar(operadora)
+    expect(await local.consultar(venda.id)).toEqual(venda)
+    expect(await local.comprovante(venda.id)).toEqual(comprovante)
+    expect(await local.daSessao(sessaoCaixaId)).toEqual([venda])
+  })
+
+  it('a exigência do NSU de uma Conta não vale para outra no mesmo aparelho', async () => {
+    rede(false)
+    entrar({ ...operadora, nsuObrigatorio: true })
+    await prepararCadastro()
+    // Um PDV só, criado antes dos logins, como o das telas, que nasce uma vez com o aplicativo.
+    const caixaLocal = criarCaixaLocal()
+    const local = criarVendaLocal(apiDeVendas(), caixaLocal)
+    const { id: sessaoDaContaA } = await caixaLocal.abrir(0)
+    const { id: vendaDaContaA } = await local.iniciar(sessaoDaContaA)
+    await local.adicionarItem(vendaDaContaA, cafe, 1, 0)
+    await expect(local.pagar(vendaDaContaA, 'CARTAO', 6.25)).rejects.toThrow('exige o NSU')
+
+    entrar({ ...operadora, contaId: 'conta-b', nomeNegocio: 'Loja da Esquina' })
+    await prepararCadastro()
+    const { id: sessaoDaContaB } = await caixaLocal.abrir(0)
+    const { id: vendaDaContaB } = await local.iniciar(sessaoDaContaB)
+    await local.adicionarItem(vendaDaContaB, cafe, 1, 0)
+    await local.pagar(vendaDaContaB, 'CARTAO', 6.25)
+    expect(doTipo(await listarGestos(), 'venda.registrarPagamento').payload)
+      .toMatchObject({ forma: 'CARTAO', nsu: null })
+
+    entrar({ ...operadora, nsuObrigatorio: true })
+    await expect(local.pagar(vendaDaContaA, 'CARTAO', 6.25)).rejects.toThrow('exige o NSU')
   })
 
   it('deixa de marcar como pendente a Venda cujos gestos tiveram resultado', async () => {
