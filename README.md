@@ -617,7 +617,12 @@ de uso, provada por teste negativo, e nunca dependente de um valor que o cliente
   junção. O teste falha se a anotação de tenant for removida. O registro das operações
   sincronizadas também tem o seu, que cobre a lista de revisões e a conferência. O pedido de plano
   também: a Conta B não o encontra por nenhuma consulta, e o código certo dele, aplicado pela Conta
-  B, responde como pedido inexistente, sem gastar o código. A remoção de
+  B, responde como pedido inexistente, sem gastar o código; o pedido que a Conta B faz não substitui
+  o aberto da A nem esbarra nele, e o código da A continua valendo. O plano, o vencimento e a
+  suspensão da Conta têm a prova por HTTP: a Conta no plano grátis não lê os de uma paga, e a paga
+  em dia não herda a suspensão de outra. O SQL do encerramento de Conta, que roda fora do filtro de
+  tenant, é testado com uma linha em cada tabela da Conta nas duas pontas: a encerrada termina sem
+  nenhuma, e a outra com as mesmas, tabela a tabela. A remoção de
   Cliente e a anonimização de Usuário são recusadas com id de outra Conta. O lote prova por HTTP que duas Contas com os mesmos ids de
   operação recebem cada uma o seu resultado e que o id de Produto de uma Conta usado pela outra é
   recusado sem alterar nada. Os casos de uso do estoque têm o
@@ -916,10 +921,15 @@ inativação de outra.
 
 Duas aplicações do mesmo código de plano também: uma transação prende a linha do pedido que a
 primeira aplicação grava, a segunda espera na linha da Conta e, solta a primeira, encontra o pedido
-já aplicado, sem gravar por cima. O ciclo do plano é testado com datas fixas, sem relógio: o último
-dia dos meses curtos, o fevereiro bissexto, a volta ao dia original, os limites do aviso, da
-tolerância e da suspensão e o valor proporcional do upgrade. Um teste fixa a lista de gestos sem
-rede, para um gesto novo não entrar sem decidir o que a suspensão do plano faz com ele.
+já aplicado, sem gravar por cima. Dois pedidos de plano da mesma Conta ao mesmo tempo também: o
+segundo espera na linha da Conta e substitui o aberto do primeiro, e um segundo pedido aberto
+gravado sem passar pelo serviço esbarra no índice. O ciclo do plano é testado com datas fixas, sem
+relógio: o último dia dos meses curtos, o fevereiro bissexto, a volta ao dia original, os limites do
+aviso, da tolerância e da suspensão e o valor proporcional do upgrade. A Conta recusa a segunda
+adesão, o upgrade fora do plano intermediário e a renovação de outro plano ou de período já pago, e o
+banco recusa, gravada por fora do código, a Conta paga sem as datas do ciclo ou a grátis com elas; o
+pedido de plano recusa aplicar ou substituir o que não está aberto. Um teste fixa a lista de gestos
+sem rede, para um gesto novo não entrar sem decidir o que a suspensão do plano faz com ele.
 
 O lote de sincronização é testado de ponta a ponta por HTTP, com os gestos que o PWA grava: um
 dia inteiro sem rede num envio só, com a sangria que só cabe por causa da Venda do mesmo lote; o

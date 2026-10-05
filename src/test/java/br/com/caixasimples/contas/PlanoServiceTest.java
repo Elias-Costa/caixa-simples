@@ -24,6 +24,7 @@ import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.TenantContext;
 import br.com.caixasimples.shared.UsuarioContext;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -38,6 +39,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -385,6 +387,132 @@ class PlanoServiceTest extends TesteDeIntegracao {
                 .extracting(PedidoDePlano::getAplicadoPor)
                 .as("a aplicação que ficou é a primeira")
                 .isEqualTo(dono.usuarioId()));
+    }
+
+    /**
+     * Duas pessoas da mesma Conta pedem plano ao mesmo tempo, sem pedido aberto antes. Uma transação
+     * prende, sem alterá-la, a linha de quem faz o primeiro pedido; ao gravar, o primeiro confere o
+     * autor pela chave estrangeira e para ali, já com a linha da Conta presa, e o segundo começa e
+     * para na trava da Conta, atrás do primeiro. Solta a linha, o primeiro confirma, e o segundo
+     * encontra o pedido aberto e o substitui. Sem a trava da Conta, o segundo não veria o primeiro,
+     * ainda sem confirmar, gravaria outro aberto e esbarraria no índice de um aberto por Conta.
+     */
+    @Test
+    @DisplayName("dois pedidos simultâneos da mesma Conta: o segundo espera o primeiro e o substitui, e fica um aberto só")
+    void pedidosSimultaneosDeixamUmAberto() {
+        ContaCriada dono = criador.criar("Empório Aurora", SENHA_DE_TESTE);
+        UsuarioCriado socia = criador.criarAdminEm(dono.contaId(), "Sócia");
+
+        ExecutorService threads = Executors.newFixedThreadPool(2);
+        List<CompletableFuture<PedidoNaConta>> disputa;
+        try {
+            disputa = dono.comoUsuario(() -> transacao.execute(status -> {
+                // Mais forte que a conferência da chave estrangeira, que só pede que a linha não
+                // suma: é ela que faz o primeiro pedido esperar.
+                jdbc.sql("select id from usuario where id = :id and conta_id = :conta for update")
+                        .param("id", dono.usuarioId())
+                        .param("conta", dono.contaId().valor())
+                        .query(UUID.class)
+                        .single();
+                List<CompletableFuture<PedidoNaConta>> iniciados = new ArrayList<>();
+                for (Supplier<PedidoNaConta> pedido : List.<Supplier<PedidoNaConta>>of(
+                        () -> dono.comoUsuario(() -> planos.pedir(Plano.CAIXA_SIMPLES)),
+                        () -> socia.comoUsuario(() -> planos.pedir(Plano.COMPLETO)))) {
+                    iniciados.add(CompletableFuture.supplyAsync(pedido, threads));
+                    await().atMost(ESPERA).until(() ->
+                            quantasEsperam() + terminadas(iniciados) == iniciados.size());
+                }
+                assertThat(terminadas(iniciados))
+                        .as("os dois pedidos estão parados numa trava, nenhum terminou")
+                        .isZero();
+                return iniciados;
+            }));
+        } finally {
+            threads.shutdown();
+        }
+
+        assertThat(disputa).allSatisfy(pedido -> assertThat(pedido).succeedsWithin(ESPERA));
+        PedidoNaConta primeiro = disputa.get(0).join();
+        PedidoNaConta segundo = disputa.get(1).join();
+        assertThat(dono.comoUsuario(planos::consultar).pedidoAberto())
+                .as("o aberto é o segundo, que esperou o primeiro e o substituiu")
+                .extracting(PedidoNaConta::id)
+                .isEqualTo(segundo.id());
+        dono.comoUsuario(() -> assertThat(pedidos.findAll())
+                .extracting(PedidoDePlano::getId, PedidoDePlano::getSituacao)
+                .containsExactlyInAnyOrder(
+                        tuple(primeiro.id(), PedidoDePlano.Situacao.SUBSTITUIDO),
+                        tuple(segundo.id(), PedidoDePlano.Situacao.ABERTO)));
+    }
+
+    @Test
+    @DisplayName("o índice único parcial recusa o segundo pedido aberto da mesma Conta gravado sem passar pelo serviço")
+    void indiceRecusaSegundoPedidoAberto() {
+        ContaCriada conta = criador.criar("Quitanda Aurora", SENHA_DE_TESTE);
+        PedidoNaConta aberto = conta.comoUsuario(() -> planos.pedir(Plano.CAIXA_SIMPLES));
+
+        // O serviço substitui o aberto antes de gravar o novo, então aqui a gravação é direta: é o
+        // que aconteceria com dois pedidos passando juntos pela leitura do aberto.
+        assertThatExceptionOfType(DataIntegrityViolationException.class)
+                .isThrownBy(() -> conta.comoUsuario(() -> pedidos.save(PedidoDePlano.adesao(
+                        Plano.COMPLETO, COMPLETO, conta.usuarioId(), Instant.now()))))
+                .withMessageContaining("uq_pedido_de_plano_aberto_por_conta");
+
+        assertThat(conta.comoUsuario(planos::consultar).pedidoAberto())
+                .extracting(PedidoNaConta::id)
+                .isEqualTo(aberto.id());
+    }
+
+    @Test
+    @DisplayName("o banco recusa a Conta com o ciclo fora do plano ou com o dia de vencimento fora do mês, gravada por fora do código")
+    void bancoRecusaCicloIncoerente() {
+        ContaCriada gratis = criador.criar("Banca Aurora", SENHA_DE_TESTE);
+        ContaCriada paga = criador.criar("Banca da Praça", SENHA_DE_TESTE);
+        criador.contratar(paga.contaId(), Plano.CAIXA_SIMPLES);
+        EstadoDoPlano gratisAntes = gratis.comoUsuario(planos::consultar);
+        EstadoDoPlano pagaAntes = paga.comoUsuario(planos::consultar);
+
+        // O plano pago sem as duas datas, e o grátis com elas.
+        assertThatExceptionOfType(DataIntegrityViolationException.class)
+                .isThrownBy(() -> alterarConta(gratis,
+                        "update conta set plano = 'COMPLETO' where id = :id"))
+                .withMessageContaining("conta_ciclo_so_no_plano_pago");
+        assertThatExceptionOfType(DataIntegrityViolationException.class)
+                .isThrownBy(() -> alterarConta(gratis, "update conta set dia_de_vencimento = 10,"
+                        + " proximo_vencimento = current_date where id = :id"))
+                .withMessageContaining("conta_ciclo_so_no_plano_pago");
+        // Uma data sem a outra, e a volta ao grátis sem limpar as duas.
+        assertThatExceptionOfType(DataIntegrityViolationException.class)
+                .isThrownBy(() -> alterarConta(paga,
+                        "update conta set proximo_vencimento = null where id = :id"))
+                .withMessageContaining("conta_ciclo_so_no_plano_pago");
+        assertThatExceptionOfType(DataIntegrityViolationException.class)
+                .isThrownBy(() -> alterarConta(paga,
+                        "update conta set dia_de_vencimento = null where id = :id"))
+                .withMessageContaining("conta_ciclo_so_no_plano_pago");
+        assertThatExceptionOfType(DataIntegrityViolationException.class)
+                .isThrownBy(() -> alterarConta(paga,
+                        "update conta set plano = 'GRATIS' where id = :id"))
+                .withMessageContaining("conta_ciclo_so_no_plano_pago");
+        // O dia do ciclo é um dia do mês.
+        assertThatExceptionOfType(DataIntegrityViolationException.class)
+                .isThrownBy(() -> alterarConta(paga,
+                        "update conta set dia_de_vencimento = 0 where id = :id"))
+                .withMessageContaining("conta_dia_de_vencimento_valido");
+        assertThatExceptionOfType(DataIntegrityViolationException.class)
+                .isThrownBy(() -> alterarConta(paga,
+                        "update conta set dia_de_vencimento = 32 where id = :id"))
+                .withMessageContaining("conta_dia_de_vencimento_valido");
+
+        assertThat(gratis.comoUsuario(planos::consultar)).isEqualTo(gratisAntes);
+        assertThat(paga.comoUsuario(planos::consultar)).isEqualTo(pagaAntes);
+    }
+
+    /** Grava na linha da Conta por fora do código, como faria um script de correção. */
+    private void alterarConta(ContaCriada conta, String sql) {
+        jdbc.sql(sql)
+                .param("id", conta.contaId().valor())
+                .update();
     }
 
     /** Conexões paradas numa trava, de quem for, lidas de {@code pg_locks} na hora da consulta. */

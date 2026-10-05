@@ -7,6 +7,8 @@ import br.com.caixasimples.TesteDeIntegracao;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
 import br.com.caixasimples.contas.application.PedidoDePlanoNaoEncontradoException;
 import br.com.caixasimples.contas.application.PlanoService;
+import br.com.caixasimples.contas.application.PlanoService.EstadoDoPlano;
+import br.com.caixasimples.contas.application.PlanoService.PedidoNaConta;
 import br.com.caixasimples.contas.internal.AssinaturaDePedido;
 import br.com.caixasimples.contas.internal.Credencial;
 import br.com.caixasimples.contas.internal.CredencialRepository;
@@ -87,7 +89,7 @@ class IsolamentoEntreContasTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("conta B não enxerga nem aplica o pedido de plano da conta A, nem com o código certo")
+    @DisplayName("conta B não enxerga nem aplica o pedido de plano da conta A, nem com o código certo, e o pedido dela não toca o da A")
     void contaNaoEnxergaPedidoDePlanoDeOutraConta() {
         ContaCriada contaA = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
         ContaCriada contaB = criador.criar("Salao Vizinho", SENHA_DE_TESTE);
@@ -110,6 +112,25 @@ class IsolamentoEntreContasTest extends TesteDeIntegracao {
             assertThat(pedidos.findById(pedidoDeA)).isPresent();
             assertThat(planos.consultar().plano()).as("o código não foi gasto pela outra conta")
                     .isEqualTo(Plano.GRATIS);
+        });
+
+        // A conta B pede o próprio plano: o pedido dela não substitui o aberto da A nem colide com
+        // ele, e o código já entregue à A continua valendo.
+        UUID pedidoDeB = contaB.comoUsuario(() -> planos.pedir(Plano.CAIXA_SIMPLES)).id();
+        assertThat(pedidoDeB).isNotEqualTo(pedidoDeA);
+        contaA.comoUsuario(() -> {
+            assertThat(planos.consultar().pedidoAberto())
+                    .as("o aberto da conta A continua o mesmo")
+                    .extracting(PedidoNaConta::id)
+                    .isEqualTo(pedidoDeA);
+            assertThat(planos.aplicarCodigo(pedidoDeA, codigoDeA).plano())
+                    .isEqualTo(Plano.COMPLETO);
+        });
+        contaB.comoUsuario(() -> {
+            EstadoDoPlano estadoDeB = planos.consultar();
+            assertThat(estadoDeB.plano()).isEqualTo(Plano.GRATIS);
+            assertThat(estadoDeB.pedidoAberto()).extracting(PedidoNaConta::id)
+                    .isEqualTo(pedidoDeB);
         });
     }
 
