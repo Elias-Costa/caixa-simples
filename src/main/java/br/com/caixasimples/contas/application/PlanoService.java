@@ -114,13 +114,15 @@ public class PlanoService {
      * Aplica o código que o mantenedor entregou para o pedido. O código certo de um pedido já
      * aplicado não faz nada, para o reenvio não ativar duas vezes.
      *
-     * <p>A ordem das recusas: o pedido tem de existir nesta Conta, o código tem de ser o dele, e só
-     * então importa se ele foi substituído.
+     * <p>A ordem das recusas: o pedido tem de existir nesta Conta, o código tem de ser o dele, com
+     * o plano e o valor gravados, e só então importa se ele foi substituído. O código feito com
+     * outro valor, o de um texto alterado, é recusado como código errado.
      *
      * @return o estado do plano depois da aplicação
      * @throws br.com.caixasimples.shared.AcessoNegadoException se quem chama não é ADMIN
      * @throws PedidoDePlanoNaoEncontradoException se o pedido não existe nesta Conta
-     * @throws IllegalArgumentException se o código está em branco ou não é o deste pedido
+     * @throws IllegalArgumentException se o código está em branco ou não é o deste pedido, deste
+     *         plano e deste valor
      * @throws IllegalStateException se o pedido foi substituído por outro
      */
     @Transactional
@@ -134,7 +136,7 @@ public class PlanoService {
 
         PedidoDePlano pedido = pedidos.findById(pedidoId)
                 .orElseThrow(() -> new PedidoDePlanoNaoEncontradoException(pedidoId));
-        if (!assinatura.confere(pedido.getId(), pedido.getPlano(), codigo)) {
+        if (!assinatura.confere(pedido.getId(), pedido.getPlano(), pedido.getValor(), codigo)) {
             throw new IllegalArgumentException("o codigo nao e o deste pedido");
         }
 

@@ -275,19 +275,28 @@ conferido no extrato.
 1. Conferir no extrato o Pix com o valor do pedido. O upgrade cobra a diferença das mensalidades
    pelos dias que faltam até o vencimento, calculada com o crédito no dia do pedido: se o crédito
    caiu em outro dia, recalcular e acertar a diferença pelo canal antes do código.
-2. Gerar o código com o id e o plano do texto do pedido:
+2. Gerar o código com o id, o plano e o valor do pedido:
 
    ```bash
-   CAIXA_SIMPLES_PLANO_SECRET=<segredo> node operacao/plano/codigo.mjs <id do pedido> <plano>
+   CAIXA_SIMPLES_PLANO_SECRET=<segredo> node operacao/plano/codigo.mjs <id do pedido> <plano> <valor>
    ```
 
-   O plano vai como no texto (`Caixa Simples`, `Completo`) ou como no sistema. O script só
-   calcula: não toca o banco nem a Conta, e o mesmo pedido sempre dá o mesmo código.
+   O plano vai como no texto (`Caixa Simples`, `Completo`) ou como no sistema; o valor, como no
+   texto (`"R$ 123,45"`, entre aspas por causa do espaço, ou `123,45`) ou como no sistema
+   (`123.45`). O valor é o do pedido que o Pix cobre: no upgrade com crédito em outro dia, o do
+   pedido, depois de acertada a diferença, e não o recalculado. O script só calcula: não toca o
+   banco nem a Conta, e o mesmo pedido sempre dá o mesmo código.
 3. Mandar o código ao administrador, que o aplica na tela Plano.
 
-O código vale para um pedido só. Se a Conta pediu de novo antes de aplicar, o pedido anterior foi
-substituído e o código dele é recusado: gere o do pedido mais recente. Aplicar o mesmo código duas
-vezes não ativa duas vezes.
+O código vale para um pedido só, com o plano e o valor gravados nele. Se a Conta pediu de novo
+antes de aplicar, o pedido anterior foi substituído e o código dele é recusado: gere o do pedido
+mais recente. Aplicar o mesmo código duas vezes não ativa duas vezes.
+
+A aplicação confere o código com o plano e o valor que gravou no pedido, não com os do texto que
+chegou pelo canal. Um texto alterado, com um valor menor, leva a um código recusado, e o plano não
+muda. Se o administrador disser que o código foi recusado, compare com ele o texto da tela Plano e
+o Pix recebido, ou peça um pedido novo, que substitui o anterior, e gere o código dele depois de
+conferir o Pix do valor novo.
 
 O segredo é o argumento `PLANO_SECRET` do template, gerado uma vez com `openssl rand -base64 48` e
 guardado também fora do Northflank, com o mantenedor, porque o script precisa dele. Trocá-lo invalida

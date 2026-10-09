@@ -20,8 +20,8 @@ import org.hibernate.annotations.TenantId;
  * única, sem membros.
  *
  * <p>O pedido é o que o mantenedor confere contra o Pix recebido, pelo id, pelo valor e pelo
- * período, e é ao id dele que o código de ativação fica preso. Guarda quem pediu e quem aplicou,
- * e o valor do dia do pedido, que não muda se a mensalidade mudar depois.
+ * período, e o código de ativação fica preso ao id, ao plano e ao valor dele. Guarda quem pediu e
+ * quem aplicou, e o valor do dia do pedido, que não muda se a mensalidade mudar depois.
  *
  * <p>{@code contaId} é preenchido pelo Hibernate a partir do tenant do contexto, e não há
  * construtor que o receba (RNF05). Um id de pedido de outra Conta não é encontrado.

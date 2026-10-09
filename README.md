@@ -750,9 +750,11 @@ editar um agregado através de outro.
 ### Detalhes de modelagem que valem nota
 
 - **Código de ativação sem coluna.** O pedido de plano guarda tipo, plano, valor e período, e o
-  código que o ativa é a assinatura do id do pedido e do plano com um segredo do servidor: a
-  aplicação a recalcula para conferir, então o banco não guarda código válido nenhum. O mesmo
-  cálculo roda no script de operação do mantenedor, conferido pelo mesmo vetor fixo dos dois lados.
+  código que o ativa é a assinatura do id do pedido, do plano e do valor com um segredo do
+  servidor: a aplicação a recalcula com o que gravou para conferir, então o banco não guarda código
+  válido nenhum, e um texto de pedido alterado no caminho, com outro plano ou outro valor, leva a um
+  código recusado. O mesmo cálculo roda no script de operação do mantenedor, conferido pelo mesmo
+  vetor fixo dos dois lados.
 - **Catálogo inicial marcado na Conta.** O primeiro login de administrador bloqueia a linha da
   Conta, marca a aplicação do catálogo e publica o evento que copia os itens, tudo na mesma
   transação. Um segundo login não duplica os produtos, mesmo se o catálogo estiver vazio por não

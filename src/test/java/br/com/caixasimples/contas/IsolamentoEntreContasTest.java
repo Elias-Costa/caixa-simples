@@ -93,8 +93,9 @@ class IsolamentoEntreContasTest extends TesteDeIntegracao {
     void contaNaoEnxergaPedidoDePlanoDeOutraConta() {
         ContaCriada contaA = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
         ContaCriada contaB = criador.criar("Salao Vizinho", SENHA_DE_TESTE);
-        UUID pedidoDeA = contaA.comoUsuario(() -> planos.pedir(Plano.COMPLETO)).id();
-        String codigoDeA = assinatura.codigo(pedidoDeA, Plano.COMPLETO);
+        PedidoNaConta pedidoNaA = contaA.comoUsuario(() -> planos.pedir(Plano.COMPLETO));
+        UUID pedidoDeA = pedidoNaA.id();
+        String codigoDeA = assinatura.codigo(pedidoDeA, Plano.COMPLETO, pedidoNaA.valor());
 
         contaB.comoUsuario(() -> {
             assertThat(pedidos.findById(pedidoDeA)).as("findById atravessando tenant").isEmpty();

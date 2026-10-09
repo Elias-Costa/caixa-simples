@@ -124,7 +124,8 @@ class PlanoServiceTest extends TesteDeIntegracao {
         LocalDate hoje = hoje();
         LocalDate vencimento = CicloDeVencimento.seguinte(hoje, hoje.getDayOfMonth());
         EstadoDoPlano depois = conta.comoUsuario(() ->
-                planos.aplicarCodigo(pedido.id(), assinatura.codigo(pedido.id(), Plano.COMPLETO)));
+                planos.aplicarCodigo(pedido.id(),
+                        assinatura.codigo(pedido.id(), Plano.COMPLETO, pedido.valor())));
 
         assertThat(depois.plano()).isEqualTo(Plano.COMPLETO);
         assertThat(depois.situacao()).isEqualTo(SituacaoDoPlano.EM_DIA);
@@ -137,7 +138,8 @@ class PlanoServiceTest extends TesteDeIntegracao {
                         vencimento));
 
         EstadoDoPlano reenvio = conta.comoUsuario(() ->
-                planos.aplicarCodigo(pedido.id(), assinatura.codigo(pedido.id(), Plano.COMPLETO)));
+                planos.aplicarCodigo(pedido.id(),
+                        assinatura.codigo(pedido.id(), Plano.COMPLETO, pedido.valor())));
 
         assertThat(reenvio.vencimento()).as("o reenvio não renova").isEqualTo(vencimento);
         conta.comoUsuario(() -> assertThat(pedidos.findById(pedido.id())).get()
@@ -151,14 +153,15 @@ class PlanoServiceTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("código errado, de outro plano ou de outro pedido é recusado sem mudar nada")
+    @DisplayName("código errado, de outro plano, de outro valor ou de outro pedido é recusado sem mudar nada")
     void codigoErradoRecusado() {
         ContaCriada conta = criador.criar("Mercearia da Rua", SENHA_DE_TESTE);
         UUID pedido = conta.comoUsuario(() -> planos.pedir(Plano.COMPLETO)).id();
 
         for (String errado : List.of("0000-0000-0000-0000",
-                assinatura.codigo(pedido, Plano.CAIXA_SIMPLES),
-                assinatura.codigo(UUID.randomUUID(), Plano.COMPLETO))) {
+                assinatura.codigo(pedido, Plano.CAIXA_SIMPLES, COMPLETO),
+                assinatura.codigo(pedido, Plano.COMPLETO, COMPLETO.subtrair(Money.de("0.01"))),
+                assinatura.codigo(UUID.randomUUID(), Plano.COMPLETO, COMPLETO))) {
             assertThatIllegalArgumentException()
                     .isThrownBy(() -> conta.comoUsuario(() -> planos.aplicarCodigo(pedido, errado)))
                     .withMessageContaining("codigo");
@@ -181,11 +184,11 @@ class PlanoServiceTest extends TesteDeIntegracao {
         assertThat(conta.comoUsuario(planos::consultar).pedidoAberto().id()).isEqualTo(segundo.id());
         assertThatIllegalStateException()
                 .isThrownBy(() -> conta.comoUsuario(() -> planos.aplicarCodigo(primeiro.id(),
-                        assinatura.codigo(primeiro.id(), Plano.CAIXA_SIMPLES))))
+                        assinatura.codigo(primeiro.id(), Plano.CAIXA_SIMPLES, primeiro.valor()))))
                 .withMessageContaining("substituido");
 
         EstadoDoPlano estado = conta.comoUsuario(() -> planos.aplicarCodigo(segundo.id(),
-                assinatura.codigo(segundo.id(), Plano.COMPLETO)));
+                assinatura.codigo(segundo.id(), Plano.COMPLETO, segundo.valor())));
 
         assertThat(estado.plano()).isEqualTo(Plano.COMPLETO);
         conta.comoUsuario(() -> assertThat(pedidos.findById(primeiro.id())).get()
@@ -199,7 +202,7 @@ class PlanoServiceTest extends TesteDeIntegracao {
         ContaCriada dono = criador.criar("Barbearia do Centro", SENHA_DE_TESTE);
         UsuarioCriado operador = criador.criarOperadorEm(dono.contaId(), "Atendente");
         PedidoNaConta pedido = dono.comoUsuario(() -> planos.pedir(Plano.CAIXA_SIMPLES));
-        String codigo = assinatura.codigo(pedido.id(), Plano.CAIXA_SIMPLES);
+        String codigo = assinatura.codigo(pedido.id(), Plano.CAIXA_SIMPLES, pedido.valor());
 
         assertThatExceptionOfType(AcessoNegadoException.class)
                 .isThrownBy(() -> operador.comoUsuario(planos::consultar));
@@ -231,7 +234,7 @@ class PlanoServiceTest extends TesteDeIntegracao {
         assertThat(pedido.periodoFim()).isEqualTo(vencimento);
 
         EstadoDoPlano estado = conta.comoUsuario(() -> planos.aplicarCodigo(pedido.id(),
-                assinatura.codigo(pedido.id(), Plano.COMPLETO)));
+                assinatura.codigo(pedido.id(), Plano.COMPLETO, pedido.valor())));
 
         assertThat(estado.plano()).isEqualTo(Plano.COMPLETO);
         assertThat(estado.vencimento()).isEqualTo(vencimento);
@@ -240,6 +243,48 @@ class PlanoServiceTest extends TesteDeIntegracao {
                 .as("no vencimento, o período seguinte já custa a mensalidade do completo")
                 .extracting(Proposta::tipo, Proposta::plano, Proposta::valor)
                 .containsExactly(tuple(PedidoDePlano.Tipo.RENOVACAO, Plano.COMPLETO, COMPLETO));
+    }
+
+    /**
+     * O texto do pedido passa pelo administrador antes de chegar ao mantenedor, e pode chegar
+     * alterado. No upgrade o valor muda com os dias que faltam até o vencimento, então o valor de
+     * outro dia parece plausível; o código feito com ele não ativa, e o feito com o valor gravado
+     * ativa.
+     */
+    @Test
+    @DisplayName("o código feito com um valor diferente do gravado no pedido é recusado sem mudar nada")
+    void codigoDeOutroValorRecusado() {
+        ContaCriada conta = criador.criar("Quitanda Aurora", SENHA_DE_TESTE);
+        criador.contratar(conta.contaId(), Plano.CAIXA_SIMPLES);
+        criador.vencerPlano(conta.contaId(), -10);
+        LocalDate vencimento = hoje().plusDays(10);
+        long diasDoPeriodo = ChronoUnit.DAYS.between(
+                CicloDeVencimento.anterior(vencimento, vencimento.getDayOfMonth()), vencimento);
+        Money diferenca = COMPLETO.subtrair(CAIXA_SIMPLES);
+        PedidoNaConta pedido = conta.comoUsuario(() -> planos.pedir(Plano.COMPLETO));
+        assertThat(pedido.valor()).isEqualTo(diferenca.proporcionalArredondando(10, diasDoPeriodo));
+
+        Money deUmDiaAMenos = diferenca.proporcionalArredondando(9, diasDoPeriodo);
+        Money umCentavoAMenos = pedido.valor().subtrair(Money.de("0.01"));
+        for (Money pago : List.of(deUmDiaAMenos, umCentavoAMenos)) {
+            String codigo = assinatura.codigo(pedido.id(), Plano.COMPLETO, pago);
+            assertThatIllegalArgumentException()
+                    .isThrownBy(() -> conta.comoUsuario(
+                            () -> planos.aplicarCodigo(pedido.id(), codigo)))
+                    .withMessageContaining("codigo");
+        }
+
+        EstadoDoPlano recusado = conta.comoUsuario(planos::consultar);
+        assertThat(recusado.plano()).isEqualTo(Plano.CAIXA_SIMPLES);
+        assertThat(recusado.vencimento()).isEqualTo(vencimento);
+        assertThat(recusado.pedidoAberto().id()).as("o pedido segue à espera")
+                .isEqualTo(pedido.id());
+
+        EstadoDoPlano aplicado = conta.comoUsuario(() -> planos.aplicarCodigo(pedido.id(),
+                assinatura.codigo(pedido.id(), Plano.COMPLETO, pedido.valor())));
+
+        assertThat(aplicado.plano()).isEqualTo(Plano.COMPLETO);
+        assertThat(aplicado.pedidoAberto()).isNull();
     }
 
     @Test
@@ -280,7 +325,7 @@ class PlanoServiceTest extends TesteDeIntegracao {
         criador.vencerPlano(conta.contaId(), 10);
 
         EstadoDoPlano estado = conta.comoUsuario(() -> planos.aplicarCodigo(pedido.id(),
-                assinatura.codigo(pedido.id(), Plano.COMPLETO)));
+                assinatura.codigo(pedido.id(), Plano.COMPLETO, pedido.valor())));
 
         assertThat(estado.plano()).isEqualTo(Plano.COMPLETO);
         assertThat(estado.situacao()).isEqualTo(SituacaoDoPlano.SUSPENSO);
@@ -310,7 +355,7 @@ class PlanoServiceTest extends TesteDeIntegracao {
         assertThat(pedido.periodoFim()).isEqualTo(seguinte);
 
         EstadoDoPlano renovado = conta.comoUsuario(() -> planos.aplicarCodigo(pedido.id(),
-                assinatura.codigo(pedido.id(), Plano.CAIXA_SIMPLES)));
+                assinatura.codigo(pedido.id(), Plano.CAIXA_SIMPLES, pedido.valor())));
 
         assertThat(renovado.vencimento()).isEqualTo(seguinte);
         assertThat(renovado.situacao()).isEqualTo(SituacaoDoPlano.EM_DIA);
@@ -332,7 +377,7 @@ class PlanoServiceTest extends TesteDeIntegracao {
         assertThat(pedido.valor()).isEqualTo(COMPLETO);
 
         EstadoDoPlano renovado = conta.comoUsuario(() -> planos.aplicarCodigo(pedido.id(),
-                assinatura.codigo(pedido.id(), Plano.COMPLETO)));
+                assinatura.codigo(pedido.id(), Plano.COMPLETO, pedido.valor())));
 
         assertThat(renovado.vencimento()).isEqualTo(pedido.periodoFim());
         assertThat(renovado.situacao()).isNotEqualTo(SituacaoDoPlano.SUSPENSO);
@@ -352,7 +397,7 @@ class PlanoServiceTest extends TesteDeIntegracao {
         ContaCriada dono = criador.criar("Armazém da Praça", SENHA_DE_TESTE);
         UsuarioCriado socia = criador.criarAdminEm(dono.contaId(), "Sócia");
         PedidoNaConta pedido = dono.comoUsuario(() -> planos.pedir(Plano.COMPLETO));
-        String codigo = assinatura.codigo(pedido.id(), Plano.COMPLETO);
+        String codigo = assinatura.codigo(pedido.id(), Plano.COMPLETO, pedido.valor());
 
         ExecutorService threads = Executors.newFixedThreadPool(2);
         List<CompletableFuture<EstadoDoPlano>> disputa;

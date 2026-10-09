@@ -1,12 +1,16 @@
 // Gera o código de ativação de um pedido de plano, depois de o Pix ser conferido no extrato.
 //
 // Uso, com o mesmo segredo do ambiente publicado:
-//   CAIXA_SIMPLES_PLANO_SECRET=... node operacao/plano/codigo.mjs <id do pedido> <plano>
+//   CAIXA_SIMPLES_PLANO_SECRET=... node operacao/plano/codigo.mjs <id do pedido> <plano> <valor>
 //
-// O id e o plano vêm do texto do pedido que o administrador mandou. O plano pode ir como no texto
-// ("Caixa Simples", "Completo") ou como no sistema (CAIXA_SIMPLES, COMPLETO). O código é a
-// assinatura HMAC-SHA256 do id do pedido e do plano; a aplicação a recalcula para conferir, então
-// este script não toca o banco nem a Conta, e o mesmo pedido sempre dá o mesmo código.
+// O id e o plano vêm do texto do pedido que o administrador mandou, e o valor é o que o Pix
+// conferido no extrato cobre. O plano pode ir como no texto ("Caixa Simples", "Completo") ou como
+// no sistema (CAIXA_SIMPLES, COMPLETO); o valor, como no texto ("R$ 1.234,56", entre aspas por
+// causa do espaço, ou 123,45) ou como no sistema (123.45).
+//
+// O código é a assinatura HMAC-SHA256 do id do pedido, do plano e do valor; a aplicação a recalcula
+// com o plano e o valor gravados no pedido, então um texto alterado dá um código que ela recusa.
+// Este script não toca o banco nem a Conta, e o mesmo pedido sempre dá o mesmo código.
 //
 // Sem dependência: só o Node. O teste ao lado confere o mesmo vetor fixo que a suíte Java confere
 // na aplicação.
@@ -19,21 +23,39 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const MINIMO_DE_BYTES = 32
 
 /** O código do pedido, em quatro grupos de quatro caracteres, como a aplicação o mostra. */
-export function codigoDoPedido(segredo, pedidoId, plano) {
+export function codigoDoPedido(segredo, pedidoId, plano, valor) {
   if (!segredo || Buffer.byteLength(segredo, 'utf8') < MINIMO_DE_BYTES) {
     throw new Error(`CAIXA_SIMPLES_PLANO_SECRET precisa de ao menos ${MINIMO_DE_BYTES} bytes`)
   }
   const id = String(pedidoId ?? '').trim().toLowerCase()
   if (!UUID.test(id)) throw new Error(`id de pedido invalido: ${pedidoId}`)
+  // O valor antes do plano: sem o valor na linha de comando, Caixa Simples se parte e a segunda
+  // palavra chega aqui como valor, e é dele a mensagem que explica o engano.
+  const valorDoSistema = comoNoSistema(valor)
   const doSistema = String(plano ?? '').trim().toUpperCase().replace(/\s+/g, '_')
   if (!PLANOS.includes(doSistema)) {
     throw new Error(`plano invalido: ${plano}; use Caixa Simples ou Completo`)
   }
 
   const assinatura = createHmac('sha256', Buffer.from(segredo, 'utf8'))
-    .update(`pedido-de-plano|${id}|${doSistema}`, 'utf8')
+    .update(`pedido-de-plano|${id}|${doSistema}|${valorDoSistema}`, 'utf8')
     .digest()
   return base32(assinatura.subarray(0, 10)).match(/.{4}/g).join('-')
+}
+
+// O valor como a aplicação o guarda e assina: ponto decimal, duas casas, sem separador de milhar
+// nem zero à esquerda. Com vírgula, ele veio como no texto do pedido, em que o ponto separa o
+// milhar; sem vírgula, o ponto é o decimal. O que não cabe em nenhum dos dois, como 1.234 sem
+// vírgula, é recusado em vez de adivinhado.
+function comoNoSistema(valor) {
+  // \s também tira o espaço não separável que a tela põe depois do R$.
+  let texto = String(valor ?? '').replace(/R\$/i, '').replace(/\s+/g, '')
+  if (texto.includes(',')) texto = texto.replace(/\./g, '').replace(',', '.')
+  const partes = /^(\d+)(?:\.(\d{1,2}))?$/.exec(texto)
+  if (!partes) throw new Error(`valor invalido: ${valor}; use o valor do pedido, como 123,45`)
+  const reais = partes[1].replace(/^0+(?=\d)/, '')
+  const centavos = (partes[2] ?? '').padEnd(2, '0')
+  return `${reais}.${centavos}`
 }
 
 // Cada 5 bits, do mais significativo ao menos, viram um caractere do alfabeto de Crockford, que
@@ -56,12 +78,17 @@ function base32(bytes) {
 
 // Roda como comando só quando chamado direto; o teste importa a função sem executar nada.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const [pedidoId, ...plano] = process.argv.slice(2)
+  // O valor é o último argumento, e o plano é o que fica entre o id e ele, para Caixa Simples
+  // poder ir sem aspas, como no texto do pedido.
+  const [pedidoId, ...resto] = process.argv.slice(2)
+  const valor = resto.length > 1 ? resto.pop() : undefined
   try {
-    console.log(codigoDoPedido(process.env.CAIXA_SIMPLES_PLANO_SECRET, pedidoId, plano.join(' ')))
+    console.log(codigoDoPedido(process.env.CAIXA_SIMPLES_PLANO_SECRET, pedidoId, resto.join(' '),
+      valor))
   } catch (erro) {
     console.error(erro.message)
-    console.error('Uso: CAIXA_SIMPLES_PLANO_SECRET=... node operacao/plano/codigo.mjs <id do pedido> <plano>')
+    console.error('Uso: CAIXA_SIMPLES_PLANO_SECRET=... node operacao/plano/codigo.mjs'
+      + ' <id do pedido> <plano> <valor>')
     process.exit(1)
   }
 }

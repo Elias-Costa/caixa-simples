@@ -17,6 +17,7 @@ import br.com.caixasimples.contas.Plano;
 import br.com.caixasimples.contas.internal.AssinaturaDePedido;
 import br.com.caixasimples.contas.internal.CicloDeVencimento;
 import br.com.caixasimples.shared.FusoDeReferencia;
+import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.Perfil;
 import java.time.LocalDate;
 import java.util.UUID;
@@ -78,9 +79,14 @@ class PlanoHttpTest extends TesteDeIntegracao {
 
         JsonNode pedido = pedir(admin, "COMPLETO");
         UUID pedidoId = UUID.fromString(pedido.path("id").asText());
-        String codigo = assinatura.codigo(pedidoId, Plano.COMPLETO);
+        String codigo = assinatura.codigo(pedidoId, Plano.COMPLETO, Money.de(MENSALIDADE_COMPLETO));
 
         http.perform(aplicar(admin, pedidoId, "0000-0000-0000-0000"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value(containsString("codigo")));
+        // O código que o mantenedor geraria com o valor de um texto alterado.
+        http.perform(aplicar(admin, pedidoId,
+                        assinatura.codigo(pedidoId, Plano.COMPLETO, Money.de("0.01"))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.detail").value(containsString("codigo")));
         // Do jeito que alguém digita: minúsculo e sem os hífens.
@@ -120,11 +126,12 @@ class PlanoHttpTest extends TesteDeIntegracao {
         UUID primeiro = UUID.fromString(pedir(admin, "CAIXA_SIMPLES").path("id").asText());
         pedir(admin, "COMPLETO");
 
-        http.perform(aplicar(admin, primeiro, assinatura.codigo(primeiro, Plano.CAIXA_SIMPLES)))
+        String codigoDoPrimeiro = assinatura.codigo(primeiro, Plano.CAIXA_SIMPLES,
+                Money.de(MENSALIDADE_CAIXA_SIMPLES));
+        http.perform(aplicar(admin, primeiro, codigoDoPrimeiro))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.detail").value(containsString("substituido")));
-        http.perform(aplicar(autenticador.como(outra), primeiro,
-                        assinatura.codigo(primeiro, Plano.CAIXA_SIMPLES)))
+        http.perform(aplicar(autenticador.como(outra), primeiro, codigoDoPrimeiro))
                 .andExpect(status().isNotFound());
         http.perform(get("/api/conta/plano").with(autenticador.como(operador)))
                 .andExpect(status().isForbidden());
