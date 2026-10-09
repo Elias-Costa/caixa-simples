@@ -202,6 +202,105 @@ class SincronizacaoHttpTest extends TesteDeIntegracao {
                 .andExpect(jsonPath("$.length()").value(1));
     }
 
+    /**
+     * A Venda não tem versão, e a gravação dela mescla o que recebe: se a leitura por chave deixasse
+     * de filtrar a Conta, a Venda vazia da B seria escrita sobre a da A, que por isso tem item e
+     * cliente, o que a mescla apagaria. A SessaoCaixa e o Cliente também nascem com o id do
+     * aparelho. Os três esbarram na chave primária, com a recusa genérica do conflito, e cada
+     * invasão tem ao lado o mesmo gesto com um id novo, aplicado, para a recusa não poder vir da
+     * sessão, da permissão ou do conteúdo.
+     */
+    @Test
+    @DisplayName("a Conta B não cria Venda, SessaoCaixa nem Cliente com os ids da Conta A, e os da A ficam como estavam (RNF05)")
+    void criacaoComOsIdsDeOutraConta() throws Exception {
+        ContaCriada contaA = criador.criar("Papelaria Norte", SENHA);
+        ContaCriada contaB = criador.criar("Papelaria Sul", SENHA);
+        RequestPostProcessor adminA = autenticador.como(contaA);
+        RequestPostProcessor adminB = autenticador.como(contaB);
+        UUID clienteDaA = UUID.randomUUID();
+        UUID sessaoDaA = UUID.randomUUID();
+        UUID vendaDaA = UUID.randomUUID();
+        UUID produtoDaA = UUID.randomUUID();
+        GestoDeTeste cadastroNaA = GestoDeTeste.de("cliente.criar", clienteDaA,
+                conteudo("nome", "Maria", "contato", "71 99999-0000"));
+        GestoDeTeste produtoNaA = GestoDeTeste.de("produto.criar", produtoDaA,
+                produto("Caderno", "10.00", null));
+        GestoDeTeste aberturaNaA = GestoDeTeste.abertura(sessaoDaA, "20.00");
+        GestoDeTeste inicioNaA = GestoDeTeste.inicio(vendaDaA, sessaoDaA, aberturaNaA);
+        GestoDeTeste itemNaA = GestoDeTeste.item(vendaDaA, UUID.randomUUID(), produtoDaA, "2",
+                "10.00", inicioNaA, produtoNaA).comVersaoBase(0);
+        GestoDeTeste vinculoNaA = GestoDeTeste.de("venda.vincularCliente", vendaDaA,
+                conteudo("clienteId", clienteDaA), itemNaA, cadastroNaA).comVersaoBase(1);
+        List<GestoDeTeste> gestosDaA = List.of(cadastroNaA, produtoNaA, aberturaNaA, inicioNaA,
+                itemNaA, vinculoNaA);
+        JsonNode daContaA = enviar(adminA, gestosDaA);
+        for (GestoDeTeste gesto : gestosDaA) {
+            assertThat(resultadoDe(daContaA, gesto).path("resultado").asText())
+                    .as(gesto.tipo()).isEqualTo("APLICADA");
+        }
+        String clientesDaAAntes = ler(http.perform(get("/api/clientes").with(adminA))
+                .andExpect(status().isOk())).toString();
+        String sessaoDaAAntes = ler(http.perform(get("/api/caixa/sessoes/{id}", sessaoDaA)
+                .with(adminA)).andExpect(status().isOk())).toString();
+        String vendaDaAAntes = ler(http.perform(get("/api/vendas/{id}", vendaDaA).with(adminA))
+                .andExpect(status().isOk())).toString();
+        JsonNode vendaDaANoInicio = json.readTree(vendaDaAAntes);
+        assertThat(vendaDaANoInicio.path("itens").size()).isEqualTo(1);
+        assertThat(vendaDaANoInicio.path("clienteId").asText()).isEqualTo(clienteDaA.toString());
+
+        // A B ainda não tem caixa aberto, e a abertura com o id da A chega à gravação em vez de
+        // parar na regra de um caixa aberto por operador.
+        GestoDeTeste cadastroComIdDaA = GestoDeTeste.de("cliente.criar", clienteDaA,
+                conteudo("nome", "Invasora", "contato", null));
+        GestoDeTeste aberturaComIdDaA = GestoDeTeste.abertura(sessaoDaA, "99.00");
+        GestoDeTeste cadastroComIdNovo = GestoDeTeste.de("cliente.criar", UUID.randomUUID(),
+                conteudo("nome", "Joana", "contato", null));
+        JsonNode primeiroDaB = enviar(adminB,
+                List.of(cadastroComIdDaA, aberturaComIdDaA, cadastroComIdNovo));
+
+        // Com o caixa da B aberto, o início com o id da A só tem o id para esbarrar.
+        UUID sessaoDaB = UUID.randomUUID();
+        GestoDeTeste aberturaComIdNovo = GestoDeTeste.abertura(sessaoDaB, "0");
+        GestoDeTeste inicioComIdDaA = GestoDeTeste.inicio(vendaDaA, sessaoDaB, aberturaComIdNovo);
+        GestoDeTeste inicioComIdNovo = GestoDeTeste.inicio(UUID.randomUUID(), sessaoDaB,
+                aberturaComIdNovo);
+        JsonNode segundoDaB = enviar(adminB,
+                List.of(aberturaComIdNovo, inicioComIdDaA, inicioComIdNovo));
+
+        JsonNode recusaDoCadastro = resultadoDe(primeiroDaB, cadastroComIdDaA);
+        assertThat(recusaDoCadastro.path("resultado").asText()).isEqualTo("NAO_APLICADA");
+        assertThat(recusaDoCadastro.path("detalhe").asText()).contains("conflita");
+        JsonNode recusaDaAbertura = resultadoDe(primeiroDaB, aberturaComIdDaA);
+        assertThat(recusaDaAbertura.path("resultado").asText()).isEqualTo("NAO_APLICADA");
+        assertThat(recusaDaAbertura.path("detalhe").asText()).contains("conflita");
+        JsonNode recusaDoInicio = resultadoDe(segundoDaB, inicioComIdDaA);
+        assertThat(recusaDoInicio.path("resultado").asText()).isEqualTo("NAO_APLICADA");
+        assertThat(recusaDoInicio.path("detalhe").asText()).contains("conflita");
+
+        assertThat(resultadoDe(primeiroDaB, cadastroComIdNovo).path("resultado").asText())
+                .as("o mesmo cadastro com id novo").isEqualTo("APLICADA");
+        assertThat(resultadoDe(segundoDaB, aberturaComIdNovo).path("resultado").asText())
+                .as("a mesma abertura com id novo").isEqualTo("APLICADA");
+        assertThat(resultadoDe(segundoDaB, inicioComIdNovo).path("resultado").asText())
+                .as("o mesmo início com id novo").isEqualTo("APLICADA");
+
+        assertThat(ler(http.perform(get("/api/clientes").with(adminA))).toString())
+                .isEqualTo(clientesDaAAntes);
+        assertThat(ler(http.perform(get("/api/caixa/sessoes/{id}", sessaoDaA).with(adminA)))
+                .toString()).isEqualTo(sessaoDaAAntes);
+        assertThat(ler(http.perform(get("/api/vendas/{id}", vendaDaA).with(adminA))).toString())
+                .isEqualTo(vendaDaAAntes);
+
+        // E a B não ficou com registro nenhum nos ids da A.
+        http.perform(get("/api/vendas/{id}", vendaDaA).with(adminB))
+                .andExpect(status().isNotFound());
+        http.perform(get("/api/caixa/sessoes/{id}", sessaoDaA).with(adminB))
+                .andExpect(status().isNotFound());
+        http.perform(get("/api/clientes").with(adminB))
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].nome").value("Joana"));
+    }
+
     @Test
     @DisplayName("o operador não cadastra produto nem registra Pix pelo lote; o tipo desconhecido é recusado")
     void recusasDePermissaoDePixEDeTipo() throws Exception {

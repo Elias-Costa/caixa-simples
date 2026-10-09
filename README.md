@@ -612,7 +612,7 @@ de uso, provada por teste negativo, e nunca dependente de um valor que o cliente
   SQL nativo, e por isso query nativa em código de negócio é proibida no projeto.
 - **Todo dado persistido tem teste de isolamento**, no molde de gravar na conta A e provar que a
   conta B recebe vazio. Usuário, credencial, produto, cliente, sessão de caixa e venda têm o seu, e
-  os membros de agregado (movimento de caixa, item e pagamento da venda, movimento de estoque) têm
+  os membros de agregado (movimento de caixa, item, pagamento e recebimento da venda, movimento de estoque) têm
   um teste próprio, que prova que a coluna de conta deles vem do contexto e não da raiz por
   junção. O teste falha se a anotação de tenant for removida. O registro das operações
   sincronizadas também tem o seu, que cobre a lista de revisões e a conferência. O pedido de plano
@@ -624,8 +624,9 @@ de uso, provada por teste negativo, e nunca dependente de um valor que o cliente
   tenant, é testado com uma linha em cada tabela da Conta nas duas pontas: a encerrada termina sem
   nenhuma, e a outra com as mesmas, tabela a tabela. A remoção de
   Cliente e a anonimização de Usuário são recusadas com id de outra Conta. O lote prova por HTTP que duas Contas com os mesmos ids de
-  operação recebem cada uma o seu resultado e que o id de Produto de uma Conta usado pela outra é
-  recusado sem alterar nada. Os casos de uso do estoque têm o
+  operação recebem cada uma o seu resultado e que os ids de Produto, Venda, sessão de caixa e
+  Cliente de uma Conta, usados pela outra para criar um registro, são recusados sem alterar nada.
+  Os casos de uso do estoque têm o
   seu nas duas direções: a lista de estoque baixo de uma conta não traz o produto de outra, e o
   ajuste de uma conta não alcança o produto de outra. O comprovante tem a mesma prova nas duas
   pontas: a venda de uma conta é inexistente para a outra, e a consulta em lote dos nomes dos

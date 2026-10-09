@@ -1,11 +1,3 @@
-# Postgres de desenvolvimento local (etapa 0.2 do plano de implementacao).
-# Testes de integracao NAO usam este servico — eles sobem o proprio container
-# via Testcontainers (arquitetura §9). Este e para rodar a aplicacao a mao.
-#
-#   docker compose up -d
-#
-# Credenciais vem do ambiente; os defaults abaixo sao de desenvolvimento e nao
-# servem para nenhum outro ambiente.
 services:
   postgres:
     image: postgres:17-alpine
