@@ -24,10 +24,11 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Contenção do login pelo servidor de verdade, numa porta real, como chega em produção: atrás da
- * entrada da hospedagem, que acrescenta ao {@code X-Forwarded-For} o endereço de quem se conectou a
- * ela. A origem que conta é a lida da direita, e o que o cliente escreve à esquerda não troca a
- * contagem. Pelo MockMvc, que chama o Spring direto, o cabeçalho nunca seria lido.
+ * Contenção do login pelo servidor de verdade, numa porta real, como chega em produção: atrás do
+ * proxy da mesma máquina, que põe no {@code X-Forwarded-For} o endereço de quem se conectou a ele.
+ * A origem que conta é a lida da direita, e o que o cliente escreve à esquerda, se chegar até a
+ * aplicação, não troca a contagem. Pelo MockMvc, que chama o Spring direto, o cabeçalho nunca seria
+ * lido.
  *
  * <p>Mesmas anotações do teste da borda, para o Spring reaproveitar aquele contexto em vez de subir
  * outro, com outro banco. Os e-mails não existem: a recusa conta igual, e nenhuma Conta é preciso.

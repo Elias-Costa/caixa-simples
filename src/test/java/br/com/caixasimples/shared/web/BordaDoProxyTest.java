@@ -18,17 +18,18 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Em produção, a requisição passa pela entrada da hospedagem antes de chegar à aplicação: ela
- * termina o HTTPS, acrescenta ao {@code X-Forwarded-For} o endereço de quem se conectou a ela e
- * fala com a aplicação pela rede interna. Este teste prova, contra o servidor de verdade, que a
- * origem é lida da direita e que o que o cliente escreve no cabeçalho nunca vira a origem.
+ * Em produção, a requisição passa pelo proxy da mesma máquina antes de chegar à aplicação: ele
+ * termina o HTTPS, descarta o {@code X-Forwarded-For} que o cliente mandou, põe no lugar o
+ * endereço de quem se conectou a ele e fala com a aplicação pela rede interna dos contêineres.
+ * Este teste prova, contra o servidor de verdade, que a origem é lida da direita e que o que o
+ * cliente escreve no cabeçalho nunca vira a origem, mesmo que chegue até a aplicação.
  *
  * <p>Sobe o servidor numa porta real porque quem lê os cabeçalhos é o próprio servidor, antes do
  * Spring: pelo MockMvc, que chama o Spring direto, o teste passaria sem ter lido nada. Por isso
  * este contexto é separado do resto da suíte.
  *
  * <p>Nenhum proxy além da rede interna é declarado confiável aqui, como na configuração padrão. A
- * conexão chega de {@code 127.0.0.1}, que é rede interna, como a da entrada lá.
+ * conexão chega de {@code 127.0.0.1}, que é rede interna, como a do proxy lá.
  */
 @SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT)
 class BordaDoProxyTest extends TesteDeIntegracao {
@@ -44,8 +45,8 @@ class BordaDoProxyTest extends TesteDeIntegracao {
     private ObjectMapper json;
 
     @Test
-    @DisplayName("atrás da entrada da hospedagem, a origem é o cliente e a requisição é segura")
-    void cadeiaDaHospedagem() throws Exception {
+    @DisplayName("atrás do proxy da máquina, a origem é o cliente e a requisição é segura")
+    void cadeiaDoProxy() throws Exception {
         JsonNode eco = eco(pedido("/teste/borda")
                 .header("X-Forwarded-For", CLIENTE)
                 .header("X-Forwarded-Proto", "https"));
@@ -65,8 +66,8 @@ class BordaDoProxyTest extends TesteDeIntegracao {
     }
 
     /**
-     * A entrada pode ter mais de um salto dentro da rede do provedor antes da aplicação. Endereço
-     * privado no cabeçalho é atravessado como a própria conexão.
+     * Entre o proxy e a aplicação pode haver outro salto dentro da rede interna, como um segundo
+     * proxy na mesma máquina. Endereço privado no cabeçalho é atravessado como a própria conexão.
      */
     @Test
     @DisplayName("um salto da rede interna no cabeçalho é atravessado")
@@ -78,8 +79,9 @@ class BordaDoProxyTest extends TesteDeIntegracao {
     }
 
     /**
-     * Se a entrada passar a ter um salto público que ninguém declarou, a origem vira esse salto: o
-     * aviso de pagamento que confere o endereço é recusado, e nada escrito pelo cliente é aceito.
+     * Se aparecer na frente da aplicação um salto público que ninguém declarou, a origem vira esse
+     * salto: o aviso de pagamento que confere o endereço é recusado, e nada escrito pelo cliente é
+     * aceito.
      */
     @Test
     @DisplayName("um salto público não declarado vira a origem, e o que está antes dele não é lido")

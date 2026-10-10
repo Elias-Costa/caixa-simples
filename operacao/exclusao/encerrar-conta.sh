@@ -1,7 +1,7 @@
 #!/bin/sh
 # Executar com o serviço parado, depois de conferir a identidade de quem pediu e retirar os
-# segredos Pix da Conta no Northflank. O registro externo sai antes do DELETE: se o banco falhar,
-# uma restauração posterior ainda cumpre o pedido autorizado.
+# segredos Pix da Conta da configuração do servidor. O registro externo sai antes do DELETE: se o
+# banco falhar, uma restauração posterior ainda cumpre o pedido autorizado.
 
 set -eu
 set -o pipefail
@@ -10,10 +10,10 @@ CONTA_ID="${1:?informe o UUID da Conta}"
 ADMIN_ID="${2:?informe o UUID do ADMIN que pediu}"
 : "${CAIXA_SIMPLES_ENCERRAR_BANCO:?informe o banco da Conta}"
 : "${CAIXA_SIMPLES_REMOCOES_DESTINO:?informe o bucket externo das remoções}"
-: "${CAIXA_SIMPLES_SEGREDOS_REMOVIDOS:?confirme os segredos removidos no Northflank}"
+: "${CAIXA_SIMPLES_SEGREDOS_REMOVIDOS:?confirme os segredos removidos da configuração do servidor}"
 
 if [ "$CAIXA_SIMPLES_SEGREDOS_REMOVIDOS" != sim ]; then
-    echo "Confirme a remoção dos segredos da Conta no Northflank." >&2
+    echo "Confirme a remoção dos segredos da Conta da configuração do servidor." >&2
     exit 1
 fi
 for id in "$CONTA_ID" "$ADMIN_ID"; do

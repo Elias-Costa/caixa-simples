@@ -195,7 +195,8 @@ async function vendaComRede(conta, sessaoId, produtos, clienteId, indice) {
     await chamar(conta, 'PUT', '/api/vendas/{id}/cliente', `/api/vendas/${id}/cliente`,
       { clienteId }, [204]);
   }
-  const pagamento = { forma, valor: emReais(total) };
+  // O id é do aparelho, como no aplicativo: a mesma intenção reenviada não paga duas vezes.
+  const pagamento = { pagamentoId: randomUUID(), forma, valor: emReais(total) };
   if (forma === 'DINHEIRO') pagamento.valorRecebido = emReais(recebidoComTroco(total));
   const { troco } = await chamar(conta, 'POST', '/api/vendas/{id}/pagamentos',
     `/api/vendas/${id}/pagamentos`, pagamento, [200]);
@@ -329,7 +330,8 @@ async function executar(email) {
   }
 
   await chamar(conta, 'POST', '/api/caixa/sessoes/{id}/sangrias',
-    `/api/caixa/sessoes/${sessaoId}/sangrias`, { valor: emReais(SANGRIA), motivo: 'Sangria da carga' },
+    `/api/caixa/sessoes/${sessaoId}/sangrias`,
+    { movimentoId: randomUUID(), valor: emReais(SANGRIA), motivo: 'Sangria da carga' },
     [204]);
 
   const lote = montarLote(sessaoId, produtos);

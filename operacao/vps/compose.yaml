@@ -1,0 +1,185 @@
+# Produção na VPS: o proxy do HTTPS, a aplicação e o PostgreSQL 17 na mesma máquina, e por perfil
+# as execuções avulsas (a criação de Conta, a cópia, a restauração e o encerramento de Conta). Roda
+# sempre por compose.sh, ao lado deste arquivo, que passa a configuração da máquina e a versão no ar.
+#
+# Nenhuma senha fica aqui: os valores vêm do arquivo de configuração da máquina, interpolados, e cada
+# serviço recebe só as variáveis listadas nele. Quem as usa recusa o valor vazio com uma mensagem
+# própria. Nada é exigido aqui porque o Compose interpola todos os serviços, inclusive os de perfil
+# desligado, e cada comando passaria a pedir as variáveis de todos.
+#
+# Os limites de memória são os da medição sob carga, sem swap: a JVM com o heap em disco travaria,
+# e o swap da máquina fica para o sistema. A CPU não tem limite por serviço: a própria máquina é o
+# teto, e quem estiver ocioso cede a vez.
+name: caixa-simples
+
+services:
+  # Termina o HTTPS, com o certificado obtido e renovado por ele, e encaminha à aplicação pela rede
+  # interna. É o único serviço com porta publicada: o Docker abre a porta publicada por fora do
+  # firewall da máquina, então banco e aplicação não publicam nenhuma. Preso por digest, como toda
+  # imagem de terceiro que vai ao ar, porque termina o HTTPS de tudo.
+  proxy:
+    image: caddy:2.11.7-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
+    restart: unless-stopped
+    mem_limit: 128m
+    memswap_limit: 128m
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      CAIXA_SIMPLES_DOMINIO: ${CAIXA_SIMPLES_DOMINIO:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Os certificados e a conta no emissor: perdidos, seriam pedidos de novo, e o emissor limita
+      # quantos certificados o mesmo domínio recebe por semana.
+      - proxy-dados:/data
+      - proxy-config:/config
+
+  app:
+    image: ghcr.io/elias-costa/caixa-simples:${CAIXA_SIMPLES_VERSAO:-}
+    restart: unless-stopped
+    depends_on:
+      banco:
+        condition: service_healthy
+    mem_limit: 1g
+    memswap_limit: 1g
+    # O tempo para as requisições em andamento terminarem antes de o processo ser encerrado.
+    stop_grace_period: 30s
+    # As credenciais Pix são por Conta, com o id dela no nome da variável, e por isso ficam num
+    # arquivo à parte, sem lista fixa aqui. O certificado de cada Conta fica na pasta montada abaixo.
+    env_file:
+      - ${CAIXA_SIMPLES_CONFIGURACAO:-/etc/caixa-simples}/efi.env
+    environment: &ambiente-da-aplicacao
+      # Mesma máquina, rede interna e porta do banco não publicada: nada passa por fora dela, e a
+      # conexão dispensa TLS.
+      CAIXA_SIMPLES_DB_URL: jdbc:postgresql://banco:5432/caixa_simples
+      CAIXA_SIMPLES_DB_USER: caixa_simples
+      CAIXA_SIMPLES_DB_PASSWORD: ${CAIXA_SIMPLES_DB_PASSWORD:-}
+      CAIXA_SIMPLES_JWT_SECRET: ${CAIXA_SIMPLES_JWT_SECRET:-}
+      CAIXA_SIMPLES_PLANO_SECRET: ${CAIXA_SIMPLES_PLANO_SECRET:-}
+      CAIXA_SIMPLES_MENSALIDADE_CAIXA_SIMPLES: ${CAIXA_SIMPLES_MENSALIDADE_CAIXA_SIMPLES:-}
+      CAIXA_SIMPLES_MENSALIDADE_COMPLETO: ${CAIXA_SIMPLES_MENSALIDADE_COMPLETO:-}
+      CAIXA_SIMPLES_REMOCOES_BUCKET: ${CAIXA_SIMPLES_REMOCOES_BUCKET:-}
+      AWS_ACCESS_KEY_ID: ${CAIXA_SIMPLES_REMOCOES_AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${CAIXA_SIMPLES_REMOCOES_AWS_SECRET_ACCESS_KEY:-}
+    volumes:
+      - ${CAIXA_SIMPLES_CONFIGURACAO:-/etc/caixa-simples}/efi:/segredos/efi:ro
+    # Decide quando o deploy terminou. O Docker não reinicia um contêiner que fica doente, só o que
+    # termina; uma aplicação travada aparece no vigia, que confere esta mesma rota pelo domínio.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/actuator/health/liveness"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 180s
+
+  # A imagem oficial do PostgreSQL 17, presa por digest no Dockerfile da pasta banco, começando como o
+  # usuário postgres. Construída aqui mesmo, e não baixada: o compose a reconstrói a cada subida, pelo
+  # cache, e só uma mudança naquele arquivo gera imagem nova e recria o banco.
+  banco:
+    build: ./banco
+    image: caixa-simples-banco:local
+    pull_policy: build
+    restart: unless-stopped
+    mem_limit: 512m
+    memswap_limit: 512m
+    # O PostgreSQL termina limpo em segundos; sem esta folga, o Docker o mataria aos 10 s, e a volta
+    # passaria pela recuperação do log.
+    stop_grace_period: 60s
+    environment:
+      POSTGRES_DB: caixa_simples
+      POSTGRES_USER: caixa_simples
+      POSTGRES_PASSWORD: ${CAIXA_SIMPLES_DB_PASSWORD:-}
+    volumes:
+      - banco-dados:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U caixa_simples -d caixa_simples"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # Cria uma Conta e termina, sem servidor web: é assim que uma Conta passa a existir. Os dados vêm
+  # do ambiente de quem roda o comando, nunca do arquivo de configuração.
+  seed:
+    profiles: [seed]
+    image: ghcr.io/elias-costa/caixa-simples:${CAIXA_SIMPLES_VERSAO:-}
+    depends_on:
+      banco:
+        condition: service_healthy
+    mem_limit: 1g
+    memswap_limit: 1g
+    environment:
+      <<: *ambiente-da-aplicacao
+      SPRING_PROFILES_ACTIVE: seed
+      SPRING_MAIN_WEB_APPLICATION_TYPE: none
+      CAIXA_SIMPLES_SEED_NOME_NEGOCIO: ${CAIXA_SIMPLES_SEED_NOME_NEGOCIO:-}
+      CAIXA_SIMPLES_SEED_EMAIL: ${CAIXA_SIMPLES_SEED_EMAIL:-}
+      CAIXA_SIMPLES_SEED_SENHA: ${CAIXA_SIMPLES_SEED_SENHA:-}
+
+  # A cópia cifrada, de hora em hora, pelo agendador da máquina. A credencial só grava objeto novo
+  # no bucket: não lê, não lista e não apaga.
+  copia:
+    profiles: [copia]
+    image: ghcr.io/elias-costa/caixa-simples-copia:${CAIXA_SIMPLES_VERSAO:-}
+    depends_on:
+      banco:
+        condition: service_healthy
+    mem_limit: 256m
+    memswap_limit: 256m
+    environment:
+      CAIXA_SIMPLES_COPIA_BANCO: postgresql://caixa_simples@banco:5432/caixa_simples
+      PGPASSWORD: ${CAIXA_SIMPLES_DB_PASSWORD:-}
+      CAIXA_SIMPLES_COPIA_CHAVE_PUBLICA: ${CAIXA_SIMPLES_COPIA_CHAVE_PUBLICA:-}
+      CAIXA_SIMPLES_COPIA_DESTINO: ${CAIXA_SIMPLES_COPIA_DESTINO:-}
+      CAIXA_SIMPLES_COPIA_DESTINO_DIARIA: ${CAIXA_SIMPLES_COPIA_DESTINO_DIARIA:-}
+      CAIXA_SIMPLES_COPIA_HORA_DIARIA: ${CAIXA_SIMPLES_COPIA_HORA_DIARIA:-6}
+      RCLONE_CONFIG_S3_TYPE: s3
+      RCLONE_CONFIG_S3_PROVIDER: AWS
+      RCLONE_CONFIG_S3_REGION: sa-east-1
+      RCLONE_CONFIG_S3_ACCESS_KEY_ID: ${CAIXA_SIMPLES_COPIA_AWS_ACCESS_KEY_ID:-}
+      RCLONE_CONFIG_S3_SECRET_ACCESS_KEY: ${CAIXA_SIMPLES_COPIA_AWS_SECRET_ACCESS_KEY:-}
+
+  # Restaura uma cópia num banco vazio, por padrão o desta máquina, que é o caso da recriação. A
+  # credencial de leitura do bucket e a chave privada são do mantenedor: entram só no comando, pelo
+  # ambiente e por -v, e nunca ficam na máquina.
+  restaurar:
+    profiles: [restauracao]
+    image: ghcr.io/elias-costa/caixa-simples-copia:${CAIXA_SIMPLES_VERSAO:-}
+    depends_on:
+      banco:
+        condition: service_healthy
+    entrypoint: ["sh", "/copia/restaurar.sh"]
+    environment:
+      CAIXA_SIMPLES_RESTAURAR_BANCO: ${CAIXA_SIMPLES_RESTAURAR_BANCO:-postgresql://caixa_simples@banco:5432/caixa_simples}
+      PGPASSWORD: ${CAIXA_SIMPLES_DB_PASSWORD:-}
+      CAIXA_SIMPLES_COPIA_CHAVE_PRIVADA: /chave/chave-privada.txt
+      CAIXA_SIMPLES_REMOCOES_DESTINO: ${CAIXA_SIMPLES_REMOCOES_DESTINO:-}
+      RCLONE_CONFIG_S3_TYPE: s3
+      RCLONE_CONFIG_S3_PROVIDER: AWS
+      RCLONE_CONFIG_S3_REGION: sa-east-1
+      RCLONE_CONFIG_S3_ACCESS_KEY_ID: ${CAIXA_SIMPLES_LEITURA_AWS_ACCESS_KEY_ID:-}
+      RCLONE_CONFIG_S3_SECRET_ACCESS_KEY: ${CAIXA_SIMPLES_LEITURA_AWS_SECRET_ACCESS_KEY:-}
+
+  # Encerra uma Conta a pedido, com a aplicação parada. A confirmação de que os segredos Pix da Conta
+  # saíram da configuração entra no comando, nunca no arquivo.
+  encerrar:
+    profiles: [exclusao]
+    image: ghcr.io/elias-costa/caixa-simples-copia:${CAIXA_SIMPLES_VERSAO:-}
+    depends_on:
+      banco:
+        condition: service_healthy
+    entrypoint: ["sh", "/exclusao/encerrar-conta.sh"]
+    environment:
+      CAIXA_SIMPLES_ENCERRAR_BANCO: postgresql://caixa_simples@banco:5432/caixa_simples
+      PGPASSWORD: ${CAIXA_SIMPLES_DB_PASSWORD:-}
+      CAIXA_SIMPLES_REMOCOES_DESTINO: ${CAIXA_SIMPLES_REMOCOES_DESTINO:-}
+      CAIXA_SIMPLES_SEGREDOS_REMOVIDOS: ${CAIXA_SIMPLES_SEGREDOS_REMOVIDOS:-}
+      RCLONE_CONFIG_S3_TYPE: s3
+      RCLONE_CONFIG_S3_PROVIDER: AWS
+      RCLONE_CONFIG_S3_REGION: sa-east-1
+      RCLONE_CONFIG_S3_ACCESS_KEY_ID: ${CAIXA_SIMPLES_REMOCOES_AWS_ACCESS_KEY_ID:-}
+      RCLONE_CONFIG_S3_SECRET_ACCESS_KEY: ${CAIXA_SIMPLES_REMOCOES_AWS_SECRET_ACCESS_KEY:-}
+
+volumes:
+  banco-dados:
+  proxy-dados:
+  proxy-config:

@@ -27,7 +27,12 @@ COPY --from=build /build/target/caixa-simples-*.jar aplicacao.jar
 RUN java -Djarmode=tools -jar aplicacao.jar extract --layers --destination extraido
 
 FROM eclipse-temurin:21-jre-alpine
-RUN addgroup -S caixa && adduser -S -G caixa caixa
+# Liga a imagem publicada a este repositório no registro, e é por ele que o deploy acha as versões
+# antigas para apagar.
+LABEL org.opencontainers.image.source=https://github.com/Elias-Costa/caixa-simples
+# Uid e gid fixos, para o servidor dar a este usuário, e só a ele, a leitura dos certificados Pix
+# montados no contêiner.
+RUN addgroup -S -g 10001 caixa && adduser -S -u 10001 -G caixa caixa
 WORKDIR /aplicacao
 COPY --from=camadas /camadas/extraido/dependencies/ ./
 COPY --from=camadas /camadas/extraido/spring-boot-loader/ ./

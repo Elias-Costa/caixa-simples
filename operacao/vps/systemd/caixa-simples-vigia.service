@@ -1,0 +1,10 @@
+# O sinal de vida da máquina para o vigia, depois de conferir a aplicação pelo domínio.
+[Unit]
+Description=Sinal de vida do Caixa Simples
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /opt/caixa-simples/repositorio/operacao/vps/vigia.sh
+TimeoutStartSec=2min

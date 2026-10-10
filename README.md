@@ -12,8 +12,8 @@ modular em Java com Spring Boot e Spring Modulith.
 ![Licença](https://img.shields.io/badge/licen%C3%A7a-todos%20os%20direitos%20reservados-lightgrey)
 
 > **Vitrine técnica.** Este repositório existe para que o código possa ser lido e avaliado, não para
-> ser distribuído. O que ele traz de implantação (a imagem, o template da hospedagem e os scripts de
-> operação) é o ambiente do próprio projeto, versionado junto do código porque faz parte do desenho,
+> ser distribuído. O que ele traz de implantação (a imagem, a configuração do servidor e os scripts
+> de operação) é o ambiente do próprio projeto, versionado junto do código porque faz parte do desenho,
 > e não um guia de instalação para terceiros. Ver [Licença](#licença).
 >
 > O sistema está em construção. A seção [Estado atual](#estado-atual) separa, sem eufemismo, o que
@@ -257,7 +257,7 @@ Duas operações que alteram a mesma raiz ao mesmo tempo fazem a segunda respond
 rota, sem gravar nada.
 A escrita de produto por operador responde 403; id de outra Conta responde 404.
 Fora da API, `GET /actuator/health/liveness` diz se a instância está de pé, sem consultar o banco,
-e é o que a hospedagem lê; `GET /actuator/health` consulta também o banco. Nenhum outro endpoint do
+e é o que o deploy e o vigia conferem; `GET /actuator/health` consulta também o banco. Nenhum outro endpoint do
 Actuator é exposto.
 Os casos de uso de produto, cliente, caixa, pagamento, venda, estoque, relatório e usuário são
 exercitados por teste de integração, inclusive a autorização por perfil, que é
@@ -314,14 +314,15 @@ abre sem rede no shell, com a identidade guardada, e pergunta ao servidor quem e
 que a rede volta; a versão nova avisa e espera o operador mandar atualizar, porque recarregar no
 meio de uma venda custaria a venda.
 
-**Implantação.** A imagem, o CI que dispara a publicação, o template do Northflank, numa região no
-Brasil, a cópia cifrada de hora em hora e a restauração existem e foram ensaiados na máquina local,
-com os limites dos planos escolhidos: a imagem com meia CPU e 1 GB, o PostgreSQL com 0,2 CPU e
-512 MB e o job da cópia com 0,1 CPU e 256 MB. A carga de correção passa em três Contas em paralelo,
-a cópia só grava nome novo, com duas gravações e nenhuma outra requisição, e a cópia restaurada num
-PostgreSQL vazio confere com a origem. O primeiro deploy público ainda não foi feito, e o que só ele
-confirma, como a cadeia real de proxies, o limite de memória que a JVM enxerga e o template aceito
-pelo Northflank, está listado junto do passo a passo, em [operacao/README.md](operacao/README.md).
+**Implantação.** A imagem, o CI que publica as imagens e faz o deploy, a configuração da VPS, com o
+proxy do HTTPS, a aplicação e o PostgreSQL 17 em contêineres na mesma máquina no Brasil, a cópia
+cifrada de hora em hora e a restauração existem e foram ensaiados na máquina local, com os limites de
+memória da VPS (a aplicação com 1 GB, o PostgreSQL com 512 MB, o proxy com 128 MB e a cópia com
+256 MB) e a CPU dividida como no pior caso de lá. A carga de correção passa em três Contas em paralelo
+pelo proxy, a cópia só grava nome novo, a cópia restaurada num PostgreSQL vazio confere com a origem, e
+a recriação da máquina a partir da cópia foi ensaiada. O primeiro deploy público ainda não foi feito,
+e o que só ele confirma, como a cadeia real do endereço de origem, o certificado do domínio e o preparo
+numa máquina nova, está listado junto do passo a passo, em [operacao/README.md](operacao/README.md).
 
 ## Por onde começar a leitura
 
@@ -713,20 +714,22 @@ nem cadastros, que só conferem a chave da conta.
 
 Nenhum segredo mora no repositório. A chave de assinatura dos tokens, o segredo dos códigos de
 plano e as credenciais vêm de variável de ambiente, e a aplicação recusa subir sem eles, em vez de
-cair num valor padrão que seria idêntico em toda instalação. O template da hospedagem declara os
-segredos só pelo nome, e a chave dos tokens é gerada pelo próprio provedor, sem passar por ninguém;
-o segredo dos códigos entra como argumento, porque o mantenedor precisa dele para gerar os códigos.
+cair num valor padrão que seria idêntico em toda instalação. No servidor, eles ficam num arquivo
+que só o administrador lê, fora do repositório, e os que nascem lá, a senha do banco, a chave dos
+tokens e o segredo dos códigos, são gerados na própria máquina, sem passar por ninguém; o segredo dos
+códigos é guardado também com o mantenedor, porque ele precisa dele para gerar os códigos.
 As mensalidades também vêm do ambiente, e nenhum preço está no código. O build da imagem também não leva
 configuração local, chave ou certificado esquecidos nas pastas do código, e cada publicação espera a
 verificação dos avisos de segurança das dependências e das imagens.
 
-Atrás da entrada da hospedagem, o endereço de origem sai do `X-Forwarded-For` lido da direita para
-a esquerda, atravessando só a rede interna e os proxies que uma variável declarar: o que o cliente
+Atrás do proxy da máquina, que descarta o cabeçalho mandado pelo cliente e põe no lugar o endereço
+de quem se conectou a ele, o endereço de origem sai do `X-Forwarded-For` lido da direita para a
+esquerda, atravessando só a rede interna e os proxies que uma variável declarar: o que o cliente
 escreve no cabeçalho nunca vira origem, e um salto desconhecido vira a origem em vez de ser
 atravessado. O HTTPS é reconhecido pelo `X-Forwarded-Proto`, e é com ele que o
 `Strict-Transport-Security` sai. Do Actuator, só o health é exposto por HTTP. A cópia do banco sai
-do contêiner já cifrada, e o job que a faz não consegue decifrá-la nem gravar por cima de uma cópia
-existente.
+do contêiner já cifrada, e a tarefa que a faz não consegue decifrá-la nem gravar por cima de uma
+cópia existente.
 
 ## Modelo de dados
 
@@ -945,8 +948,8 @@ os quatro desfechos, a resposta perdida, a falha repetida na rodada seguinte, o 
 fila e a fila de uma Conta que não sai com outra autenticada.
 
 A leitura dos cabeçalhos dos proxies é testada contra o servidor de verdade, numa porta real,
-porque é o Tomcat que a faz, antes de a requisição chegar ao Spring: atrás da entrada da
-hospedagem, a origem é o cliente e a requisição conta como HTTPS; o prefixo que o cliente forja é
+porque é o Tomcat que a faz, antes de a requisição chegar ao Spring: atrás do proxy da máquina,
+a origem é o cliente e a requisição conta como HTTPS; o prefixo que o cliente forja é
 ignorado; um salto da rede interna é atravessado e um salto público não declarado vira a origem; o
 proxy declarado pela variável é atravessado; e o HSTS só sai quando o proxy diz HTTPS. As rotas de
 vida e de prontidão respondem sem token e sem consultar o banco. A execução avulsa que cria uma
@@ -958,9 +961,9 @@ de segurança publicados para as bibliotecas Java dentro delas, para os pacotes 
 `package-lock` do front-end, inclusive as dependências de build. Um aviso alto ou crítico que já
 tenha correção barra a publicação; a exceção fundamentada entra num arquivo versionado, com data de
 revisão de no máximo 90 dias, e vencida volta a barrar. A mesma verificação roda uma vez por semana,
-sem publicar, e na máquina pelo mesmo script. A publicação só é disparada no commit em que tudo
-passou. Fora da
-suíte, uma carga de correção roda contra a imagem com os limites dos planos da hospedagem: em três
+sem publicar, e na máquina pelo mesmo script. Só o commit em que tudo passou tem as imagens
+publicadas e vai ao ar, de madrugada ou por um botão de urgência. Fora da suíte, uma carga de
+correção roda contra a produção em miniatura, pelo mesmo compose do servidor e com os limites dele: em três
 Contas ao mesmo tempo, cem Vendas com rede e um lote de gestos sem rede enviado duas vezes,
 conferidos contra a lista de Vendas, o relatório do dia e o fechamento do caixa, que tem de dar
 diferença zero.
@@ -968,28 +971,40 @@ diferença zero.
 ## Implantação
 
 Nenhum dado pessoal sai do Brasil: o banco, a aplicação e a cópia, mesmo cifrada, ficam em
-servidores no país. A hospedagem é o Northflank, num projeto numa região no Brasil, e a cópia vai
-para o armazenamento de objetos da AWS, também no Brasil, um segundo fornecedor.
+servidores no país. Tudo roda em contêineres numa VPS da HostGator no Brasil, e a cópia vai para o
+armazenamento de objetos da AWS, também no Brasil, um segundo fornecedor.
 
 O artefato é um só: o jar com a API e o aplicativo na mesma origem, numa imagem Docker que roda
 sem root. O build da imagem só enxerga o que compila o jar: configuração local, chave, certificado
 ou registro de execução deixados nas pastas do código ficam fora dele, para não entrarem no jar nem
-serem servidos pela aplicação. Um template versionado descreve o ambiente inteiro, com os segredos só pelo nome: o
-PostgreSQL gerenciado, os serviços que constroem as imagens, o serviço da aplicação, os jobs do seed
-e da cópia e o fluxo de publicação. O CI dispara esse fluxo só no commit em que tudo passou, por um
-endereço que não serve para mais nada; o fluxo constrói aquele commit e o publica. A instância nova
-só recebe tráfego depois de passar nas sondas de partida e de prontidão, e a antiga continua
-servindo enquanto a nova aplica as migrations. Por isso migration nova só vai na janela de
-manutenção. Nenhuma sonda consulta o banco: uma queda dele não pode fazer a hospedagem reiniciar em
-laço uma aplicação sem defeito.
+serem servidos pela aplicação.
 
-De hora em hora, um job agendado faz o dump do banco direto para o `age`, cifrado para a chave
-pública do mantenedor, e o envia para fora do provedor com uma conferência de contagens e totais,
-também cifrada; a cópia de uma hora da madrugada vai para um destino guardado por mais tempo. O job
-não tem a chave que decifra o que guardou, e a credencial dele só grava nome novo, sem ler, listar,
-apagar nem gravar por cima. A restauração decifra direto para o `pg_restore`, num banco vazio, e só
-termina com sucesso quando a conferência do banco restaurado bate com a da origem. O passo a passo,
-do template ao ensaio local, está em [operacao/README.md](operacao/README.md).
+Um compose versionado descreve a máquina inteira, com os segredos só pelo nome: o proxy do HTTPS, que
+obtém e renova o certificado do domínio, a aplicação, o PostgreSQL 17 e as execuções avulsas do seed,
+da cópia, da restauração e do encerramento de Conta. Só o proxy publica porta. Um script versionado
+prepara a máquina: atualização automática de segurança, firewall, SSH só por chave, swap, logs com
+prazo de sete dias e Docker. As imagens de terceiros que vão ao ar, a do proxy e a base do banco,
+ficam presas por digest e passam pela mesma verificação de avisos que as deste repositório.
+
+O CI publica as imagens no registro do GitHub só no commit em que tudo passou. De madrugada, ou por
+um botão de urgência, ele entra no servidor por uma chave que só roda o script de deploy, e o script
+só aceita um commit que já esteja no `main`. As duas versões da aplicação não cabem juntas na
+memória, então a troca para a aplicação por uns 40 segundos, com o proxy segurando as requisições
+novas; uma requisição em andamento no instante da troca volta com erro, e por isso o deploy de rotina
+é de madrugada, e o script recusa fora da janela de manutenção o commit com migration ou que muda o
+compose ou a imagem do banco. Nenhuma sonda consulta o banco: uma queda dele não pode tirar do ar uma
+aplicação sem defeito.
+
+De hora em hora, uma tarefa agendada da máquina faz o dump do banco direto para o `age`, cifrado para
+a chave pública do mantenedor, e o envia para fora da máquina com uma conferência de contagens e
+totais, também cifrada; a cópia de uma hora da madrugada vai para um destino guardado por mais tempo.
+A tarefa não tem a chave que decifra o que guardou, e a credencial dela só grava nome novo, sem ler,
+listar, apagar nem gravar por cima. Depois de cada cópia, e a cada cinco minutos com a aplicação
+respondendo pelo domínio, a máquina manda a um vigia externo um sinal sem corpo; o sinal que não chega
+vira um aviso ao mantenedor. A restauração decifra direto para o `pg_restore`, num banco vazio, e só
+termina com sucesso quando a conferência do banco restaurado bate com a da origem; é por ela que a
+máquina se recria do zero. O passo a passo, do preparo da máquina ao ensaio local, está em
+[operacao/README.md](operacao/README.md).
 
 ## Stack
 
@@ -1005,7 +1020,7 @@ do template ao ensaio local, está em [operacao/README.md](operacao/README.md).
 | Build | Maven, via wrapper versionado |
 | Testes | JUnit 5, AssertJ e Testcontainers |
 | Frontend | PWA em React 19, Vite 8 e TypeScript, com React Router, service worker gerado por Workbox, IndexedDB via `idb` e Vitest; empacotado no jar pelo Maven, com o Node fixado no `pom.xml` |
-| Infraestrutura | Imagem Docker do jar único e template do Northflank numa região no Brasil, com o PostgreSQL 17 gerenciado; CI no GitHub Actions, que dispara a publicação, com os avisos de segurança das dependências e das imagens conferidos pelo Trivy; cópia cifrada de hora em hora com age, enviada pelo rclone ao S3 da AWS no Brasil; ensaiados localmente, com o primeiro deploy público ainda por fazer |
+| Infraestrutura | Imagem Docker do jar único e uma VPS no Brasil com AlmaLinux 9, com o proxy Caddy, a aplicação e o PostgreSQL 17 em contêineres pelo Docker Compose; CI no GitHub Actions, que publica as imagens no registro do GitHub e faz o deploy por SSH, com os avisos de segurança das dependências e das imagens conferidos pelo Trivy; cópia cifrada de hora em hora com age, enviada pelo rclone ao S3 da AWS no Brasil; vigia externo por sinal sem corpo; ensaiados localmente, com o primeiro deploy público ainda por fazer |
 
 A escolha de versão não é acidental. Spring Boot 3.x perde suporte OSS em junho de 2026, então um
 projeto novo não deveria nascer nele; o Spring Modulith 2.1.x é a linha compatível com o Boot 4.1.
@@ -1014,15 +1029,15 @@ projeto novo não deveria nascer nele; o Spring Modulith 2.1.x é a linha compat
 
 ```
 Dockerfile                  imagem do jar único, com a API e o aplicativo
-northflank.json             template da hospedagem: banco, builds, serviço, jobs e publicação
-.github/workflows/          CI a cada push no main, a cada pull request e uma vez por semana, e o gatilho da publicação
+.github/workflows/          CI a cada push no main, a cada pull request e uma vez por semana, a publicação das imagens e o deploy
 operacao
-├── copia/                  imagem do job, cópia cifrada de hora em hora, restauração e conferência
+├── copia/                  imagem da cópia, cópia cifrada de hora em hora, restauração e conferência
 ├── carga/                  carga de correção contra uma instalação
 ├── dependencias/           verificação dos avisos de segurança das dependências e das imagens, e as exceções
-├── ensaio/                 a produção em miniatura, nos limites dos planos da hospedagem
+├── ensaio/                 a produção em miniatura, por cima do compose do servidor
 ├── exclusao/               encerramento da Conta e remoção dos seus dados
-└── plano/                  o código de ativação de um pedido de plano, gerado depois do Pix conferido
+├── plano/                  o código de ativação de um pedido de plano, gerado depois do Pix conferido
+└── vps/                    o servidor: compose, proxy, banco, preparo, configuração, deploy, cópia agendada e vigia
 src
 ├── main
 │   ├── java/br/com/caixasimples

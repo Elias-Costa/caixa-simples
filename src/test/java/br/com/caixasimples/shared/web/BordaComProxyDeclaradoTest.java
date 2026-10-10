@@ -18,8 +18,8 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * A variável que declara um proxy público além da rede interna, para o caso de a entrada da
- * hospedagem ganhar um salto fora dela. Sem novo build, as faixas declaradas passam a ser
+ * A variável que declara um proxy público além da rede interna, para o caso de aparecer na frente
+ * da aplicação um salto fora dela. Sem novo build, as faixas declaradas passam a ser
  * atravessadas como a rede interna; o que não foi declarado continua virando a origem.
  *
  * <p>Contexto próprio, numa porta real, pelo mesmo motivo de {@link BordaDoProxyTest}: quem lê os

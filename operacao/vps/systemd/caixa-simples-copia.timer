@@ -1,0 +1,12 @@
+# Toda hora cheia, em UTC. Uma hora perdida com a máquina desligada fica perdida, e não vira uma
+# cópia atrasada: o vigia avisa da falta.
+[Unit]
+Description=Cópia cifrada do Caixa Simples, de hora em hora
+
+[Timer]
+OnCalendar=*-*-* *:00:00 UTC
+AccuracySec=1s
+Persistent=false
+
+[Install]
+WantedBy=timers.target

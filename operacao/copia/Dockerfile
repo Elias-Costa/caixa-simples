@@ -1,6 +1,9 @@
 # Imagem do job da cópia de hora em hora e da restauração: o cliente do PostgreSQL na mesma versão
 # maior do servidor, o age para cifrar e o rclone para enviar e buscar.
 FROM postgres:17-alpine
+# Liga a imagem publicada a este repositório no registro, e é por ele que o deploy acha as versões
+# antigas para apagar.
+LABEL org.opencontainers.image.source=https://github.com/Elias-Costa/caixa-simples
 
 # O gosu vem da imagem base só para o ponto de entrada dela, que esta imagem desliga, e nenhum
 # script daqui o chama. Apagado, ele não traz para cá os avisos de segurança da versão do Go com que

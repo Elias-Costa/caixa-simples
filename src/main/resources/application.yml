@@ -71,11 +71,11 @@ server:
       # com as faixas privadas e de loopback) ou desta lista é descartado, e o primeiro endereço
       # fora das duas é a origem. O que o cliente escreve à esquerda nunca chega a ser lido, e um
       # salto desconhecido vira a origem em vez de ser atravessado.
-      # Vazia por padrão: a entrada da hospedagem acrescenta o endereço do cliente e fala com a
-      # aplicação pela rede interna, que já é confiável. Se aparecer um salto público entre as
-      # duas, a variável o declara sem novo build, em CIDR separado por vírgula e com a barra
-      # mesmo para um endereço só, porque sem nenhuma barra o Tomcat lê o valor como expressão
-      # regular.
+      # Vazia por padrão: o proxy da mesma máquina põe no cabeçalho o endereço do cliente e fala
+      # com a aplicação pela rede interna dos contêineres, que já é confiável. Se aparecer um salto
+      # público entre os dois, a variável o declara sem novo build, em CIDR separado por vírgula
+      # e com a barra mesmo para um endereço só, porque sem nenhuma barra o Tomcat lê o valor como
+      # expressão regular.
       trusted-proxies: ${CAIXA_SIMPLES_PROXIES_CONFIAVEIS:}
 
 management:

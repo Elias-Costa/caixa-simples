@@ -15,4 +15,29 @@
 #
 # O purl, com o tipo, o nome e a versão do pacote, sai no relatório da ferramenta em JSON. Sem
 # purls, a exceção valeria para o mesmo aviso em qualquer pacote, e por isso ele é obrigatório aqui.
-vulnerabilities: []
+vulnerabilities:
+  # O proxy da VPS, o Caddy 2.11.7, compilado com o Go 1.26.8. A correção está no Go 1.26.9, de
+  # 2026-10-08, e ainda não saiu build do proxy com ela. Saindo, troca-se o digest no compose da VPS,
+  # o HTTP/2 volta ao Caddyfile e estas quatro exceções saem.
+  - id: CVE-2026-78669
+    purls:
+      - pkg:golang/golang.org/x/net@v0.59.0
+      - pkg:golang/stdlib@v1.26.8
+    statement: >-
+      Negação de serviço por quadros SETTINGS do HTTP/2. O proxy da VPS atende só HTTP/1.1 até sair
+      o build com o Go corrigido, e fala com a aplicação também por HTTP/1.1.
+    expired_at: 2026-11-09
+  - id: CVE-2026-78667
+    purls:
+      - pkg:golang/stdlib@v1.26.8
+    statement: >-
+      Negação de serviço por cabeçalho Range ao servir arquivo, em FileServer, ServeContent e
+      ServeFile. O proxy da VPS só encaminha à aplicação e não serve arquivo nenhum.
+    expired_at: 2026-11-09
+  - id: CVE-2026-97031
+    purls:
+      - pkg:golang/stdlib@v1.26.8
+    statement: >-
+      Consumo de memória ao processar o ECH, a extensão que cifra o início do TLS. O proxy da VPS não
+      tem ECH configurado, e sem as chaves dele o servidor não processa essa extensão.
+    expired_at: 2026-11-09

@@ -1,8 +1,8 @@
 #!/bin/sh
 # Verificação dos avisos de segurança das dependências, a mesma no CI e na máquina. Constrói as duas
 # imagens deste checkout e confere, pelo Trivy, os pacotes delas, as bibliotecas Java dentro da
-# imagem da aplicação e o package-lock do front-end, inclusive as dependências de build, que geram o
-# pacote e o service worker servidos.
+# imagem da aplicação, as imagens do proxy e do banco que rodam na VPS e o package-lock do front-end,
+# inclusive as dependências de build, que geram o pacote e o service worker servidos.
 #
 # Barra a publicação o aviso alto ou crítico que já tem versão corrigida. Os demais, de severidade
 # menor ou ainda sem correção, aparecem no relatório de cada alvo sem barrar. A exceção fundamentada
@@ -28,6 +28,13 @@ repositorio=$(pwd -W 2>/dev/null || pwd)
 # antiga guardada na máquina, a verificação examinaria uma imagem diferente da publicada.
 docker build --pull --tag caixa-simples:verificacao .
 docker build --pull --tag caixa-simples-copia:verificacao --file operacao/copia/Dockerfile operacao
+
+# As imagens de terceiros que rodam na VPS: o proxy, lido do compose dela, onde fica preso por
+# digest, e o banco, construído do mesmo Dockerfile que a VPS constrói, com a base presa por digest.
+# É exatamente o que vai ao ar, e trocar o digest lá troca o que se confere aqui.
+proxy=$(grep -oE 'caddy:[^ ]+@sha256:[0-9a-f]{64}' operacao/vps/compose.yaml)
+docker pull --quiet "$proxy"
+docker build --pull --tag caixa-simples-banco:verificacao operacao/vps/banco
 
 # A ferramenta lê as imagens pelo Docker da máquina, nunca de um registro, e o package-lock e as
 # exceções pela pasta do repositório, montada só para leitura. As bases de avisos ficam num volume,
@@ -71,6 +78,8 @@ verificar() {
 
 verificar "imagem da aplicação" image --image-src docker caixa-simples:verificacao
 verificar "imagem da cópia" image --image-src docker caixa-simples-copia:verificacao
+verificar "imagem do proxy" image --image-src docker "$proxy"
+verificar "imagem do banco" image --image-src docker caixa-simples-banco:verificacao
 verificar "package-lock do front-end" fs --include-dev-deps /repo/frontend/package-lock.json
 
 if [ -n "$barrados" ]; then

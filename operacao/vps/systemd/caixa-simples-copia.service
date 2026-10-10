@@ -1,0 +1,12 @@
+# A cópia cifrada de hora em hora. Roda o script da versão no ar, que avisa o vigia do resultado.
+[Unit]
+Description=Cópia cifrada do Caixa Simples
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /opt/caixa-simples/repositorio/operacao/vps/copia-agendada.sh
+# A cópia leva segundos, mas repete até três vezes quando há escrita no meio; travada além disto,
+# termina com falha, e o vigia avisa.
+TimeoutStartSec=30min

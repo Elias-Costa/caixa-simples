@@ -1,0 +1,32 @@
+# Proxy do HTTPS na frente da aplicação, na mesma máquina. O certificado do domínio é obtido e
+# renovado pelo próprio proxy; com localhost, no ensaio, ele usa uma autoridade local dele.
+#
+# O X-Forwarded-For que chega de um cliente é descartado, e no lugar vai o endereço de quem se
+# conectou ao proxy, junto do X-Forwarded-Proto. A aplicação lê os dois e confia na rede interna
+# dos contêineres, de onde o proxy fala com ela.
+#
+# Sem access log: a aplicação não registra cada requisição, e o endereço de quem acessa fica fora
+# dos logs, a não ser em recusa e erro. Para medir a borda, liga-se o access log da própria
+# aplicação, à mão, e desliga-se depois.
+{
+	# Só HTTP/1.1, pela porta TCP. O HTTP/3 pediria também a porta UDP publicada. O HTTP/2 fica
+	# desligado até sair um build do proxy com a versão do Go que corrige dois avisos de negação de
+	# serviço que só ele alcança; trocado o digest, a linha volta a ser protocols h1 h2.
+	servers {
+		protocols h1
+	}
+}
+
+{$CAIXA_SIMPLES_DOMINIO} {
+	reverse_proxy app:8080 {
+		# Na troca de versão, a aplicação antiga para antes de a nova subir, porque as duas não cabem
+		# juntas na memória. Enquanto a conexão é recusada, cada requisição espera e tenta de novo a
+		# cada segundo, por até 90 s: quem opera vê a tela esperando, e não um erro, que o aplicativo
+		# não trataria como falta de rede. Só a falha de conexão é repetida, e nela a requisição
+		# nunca chegou à aplicação. A que já estava em andamento quando a antiga fechou a conexão
+		# volta com erro, porque repeti-la poderia gravar duas vezes; por isso o deploy de rotina é
+		# de madrugada.
+		lb_try_duration 90s
+		lb_try_interval 1s
+	}
+}

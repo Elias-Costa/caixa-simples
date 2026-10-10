@@ -1,99 +1,42 @@
-# Ensaio local da produção: a imagem da aplicação com os limites do plano da hospedagem (0,5 CPU e
-# 1 GB, sem swap) contra um PostgreSQL 17 com os limites do banco de lá (0,2 CPU e 512 MB), o seed
-# avulso, o job da cópia com os do menor plano (0,1 CPU e 256 MB) e um segundo PostgreSQL, vazio,
-# para a restauração. O passo a passo está em operacao/README.md.
+# Ensaio local da produção, por cima do compose da VPS, para subir o mesmo arquivo que vai ao ar e
+# rodar os mesmos scripts: operacao/vps/compose.sh com CAIXA_SIMPLES_COMPOSE_ADICIONAL apontando para
+# este arquivo, e a configuração e o estado em pastas fora do repositório, a configuração gerada por
+# operacao/vps/criar-configuracao.sh. O passo a passo está em operacao/README.md. Os caminhos
+# relativos valem a partir da pasta do primeiro arquivo, a da VPS.
 #
-# Nenhuma senha fica aqui. A do banco do ensaio tem padrão só local; a chave dos tokens, os dados
-# do seed e a chave pública do age vêm do ambiente, e quem os usa recusa o valor vazio com uma
-# mensagem própria. Nada é exigido aqui porque o Compose interpola todos os serviços, inclusive os
-# de perfil desligado, e cada comando passaria a pedir as variáveis de todos.
+# O que muda em relação à produção: as imagens são construídas deste checkout; a CPU é dividida com
+# soma de uma, o pior caso de a vCPU da máquina ser disputada; o proxy atende em outras portas, com o
+# domínio localhost e a autoridade local dele; as cópias e as remoções vão para volumes do Docker no
+# lugar do S3; e há um PostgreSQL vazio para a restauração.
 name: caixa-simples-ensaio
 
 services:
-  banco:
-    image: postgres:17-alpine
-    cpus: 0.2
-    mem_limit: 512m
-    memswap_limit: 512m
-    environment:
-      POSTGRES_DB: caixa_simples
-      POSTGRES_USER: caixa_simples
-      POSTGRES_PASSWORD: ${ENSAIO_SENHA_DO_BANCO:-ensaio}
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U caixa_simples -d caixa_simples"]
-      interval: 2s
-      timeout: 3s
-      retries: 30
+  proxy:
+    cpus: 0.1
+    ports: !override
+      - "18080:80"
+      - "18443:443"
 
   app:
     build: ../..
     image: caixa-simples:ensaio
-    depends_on:
-      banco:
-        condition: service_healthy
-    cpus: 0.5
-    mem_limit: 1g
-    memswap_limit: 1g
-    # Como a hospedagem, sobe de novo o processo que termina com erro; a contagem de reinícios é
-    # um dos critérios da carga.
-    restart: on-failure
-    ports:
-      - "18080:8080"
-    environment: &ambiente-da-aplicacao
-      CAIXA_SIMPLES_DB_URL: jdbc:postgresql://banco:5432/caixa_simples
-      CAIXA_SIMPLES_DB_USER: caixa_simples
-      CAIXA_SIMPLES_DB_PASSWORD: ${ENSAIO_SENHA_DO_BANCO:-ensaio}
-      CAIXA_SIMPLES_JWT_SECRET: ${CAIXA_SIMPLES_JWT_SECRET:-}
-      CAIXA_SIMPLES_PLANO_SECRET: ${CAIXA_SIMPLES_PLANO_SECRET:-}
-      CAIXA_SIMPLES_MENSALIDADE_CAIXA_SIMPLES: ${CAIXA_SIMPLES_MENSALIDADE_CAIXA_SIMPLES:-}
-      CAIXA_SIMPLES_MENSALIDADE_COMPLETO: ${CAIXA_SIMPLES_MENSALIDADE_COMPLETO:-}
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/actuator/health/liveness"]
-      interval: 5s
-      timeout: 3s
-      retries: 3
-      start_period: 180s
+    cpus: 0.6
 
-  # Cria uma Conta e termina, sem servidor web: é assim que uma Conta passa a existir.
+  banco:
+    cpus: 0.3
+
   seed:
-    profiles: [seed]
     image: caixa-simples:ensaio
-    depends_on:
-      banco:
-        condition: service_healthy
-    cpus: 0.5
-    mem_limit: 1g
-    memswap_limit: 1g
-    environment:
-      <<: *ambiente-da-aplicacao
-      SPRING_PROFILES_ACTIVE: seed
-      SPRING_MAIN_WEB_APPLICATION_TYPE: none
-      CAIXA_SIMPLES_SEED_NOME_NEGOCIO: ${CAIXA_SIMPLES_SEED_NOME_NEGOCIO:-}
-      CAIXA_SIMPLES_SEED_EMAIL: ${CAIXA_SIMPLES_SEED_EMAIL:-}
-      CAIXA_SIMPLES_SEED_SENHA: ${CAIXA_SIMPLES_SEED_SENHA:-}
+    cpus: 0.6
 
-  # As cópias ficam num volume do Docker, e não numa pasta do projeto: mesmo cifradas, não têm
-  # por que ficar ao alcance de um commit. As duas pastas fazem o papel dos dois destinos da
-  # hospedagem; a hora da cópia diária pode ser trocada no comando, para exercitar os dois.
+  # As cópias ficam num volume do Docker, e não numa pasta do projeto: mesmo cifradas, não têm por que
+  # ficar ao alcance de um commit. As duas pastas fazem o papel dos dois destinos do bucket.
   copia:
-    profiles: [copia]
     build:
       context: ..
       dockerfile: copia/Dockerfile
     image: caixa-simples-copia:ensaio
-    depends_on:
-      banco:
-        condition: service_healthy
     cpus: 0.1
-    mem_limit: 256m
-    memswap_limit: 256m
-    environment:
-      CAIXA_SIMPLES_COPIA_BANCO: postgresql://caixa_simples@banco:5432/caixa_simples
-      PGPASSWORD: ${ENSAIO_SENHA_DO_BANCO:-ensaio}
-      CAIXA_SIMPLES_COPIA_CHAVE_PUBLICA: ${CAIXA_SIMPLES_COPIA_CHAVE_PUBLICA:-}
-      CAIXA_SIMPLES_COPIA_DESTINO: /copias/horaria
-      CAIXA_SIMPLES_COPIA_DESTINO_DIARIA: /copias/diaria
-      CAIXA_SIMPLES_COPIA_HORA_DIARIA: ${CAIXA_SIMPLES_COPIA_HORA_DIARIA:-6}
     volumes:
       - copias:/copias
 
@@ -103,42 +46,26 @@ services:
     environment:
       POSTGRES_DB: restaurado
       POSTGRES_USER: restaurado
-      POSTGRES_PASSWORD: ${ENSAIO_SENHA_DO_BANCO:-ensaio}
+      POSTGRES_PASSWORD: ${CAIXA_SIMPLES_DB_PASSWORD:-}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U restaurado -d restaurado"]
       interval: 2s
       timeout: 3s
       retries: 30
 
-  # A chave privada entra só no comando, com -v, e só enquanto ele roda.
+  # Sem -e CAIXA_SIMPLES_RESTAURAR_BANCO, restaura no banco do ensaio, como na recriação da máquina;
+  # com ele apontando para o restaurado, no PostgreSQL vazio ao lado.
   restaurar:
-    profiles: [restauracao]
     image: caixa-simples-copia:ensaio
     depends_on:
       restaurado:
         condition: service_healthy
-    entrypoint: ["sh", "/copia/restaurar.sh"]
-    environment:
-      CAIXA_SIMPLES_RESTAURAR_BANCO: postgresql://restaurado@restaurado:5432/restaurado
-      PGPASSWORD: ${ENSAIO_SENHA_DO_BANCO:-ensaio}
-      CAIXA_SIMPLES_COPIA_CHAVE_PRIVADA: /chave/chave-privada.txt
-      CAIXA_SIMPLES_REMOCOES_DESTINO: /remocoes
     volumes:
       - copias:/copias:ro
       - remocoes:/remocoes:ro
 
   encerrar:
-    profiles: [exclusao]
     image: caixa-simples-copia:ensaio
-    depends_on:
-      banco:
-        condition: service_healthy
-    entrypoint: ["sh", "/exclusao/encerrar-conta.sh"]
-    environment:
-      CAIXA_SIMPLES_ENCERRAR_BANCO: postgresql://caixa_simples@banco:5432/caixa_simples
-      PGPASSWORD: ${ENSAIO_SENHA_DO_BANCO:-ensaio}
-      CAIXA_SIMPLES_REMOCOES_DESTINO: /remocoes
-      CAIXA_SIMPLES_SEGREDOS_REMOVIDOS: sim
     volumes:
       - remocoes:/remocoes
 

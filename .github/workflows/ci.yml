@@ -1,30 +1,38 @@
-# Portão entre o push e a produção: a publicação só é disparada no commit em que os testes, o build
-# e o lint passaram e nenhuma dependência tem aviso de segurança que barre a publicação.
+# Portão entre o push e a produção: só vai ao ar o commit em que os testes, o build e o lint
+# passaram e nenhuma dependência tem aviso de segurança que barre a publicação.
 name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
-  # Um aviso novo pode surgir para uma dependência que não mudou. Uma vez por semana, só a
-  # verificação das dependências roda contra o main, sem publicar; a falha da execução agendada é
-  # avisada pelo GitHub a quem mexeu por último nesta agenda.
   schedule:
+    # Um aviso novo pode surgir para uma dependência que não mudou. Uma vez por semana, só a
+    # verificação das dependências roda contra o main, sem publicar; a falha da execução agendada é
+    # avisada pelo GitHub a quem mexeu por último nesta agenda.
     - cron: '17 9 * * 1'
+    # Toda madrugada, às 3h UTC, 0h no fuso America/Bahia e começo da janela de manutenção, o deploy
+    # do último commit aprovado, se ele ainda não estiver no ar. A troca para a aplicação por uns
+    # 40 s, e uma requisição em andamento nesse instante volta com erro: de dia, ninguém fica
+    # exposto a isso sem querer.
+    - cron: '0 3 * * *'
+  # O mesmo deploy, na hora, para uma correção urgente, aceitando o erro raro da troca.
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 # Um push novo no mesmo ramo torna a execução anterior inútil: o que vai ser publicado é o último
-# commit. O evento entra no grupo para a execução agendada não cancelar a de um push.
+# commit. O evento e a agenda entram no grupo para uma execução agendada não cancelar a de um push,
+# nem a verificação semanal cancelar o deploy da madrugada.
 concurrency:
-  group: ci-${{ github.event_name }}-${{ github.ref }}
+  group: ci-${{ github.event_name }}-${{ github.event.schedule }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   verificar:
     name: Testes, build e lint
-    if: github.event_name != 'schedule'
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -53,11 +61,15 @@ jobs:
       - name: Teste do script do código de plano
         run: PATH="$PWD/frontend/node:$PATH" node --test operacao/plano/codigo.test.mjs
 
-  # Avisos de segurança das dependências: as duas imagens construídas deste commit e o package-lock
-  # do front-end, pelo mesmo script que se roda na máquina. Fica num job à parte, sem segredo
-  # nenhum, porque a ferramenta é de terceiro e roda com acesso ao Docker do executor.
+  # Avisos de segurança das dependências: as duas imagens construídas deste commit, as imagens de
+  # terceiros que rodam na VPS e o package-lock do front-end, pelo mesmo script que se roda na
+  # máquina. Fica num job à parte, sem segredo nenhum, porque a ferramenta é de terceiro e roda com
+  # acesso ao Docker do executor.
   dependencias:
     name: Avisos de segurança das dependências
+    if: >-
+      github.event_name == 'push' || github.event_name == 'pull_request'
+      || github.event.schedule == '17 9 * * 1'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -66,26 +78,77 @@ jobs:
       - name: Verificação das dependências e das imagens
         run: sh operacao/dependencias/verificar.sh
 
-  # Pede à hospedagem que construa e publique este commit. O endereço do gatilho é o segredo: ele só
-  # dispara o fluxo declarado lá, que constrói o commit informado e o publica, e não dá acesso a
-  # mais nada. A variável do repositório liga a publicação; sem ela, o CI testa e não publica, que
-  # é o caso enquanto não existe ambiente publicado. Commit com migration só vai para o main dentro
-  # da janela de manutenção.
+  # Constrói as duas imagens deste commit e as publica no registro de contêineres do GitHub, com o
+  # token da própria execução, que só vale enquanto ela dura e só publica nos pacotes deste
+  # repositório. As imagens são públicas, como o código. Não põe nada no ar: quem faz isso é o job
+  # implantar. A variável do repositório liga a publicação; sem ela, o CI testa e não publica, que é
+  # o caso enquanto não existe a VPS.
   publicar:
-    name: Publicação
+    name: Publicação das imagens
     needs: [verificar, dependencias]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.PUBLICAR_NO_NORTHFLANK == 'true'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.PUBLICAR_NA_VPS == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
     steps:
-      - name: Disparar a publicação deste commit
+      - uses: actions/checkout@v7
+
+      - name: Construção e publicação das imagens deste commit
         env:
-          GATILHO: ${{ secrets.NORTHFLANK_WEBHOOK_PUBLICACAO }}
+          TOKEN: ${{ github.token }}
         run: |
-          if [ -z "$GATILHO" ]; then
-            echo "::error::A publicação está ligada, mas falta o segredo NORTHFLANK_WEBHOOK_PUBLICACAO."
+          registro="ghcr.io/$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+          echo "$TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker build --pull --tag "$registro:$GITHUB_SHA" .
+          docker build --pull --tag "$registro-copia:$GITHUB_SHA" --file operacao/copia/Dockerfile operacao
+          docker push "$registro:$GITHUB_SHA"
+          docker push "$registro-copia:$GITHUB_SHA"
+
+  # Põe no ar o último commit cuja execução de push passou inteira, publicação das imagens
+  # inclusive. O único segredo guardado é a chave SSH, que na VPS só roda o script de deploy, e o
+  # script só aceita um commit que já esteja no main; commit com migration ou que muda o compose da
+  # VPS ele só aceita na janela de manutenção, inclusive pelo botão.
+  implantar:
+    name: Deploy na VPS
+    if: >-
+      (github.event.schedule == '0 3 * * *' || github.event_name == 'workflow_dispatch')
+      && vars.PUBLICAR_NA_VPS == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Último commit aprovado
+        id: aprovado
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --branch main --event push \
+            --status success --limit 1 --json headSha --jq '.[0].headSha')
+          if [ -z "$sha" ]; then
+            echo "::error::Nenhuma execução de push no main passou inteira."
             exit 1
           fi
-          # Os argumentos do fluxo vão na query: a hospedagem ignora o corpo do POST.
-          curl --fail-with-body --silent --show-error --request POST \
-            "${GATILHO}?sha=${GITHUB_SHA}&name=${GITHUB_SHA::12}"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy deste commit
+        env:
+          CHAVE: ${{ secrets.VPS_CHAVE_DE_IMPLANTACAO }}
+          CHAVE_DO_HOST: ${{ vars.VPS_CHAVE_DO_HOST }}
+          ENDERECO: ${{ vars.VPS_ENDERECO }}
+          SHA: ${{ steps.aprovado.outputs.sha }}
+        run: |
+          if [ -z "$CHAVE" ] || [ -z "$CHAVE_DO_HOST" ] || [ -z "$ENDERECO" ]; then
+            echo "::error::O deploy está ligado, mas falta o segredo VPS_CHAVE_DE_IMPLANTACAO ou as variáveis VPS_CHAVE_DO_HOST e VPS_ENDERECO."
+            exit 1
+          fi
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$CHAVE" > ~/.ssh/implantacao
+          chmod 600 ~/.ssh/implantacao
+          # A chave do host fica fixada: um servidor que se passasse pela VPS não receberia a conexão.
+          printf '%s %s\n' "$ENDERECO" "$CHAVE_DO_HOST" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/implantacao -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            "implantacao@$ENDERECO" "$SHA"
