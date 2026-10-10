@@ -82,6 +82,15 @@ class TratamentoDeErrosHttp extends ResponseEntityExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, excecao.getMessage());
     }
 
+    /**
+     * O corpo enviado em partes passou do limite da rota enquanto era lido. É a mesma resposta que
+     * {@link LimiteDoCorpoFilter} dá ao pedido que declara um tamanho acima do limite.
+     */
+    @ExceptionHandler(CorpoGrandeDemaisException.class)
+    ProblemDetail corpoGrandeDemais(CorpoGrandeDemaisException excecao) {
+        return LimiteDoCorpoFilter.recusa(excecao.limite());
+    }
+
     @ExceptionHandler(RegistroDeRemocoesIndisponivelException.class)
     ProblemDetail registroDeRemocaoIndisponivel(RegistroDeRemocoesIndisponivelException excecao) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE,

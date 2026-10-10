@@ -30,6 +30,13 @@ spring:
   jackson:
     default-property-inclusion: non_null
 
+  # Nenhuma rota recebe formulário. Ligado, este filtro do Spring MVC leria o corpo de todo PUT,
+  # PATCH e DELETE de formulário, em qualquer rota e antes da recusa por falta de token.
+  mvc:
+    formcontent:
+      filter:
+        enabled: false
+
   # O starter do Spring Modulith traz os eventos de passagem do tempo (hora, dia, semana), que
   # nenhum módulo ouve. Ligados, eles agendam uma tarefa por hora num executor próprio, que não
   # deixa terminar a execução avulsa que cria uma Conta sem servidor web.

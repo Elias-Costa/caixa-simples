@@ -156,6 +156,29 @@ describe('envio da fila', () => {
     expect(await estados()).toEqual({ [gesto.operacaoId]: 'sent' })
   })
 
+  it('o lote grande demais fica com falha e a explicação do servidor, sem sair da fila, e vai na rodada seguinte', async () => {
+    entrar(ana)
+    const primeiro = await cliente('Dora')
+    const segundo = await cliente('Edu', [primeiro])
+    const grandeDemais = vi.fn(async () => {
+      throw new ErroDaApi(413, 'Content Too Large', 'O pedido tem mais de 512 KB, o limite desta rota.', {})
+    })
+
+    expect(await enviarFila(grandeDemais)).toEqual({ desfecho: 'interrompida', resolvidos: 0 })
+    const recusados = await listarGestos()
+    expect(recusados).toHaveLength(2)
+    for (const gesto of recusados) {
+      expect(gesto).toMatchObject({ estado: 'failed',
+        falha: 'O servidor recusou o envio: O pedido tem mais de 512 KB, o limite desta rota.' })
+    }
+
+    const servidor = servidorFalso()
+    expect(await enviarFila(servidor.enviar)).toEqual({ desfecho: 'concluida', resolvidos: 2 })
+    expect(servidor.enviar.mock.calls[0][0].map((operacao) => operacao.operacaoId))
+      .toEqual([primeiro.operacaoId, segundo.operacaoId])
+    expect(await estados()).toEqual({ [primeiro.operacaoId]: 'sent', [segundo.operacaoId]: 'sent' })
+  })
+
   it('o 401 devolve o lote à fila, sem perder nada, e o novo login do mesmo usuário o envia', async () => {
     entrar(ana)
     const gesto = await cliente('Carla')

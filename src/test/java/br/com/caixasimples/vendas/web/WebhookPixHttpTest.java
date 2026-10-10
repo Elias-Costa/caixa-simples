@@ -208,6 +208,47 @@ class WebhookPixHttpTest extends TesteDeIntegracao {
         }));
     }
 
+    /**
+     * Um corpo ilegível daria 400 se fosse lido. O 403 sem certificado ou com o segredo errado mostra
+     * que a recusa vem antes da leitura; conferido, o mesmo corpo é lido e recusado.
+     */
+    @Test
+    void corpoSoELidoDepoisDoCertificadoEDoSegredo() throws Exception {
+        ContaCriada conta = criador.criar("Webhook Corpo", "uma senha longa de teste");
+        when(autenticador.autenticar("config-c", "segredo-c")).thenReturn(conta.contaId());
+
+        http.perform(post("/api/webhooks/pix/config-c?hmac=segredo-c")
+                .contentType(MediaType.APPLICATION_JSON).content("{"))
+                .andExpect(status().isForbidden());
+        http.perform(post("/api/webhooks/pix/config-c?hmac=segredo-errado")
+                .secure(true).requestAttr("jakarta.servlet.request.X509Certificate", certificado())
+                .contentType(MediaType.APPLICATION_JSON).content("{"))
+                .andExpect(status().isForbidden());
+
+        http.perform(post("/api/webhooks/pix/config-c?hmac=segredo-c")
+                .secure(true).requestAttr("jakarta.servlet.request.X509Certificate", certificado())
+                .contentType(MediaType.APPLICATION_JSON).content("{"))
+                .andExpect(status().isBadRequest());
+        http.perform(post("/api/webhooks/pix/config-c?hmac=segredo-c")
+                .secure(true).requestAttr("jakarta.servlet.request.X509Certificate", certificado())
+                .contentType(MediaType.APPLICATION_JSON).content(""))
+                .andExpect(status().isBadRequest());
+        verify(gateway, never()).consultar(any());
+    }
+
+    /** Num formulário, o servidor leria o corpo para achar o segredo; a rota recusa antes. */
+    @Test
+    void formularioERecusadoNaEscolhaDaRota() throws Exception {
+        ContaCriada conta = criador.criar("Webhook Formulario", "uma senha longa de teste");
+        when(autenticador.autenticar("config-f", "segredo-f")).thenReturn(conta.contaId());
+
+        http.perform(post("/api/webhooks/pix/config-f")
+                .secure(true).requestAttr("jakarta.servlet.request.X509Certificate", certificado())
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED).content("hmac=segredo-f"))
+                .andExpect(status().isUnsupportedMediaType());
+        verify(autenticador, never()).autenticar(any(), any());
+    }
+
     private Cenario criar(String nome) {
         ContaCriada conta = criador.criar(nome, "uma senha longa de teste");
         when(gateway.chaveRecebedora()).thenReturn("chave-teste");

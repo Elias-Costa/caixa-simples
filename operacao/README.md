@@ -291,6 +291,19 @@ salto: a falha é fechada, e nenhum endereço escrito pelo cliente vira origem.
 O proxy não tem access log: a aplicação não registra cada requisição, e o endereço de quem acessa fica
 fora dos logs, a não ser em recusa e erro.
 
+**Tamanho do corpo.** A aplicação recusa com 413, em Problem Details e com a explicação em português, o
+corpo acima do limite da rota: 4 KB no login, 256 KB no aviso de pagamento Pix e 512 KB no resto, o
+lote de sincronização incluído. O pedido que declara o tamanho é recusado pelo cabeçalho, sem ser
+lido; o que chega em partes é contado enquanto é lido. O aviso Pix só tem o corpo lido depois de
+conferidos o certificado e o segredo. O proxy tem um teto único de 1 MiB, o dobro do maior limite da
+aplicação. Com a aplicação de pé, quem recusa é ela, ao ler o cabeçalho ou ao passar do limite da rota,
+e o aplicativo mostra a explicação; o teto só age quando ela ainda não respondeu, cortando a
+transferência em 1 MiB com um 502, e nenhum corpo maior chega a ela. No ensaio, os 40 MB da auditoria
+pelo proxy receberam o 413 da aplicação em menos de um décimo de segundo. Ao mudar um limite em
+`src/main/java/br/com/caixasimples/shared/web/LimiteDoCorpoFilter.java`, confira que o teto do
+[Caddyfile](vps/Caddyfile) continua acima do maior deles. No envio da fila, o 413 é recusa como as
+outras: o lote fica com a falha visível, nada sai da fila, e a rodada seguinte o reenvia.
+
 **Conferir depois de publicar**, na janela, porque recriar a aplicação para o serviço. Ligue o access
 log do Tomcat por um arquivo a mais por cima do compose, faça uma requisição de um aparelho cujo IP
 público você conhece, e leia o arquivo. O primeiro campo tem de ser o seu IP; o segundo mostra o

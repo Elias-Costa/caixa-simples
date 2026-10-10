@@ -167,7 +167,7 @@ de erro já está fixado para todos os endpoints que virão: toda resposta de er
 para o cliente receber uma forma só venha o erro do framework ou da aplicação. A recusa por perfil
 vira 403; argumento que o domínio rejeita, 400, o mesmo da validação de corpo, que ainda lista a
 mensagem por campo; estado que o agregado rejeita, 409; tentativas demais no login, 429 com
-`Retry-After`; erro inesperado, 500 sem a mensagem interna; e o não encontrado de cada módulo é
+`Retry-After`; corpo acima do limite da rota, 413; erro inesperado, 500 sem a mensagem interna; e o não encontrado de cada módulo é
 traduzido em 404 no pacote `web` do próprio módulo.
 Valor monetário viaja como número, e a conversão para `Money` é escrita no controller. O cadastro
 oferece `GET` e `POST /api/produtos`, `PUT /api/produtos/{id}` e
@@ -337,6 +337,7 @@ Atalhos para avaliar o código sem percorrer o repositório inteiro.
 | O mecanismo por trás desse isolamento | [MultiTenancyConfiguration.java](src/main/java/br/com/caixasimples/shared/internal/MultiTenancyConfiguration.java) | Filtro no Hibernate, não em cada consulta, e o que acontece quando não há tenant no contexto |
 | Autorização explícita, sem anotação | [UsuarioContext.java](src/main/java/br/com/caixasimples/shared/UsuarioContext.java) | Quem chama vem do contexto, nunca de parâmetro, e cada caso de uso restrito pergunta na primeira linha se é o administrador ou o dono do caixa; o porquê de não haver `@PreAuthorize` nem tabela de rotas está escrito no lugar. [IdentidadeDoTokenFilter.java](src/main/java/br/com/caixasimples/contas/internal/IdentidadeDoTokenFilter.java) preenche os dois contextos e lê o usuário no banco a cada requisição, para inativar valer na hora |
 | Contenção de abuso no login | [ContencaoDeLogin.java](src/main/java/br/com/caixasimples/contas/internal/ContencaoDeLogin.java) | A tentativa é contada antes do banco e do BCrypt, num passo só para as duas contagens, e devolvida se não terminar em recusa de credencial: pedidos simultâneos não furam o limite e ninguém de outra origem bloqueia o usuário legítimo. [AutenticacaoService.java](src/main/java/br/com/caixasimples/contas/application/AutenticacaoService.java) confere o e-mail inexistente contra um hash sintético, para a recusa custar o mesmo que a senha errada |
+| Limite do corpo por rota | [LimiteDoCorpoFilter.java](src/main/java/br/com/caixasimples/shared/web/LimiteDoCorpoFilter.java) | O pedido que declara o tamanho é recusado pelo cabeçalho, sem ser lido, e o que chega em partes só é contado enquanto alguém o lê, sem leitura adiantada antes da recusa por falta de token; a rota sai do caminho que o servidor já decodificou, para uma letra codificada não trocar o limite do login |
 | Gestão de usuários com o plano no caminho | [UsuarioService.java](src/main/java/br/com/caixasimples/contas/application/UsuarioService.java) | Criar usuário grava duas linhas numa transação, passa pela política de senha e pela unicidade global de e-mail, e é recusado fora do plano que admite mais de um usuário; inativar nunca deixa a conta sem administrador, nem com duas inativações ao mesmo tempo, porque a linha da conta é travada antes da contagem |
 | Troca de plano sem guardar o código | [PlanoService.java](src/main/java/br/com/caixasimples/contas/application/PlanoService.java) e [CicloDeVencimento.java](src/main/java/br/com/caixasimples/contas/internal/CicloDeVencimento.java) | O tipo do pedido sai do estado da Conta, e não do pedido; o código é a assinatura do pedido, recalculada para conferir e nunca gravada; o ciclo mensal é só data, testável sem relógio; e duas aplicações do mesmo código se ordenam pela linha da Conta |
 | Administração da Conta no PWA | [UsuarioController.java](src/main/java/br/com/caixasimples/contas/web/UsuarioController.java), [ConfiguracaoDaContaController.java](src/main/java/br/com/caixasimples/contas/web/ConfiguracaoDaContaController.java), [TelaDeUsuarios.tsx](frontend/src/telas/TelaDeUsuarios.tsx) e [TelaDeConfiguracao.tsx](frontend/src/telas/TelaDeConfiguracao.tsx) | A API usa a Conta do contexto e recusa o operador; o interruptor atualiza a identidade guardada e o menu sem recarga; o cadastro responde se a Conta já tem movimento antes de permitir desligar o controle |
@@ -688,6 +689,18 @@ conta pelo prefixo /64. A contagem fica na memória da instância única, sem gr
 o aviso de bloqueio no log também não os leva. O e-mail inexistente passa pela mesma conferência
 BCrypt que a senha errada, contra um hash gerado na partida, para o tempo da resposta não dizer
 quais e-mails existem.
+
+O corpo de cada requisição tem limite por rota, conferido antes de qualquer outro filtro: 4 KB no
+login, 256 KB no aviso de pagamento Pix e 512 KB no resto, o lote de sincronização incluído, quatro
+vezes o maior lote que os formulários do aplicativo produzem. Acima disso a resposta é 413, em
+Problem Details. Sem limite, um único pedido anônimo grande virava uma árvore JSON de mais de dez
+vezes o próprio tamanho e esgotava a memória da aplicação. O pedido que declara o tamanho é
+recusado pelo cabeçalho, sem ser lido; o que chega em partes é contado enquanto é lido. O limite
+vem do caminho que o servidor já decodificou, então escrever o login com uma letra codificada não
+o troca. O aviso Pix só tem o corpo lido depois de conferidos o certificado e o segredo, e só como
+JSON, e nenhuma rota lê formulário. O proxy da máquina tem um teto único acima do maior desses
+limites, e o aplicativo trata o 413 no envio da fila como as outras recusas: o lote fica com a
+falha visível e nada sai da fila.
 
 A validade do token conta a partir do último contato com o servidor e não do login: toda resposta
 autenticada devolve um token renovado. Na prática, é a janela de resistência que a operação offline
