@@ -17,14 +17,18 @@ services:
   # interna. É o único serviço com porta publicada: o Docker abre a porta publicada por fora do
   # firewall da máquina, então banco e aplicação não publicam nenhuma. Preso por digest, como toda
   # imagem de terceiro que vai ao ar, porque termina o HTTPS de tudo.
+  #
+  # As portas são só de IPv4, onde o limite de conexões por origem da máquina as conta. Por IPv6 o
+  # Docker repassaria a conexão por um processo próprio, por fora do limite e com o endereço de origem
+  # perdido, e o domínio não tem registro IPv6.
   proxy:
     image: caddy:2.11.7-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
     restart: unless-stopped
     mem_limit: 128m
     memswap_limit: 128m
     ports:
-      - "80:80"
-      - "443:443"
+      - "0.0.0.0:80:80"
+      - "0.0.0.0:443:443"
     environment:
       CAIXA_SIMPLES_DOMINIO: ${CAIXA_SIMPLES_DOMINIO:-}
     volumes:

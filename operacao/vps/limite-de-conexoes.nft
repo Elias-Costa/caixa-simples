@@ -1,0 +1,32 @@
+# Limite de conexões simultâneas por origem às portas do proxy, carregado pela unidade
+# caixa-simples-limite antes do Docker. Sem ele, mil conexões abertas ao mesmo tempo de uma única
+# máquina esgotam a memória do proxy, que cai e tira o serviço do ar enquanto o ataque durar.
+#
+# A tabela é só deste arquivo: o firewalld e o Docker não mexem em tabela de outro dono, nem ao
+# recarregar. As três primeiras linhas a recriam inteira numa transação, e carregar de novo troca o
+# limite sem duplicar regra.
+#
+# Uma Conta atrás de um só endereço cabe com folga: o navegador abre até seis conexões por servidor,
+# e o limite comporta oito aparelhos nesse teto. Muitas origens ao mesmo tempo não são contidas aqui.
+table inet caixa_simples_limite
+delete table inet caixa_simples_limite
+table inet caixa_simples_limite {
+	# Uma entrada por endereço com conexão aberta; a entrada sai quando a última conexão fecha.
+	set origens {
+		type ipv4_addr
+		size 65535
+		flags dynamic
+	}
+
+	# O Docker leva a conexão às portas publicadas pelo encaminhamento, depois de trocar o destino para o
+	# contêiner, e por isso fora das regras de entrada do firewall. Só a conexão com destino trocado é
+	# contada: as que os contêineres abrem para fora, como a cópia para o bucket, ficam de fora.
+	#
+	# Acima do limite, a conexão nova é descartada, e não recusada: a recusa sairia com o endereço
+	# interno do contêiner, que o cliente não reconhece. Descartada, ela é tentada de novo pelo próprio
+	# cliente e entra quando outra fechar; as já abertas seguem.
+	chain encaminhamento {
+		type filter hook forward priority filter - 10; policy accept;
+		ct state new ct status dnat tcp dport { 80, 443 } add @origens { ip saddr ct count over 50 } counter drop
+	}
+}

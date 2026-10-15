@@ -1,0 +1,16 @@
+# O limite de conexões simultâneas por origem às portas do proxy. Carregado antes do Docker, para a porta
+# publicada nunca ficar aberta sem ele, e depois do firewalld, que sobe primeiro. O arquivo é a cópia
+# feita pelo preparo, fora do repositório: um commit não muda o firewall sozinho.
+[Unit]
+Description=Limite de conexões por origem do Caixa Simples
+After=firewalld.service
+Before=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/nftables/caixa-simples-limite.nft
+ExecStop=/usr/sbin/nft delete table inet caixa_simples_limite
+
+[Install]
+WantedBy=multi-user.target

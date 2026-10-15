@@ -15,7 +15,7 @@ sem corpo.
 | [`Dockerfile`](../Dockerfile) | Imagem do jar único, com a API e o aplicativo na mesma origem |
 | [`.dockerignore`](../.dockerignore) e [`.dockerignore`](.dockerignore) desta pasta | O que cada build de imagem enxerga: só o que compila o jar, e só os scripts que a imagem da cópia copia |
 | [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) | Testes Java e do front-end, build, lint e avisos de segurança das dependências a cada push no `main` e a cada pull request, e os avisos também uma vez por semana; no push verde, a publicação das imagens; de madrugada ou pelo botão, o deploy |
-| [`vps/`](vps/) | A VPS: o compose da produção, o proxy, o preparo da máquina, a configuração, o deploy, a cópia agendada, o vigia e as tarefas do systemd |
+| [`vps/`](vps/) | A VPS: o compose da produção, o proxy, o preparo da máquina, o limite de conexões por origem, a configuração, o deploy, a cópia agendada, o vigia e as tarefas do systemd |
 | [`dependencias/`](dependencias/) | A verificação dos avisos de segurança das dependências e das imagens, e as exceções fundamentadas a ela |
 | [`copia/`](copia/) | Imagem da cópia, a cópia, a restauração e a conferência entre as duas |
 | [`exclusao/`](exclusao/) | O encerramento de uma Conta a pedido |
@@ -162,7 +162,8 @@ Uma máquina só, com AlmaLinux 9, 1 vCPU e 2 GB, e tudo em contêineres pelo
 Nenhum contêiner usa swap, nos limites em que a memória foi medida: a JVM com o heap em disco
 travaria. Somados, os limites e o sistema passam um pouco de 2 GB, e o swap de 1 GB da máquina socorre
 o sistema e o Docker num pico. A CPU não tem limite por serviço. O Docker abre a porta publicada por
-fora do firewall da máquina, e por isso só o proxy publica alguma.
+fora do firewall da máquina, e por isso só o proxy publica alguma, e só em IPv4, onde o
+[limite de conexões por origem](#borda) a alcança.
 
 Na máquina, fora dos contêineres:
 
@@ -173,13 +174,16 @@ Na máquina, fora dos contêineres:
 | `/etc/caixa-simples/efi.env` e `efi/` | As credenciais e os certificados Pix de cada Conta |
 | `/var/lib/caixa-simples/versao.env` | O commit no ar, gravado pelo deploy |
 | `/usr/local/sbin/caixa-simples-implantar` | O script de deploy, cópia de [`vps/implantar.sh`](vps/implantar.sh) feita pelo preparo, fora do repositório, para um commit não trocar as regras do próprio deploy |
+| `/etc/nftables/caixa-simples-limite.nft` | O [limite de conexões por origem](#borda), cópia de [`vps/limite-de-conexoes.nft`](vps/limite-de-conexoes.nft) feita pelo preparo, fora do repositório, pelo mesmo motivo |
+| `caixa-simples-limite.service` | Carrega esse limite a cada boot, depois do firewalld e antes do Docker |
 | `caixa-simples-copia.timer` | A [cópia](#cópia-de-hora-em-hora-cifrada), toda hora cheia, em UTC |
 | `caixa-simples-vigia.timer` | O sinal de vida para o [vigia](#vigia), a cada 5 minutos |
 | `dnf-automatic.timer` | As atualizações de segurança, às 7h30 UTC, dentro da janela, com reinício quando pedido |
 
 O [preparo](vps/preparar.sh) deixa o SSH só por chave e sem root, o firewall só com SSH, HTTP e HTTPS,
-o fuso em UTC, o swap de 1 GB, e os logs do sistema e dos contêineres no journald, um arquivo por dia,
-apagados depois de 7 dias, com teto de 1 GB: os logs podem levar o endereço de quem acessa. O usuário
+o limite de conexões simultâneas por origem às portas do proxy, o fuso em UTC, o swap de 1 GB, e os
+logs do sistema e dos contêineres no journald, um arquivo por dia, apagados depois de 7 dias, com teto
+de 1 GB: os logs podem levar o endereço de quem acessa. O usuário
 `implantacao` existe só para o CI: a chave dele, com `restrict` e um comando forçado, só roda o script
 de deploy, e o sudo só lhe deixa rodar esse script, sem argumento, recebendo o SHA pelo ambiente.
 
@@ -192,8 +196,9 @@ sh compose.sh ps
 journalctl CONTAINER_NAME=caixa-simples-app-1 --since -1h
 ```
 
-Rodar o preparo de novo refaz cada passo sem duplicar nada. Mudou o `implantar.sh`, rode-o de novo:
-é ele que copia o script de deploy para fora do repositório.
+Rodar o preparo de novo refaz cada passo sem duplicar nada. Mudou o `implantar.sh` ou o
+`limite-de-conexoes.nft`, rode-o de novo: é ele que copia os dois para fora do repositório e recarrega
+o limite.
 
 ## Configuração
 
@@ -266,7 +271,9 @@ os que mudaram, e a troca da aplicação para o serviço, então vai na janela.
 12. **Tarefas agendadas:** `systemctl start caixa-simples-copia.timer caixa-simples-vigia.timer`.
 13. **Memória:** `sh compose.sh exec app cat /sys/fs/cgroup/memory.max` tem de dar 1073741824, o
     limite em que a JVM foi medida.
-14. **Borda:** conferir pelo access log, como em [Borda](#borda).
+14. **Borda:** conferir pelo access log, como em [Borda](#borda). Conferir também o limite de conexões:
+    `systemctl is-active caixa-simples-limite` dá `active`, `nft list table inet caixa_simples_limite`
+    mostra a regra, e `ss -ltn` mostra o 80 e o 443 só em `0.0.0.0`, sem escuta IPv6.
 15. **Contas de teste** pelo [seed](#criar-uma-conta), com o plano completo ativado pelo
     [pedido de plano](#pedido-de-plano-e-código-de-ativação); a [carga](#carga-de-correção); e a
     [restauração](#restauração) pelos dois caminhos.
@@ -303,6 +310,27 @@ pelo proxy receberam o 413 da aplicação em menos de um décimo de segundo. Ao 
 `src/main/java/br/com/caixasimples/shared/web/LimiteDoCorpoFilter.java`, confira que o teto do
 [Caddyfile](vps/Caddyfile) continua acima do maior deles. No envio da fila, o 413 é recusa como as
 outras: o lote fica com a falha visível, nada sai da fila, e a rodada seguinte o reenvia.
+
+**Conexões por origem.** Cada endereço IPv4 tem até 50 conexões abertas ao mesmo tempo com o proxy. Quem
+conta é o kernel, pela tabela de [`vps/limite-de-conexoes.nft`](vps/limite-de-conexoes.nft), antes de o
+proxy aceitar a conexão; a conexão nova acima do limite é descartada, o cliente a tenta de novo sozinho,
+e ela entra quando outra daquela origem fechar. Sem o limite, mil conexões simultâneas de uma única
+máquina esgotavam os 128 MB do proxy, que caía, e quem estava do outro lado ficava sem resposta enquanto
+o ataque durasse. No ensaio, com ele, as mesmas mil não derrubaram o proxy, outra origem foi atendida
+durante a rajada, e a carga de correção de três Contas atrás de um só endereço passou com seis conexões.
+O navegador abre até seis por servidor, então cabem oito aparelhos atrás do mesmo endereço no pior caso.
+Quem divide o endereço com um atacante, num NAT de operadora por exemplo, fica sem conexão nova enquanto
+ele segura os 50 lugares: as conexões já abertas continuam, e, quando o navegador desiste da nova, o
+aplicativo vende sem rede e envia a fila depois. Muitas origens juntas não são contidas: o proxy aguenta
+cerca de 500 conexões simultâneas no pior caso medido.
+
+```bash
+# A regra, com o contador de conexões descartadas, e as origens com conexão aberta agora.
+nft list table inet caixa_simples_limite
+```
+
+Para mudar o limite, troque o número no arquivo e rode o [preparo](vps/preparar.sh) de novo, que copia o
+arquivo para `/etc/nftables/` e recarrega a tabela sem derrubar conexão.
 
 **Conferir depois de publicar**, na janela, porque recriar a aplicação para o serviço. Ligue o access
 log do Tomcat por um arquivo a mais por cima do compose, faça uma requisição de um aparelho cujo IP
@@ -686,6 +714,32 @@ sh operacao/vps/compose.sh --profile seed --profile copia --profile restauracao 
 
 No Git Bash do Windows, o `curl` do sistema confere a revogação do certificado, que a autoridade local
 do proxy não publica: use `--ssl-no-revoke` junto de `--cacert`.
+
+**O limite de conexões no ensaio.** Ele é da máquina, não do compose: no ensaio, carrega-se a mesma tabela
+na máquina virtual do Docker Desktop, onde ela some quando o Docker reinicia. O encaminhador de portas do
+Windows entrega a conexão lá dentro por um processo local, que não passa pela cadeia de encaminhamento;
+quem passa por ela, como uma origem de fora, é um cliente noutra rede do Docker que chega à porta
+publicada pelo gateway dessa rede, com o nome `localhost` no TLS. O Docker isola as redes entre si, e no
+ensaio uma regra de aceite na cadeia `DOCKER-USER` libera a do cliente. Cada contêiner nela é uma origem.
+Dentro do proxy, todas aparecem com o gateway da rede do ensaio, porque o Docker mascara a saída; o
+limite conta antes disso, pelo endereço do cliente.
+
+```bash
+# A tabela, com o nftables do AlmaLinux 9, a mesma versão da VPS; para tirar, nft delete table no lugar do -f.
+docker run --rm --privileged --net=host -v "$(pwd -W)/operacao/vps/limite-de-conexoes.nft:/limite.nft:ro" \
+  almalinux:9 sh -c 'dnf -y -q install nftables && nft -f /limite.nft'
+
+# Uma rede para os clientes, liberada até a porta publicada, e o gateway que eles usam como destino.
+docker network create ensaio-clientes
+ponte=br-$(docker network inspect ensaio-clientes -f '{{.Id}}' | cut -c1-12)
+docker run --rm --privileged --pid=host alpine:3 nsenter -t 1 -m -n -- iptables -I DOCKER-USER -i "$ponte" -j ACCEPT
+docker network inspect ensaio-clientes -f '{{(index .IPAM.Config 0).Gateway}}'
+```
+
+A carga atrás de um endereço só roda num contêiner dessa rede, com o Node do estágio de build da imagem
+(`docker build --target build`, em `/build/frontend/node/node`), um `/etc/hosts` montado que aponta
+`localhost` para o gateway, `CARGA_URL=https://localhost:18443` e a raiz do proxy em
+`NODE_EXTRA_CA_CERTS`.
 
 ## Carga de correção
 

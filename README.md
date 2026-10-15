@@ -319,7 +319,8 @@ proxy do HTTPS, a aplicação e o PostgreSQL 17 em contêineres na mesma máquin
 cifrada de hora em hora e a restauração existem e foram ensaiados na máquina local, com os limites de
 memória da VPS (a aplicação com 1 GB, o PostgreSQL com 512 MB, o proxy com 128 MB e a cópia com
 256 MB) e a CPU dividida como no pior caso de lá. A carga de correção passa em três Contas em paralelo
-pelo proxy, a cópia só grava nome novo, a cópia restaurada num PostgreSQL vazio confere com a origem, e
+pelo proxy, mil conexões anônimas simultâneas de uma origem não derrubam o proxy com o limite de
+conexões por origem, a cópia só grava nome novo, a cópia restaurada num PostgreSQL vazio confere com a origem, e
 a recriação da máquina a partir da cópia foi ensaiada. O primeiro deploy público ainda não foi feito,
 e o que só ele confirma, como a cadeia real do endereço de origem, o certificado do domínio e o preparo
 numa máquina nova, está listado junto do passo a passo, em [operacao/README.md](operacao/README.md).
@@ -994,9 +995,11 @@ serem servidos pela aplicação.
 
 Um compose versionado descreve a máquina inteira, com os segredos só pelo nome: o proxy do HTTPS, que
 obtém e renova o certificado do domínio, a aplicação, o PostgreSQL 17 e as execuções avulsas do seed,
-da cópia, da restauração e do encerramento de Conta. Só o proxy publica porta. Um script versionado
-prepara a máquina: atualização automática de segurança, firewall, SSH só por chave, swap, logs com
-prazo de sete dias e Docker. As imagens de terceiros que vão ao ar, a do proxy e a base do banco,
+da cópia, da restauração e do encerramento de Conta. Só o proxy publica porta, e só em IPv4. Um script
+versionado prepara a máquina: atualização automática de segurança, firewall, SSH só por chave, swap,
+logs com prazo de sete dias, Docker e um limite de 50 conexões simultâneas por endereço de origem às
+portas do proxy, contado pelo kernel antes de o proxy aceitar a conexão, para que uma única máquina
+não esgote a memória dele. As imagens de terceiros que vão ao ar, a do proxy e a base do banco,
 ficam presas por digest e passam pela mesma verificação de avisos que as deste repositório.
 
 O CI publica as imagens no registro do GitHub só no commit em que tudo passou. De madrugada, ou por
@@ -1050,7 +1053,7 @@ operacao
 ├── ensaio/                 a produção em miniatura, por cima do compose do servidor
 ├── exclusao/               encerramento da Conta e remoção dos seus dados
 ├── plano/                  o código de ativação de um pedido de plano, gerado depois do Pix conferido
-└── vps/                    o servidor: compose, proxy, banco, preparo, configuração, deploy, cópia agendada e vigia
+└── vps/                    o servidor: compose, proxy, banco, preparo, limite de conexões, configuração, deploy, cópia agendada e vigia
 src
 ├── main
 │   ├── java/br/com/caixasimples

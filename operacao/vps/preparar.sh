@@ -1,8 +1,9 @@
 #!/bin/sh
 # Preparo de uma VPS nova com AlmaLinux 9, como root, uma vez: atualização automática de segurança,
-# firewall, SSH só por chave, swap, logs com prazo, Docker, o usuário do deploy, o repositório e as
-# tarefas agendadas. Os segredos não passam por aqui: o arquivo de configuração sai vazio do
-# criar-configuracao.sh e é preenchido à mão depois. Rodar de novo refaz cada passo sem duplicar nada.
+# firewall, SSH só por chave, swap, logs com prazo, Docker, o usuário do deploy, o repositório, o limite
+# de conexões por origem e as tarefas agendadas. Os segredos não passam por aqui: o arquivo de
+# configuração sai vazio do criar-configuracao.sh e é preenchido à mão depois. Rodar de novo refaz
+# cada passo sem duplicar nada.
 #
 # Uso, depois de criar o usuário administrador com a chave SSH dele e de copiar para a máquina a
 # chave pública do CI:
@@ -50,7 +51,7 @@ timedatectl set-timezone UTC
 
 passo "Sistema atualizado e pacotes de base"
 dnf -y upgrade
-dnf -y install dnf-automatic dnf-plugins-core firewalld git curl openssl util-linux sudo
+dnf -y install dnf-automatic dnf-plugins-core firewalld nftables git curl openssl util-linux sudo
 
 passo "Atualização automática só de segurança, aplicada na janela, com reinício quando pedido"
 sed -i \
@@ -124,6 +125,16 @@ if [ ! -d "$REPOSITORIO/.git" ]; then
     git clone --quiet "$FONTE" "$REPOSITORIO"
 fi
 install -d -m 700 "$ESTADO"
+
+passo "Limite de conexões simultâneas por origem às portas do proxy"
+# Copiado para fora do repositório, como o script de deploy: um commit não muda o firewall sozinho, e
+# rodar o preparo de novo aplica o limite mudado. Na volta da máquina, a unidade o carrega antes do
+# Docker.
+install -D -m 600 "$REPOSITORIO/operacao/vps/limite-de-conexoes.nft" /etc/nftables/caixa-simples-limite.nft
+install -m 644 "$REPOSITORIO/operacao/vps/systemd/caixa-simples-limite.service" /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable caixa-simples-limite.service
+systemctl restart caixa-simples-limite.service
 
 passo "Usuário do deploy, cuja chave só roda o script de deploy"
 id implantacao >/dev/null 2>&1 || useradd --system --create-home --shell /bin/sh implantacao
