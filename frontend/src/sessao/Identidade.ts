@@ -33,6 +33,11 @@ export type Identidade = {
   inicioDaSuspensao?: string
   /** Os recursos pagos que valem hoje: o plano os inclui e não estão suspensos. */
   recursos?: RecursoDoPlano[]
+  /**
+   * A senha foi escolhida por outra pessoa, que a conhece, e o aplicativo só mostra a tela de troca
+   * até a pessoa escolher a dela. Falta na identidade guardada antes da marca, e então não pede.
+   */
+  senhaProvisoria?: boolean
 }
 
 /**

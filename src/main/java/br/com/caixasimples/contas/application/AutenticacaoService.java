@@ -11,6 +11,8 @@ import br.com.caixasimples.contas.internal.CredencialRepository;
 import br.com.caixasimples.contas.internal.CredenciaisInvalidasException;
 import br.com.caixasimples.contas.internal.EmissorDeToken;
 import br.com.caixasimples.contas.internal.LoginContidoException;
+import br.com.caixasimples.contas.internal.PoliticaDeSenha;
+import br.com.caixasimples.contas.internal.SenhaRecusadaException;
 import br.com.caixasimples.contas.internal.Usuario;
 import br.com.caixasimples.contas.internal.UsuarioRepository;
 import br.com.caixasimples.shared.ContaId;
@@ -27,9 +29,11 @@ import java.util.UUID;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Casos de uso de identidade: o login (RNF06) e quem está operando agora.
+ * Casos de uso de identidade (RNF06): o login, quem está operando agora, a troca da própria senha e
+ * a saída de todos os aparelhos.
  *
  * <p>O login descobre a conta pela credencial, a única busca possível sem tenant, e só então lê o
  * usuário sob o filtro normal de {@code @TenantId}. No primeiro login de ADMIN, marca a Conta e
@@ -39,6 +43,11 @@ import org.springframework.transaction.annotation.Transactional;
  * usuário inativo produzem a mesma exceção com a mesma mensagem, depois de uma conferência de senha
  * cada um, porque distinguir, pela resposta ou pelo tempo dela, permitiria descobrir quais e-mails
  * existem no sistema.
+ *
+ * <p>A troca de senha e a saída de todos os aparelhos sobem a versão de acesso do usuário, que vai
+ * dentro do token: todo token emitido antes recebe 401 na requisição seguinte. É a resposta à senha
+ * vazada e ao aparelho furtado que continua com rede, que de outro modo renovaria o token para
+ * sempre.
  */
 @Service
 public class AutenticacaoService {
@@ -50,6 +59,8 @@ public class AutenticacaoService {
     private final EmissorDeToken emissor;
     private final ContaService contaService;
     private final ContencaoDeLogin contencao;
+    private final PoliticaDeSenha politica;
+    private final TransactionTemplate transacao;
 
     /**
      * Conferido no lugar da senha guardada quando o e-mail não tem credencial. Nasce do mesmo
@@ -60,7 +71,8 @@ public class AutenticacaoService {
 
     AutenticacaoService(CredencialRepository credenciais, UsuarioRepository usuarios,
             ContaRepository contas, PasswordEncoder encoder, EmissorDeToken emissor,
-            ContaService contaService, ContencaoDeLogin contencao) {
+            ContaService contaService, ContencaoDeLogin contencao, PoliticaDeSenha politica,
+            TransactionTemplate transacao) {
         this.credenciais = credenciais;
         this.usuarios = usuarios;
         this.contas = contas;
@@ -68,6 +80,8 @@ public class AutenticacaoService {
         this.emissor = emissor;
         this.contaService = contaService;
         this.contencao = contencao;
+        this.politica = politica;
+        this.transacao = transacao;
         this.hashSintetico = encoder.encode(UUID.randomUUID().toString());
     }
 
@@ -141,7 +155,109 @@ public class AutenticacaoService {
                     contaService::registrarPrimeiroAcessoSeNecessario));
         }
 
-        return emissor.emitir(usuario.getId(), conta, usuario.getPerfil());
+        return emissor.emitir(usuario.getId(), conta, usuario.getPerfil(),
+                usuario.getVersaoDoAcesso());
+    }
+
+    /**
+     * Troca a senha de quem está autenticado, que confirma a atual, e derruba todos os aparelhos
+     * dele, menos este, que recebe o token novo.
+     *
+     * <p>A senha atual passa pela mesma contenção do login, pela origem e pelo e-mail vindo dela:
+     * quem pegou um aparelho destravado não usa a troca para adivinhar a senha, e quem ataca não soma
+     * tentativas alternando o login e a troca. A senha atual certa zera o par, como o login certo.
+     *
+     * <p>A senha nova é escolhida pela própria pessoa, então entra mesmo quando a lista de
+     * vazamentos não responde. Igual à atual é recusada, para a troca pedida no primeiro acesso não
+     * terminar com a senha que outra pessoa escolheu.
+     *
+     * <p><strong>Sem {@code @Transactional} no método.</strong> O BCrypt e a lista, que pode levar
+     * segundos, rodam antes; só a escrita abre transação, com a linha do usuário travada até o commit,
+     * para duas revogações simultâneas não gravarem a mesma versão. O tenant já está no contexto,
+     * então cada leitura abre a própria sessão já na Conta certa.
+     *
+     * @param origem o IP de quem pede, já lido da cadeia de proxies confiáveis
+     * @return o token novo deste aparelho, com a versão de acesso nova
+     * @throws SenhaAtualIncorretaException se a senha atual não confere
+     * @throws LoginContidoException se a origem, ou o e-mail vindo dela, errou demais na janela atual
+     * @throws SenhaRecusadaException se a senha nova é igual à atual, curta, longa demais ou vazada
+     */
+    public String trocarSenha(String senhaAtual, String senhaNova, String origem) {
+        UsuarioAutenticado atual = UsuarioContext.exigirAtual();
+        ContaId contaId = TenantContext.exigirAtual();
+        if (senhaAtual == null || senhaNova == null) {
+            throw new IllegalArgumentException("informe a senha atual e a nova");
+        }
+
+        Credencial credencial = credencialDe(atual.usuarioId(), contaId);
+        ContencaoDeLogin.Tentativa tentativa =
+                contencao.reservar(origem, credencial.getEmail(), Instant.now());
+        boolean confere;
+        try {
+            confere = encoder.matches(senhaAtual, credencial.getSenhaHash());
+        } catch (RuntimeException erro) {
+            // Um erro que não diz nada sobre a senha não conta como falha.
+            contencao.desfazer(tentativa);
+            throw erro;
+        }
+        if (!confere) {
+            // A reserva fica: é a falha que a contenção conta.
+            throw new SenhaAtualIncorretaException();
+        }
+        contencao.registrarSucesso(tentativa);
+
+        if (senhaNova.equals(senhaAtual)) {
+            throw new SenhaRecusadaException("A senha nova precisa ser diferente da atual");
+        }
+        politica.exigirValidaEscolhidaPelaPropriaPessoa(senhaNova);
+        String novoHash = encoder.encode(senhaNova);
+
+        int versao = transacao.execute(status -> {
+            Usuario usuario = usuarioTravado(atual.usuarioId());
+            Credencial paraGravar = credencialDe(usuario.getId(), contaId);
+            paraGravar.trocarSenha(novoHash);
+            credenciais.save(paraGravar);
+            usuario.revogarAcessos();
+            usuarios.save(usuario);
+            return usuario.getVersaoDoAcesso();
+        });
+        return emissor.emitir(atual.usuarioId(), contaId, atual.perfil(), versao);
+    }
+
+    /**
+     * Derruba todos os aparelhos de quem está autenticado, inclusive este, sem trocar a senha.
+     *
+     * <p>Serve ao aparelho furtado quando a senha não vazou. Não pede a senha atual, porque o pior que
+     * alguém com o aparelho consegue com isto é sair também. Derrubar este junto é deliberado: se
+     * ficasse, quem está com o aparelho furtado apertaria primeiro, expulsaria o dono e continuaria
+     * dentro.
+     */
+    @Transactional
+    public void sairDeTodosOsAparelhos() {
+        UsuarioAutenticado atual = UsuarioContext.exigirAtual();
+        Usuario usuario = usuarioTravado(atual.usuarioId());
+        usuario.revogarAcessos();
+        usuarios.save(usuario);
+    }
+
+    private Usuario usuarioTravado(UUID usuarioId) {
+        return usuarios.buscarParaAtualizar(usuarioId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "usuario do contexto nao existe: " + usuarioId));
+    }
+
+    /**
+     * A credencial do usuário do contexto. A tabela não tem filtro de tenant, porque o login a
+     * consulta antes de existir um; a Conta é conferida aqui, como na inativação.
+     */
+    private Credencial credencialDe(UUID usuarioId, ContaId contaId) {
+        Credencial credencial = credenciais.findByUsuarioId(usuarioId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "usuario do contexto sem credencial: " + usuarioId));
+        if (!credencial.getContaId().equals(contaId)) {
+            throw new IllegalStateException("credencial pertence a outra conta");
+        }
+        return credencial;
     }
 
     /**
@@ -156,6 +272,9 @@ public class AutenticacaoService {
      *
      * <p>O plano vem junto porque o menu esconde o que ele não inclui ou o que está suspenso, e o
      * administrador vê o aviso de vencimento ao abrir o aplicativo, sem depender de outra tela.
+     *
+     * <p>A marca de senha provisória vem junto porque o aplicativo mostra só a tela de troca enquanto
+     * ela valer, logo depois do login.
      *
      * <p>Aqui a transação pode existir, ao contrário do login: o tenant já está no contexto
      * antes de ela abrir.
@@ -177,12 +296,15 @@ public class AutenticacaoService {
                 .orElseThrow(() -> new IllegalStateException(
                         "conta do contexto nao existe: " + contaId));
 
+        boolean senhaProvisoria = credencialDe(usuario.getId(), contaId).isSenhaProvisoria();
+
         LocalDate hoje = LocalDate.now(FusoDeReferencia.DO_BALCAO);
         return new Identidade(usuario.getId(), usuario.getNome(), atual.perfil(),
                 conta.getId(), conta.getNomeNegocio(), conta.getTipoNegocio(),
                 conta.isEstoqueHabilitado(), conta.isNsuObrigatorio(), conta.getPlano(),
                 conta.situacao(hoje),
-                conta.getProximoVencimento(), conta.inicioDaSuspensao(), conta.recursos(hoje));
+                conta.getProximoVencimento(), conta.inicioDaSuspensao(), conta.recursos(hoje),
+                senhaProvisoria);
     }
 
     /**
@@ -196,11 +318,12 @@ public class AutenticacaoService {
      * @param nsuObrigatorio    se o pagamento em cartão exige o NSU; o aparelho guarda o valor
      *                          para recusar a parcela sem ele antes de gravá-la sem rede
      * @param recursos          os recursos do plano que valem hoje
+     * @param senhaProvisoria   se a senha foi escolhida por outra pessoa e o aplicativo pede a troca
      */
     public record Identidade(UUID usuarioId, String nome, Perfil perfil, UUID contaId,
             String nomeNegocio, String tipoNegocio, boolean estoqueHabilitado,
             boolean nsuObrigatorio, Plano plano,
             SituacaoDoPlano situacaoDoPlano, LocalDate vencimentoDoPlano,
-            LocalDate inicioDaSuspensao, Set<RecursoDoPlano> recursos) {
+            LocalDate inicioDaSuspensao, Set<RecursoDoPlano> recursos, boolean senhaProvisoria) {
     }
 }

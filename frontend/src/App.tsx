@@ -16,6 +16,7 @@ import { TelaDoPlano } from './telas/TelaDoPlano'
 import { TelaDeEstoque } from './telas/TelaDeEstoque'
 import { TelaDeFiado } from './telas/TelaDeFiado'
 import { TelaDeSincronizacao } from './telas/TelaDeSincronizacao'
+import { TelaDaSenha } from './telas/TelaDaSenha'
 
 /**
  * As rotas do aplicativo. Todas, menos o login, vivem dentro do shell e exigem sessão; as do
@@ -37,6 +38,7 @@ export function App() {
           <Route path="clientes" element={<TelaDeClientes />} />
           <Route path="fiado" element={<TelaDeFiado />} />
           <Route path="sincronizacao" element={<TelaDeSincronizacao />} />
+          <Route path="senha" element={<TelaDaSenha />} />
 
           <Route element={<ExigeAdmin />}>
             <Route path="usuarios" element={<TelaDeUsuarios />} />

@@ -21,14 +21,16 @@ import org.springframework.stereotype.Component;
  * exigida pelo RNF01: qualquer reconexão zera o contador, e o aplicativo só trava depois de uma
  * janela inteira sem rede.
  *
- * <p>Custo aceito e registrado: sem revogação, um dispositivo furtado que continue online renova o
- * token indefinidamente.
+ * <p>O token leva a versão de acesso do usuário, e {@link IdentidadeDoTokenFilter} recusa o que não
+ * leva a versão gravada no banco. É a revogação: sem ela, um aparelho furtado que continuasse com
+ * rede renovaria o token indefinidamente, e subir a versão derruba todos os aparelhos de uma vez.
  */
 @Component
 public class EmissorDeToken {
 
     static final String CLAIM_CONTA = "contaId";
     static final String CLAIM_PERFIL = "perfil";
+    static final String CLAIM_VERSAO_DO_ACESSO = "versaoDoAcesso";
 
     private final JwtEncoder encoder;
     private final Duration validade;
@@ -38,12 +40,16 @@ public class EmissorDeToken {
         this.validade = validade;
     }
 
-    public String emitir(UUID usuarioId, ContaId contaId, Perfil perfil) {
+    /**
+     * @param versaoDoAcesso a versão de acesso do usuário que vale agora no banco
+     */
+    public String emitir(UUID usuarioId, ContaId contaId, Perfil perfil, int versaoDoAcesso) {
         Instant agora = Instant.now();
         JwtClaimsSet claims = JwtClaimsSet.builder()
                 .subject(usuarioId.toString())
                 .claim(CLAIM_CONTA, contaId.valor().toString())
                 .claim(CLAIM_PERFIL, perfil.name())
+                .claim(CLAIM_VERSAO_DO_ACESSO, versaoDoAcesso)
                 .issuedAt(agora)
                 .expiresAt(agora.plus(validade))
                 .build();

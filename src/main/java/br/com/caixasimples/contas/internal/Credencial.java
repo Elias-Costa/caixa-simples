@@ -47,6 +47,14 @@ public class Credencial {
     @Column(name = "criado_em", nullable = false, updatable = false)
     private Instant criadoEm;
 
+    /**
+     * A senha foi escolhida por outra pessoa, que portanto a conhece, e o aplicativo pede a troca
+     * antes de qualquer outra tela. Toda credencial nasce assim, porque quem a cria é o mantenedor ou
+     * o administrador, nunca a própria pessoa.
+     */
+    @Column(name = "senha_provisoria", nullable = false)
+    private boolean senhaProvisoria;
+
     protected Credencial() {
         // exigido pelo JPA
     }
@@ -61,6 +69,7 @@ public class Credencial {
         this.usuarioId = Objects.requireNonNull(usuarioId, "usuarioId nao pode ser nulo");
         this.contaId = Objects.requireNonNull(contaId, "contaId nao pode ser nulo").valor();
         this.criadoEm = Instant.now();
+        this.senhaProvisoria = true;
     }
 
     private static String exigirTexto(String valor, String campo) {
@@ -94,7 +103,19 @@ public class Credencial {
         return criadoEm;
     }
 
+    public boolean isSenhaProvisoria() {
+        return senhaProvisoria;
+    }
+
+    /** A própria pessoa escolheu a senha nova, e só ela a conhece. */
     public void trocarSenha(String novoHash) {
         this.senhaHash = exigirTexto(novoHash, "senhaHash");
+        this.senhaProvisoria = false;
+    }
+
+    /** Outra pessoa escolheu a senha nova, e a próxima entrada pede a troca. */
+    public void definirSenhaProvisoria(String novoHash) {
+        this.senhaHash = exigirTexto(novoHash, "senhaHash");
+        this.senhaProvisoria = true;
     }
 }

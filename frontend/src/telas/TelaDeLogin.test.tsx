@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { describe, expect, it, vi } from 'vitest'
-import { lerIdentidade, lerToken } from '../sessao/armazenamento'
+import { lerIdentidade, lerToken, marcarSessaoEncerrada, sessaoFoiEncerrada } from '../sessao/armazenamento'
 import { SessaoProvider } from '../sessao/SessaoProvider'
 import { TelaDeLogin } from './TelaDeLogin'
 
@@ -80,6 +80,35 @@ describe('TelaDeLogin', () => {
     preencherEEnviar()
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Sem conexão')
+  })
+
+  it('sem aviso quando nada encerrou a sessão', () => {
+    vi.stubGlobal('fetch', vi.fn())
+    renderizarLogin()
+
+    expect(screen.queryByText(/sessão neste aparelho foi encerrada/)).not.toBeInTheDocument()
+  })
+
+  it('depois de o servidor recusar o token, avisa que a fila continua guardada até o próximo login', async () => {
+    marcarSessaoEncerrada()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn()
+        .mockResolvedValueOnce(respostaJson(200, { token: 'token-do-login' }))
+        .mockResolvedValueOnce(respostaJson(200, {
+          usuarioId: '1', nome: 'Ana', perfil: 'ADMIN', contaId: '2',
+          nomeNegocio: 'Cafeteria Aurora', estoqueHabilitado: false,
+        })),
+    )
+    renderizarLogin()
+
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'o que foi registrado sem rede continua guardado aqui e é enviado depois que você entrar')
+
+    preencherEEnviar()
+
+    expect(await screen.findByText('dentro do aplicativo')).toBeInTheDocument()
+    expect(sessaoFoiEncerrada()).toBe(false)
   })
 
   it('login certo guarda o token e a identidade e entra no aplicativo', async () => {

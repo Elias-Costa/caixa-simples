@@ -7,6 +7,7 @@ const CHAVE_DO_TOKEN_LEGADO = 'caixa-simples.token'
 const CHAVE_DA_IDENTIDADE_LEGADA = 'caixa-simples.identidade'
 export const CHAVE_DA_SESSAO = 'caixa-simples.sessao'
 const CHAVE_DA_SESSAO_NA_ABA = 'caixa-simples.sessao-na-aba'
+const CHAVE_DA_SESSAO_ENCERRADA = 'caixa-simples.sessao-encerrada'
 const SESSAO_LEGADA = 'legada'
 
 function chaveDoToken(sessao: string): string { return `caixa-simples.token.${sessao}` }
@@ -40,6 +41,7 @@ export function gravarToken(token: string): string {
   localStorage.removeItem(CHAVE_DO_TOKEN_LEGADO)
   localStorage.setItem(CHAVE_DA_SESSAO, nova)
   fixarSessaoDaAba(nova)
+  sessionStorage.removeItem(CHAVE_DA_SESSAO_ENCERRADA)
   if (anterior) {
     localStorage.removeItem(chaveDoToken(anterior))
     localStorage.removeItem(chaveDaIdentidade(anterior))
@@ -77,6 +79,19 @@ export function gravarIdentidade(identidade: Identidade, sessao = sessaoAtual())
   if (!sessao) return
   localStorage.setItem(chaveDaIdentidade(sessao), JSON.stringify(identidade))
   if (sessaoAtual() !== sessao) localStorage.removeItem(chaveDaIdentidade(sessao))
+}
+
+/**
+ * O servidor recusou o token desta aba: a senha foi trocada, os aparelhos foram derrubados ou o
+ * usuário foi inativado. A marca fica na aba até o próximo login, para a tela de login dizer que a
+ * sessão foi encerrada e que o registrado sem rede continua guardado.
+ */
+export function marcarSessaoEncerrada(): void {
+  sessionStorage.setItem(CHAVE_DA_SESSAO_ENCERRADA, 'sim')
+}
+
+export function sessaoFoiEncerrada(): boolean {
+  return sessionStorage.getItem(CHAVE_DA_SESSAO_ENCERRADA) !== null
 }
 
 export function limparSessao(): void {

@@ -23,7 +23,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Gestão de usuários da conta em operação (RF29): criar, listar, inativar e anonimizar o nome.
+ * Gestão de usuários da conta em operação (RF29): criar, listar, inativar, redefinir a senha de um
+ * operador e anonimizar o nome.
  *
  * <p><strong>Só o administrador chama</strong>, e cada caso de uso pergunta isso na primeira
  * linha. A conta nunca chega por parâmetro: é a do contexto, como em {@link ContaService}, e o
@@ -169,6 +170,52 @@ public class UsuarioService {
         if (credencial != null) {
             credenciais.delete(credencial);
         }
+    }
+
+    /**
+     * Define uma senha provisória para um operador ativo da conta e derruba todos os aparelhos dele.
+     *
+     * <p>É o caminho do operador que esqueceu a senha, que sem ele só voltaria inativado e recriado,
+     * com outra identidade. A senha nova foi escolhida pelo administrador, que portanto a conhece:
+     * fica provisória, e o aplicativo pede a troca na próxima entrada. Pela mesma razão passa pela
+     * política com a recusa quando a lista de vazamentos não responde, como a senha inicial.
+     *
+     * <p>Não alcança outro administrador, que tomaria o acesso dele, e não pede o recurso de
+     * multiusuário do plano: o operador já existe, como na inativação.
+     *
+     * <p>A linha do operador fica travada até o commit, para uma troca de senha dele ao mesmo tempo
+     * não gravar a mesma versão de acesso. A trava não barra a leitura do filtro do token.
+     *
+     * @throws br.com.caixasimples.shared.AcessoNegadoException se quem chama não é ADMIN
+     * @throws UsuarioNaoEncontradoException se o id não existe nesta conta
+     * @throws RedefinicaoRecusadaException se o usuário é administrador ou está inativo
+     * @throws br.com.caixasimples.contas.internal.SenhaRecusadaException se a senha é curta, longa
+     *         demais, vazada ou não pôde ser verificada
+     */
+    @Transactional
+    public void redefinirSenha(UUID usuarioId, String senha) {
+        UsuarioContext.exigirAdmin();
+        Objects.requireNonNull(usuarioId, "usuarioId nao pode ser nulo");
+        ContaId contaId = TenantContext.exigirAtual();
+
+        Usuario usuario = usuarios.buscarParaAtualizar(usuarioId)
+                .orElseThrow(() -> new UsuarioNaoEncontradoException(usuarioId));
+        if (!usuario.isAtivo() || usuario.getPerfil() != Perfil.OPERADOR) {
+            throw new RedefinicaoRecusadaException();
+        }
+
+        politica.exigirValida(senha);
+
+        Credencial credencial = credenciais.findByUsuarioId(usuarioId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "operador ativo sem credencial: " + usuarioId));
+        if (!credencial.getContaId().equals(contaId)) {
+            throw new IllegalStateException("credencial pertence a outra conta");
+        }
+        credencial.definirSenhaProvisoria(encoder.encode(senha));
+        credenciais.save(credencial);
+        usuario.revogarAcessos();
+        usuarios.save(usuario);
     }
 
     /** A pedido, retira o nome do Usuário já inativo, sem tocar no histórico. */

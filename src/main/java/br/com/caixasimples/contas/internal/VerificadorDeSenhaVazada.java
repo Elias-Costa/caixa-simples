@@ -11,12 +11,12 @@ public interface VerificadorDeSenhaVazada {
     /**
      * Falha se a senha aparece em vazamento conhecido, e também se não foi possível verificar.
      *
-     * <p>Falhar quando a verificação está indisponível é deliberado: sem conseguir conferir,
-     * nenhuma senha entra. Hoje o custo disso é baixo, porque quem cria conta é o mantenedor, com
-     * rede. <strong>No dia em que troca de senha virar autoatendimento, essa decisão tem de ser
-     * reaberta</strong>, porque recusar passa a ser fricção real no balcão.
+     * <p>As duas falhas têm tipos diferentes porque o desfecho da segunda depende de quem escolheu a
+     * senha, e isso a {@link PoliticaDeSenha} sabe, não o adapter: a senha escolhida por outra
+     * pessoa é recusada sem a conferência, e a escolhida pela própria pessoa entra.
      *
-     * @throws SenhaRecusadaException se a senha está vazada ou se a verificação falhou
+     * @throws ListaDeVazadasIndisponivelException se a verificação não pôde ser feita
+     * @throws SenhaRecusadaException se a senha está vazada
      */
     void exigirNaoVazada(String senha);
 }

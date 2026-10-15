@@ -3,8 +3,10 @@ package br.com.caixasimples.contas.web;
 import br.com.caixasimples.contas.RecursoDoPlano;
 import br.com.caixasimples.contas.application.AutenticacaoService;
 import br.com.caixasimples.contas.application.AutenticacaoService.Identidade;
+import br.com.caixasimples.contas.application.SenhaAtualIncorretaException;
 import br.com.caixasimples.contas.internal.CredenciaisInvalidasException;
 import br.com.caixasimples.contas.internal.LoginContidoException;
+import br.com.caixasimples.contas.internal.SenhaRecusadaException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -52,6 +54,26 @@ class AutenticacaoController {
     }
 
     /**
+     * Troca a senha de quem está autenticado e derruba os outros aparelhos dele.
+     *
+     * <p>O token novo deste aparelho vem no corpo, como no login. O que o filtro de renovação pôs no
+     * cabeçalho foi emitido antes da troca, com a versão de acesso anterior, e já não vale.
+     */
+    @PostMapping("/senha")
+    RespostaDeTrocaDeSenha trocarSenha(@Valid @RequestBody PedidoDeTrocaDeSenha pedido,
+            HttpServletRequest requisicao) {
+        return new RespostaDeTrocaDeSenha(autenticacao.trocarSenha(pedido.senhaAtual(),
+                pedido.senhaNova(), requisicao.getRemoteAddr()));
+    }
+
+    /** Derruba todos os aparelhos de quem está autenticado, inclusive este. */
+    @PostMapping("/sair-de-todos")
+    ResponseEntity<Void> sairDeTodos() {
+        autenticacao.sairDeTodosOsAparelhos();
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
      * Quem está autenticado agora, e em que negócio.
      *
      * <p>É o que o aplicativo mostra no cabeçalho de toda tela, e é também o endpoint protegido
@@ -75,7 +97,8 @@ class AutenticacaoController {
                 identidade.situacaoDoPlano().name(),
                 identidade.vencimentoDoPlano(),
                 identidade.inicioDaSuspensao(),
-                identidade.recursos().stream().map(RecursoDoPlano::name).toList());
+                identidade.recursos().stream().map(RecursoDoPlano::name).toList(),
+                identidade.senhaProvisoria());
     }
 
     /**
@@ -105,20 +128,42 @@ class AutenticacaoController {
                 .body(problema);
     }
 
+    /**
+     * A senha atual errada responde 400, e não 401: quem pede a troca está autenticado, e o
+     * aplicativo trata o 401 como sessão encerrada.
+     */
+    @ExceptionHandler(SenhaAtualIncorretaException.class)
+    ProblemDetail senhaAtualIncorreta(SenhaAtualIncorretaException excecao) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, excecao.getMessage());
+    }
+
+    @ExceptionHandler(SenhaRecusadaException.class)
+    ProblemDetail senhaRecusada(SenhaRecusadaException excecao) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, excecao.getMessage());
+    }
+
     record PedidoDeLogin(@NotBlank String email, @NotBlank String senha) {
     }
 
     record RespostaDeLogin(String token) {
     }
 
+    record PedidoDeTrocaDeSenha(@NotBlank String senhaAtual, @NotBlank String senhaNova) {
+    }
+
+    record RespostaDeTrocaDeSenha(String token) {
+    }
+
     /**
      * @param tipoNegocio       omitido no JSON quando a conta não tem tipo
      * @param vencimentoDoPlano omitido no plano gratuito
      * @param inicioDaSuspensao omitido no plano gratuito
+     * @param senhaProvisoria   verdadeiro enquanto a senha for a que outra pessoa escolheu
      */
     record RespostaDeIdentidade(UUID usuarioId, String nome, String perfil, UUID contaId,
             String nomeNegocio, String tipoNegocio, boolean estoqueHabilitado,
             boolean nsuObrigatorio, String plano, String situacaoDoPlano,
-            LocalDate vencimentoDoPlano, LocalDate inicioDaSuspensao, List<String> recursos) {
+            LocalDate vencimentoDoPlano, LocalDate inicioDaSuspensao, List<String> recursos,
+            boolean senhaProvisoria) {
     }
 }

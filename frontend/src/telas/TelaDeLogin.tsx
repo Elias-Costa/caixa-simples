@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router'
 import { ErroDaApi, SemConexao } from '../api/cliente'
+import { sessaoFoiEncerrada } from '../sessao/armazenamento'
 import { useSessao } from '../sessao/useSessao'
 
 export function TelaDeLogin() {
@@ -31,6 +32,13 @@ export function TelaDeLogin() {
     <main className="login">
       <form className="login__cartao" onSubmit={enviar} noValidate>
         <h1 className="login__titulo">Caixa Simples</h1>
+
+        {sessaoFoiEncerrada() && (
+          <p role="status">
+            A sessão neste aparelho foi encerrada. Entre de novo; o que foi registrado sem rede continua
+            guardado aqui e é enviado depois que você entrar.
+          </p>
+        )}
 
         <label className="campo">
           <span className="campo__rotulo">E-mail</span>

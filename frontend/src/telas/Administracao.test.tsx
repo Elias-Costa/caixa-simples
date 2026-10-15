@@ -84,6 +84,34 @@ describe('administração na tela', () => {
     expect(screen.getByText(/Menu:.*Estoque/)).toBeInTheDocument()
   })
 
+  it('redefine a senha só do operador ativo, com a senha provisória digitada', async () => {
+    vi.spyOn(contas, 'usuarios').mockResolvedValue([
+      { id: 'admin', nome: 'Ana', perfil: 'ADMIN', ativo: true },
+      { id: 'bia', nome: 'Bia', perfil: 'OPERADOR', ativo: true },
+      { id: 'caio', nome: 'Caio', perfil: 'OPERADOR', ativo: false },
+    ])
+    const redefinir = vi.spyOn(contas, 'redefinirSenha').mockResolvedValue(undefined)
+    render(<TelaDeUsuarios />)
+    expect(await screen.findByText('Bia')).toBeInTheDocument()
+
+    // Um botão só: o da Bia. O administrador e o inativo não têm.
+    fireEvent.click(screen.getByRole('button', { name: 'Redefinir senha' }))
+    fireEvent.change(screen.getByLabelText('Senha provisória de Bia'),
+      { target: { value: 'curta' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar senha provisória' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('ao menos 15 caracteres')
+    expect(redefinir).not.toHaveBeenCalled()
+
+    fireEvent.change(screen.getByLabelText('Senha provisória de Bia'),
+      { target: { value: 'uma provisoria longa da Bia' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar senha provisória' }))
+
+    await waitFor(() => expect(redefinir).toHaveBeenCalledWith('bia', 'uma provisoria longa da Bia'))
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Senha de Bia redefinida. Os aparelhos dele saíram')
+    expect(screen.queryByLabelText('Senha provisória de Bia')).not.toBeInTheDocument()
+  })
+
   it('mostra a recusa por plano sem esconder a lista de usuários', async () => {
     vi.spyOn(contas, 'usuarios').mockResolvedValue([{
       id: 'admin', nome: 'Ana', perfil: 'ADMIN', ativo: true,

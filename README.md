@@ -120,7 +120,7 @@ Venda continuam.
 | Módulo | Estado | O que existe hoje |
 |---|---|---|
 | `shared` | Implementado | `Money`, `ContaId`, `FusoDeReferencia` e os dois contextos da requisição: `TenantContext`, a conta em operação, e `UsuarioContext`, quem está operando e com que perfil, com as duas perguntas de autorização que todo caso de uso restrito faz na primeira linha. O registro mínimo de remoções é gravado em objetos separados das cópias do banco; sem essa gravação, a remoção é recusada. O tratamento transversal de erro da API devolve Problem Details: recusa por perfil vira 403, estado inválido vira 409 e indisponibilidade do registro vira 503. O shell do PWA sai daqui, com o fallback que devolve a mesma página para qualquer rota do cliente e nunca para a API |
-| `contas` | Implementado | `Conta`, `Usuario`, `Credencial`, login por JWT com contenção de tentativas repetidas, política de senha, provisionamento de conta, as perguntas que os outros módulos fazem à conta em operação, se o controle de estoque está ligado e se o plano dá direito a um recurso, e a gestão de usuários: o administrador cria operador ou administrador com login próprio, lista e inativa pela API e pelo PWA, com mais de um usuário só no plano mais alto e a conta nunca sem administrador. Inativar apaga a credencial e libera o e-mail; o administrador pode anonimizar o nome depois. A configuração liga o controle de estoque e só o desliga antes do primeiro movimento, e liga ou desliga, em qualquer plano, a exigência do NSU no pagamento em cartão; o menu reage imediatamente à mudança. O filtro que resolve o token lê o usuário no banco a cada requisição, então inativar vale na requisição seguinte, e o perfil que vale é o do banco, não o do token. O primeiro login do administrador marca a Conta e publica o primeiro acesso na mesma transação que copia o catálogo sugerido. A troca de plano pela própria Conta grava o pedido, confere o código de ativação recalculando a assinatura do pedido, sem guardá-lo, e mantém o ciclo mensal com aviso, tolerância e suspensão só dos recursos pagos; pedir e aplicar travam a linha da Conta, e a aplicação repetida não ativa duas vezes. Quem está autenticado pergunta em `/api/auth/eu` e recebe o próprio nome, o negócio, o tipo dele, se o estoque está ligado, se o cartão exige o NSU e o plano, com a situação e os recursos que valem hoje: é o cabeçalho de toda tela |
+| `contas` | Implementado | `Conta`, `Usuario`, `Credencial`, login por JWT com contenção de tentativas repetidas, política de senha, provisionamento de conta, as perguntas que os outros módulos fazem à conta em operação, se o controle de estoque está ligado e se o plano dá direito a um recurso, e a gestão de usuários: o administrador cria operador ou administrador com login próprio, lista e inativa pela API e pelo PWA, com mais de um usuário só no plano mais alto e a conta nunca sem administrador. Inativar apaga a credencial e libera o e-mail; o administrador pode anonimizar o nome depois. A configuração liga o controle de estoque e só o desliga antes do primeiro movimento, e liga ou desliga, em qualquer plano, a exigência do NSU no pagamento em cartão; o menu reage imediatamente à mudança. O filtro que resolve o token lê o usuário no banco a cada requisição, então inativar vale na requisição seguinte, e o perfil que vale é o do banco, não o do token. A mesma leitura confere a versão de acesso que vai no token: cada um troca a própria senha, informando a atual, e os outros aparelhos dele saem na requisição seguinte; sair de todos os aparelhos derruba também o que pediu; o administrador redefine a senha de um operador, que sai de todos os aparelhos. A senha escolhida por outra pessoa, a do seed e a que o administrador define, é provisória, e o PWA só mostra a tela de troca até a pessoa escolher a dela. A senha tem de 15 caracteres a 72 bytes em UTF-8, e uma execução avulsa, como o seed, socorre o administrador que perdeu o acesso. O primeiro login do administrador marca a Conta e publica o primeiro acesso na mesma transação que copia o catálogo sugerido. A troca de plano pela própria Conta grava o pedido, confere o código de ativação recalculando a assinatura do pedido, sem guardá-lo, e mantém o ciclo mensal com aviso, tolerância e suspensão só dos recursos pagos; pedir e aplicar travam a linha da Conta, e a aplicação repetida não ativa duas vezes. Quem está autenticado pergunta em `/api/auth/eu` e recebe o próprio nome, o negócio, o tipo dele, se o estoque está ligado, se o cartão exige o NSU e o plano, com a situação e os recursos que valem hoje: é o cabeçalho de toda tela |
 | `cadastro` | Implementado, com cadastro local recebido pelo lote | `Produto` com atributos `JSONB`, busca por nome ou código para o balcão, `Cliente` como vertical slice, catálogo sugerido por tipo de negócio e copiado no primeiro login do administrador, e o agregado inteiro: `MovimentoEstoque` como membro, com a baixa por venda, o estorno por cancelamento e o ajuste manual gravando movimento e saldo na mesma transação, o estoque mínimo de cada produto e a resposta de quais estão com estoque baixo. A API expõe a revisão de Produto e Cliente; o PWA guarda listas por Conta e gestos por usuário para cadastrar, editar e inativar os dois sem rede, além de reativar Cliente, após a preparação online. Só o administrador remove Cliente: o nome vira `Cliente removido`, o contato sai e o cadastro não volta às listas; dívida ou comanda aberta impede a remoção. Os dois perfis consultam produtos e cadastram clientes no balcão. Os gestos do dispositivo chegam pelo lote de sincronização, com o id e o instante gravados sem rede |
 | `caixa` | Implementado, com gestos locais recebidos pelo lote | `SessaoCaixa`: abertura, sangria, suprimento, fechamento com conferência, histórico por operador e por dia, consulta da sessão aberta do usuário atual e extrato de uma sessão com a Venda de origem nos movimentos. A API e o PWA permitem operar e conferir o caixa, com o esperado visível antes de informar o contado. Sangria e suprimento online recebem o id do movimento do aparelho e aceitam o reenvio igual sem lançá-lo de novo. Sem rede, o PWA guarda os gestos por Conta e usuário, recompõe a sessão após recarga, conta no esperado o dinheiro das Vendas concluídas no dispositivo e mostra a diferença antes do fechamento. O dinheiro em espécie de cada venda concluída entra na gaveta pelo evento, na mesma transação da conclusão e com o instante dela, uma vez só; o cancelamento o estorna. Abertura, sangria, suprimento e fechamento feitos sem rede chegam pelo lote com o id e os instantes do balcão, e o fechamento calcula a diferença com o que o servidor conhece. O caixa é de quem o abriu: o operador só lança, fecha e consulta a própria sessão e só pede o próprio histórico; o administrador toca qualquer sessão da conta, inclusive para fechar o caixa de outro operador |
 | `pagamentos` | Implementado para cobrança, confirmação e cancelamento Pix | Strategy por forma: dinheiro com troco, cartão manual, FIADO pendente e Pix integrado. `PixGateway` usa um adapter Efí por Conta para criar, remover e reconsultar a cobrança pelo `txid`; só o Pix comprovado na consulta quita a parcela (RF25). Credenciais de homologação ainda não foram exercitadas |
@@ -129,7 +129,7 @@ Venda continuam.
 | `relatorios` | Implementado | Faturamento do dia e de um período, produtos mais vendidos, fluxo de caixa da gaveta e a conferência do cartão de um dia. Venda concluída com FIADO conta no faturamento no dia da conclusão; recebimento em dinheiro conta no fluxo no dia da entrada, sem faturar outra vez (RF33). Filtros combináveis de faturamento por forma e operador incluem a parcela FIADO pendente. A conferência lista cada pagamento em cartão no dia e na hora em que foi lançado, parcela de venda de qualquer situação ou fiado recebido, com quem lançou, a situação da venda e o NSU ou a marca de que falta, para bater com o extrato da operadora. O módulo lê mapeamentos imutáveis de venda, item, produto, pagamento, recebimento, sessão de caixa e movimento de caixa, e os quatro relatórios são do administrador, num plano pago sem suspensão. A API e o PWA mostram os três primeiros para o mesmo período, com o faturamento repartido por forma de pagamento, e a conferência quando o período é um dia; o filtro de operador vale para o faturamento, o ranking e a conferência |
 | `sincronizacao` | Implementado, com envio automático pelo PWA | Recebe o lote de gestos que o dispositivo registrou sem rede, até 100 por envio, e aplica cada um pelos casos de uso do módulo dono, que implementa a porta deste: cadastro, caixa e vendas. Uma transação por operação, com o resultado gravado junto, por Conta e id de operação: o reenvio devolve o gravado, o mesmo id com outro conteúdo é recusado, e duas requisições simultâneas não aplicam duas vezes. Dependência que ainda não chegou pede reenvio; o gesto seguinte de um registro recusado é recusado, e o de outro registro é tentado. O item fica com o preço visto no balcão e vai para revisão quando difere do vigente; também vão a conclusão que deixou o estoque negativo, a parcela em cartão que chega sem o NSU que a Conta exige, gravada mesmo assim, e o gesto com instante adiantado mais de cinco minutos, seja o da operação ou o que ele grava no registro. O administrador lista as revisões e recusas de todos os usuários da Conta e registra quem conferiu e quando. Ao remover Cliente, o conteúdo de seus gestos gravados é anonimizado e o reenvio antigo entra em conflito. O PWA descarta o gesto enviado quando todo retrato que o usa já contém o efeito dele |
 
-**Schema.** Vinte e três migrations Flyway, de `V1` a `V23`: conta, usuário e credencial; produto; cliente;
+**Schema.** Vinte e quatro migrations Flyway, de `V1` a `V24`: conta, usuário e credencial; produto; cliente;
 catálogo de referência; o agregado de caixa, com a regra de uma sessão aberta por operador; o
 agregado de venda, com a venda, seus itens e seus pagamentos; o outbox de eventos de domínio do
 Spring Modulith, cujo DDL foi gerado a partir da entidade do framework em vez de escrito de
@@ -150,7 +150,9 @@ os índices parciais da lista do administrador. A `V21` acrescenta `removido_em`
 distinguir a anonimização a pedido da inativação comum. A `V22` dá à Conta paga o dia e o próximo
 vencimento e cria o pedido de plano, com um aberto por Conta. A `V23` acrescenta o NSU à parcela e ao
 recebimento de fiado em cartão, recusado no banco fora do cartão, vazio ou com espaço nas pontas, e à
-Conta a exigência dele, que nasce desligada.
+Conta a exigência dele, que nasce desligada. A `V24` acrescenta ao usuário a versão de acesso, que vai
+no token e o recusa quando difere, e à credencial a marca de senha provisória, com que toda
+credencial nasce.
 
 O [aviso de privacidade](frontend/src/telas/TelaDePrivacidade.tsx) é público, inclusive antes do
 login. O ADMIN pede o encerramento da Conta pelo canal indicado nele. O procedimento em
@@ -161,7 +163,11 @@ da Conta; o registro externo das remoções é reaplicado quando uma cópia do b
 token ou, depois de falhas demais da mesma origem, 429 com a espera até a janela acabar, e
 `GET /api/auth/eu`, que diz quem está autenticado e em que negócio, para o cabeçalho de toda tela,
 e que serve também de recurso protegido contra o qual verificar, por HTTP, que requisição sem token é recusada, que o tenant vem do claim e não do pedido, e que o perfil é o do
-banco: um usuário inativado recebe 401 na requisição seguinte, com o token que já tinha. O contrato
+banco: um usuário inativado recebe 401 na requisição seguinte, com o token que já tinha.
+`POST /api/auth/senha` troca a senha de quem está autenticado, com a atual e a nova, e devolve no
+corpo o token novo deste aparelho; a senha atual errada responde 400 e conta na mesma contenção do
+login, com 429 além do limite. `POST /api/auth/sair-de-todos` responde 204 e derruba todos os tokens
+de quem pediu, inclusive o desta requisição. O contrato
 de erro já está fixado para todos os endpoints que virão: toda resposta de erro é Problem Details
 (RFC 9457), produzida por um tratador transversal em `shared` que estende o do próprio Spring MVC,
 para o cliente receber uma forma só venha o erro do framework ou da aplicação. A recusa por perfil
@@ -227,8 +233,10 @@ Venda e a situação dela, o valor, quem lançou e o NSU, que falta na resposta 
 informado. As rotas de relatório recusam o OPERADOR com 403, a Conta sem relatório no plano com 409,
 o período invertido e o dia ausente com 400; operador de outra Conta dá zero ou lista vazia.
 Usuários usam `GET` e `POST /api/usuarios` e
-`POST /api/usuarios/{id}/inativar` e `POST /api/usuarios/{id}/anonimizar`; a lista não expõe e-mail, a criação num plano sem
-multiusuário responde 409 e a inativação do último administrador também. A configuração usa
+`POST /api/usuarios/{id}/inativar`, `POST /api/usuarios/{id}/redefinir-senha` e
+`POST /api/usuarios/{id}/anonimizar`; a lista não expõe e-mail, a criação num plano sem
+multiusuário responde 409 e a inativação do último administrador também. A redefinição só alcança
+operador ativo, e o administrador ou o inativo responde 409. A configuração usa
 `GET` e `PUT /api/conta/configuracao`, com `estoqueHabilitado` booleano, e
 `PUT /api/conta/configuracao/nsu`, com `nsuObrigatorio`, que não depende do plano; as duas mudanças
 devolvem a configuração inteira, e depois do primeiro movimento de estoque a tentativa de desligar o
@@ -336,7 +344,7 @@ Atalhos para avaliar o código sem percorrer o repositório inteiro.
 | Concorrência reproduzida sem pausa | [CancelamentoERecebimentoSobConcorrenciaTest.java](src/test/java/br/com/caixasimples/vendas/CancelamentoERecebimentoSobConcorrenciaTest.java) e [EscritasConcorrentesNaVendaTest.java](src/test/java/br/com/caixasimples/vendas/EscritasConcorrentesNaVendaTest.java) | Outra transação segura a linha da raiz e só confirma quando o PostgreSQL mostra as conexões esperando por ela; o cancelamento e o recebimento de fiado são recusados inteiros por conflito de versão, sem efeito pela metade, e duas escritas na mesma Venda esperam uma pela outra em vez de gravar uma por cima da outra |
 | Isolamento entre contas provado nos dois sentidos | [IsolamentoEntreContasTest.java](src/test/java/br/com/caixasimples/contas/IsolamentoEntreContasTest.java) | Segurança testada, não presumida: grava na conta A e prova que a conta B não enxerga |
 | O mecanismo por trás desse isolamento | [MultiTenancyConfiguration.java](src/main/java/br/com/caixasimples/shared/internal/MultiTenancyConfiguration.java) | Filtro no Hibernate, não em cada consulta, e o que acontece quando não há tenant no contexto |
-| Autorização explícita, sem anotação | [UsuarioContext.java](src/main/java/br/com/caixasimples/shared/UsuarioContext.java) | Quem chama vem do contexto, nunca de parâmetro, e cada caso de uso restrito pergunta na primeira linha se é o administrador ou o dono do caixa; o porquê de não haver `@PreAuthorize` nem tabela de rotas está escrito no lugar. [IdentidadeDoTokenFilter.java](src/main/java/br/com/caixasimples/contas/internal/IdentidadeDoTokenFilter.java) preenche os dois contextos e lê o usuário no banco a cada requisição, para inativar valer na hora |
+| Autorização explícita, sem anotação | [UsuarioContext.java](src/main/java/br/com/caixasimples/shared/UsuarioContext.java) | Quem chama vem do contexto, nunca de parâmetro, e cada caso de uso restrito pergunta na primeira linha se é o administrador ou o dono do caixa; o porquê de não haver `@PreAuthorize` nem tabela de rotas está escrito no lugar. [IdentidadeDoTokenFilter.java](src/main/java/br/com/caixasimples/contas/internal/IdentidadeDoTokenFilter.java) preenche os dois contextos e lê o usuário no banco a cada requisição, para inativar valer na hora e o token de versão de acesso antiga ser recusado |
 | Contenção de abuso no login | [ContencaoDeLogin.java](src/main/java/br/com/caixasimples/contas/internal/ContencaoDeLogin.java) | A tentativa é contada antes do banco e do BCrypt, num passo só para as duas contagens, e devolvida se não terminar em recusa de credencial: pedidos simultâneos não furam o limite e ninguém de outra origem bloqueia o usuário legítimo. [AutenticacaoService.java](src/main/java/br/com/caixasimples/contas/application/AutenticacaoService.java) confere o e-mail inexistente contra um hash sintético, para a recusa custar o mesmo que a senha errada |
 | Limite do corpo por rota | [LimiteDoCorpoFilter.java](src/main/java/br/com/caixasimples/shared/web/LimiteDoCorpoFilter.java) | O pedido que declara o tamanho é recusado pelo cabeçalho, sem ser lido, e o que chega em partes só é contado enquanto alguém o lê, sem leitura adiantada antes da recusa por falta de token; a rota sai do caminho que o servidor já decodificou, para uma letra codificada não trocar o limite do login |
 | Gestão de usuários com o plano no caminho | [UsuarioService.java](src/main/java/br/com/caixasimples/contas/application/UsuarioService.java) | Criar usuário grava duas linhas numa transação, passa pela política de senha e pela unicidade global de e-mail, e é recusado fora do plano que admite mais de um usuário; inativar nunca deixa a conta sem administrador, nem com duas inativações ao mesmo tempo, porque a linha da conta é travada antes da contagem |
@@ -626,7 +634,10 @@ de uso, provada por teste negativo, e nunca dependente de um valor que o cliente
   em dia não herda a suspensão de outra. O SQL do encerramento de Conta, que roda fora do filtro de
   tenant, é testado com uma linha em cada tabela da Conta nas duas pontas: a encerrada termina sem
   nenhuma, e a outra com as mesmas, tabela a tabela. A remoção de
-  Cliente e a anonimização de Usuário são recusadas com id de outra Conta. O lote prova por HTTP que duas Contas com os mesmos ids de
+  Cliente e a anonimização de Usuário são recusadas com id de outra Conta. A versão de acesso do
+  usuário também tem a sua: a Conta B não a trava, não a lê nem a revoga num usuário da A, o
+  administrador da B não redefine a senha de um operador da A, e a troca de senha na A não derruba o
+  token da B nem o de outro usuário da própria A. O lote prova por HTTP que duas Contas com os mesmos ids de
   operação recebem cada uma o seu resultado e que os ids de Produto, Venda, sessão de caixa e
   Cliente de uma Conta, usados pela outra para criar um registro, são recusados sem alterar nada.
   Os casos de uso do estoque têm o
@@ -672,11 +683,21 @@ de uso, provada por teste negativo, e nunca dependente de um valor que o cliente
   faz tudo isso, e há teste de que fecha o caixa do operador e cancela a venda dele. A gestão de
   usuários tem a prova de isolamento nos dois sentidos, e a prova de que o token que um operador
   já tinha deixa de entrar assim que ele é inativado.
+- **O token pode ser revogado.** Ele leva a versão de acesso do usuário, e o mesmo filtro recusa o
+  que não leva a versão gravada no banco, ou nenhuma. Trocar a senha, ter a senha redefinida pelo
+  administrador ou sair de todos os aparelhos sobe a versão, e todos os tokens emitidos antes
+  recebem 401 na requisição seguinte. O lote de sincronização de um aparelho revogado também: nada
+  é aplicado, os gestos voltam à fila do aparelho e saem quando o mesmo usuário entrar de novo ali.
 
 A autenticação usa JWT emitido e validado pelo próprio Spring Security, sem biblioteca de JWT de
 terceiro, com API stateless e senha em BCrypt verificada contra bases de senhas vazadas. A política
 de senha exige comprimento e nenhuma regra de composição, porque exigir símbolo e maiúscula empurra
-o usuário para uma senha pior, anotada num papel no balcão.
+o usuário para uma senha pior, anotada num papel no balcão. O máximo é de 72 bytes em UTF-8, o
+limite do BCrypt, conferido antes da consulta à base de senhas vazadas, com a mensagem dizendo que a
+letra acentuada conta como duas. Quando essa base não responde, quem escolheu a senha decide: a
+escolhida pela própria pessoa entra, com um aviso no log sem nada que a identifique, porque a troca
+pode ser a resposta a uma senha vazada; a escolhida por outra pessoa, que é provisória, espera a base
+voltar.
 
 O login conta as falhas de duas formas, cada uma numa janela de 15 minutos que começa na primeira
 falha: as do mesmo e-mail vindas da mesma origem, até dez, e as da origem somando todos os e-mails,
@@ -705,8 +726,8 @@ falha visível e nada sai da fila.
 
 A validade do token conta a partir do último contato com o servidor e não do login: toda resposta
 autenticada devolve um token renovado. Na prática, é a janela de resistência que a operação offline
-exige. Não há revogação de token, e sim de usuário: inativar alguém derruba o token dele na
-requisição seguinte. No aplicativo, o token e a identidade de quem entrou ficam guardados no
+exige. Inativar alguém derruba o token dele na requisição seguinte, e trocar a senha ou sair de
+todos os aparelhos derruba os tokens de quem pediu, pela versão de acesso. No aplicativo, o token e a identidade de quem entrou ficam guardados no
 dispositivo, e é isso que permite abrir o aplicativo sem rede. Cada login inicia uma sessão nova
 no navegador; token e identidade ficam vinculados a ela, cada aba só usa a sessão com que abriu,
 e uma troca em outra aba remove a identidade anterior da tela. O que uma escrita começada antes de
@@ -1014,7 +1035,8 @@ serem servidos pela aplicação.
 
 Um compose versionado descreve a máquina inteira, com os segredos só pelo nome: o proxy do HTTPS, que
 obtém e renova o certificado do domínio, a aplicação, o PostgreSQL 17 e as execuções avulsas do seed,
-da cópia, da restauração e do encerramento de Conta. Só o proxy publica porta, e só em IPv4. Um script
+da senha provisória para o administrador que perdeu o acesso, da cópia, da restauração e do
+encerramento de Conta. Só o proxy publica porta, e só em IPv4. Um script
 versionado prepara a máquina: atualização automática de segurança, firewall, SSH só por chave, swap,
 logs com prazo de sete dias, Docker e um limite de 50 conexões simultâneas por endereço de origem às
 portas do proxy, contado pelo kernel antes de o proxy aceitar a conexão, para que uma única máquina
@@ -1086,7 +1108,7 @@ src
 │   │   ├── relatorios/     application, web, internal
 │   │   └── sincronizacao/  a porta que os módulos donos implementam; application, web, internal
 │   └── resources
-│       └── db/migration/   V1 a V23, imutáveis depois de publicadas
+│       └── db/migration/   V1 a V24, imutáveis depois de publicadas
 ├── test/java/br/com/caixasimples
 │   ├── ModularityTests     fitness function das fronteiras
 │   ├── TesteDeIntegracao   base com Testcontainers, herdada pelos testes de banco

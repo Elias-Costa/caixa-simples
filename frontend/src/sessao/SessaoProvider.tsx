@@ -11,6 +11,7 @@ import {
   lerIdentidade,
   lerToken,
   limparSessao,
+  marcarSessaoEncerrada,
   sessaoAtual,
   sessaoDaAba,
 } from './armazenamento'
@@ -117,7 +118,10 @@ export function SessaoProvider({ children }: { children: ReactNode }) {
       })
       .catch((falha: unknown) => {
         if (descartado || tentativa !== tentativaDeEntrada.current || sessaoAtual() !== sessao) return
-        if (falha instanceof ErroDaApi && falha.status === 401) sair()
+        if (falha instanceof ErroDaApi && falha.status === 401) {
+          marcarSessaoEncerrada()
+          sair()
+        }
       })
     return () => {
       descartado = true

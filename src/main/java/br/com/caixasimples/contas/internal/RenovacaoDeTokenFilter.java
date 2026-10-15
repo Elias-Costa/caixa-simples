@@ -10,6 +10,9 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.Optional;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -26,7 +29,13 @@ import org.springframework.web.filter.OncePerRequestFilter;
  *
  * <p>O perfil do token novo é o que {@link IdentidadeDoTokenFilter} acabou de ler do banco, e não
  * o claim do token velho: assim uma troca de perfil chega ao cliente na primeira renovação. Por
- * isso este filtro roda depois daquele, e só emite quando os dois contextos estão preenchidos.
+ * isso este filtro roda depois daquele, e só emite quando os dois contextos estão preenchidos. A
+ * versão de acesso é a do token recebido, que aquele filtro acabou de conferir com a do banco.
+ *
+ * <p>O token novo sai no cabeçalho antes de a requisição ser atendida, porque depois a resposta já
+ * pode ter começado. Por isso a requisição que revoga os acessos não renova por aqui: o token que
+ * este filtro emitiu para ela leva a versão anterior e já não vale, e a troca de senha devolve o
+ * token novo no corpo.
  */
 @Component
 class RenovacaoDeTokenFilter extends OncePerRequestFilter {
@@ -46,11 +55,22 @@ class RenovacaoDeTokenFilter extends OncePerRequestFilter {
         Optional<ContaId> conta = TenantContext.atual();
         Optional<UsuarioAutenticado> usuario = UsuarioContext.atual();
 
-        if (conta.isPresent() && usuario.isPresent()) {
-            resposta.setHeader(HEADER, emissor.emitir(
-                    usuario.get().usuarioId(), conta.get(), usuario.get().perfil()));
+        Optional<Number> versao = versaoDoTokenRecebido();
+
+        if (conta.isPresent() && usuario.isPresent() && versao.isPresent()) {
+            resposta.setHeader(HEADER, emissor.emitir(usuario.get().usuarioId(), conta.get(),
+                    usuario.get().perfil(), versao.get().intValue()));
         }
 
         corrente.doFilter(requisicao, resposta);
+    }
+
+    private static Optional<Number> versaoDoTokenRecebido() {
+        Authentication autenticacao = SecurityContextHolder.getContext().getAuthentication();
+        if (autenticacao != null && autenticacao.getPrincipal() instanceof Jwt token
+                && token.getClaim(EmissorDeToken.CLAIM_VERSAO_DO_ACESSO) instanceof Number versao) {
+            return Optional.of(versao);
+        }
+        return Optional.empty();
     }
 }

@@ -31,7 +31,12 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * <strong>vem do banco</strong>, lido pela chave a cada requisição, já sob o tenant. O token dura
  * um dia e se renova a cada resposta, então o claim de perfil sobreviveria à mudança no banco;
  * com a leitura aqui, inativar um usuário ou trocar o perfil dele vale na requisição seguinte.
- * Usuário inativo, ou que já não existe, recebe 401 e a cadeia não segue. A leitura funciona
+ * Usuário inativo, ou que já não existe, recebe 401 e a cadeia não segue.
+ *
+ * <p>A mesma leitura confere a versão de acesso. O token que não leva a versão gravada no Usuário foi
+ * emitido antes de uma troca de senha, de uma redefinição ou da saída de todos os aparelhos, e recebe
+ * 401 como o do usuário inativo. O token sem versão nenhuma também, porque nada garante que ele não
+ * seja anterior a uma revogação. A leitura funciona
  * porque cada consulta de repositório abre a própria sessão do Hibernate, e a sessão resolve o
  * tenant na abertura: o tenant já está definido quando a consulta roda.
  *
@@ -70,7 +75,8 @@ class IdentidadeDoTokenFilter extends OncePerRequestFilter {
             TenantContext.definir(ContaId.de(conta));
 
             Optional<Usuario> usuario = usuarios.findById(UUID.fromString(sujeito))
-                    .filter(Usuario::isAtivo);
+                    .filter(Usuario::isAtivo)
+                    .filter(lido -> levaAVersaoDoBanco(token, lido));
             if (usuario.isEmpty()) {
                 resposta.setStatus(HttpStatus.UNAUTHORIZED.value());
                 return;
@@ -83,5 +89,12 @@ class IdentidadeDoTokenFilter extends OncePerRequestFilter {
             UsuarioContext.limpar();
             TenantContext.limpar();
         }
+    }
+
+    /** O claim numérico chega como {@code Long} na leitura do token, daí a comparação por valor. */
+    private static boolean levaAVersaoDoBanco(Jwt token, Usuario usuario) {
+        Object versao = token.getClaim(EmissorDeToken.CLAIM_VERSAO_DO_ACESSO);
+        return versao instanceof Number numero
+                && numero.longValue() == usuario.getVersaoDoAcesso();
     }
 }

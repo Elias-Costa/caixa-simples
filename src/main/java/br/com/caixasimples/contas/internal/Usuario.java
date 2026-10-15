@@ -50,6 +50,14 @@ public class Usuario {
     @Column(name = "criado_em", nullable = false, updatable = false)
     private Instant criadoEm;
 
+    /**
+     * Vai dentro de todo token emitido para este usuário, e o token que leva outra versão é
+     * recusado. Subir o número derruba de uma vez todos os aparelhos em que ele entrou, inclusive
+     * um tablet furtado que continue com rede.
+     */
+    @Column(name = "versao_do_acesso", nullable = false)
+    private int versaoDoAcesso;
+
     protected Usuario() {
         // exigido pelo JPA
     }
@@ -91,6 +99,15 @@ public class Usuario {
 
     public Instant getCriadoEm() {
         return criadoEm;
+    }
+
+    public int getVersaoDoAcesso() {
+        return versaoDoAcesso;
+    }
+
+    /** Todo token emitido até agora deixa de valer na requisição seguinte. */
+    public void revogarAcessos() {
+        this.versaoDoAcesso++;
     }
 
     public void inativar() {

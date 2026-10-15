@@ -29,6 +29,10 @@ services:
     image: caixa-simples:ensaio
     cpus: 0.6
 
+  redefinir-senha:
+    image: caixa-simples:ensaio
+    cpus: 0.6
+
   # As cópias ficam num volume do Docker, e não numa pasta do projeto: mesmo cifradas, não têm por que
   # ficar ao alcance de um commit. As duas pastas fazem o papel dos dois destinos do bucket.
   copia:

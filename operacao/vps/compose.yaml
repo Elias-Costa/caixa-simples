@@ -125,6 +125,23 @@ services:
       CAIXA_SIMPLES_SEED_EMAIL: ${CAIXA_SIMPLES_SEED_EMAIL:-}
       CAIXA_SIMPLES_SEED_SENHA: ${CAIXA_SIMPLES_SEED_SENHA:-}
 
+  # Socorre o administrador sem acesso: senha provisória para ele e os aparelhos de todos os usuários
+  # da Conta derrubados. Execução avulsa, como o seed.
+  redefinir-senha:
+    profiles: [redefinir-senha]
+    image: ghcr.io/elias-costa/caixa-simples:${CAIXA_SIMPLES_VERSAO:-}
+    depends_on:
+      banco:
+        condition: service_healthy
+    mem_limit: 1g
+    memswap_limit: 1g
+    environment:
+      <<: *ambiente-da-aplicacao
+      SPRING_PROFILES_ACTIVE: redefinir-senha
+      SPRING_MAIN_WEB_APPLICATION_TYPE: none
+      CAIXA_SIMPLES_REDEFINICAO_EMAIL: ${CAIXA_SIMPLES_REDEFINICAO_EMAIL:-}
+      CAIXA_SIMPLES_REDEFINICAO_SENHA: ${CAIXA_SIMPLES_REDEFINICAO_SENHA:-}
+
   # A cópia cifrada, de hora em hora, pelo agendador da máquina. A credencial só grava objeto novo
   # no bucket: não lê, não lista e não apaga.
   copia:

@@ -10,12 +10,14 @@ import br.com.caixasimples.contas.internal.ContaRepository;
 import br.com.caixasimples.contas.internal.ContencaoDeLogin;
 import br.com.caixasimples.contas.internal.CredencialRepository;
 import br.com.caixasimples.contas.internal.EmissorDeToken;
+import br.com.caixasimples.contas.internal.PoliticaDeSenha;
 import br.com.caixasimples.contas.internal.UsuarioRepository;
 import java.time.Instant;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * O login com o banco fora do ar, sem Spring: o repositório simulado falha em toda consulta.
@@ -39,7 +41,8 @@ class AutenticacaoServiceTest {
         // Custo 4, o mínimo do BCrypt: aqui o custo da conferência não é o assunto.
         AutenticacaoService autenticacao = new AutenticacaoService(credenciais,
                 mock(UsuarioRepository.class), mock(ContaRepository.class), new BCryptPasswordEncoder(4),
-                mock(EmissorDeToken.class), mock(ContaService.class), contencao);
+                mock(EmissorDeToken.class), mock(ContaService.class), contencao,
+                mock(PoliticaDeSenha.class), mock(TransactionTemplate.class));
 
         // Mais que os dez do par e os trinta da origem.
         for (int i = 0; i < 31; i++) {

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ErroDaApi } from '../api/cliente'
 import { sincronizacao, type OperacaoDoLote } from '../api/sincronizacao'
 import { enfileirarGesto, listarGestos } from '../offline/fila'
-import { gravarIdentidade, gravarToken } from '../sessao/armazenamento'
+import { gravarIdentidade, gravarToken, sessaoFoiEncerrada } from '../sessao/armazenamento'
 import type { Identidade } from '../sessao/Identidade'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
 import { useEnvioAutomatico } from './sincronizacao'
@@ -64,5 +64,7 @@ describe('envio automático no shell', () => {
 
     await waitFor(() => expect(sair).toHaveBeenCalled())
     expect((await listarGestos()).map((gesto) => gesto.estado)).toEqual(['queued'])
+    // O login avisa que a sessão foi encerrada e que o registrado sem rede continua guardado.
+    expect(sessaoFoiEncerrada()).toBe(true)
   })
 })

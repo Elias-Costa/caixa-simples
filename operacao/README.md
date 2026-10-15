@@ -155,6 +155,7 @@ Uma máquina só, com AlmaLinux 9, 1 vCPU e 2 GB, e tudo em contêineres pelo
 | `app` | A aplicação, da imagem do commit no ar, sem porta publicada | 1 GB |
 | `banco` | PostgreSQL 17, da imagem construída de [`vps/banco/`](vps/banco/Dockerfile), sem porta publicada, com os dados num volume | 512 MB |
 | `seed` | Perfil `seed`: cria uma Conta e termina | 1 GB |
+| `redefinir-senha` | Perfil `redefinir-senha`: dá ao administrador uma senha provisória, derruba os aparelhos de todos os usuários da Conta e termina | 1 GB |
 | `copia` | Perfil `copia`: a cópia cifrada, pelo timer de hora em hora | 256 MB |
 | `restaurar` | Perfil `restauracao`: restaura uma cópia num banco vazio, por padrão o desta máquina | |
 | `encerrar` | Perfil `exclusao`: encerra uma Conta a pedido | |
@@ -407,9 +408,54 @@ unset CAIXA_SIMPLES_SEED_SENHA
 ```
 
 O log termina com `Conta <id> criada`. A senha passa pela mesma política de qualquer senha, inclusive
-a verificação de vazamento.
+a verificação de vazamento, e é provisória: no primeiro acesso, o aplicativo só mostra a tela de troca,
+e a senha que você escolheu deixa de valer quando o administrador escolhe a dele. Entregue-a por um
+canal diferente do que leva o e-mail.
 
 **No ensaio local**, pelo mesmo serviço; ver [Ensaio local](#ensaio-local).
+
+## Conta comprometida ou administrador sem acesso
+
+O administrador resolve sozinho, no aplicativo, a maior parte dos casos, na tela Senha:
+
+- **senha vazada:** troca a senha, informando a atual; todos os outros aparelhos dele saem na
+  requisição seguinte;
+- **aparelho perdido ou furtado, senha intacta:** Sair de todos os aparelhos, inclusive o que ele
+  está usando, e entra de novo;
+- **operador que esqueceu a senha, ou cujo aparelho sumiu:** o administrador redefine a senha dele na
+  tela Usuários; os aparelhos do operador saem, e ele troca a senha provisória ao entrar.
+
+Um aparelho sem rede só é alcançado quando volta a falar com o servidor. O que ele registrou sem rede
+fica guardado nele e só é enviado quando o mesmo usuário entrar de novo ali.
+
+Sobram para você dois casos, os dois com o administrador fora do aplicativo: ele esqueceu a senha e
+não há outro administrador, ou alguém descobriu a senha, trocou-a e o trancou fora. Não há
+recuperação por e-mail. A saída é a execução avulsa `redefinir-senha`, que pela aplicação, e não por
+SQL, confere que o e-mail é de um administrador, passa a senha provisória pela política de senha,
+inclusive a verificação de vazamento, grava a senha como provisória e derruba os aparelhos de
+**todos** os usuários da Conta, o que tira também quem tomou a Conta e redefiniu a senha de um
+operador.
+
+1. **Confirme quem pede** por um canal que você já conhecia antes do pedido, como o telefone do
+   contrato, e não pelo e-mail da Conta, que pode estar nas mãos de quem a tomou.
+2. **Na VPS**, como root, com a senha provisória lida sem eco:
+
+   ```bash
+   export CAIXA_SIMPLES_REDEFINICAO_EMAIL=<e-mail do administrador>
+   read -rs CAIXA_SIMPLES_REDEFINICAO_SENHA && export CAIXA_SIMPLES_REDEFINICAO_SENHA
+   sh compose.sh --profile redefinir-senha run --rm redefinir-senha
+   unset CAIXA_SIMPLES_REDEFINICAO_SENHA
+   ```
+
+   O log termina com `Senha provisória definida na Conta <id>; acessos de <n> usuários revogados`.
+   E-mail de operador, ou desconhecido, termina com erro, sem gravar nada.
+3. **Entregue a senha provisória** pelo mesmo canal conferido no item 1. O aplicativo pede a troca
+   no primeiro acesso.
+4. **Com o administrador de volta**, peça que ele confira a tela Usuários: usuário que ele não criou
+   é inativado, e operador que não consegue entrar tem a senha redefinida por ele.
+
+Trocar `CAIXA_SIMPLES_JWT_SECRET` também derruba todos os aparelhos, mas de **todas** as Contas, e não
+muda senha nenhuma; fica para a suspeita de que a chave dos tokens vazou.
 
 ## Pedido de plano e código de ativação
 
@@ -735,7 +781,7 @@ sh operacao/vps/compose.sh --profile restauracao run --rm -T \
   -v "<arquivo da chave privada>:/chave/chave-privada.txt:ro" restaurar /copias/diaria/caixa-simples-<instante UTC>
 
 # Fim: contêineres e volumes do ensaio.
-sh operacao/vps/compose.sh --profile seed --profile copia --profile restauracao --profile exclusao down -v
+sh operacao/vps/compose.sh --profile seed --profile redefinir-senha --profile copia --profile restauracao --profile exclusao down -v
 ```
 
 No Git Bash do Windows, o `curl` do sistema confere a revogação do certificado, que a autoridade local

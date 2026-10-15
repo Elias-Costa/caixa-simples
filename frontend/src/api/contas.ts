@@ -61,6 +61,18 @@ export const contas = {
     chamarApi<void>(`/api/usuarios/${id}/inativar`, { metodo: 'POST' }),
   anonimizarUsuario: (id: string) =>
     chamarApi<void>(`/api/usuarios/${id}/anonimizar`, { metodo: 'POST' }),
+  /** A senha nova é provisória: o operador a troca na próxima entrada. */
+  redefinirSenha: (id: string, senha: string) =>
+    chamarApi<void>(`/api/usuarios/${id}/redefinir-senha`, { metodo: 'POST', corpo: { senha } }),
+  /**
+   * O token deste aparelho volta no corpo: o do cabeçalho de renovação saiu antes da troca, com a
+   * versão de acesso anterior, e já não vale.
+   */
+  trocarSenha: (senhaAtual: string, senhaNova: string) =>
+    chamarApi<{ token: string }>('/api/auth/senha', {
+      metodo: 'POST', corpo: { senhaAtual, senhaNova },
+    }),
+  sairDeTodosOsAparelhos: () => chamarApi<void>('/api/auth/sair-de-todos', { metodo: 'POST' }),
   configuracao: () => chamarApi<ConfiguracaoDaConta>('/api/conta/configuracao'),
   definirEstoque: (estoqueHabilitado: boolean) =>
     chamarApi<ConfiguracaoDaConta>('/api/conta/configuracao', {

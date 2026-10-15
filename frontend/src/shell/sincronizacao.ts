@@ -3,6 +3,7 @@ import { sincronizacao } from '../api/sincronizacao'
 import { hojeNoBalcao } from '../dataDoBalcao'
 import { enviarFila } from '../offline/envio'
 import { aoMudarFila, gestoPendente, listarGestos, sessaoPodeUsarAFila } from '../offline/fila'
+import { marcarSessaoEncerrada } from '../sessao/armazenamento'
 import type { Identidade } from '../sessao/Identidade'
 
 /** Enquanto houver gesto sem resultado e o navegador indicar rede, a fila é tentada de novo. */
@@ -95,6 +96,7 @@ export function useEnvioAutomatico(identidade: Identidade | null, sair: () => vo
         const { desfecho, resolvidos } = await enviarFila()
         if (resolvidos > 0) setRodada((anterior) => anterior + 1)
         if (desfecho === 'sessao-recusada') {
+          marcarSessaoEncerrada()
           sair()
           return
         }

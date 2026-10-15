@@ -27,8 +27,8 @@ class PwnedPasswordsClient implements VerificadorDeSenhaVazada {
 
     /**
      * Timeout curto de propósito: esta chamada fica no caminho de criar conta ou trocar senha, e
-     * sem limite uma indisponibilidade da API travaria a operação em vez de recusá-la. Como a
-     * política é falhar fechado, esgotar o tempo tem o mesmo efeito de a API dizer que não sabe.
+     * sem limite uma indisponibilidade da API travaria a operação em vez de decidi-la. Esgotar o
+     * tempo tem o mesmo efeito de a API não responder.
      */
     private static final Duration TIMEOUT = Duration.ofSeconds(5);
 
@@ -51,13 +51,13 @@ class PwnedPasswordsClient implements VerificadorDeSenhaVazada {
         try {
             faixa = http.get().uri(prefixo).retrieve().body(String.class);
         } catch (RestClientException erroDeRede) {
-            // Falha fechada: sem conseguir verificar, nenhuma senha entra.
-            throw new SenhaRecusadaException(
+            // Quem decide se a senha entra mesmo assim é a política, por quem a escolheu.
+            throw new ListaDeVazadasIndisponivelException(
                     "Nao foi possivel verificar a senha contra a lista de vazamentos", erroDeRede);
         }
 
         if (faixa == null) {
-            throw new SenhaRecusadaException(
+            throw new ListaDeVazadasIndisponivelException(
                     "Nao foi possivel verificar a senha contra a lista de vazamentos");
         }
 

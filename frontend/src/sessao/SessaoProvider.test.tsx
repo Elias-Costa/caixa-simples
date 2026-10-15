@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CHAVE_DA_SESSAO, fixarSessaoDaAba, gravarIdentidade, gravarToken, lerIdentidade,
-  lerToken, limparSessao, renovarTokenDaSessao, sessaoAtual } from './armazenamento'
+  lerToken, limparSessao, renovarTokenDaSessao, sessaoAtual, sessaoFoiEncerrada } from './armazenamento'
 import type { Identidade } from './Identidade'
 import { SessaoProvider } from './SessaoProvider'
 import { tokenComExpiracao } from './tokenDeTeste'
@@ -127,7 +127,7 @@ describe('SessaoProvider', () => {
     expect(await screen.findByText('Ana Maria em Cafeteria Aurora')).toBeInTheDocument()
   })
 
-  it('o servidor respondendo 401 na abertura derruba a sessão guardada', async () => {
+  it('o servidor respondendo 401 na abertura derruba a sessão guardada e marca o aviso do login', async () => {
     gravarToken(tokenComExpiracao(daquiAUmDia()))
     gravarIdentidade(guardada)
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 401 })))
@@ -140,6 +140,7 @@ describe('SessaoProvider', () => {
 
     expect(await screen.findByText('ninguém')).toBeInTheDocument()
     expect(lerToken()).toBeNull()
+    expect(sessaoFoiEncerrada()).toBe(true)
   })
 
   it('revalidação antiga da Conta A não restaura identidade nem token após entrar na Conta B', async () => {

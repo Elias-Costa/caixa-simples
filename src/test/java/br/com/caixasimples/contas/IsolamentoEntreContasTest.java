@@ -5,10 +5,13 @@ import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 
 import br.com.caixasimples.TesteDeIntegracao;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
+import br.com.caixasimples.contas.application.AutenticacaoService;
 import br.com.caixasimples.contas.application.PedidoDePlanoNaoEncontradoException;
 import br.com.caixasimples.contas.application.PlanoService;
 import br.com.caixasimples.contas.application.PlanoService.EstadoDoPlano;
 import br.com.caixasimples.contas.application.PlanoService.PedidoNaConta;
+import br.com.caixasimples.contas.application.UsuarioNaoEncontradoException;
+import br.com.caixasimples.contas.application.UsuarioService;
 import br.com.caixasimples.contas.internal.AssinaturaDePedido;
 import br.com.caixasimples.contas.internal.Credencial;
 import br.com.caixasimples.contas.internal.CredencialRepository;
@@ -16,12 +19,14 @@ import br.com.caixasimples.contas.internal.PedidoDePlano;
 import br.com.caixasimples.contas.internal.PedidoDePlanoRepository;
 import br.com.caixasimples.contas.internal.Usuario;
 import br.com.caixasimples.contas.internal.UsuarioRepository;
+import br.com.caixasimples.shared.Perfil;
 import br.com.caixasimples.shared.TenantContext;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Isolamento entre contas (RNF05), o requisito que não admite grau.
@@ -53,6 +58,15 @@ class IsolamentoEntreContasTest extends TesteDeIntegracao {
 
     @Autowired
     private AssinaturaDePedido assinatura;
+
+    @Autowired
+    private AutenticacaoService autenticacao;
+
+    @Autowired
+    private UsuarioService usuarioService;
+
+    @Autowired
+    private TransactionTemplate transacao;
 
     @AfterEach
     void limparContexto() {
@@ -166,5 +180,51 @@ class IsolamentoEntreContasTest extends TesteDeIntegracao {
                 .get()
                 .extracting(Credencial::getContaId)
                 .isEqualTo(contaB.contaId());
+    }
+
+    @Test
+    @DisplayName("a versão de acesso de um Usuário da conta A não é travada, lida nem revogada pela conta B")
+    void versaoDoAcessoNaoAtravessaConta() {
+        ContaCriada contaA = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
+        ContaCriada contaB = criador.criar("Salao Vizinho", SENHA_DE_TESTE);
+
+        // A trava pede transação, aberta depois de o tenant estar no contexto.
+        contaB.comoUsuario(() -> transacao.executeWithoutResult(status -> {
+            assertThat(usuarios.buscarParaAtualizar(contaA.usuarioId()))
+                    .as("trava atravessando tenant")
+                    .isEmpty();
+            assertThat(usuarios.buscarTodosParaAtualizar())
+                    .as("trava de todos os usuários da conta B")
+                    .extracting(Usuario::getId)
+                    .containsExactly(contaB.usuarioId());
+        }));
+
+        contaB.comoUsuario(autenticacao::sairDeTodosOsAparelhos);
+
+        assertThat(versaoDoAcesso(contaA)).isZero();
+        assertThat(versaoDoAcesso(contaB)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("o ADMIN da conta B não redefine a senha de um operador da conta A")
+    void redefinicaoNaoAtravessaConta() {
+        ContaCriada operadorDeA = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE, Perfil.OPERADOR,
+                true);
+        ContaCriada adminDeB = criador.criar("Salao Vizinho", SENHA_DE_TESTE);
+        String hashAntes = credenciais.findByUsuarioId(operadorDeA.usuarioId()).orElseThrow()
+                .getSenhaHash();
+
+        adminDeB.comoUsuario(() -> assertThatExceptionOfType(UsuarioNaoEncontradoException.class)
+                .isThrownBy(() -> usuarioService.redefinirSenha(operadorDeA.usuarioId(),
+                        "senha provisoria dada pelo dono")));
+
+        assertThat(credenciais.findByUsuarioId(operadorDeA.usuarioId()).orElseThrow()
+                .getSenhaHash()).isEqualTo(hashAntes);
+        assertThat(versaoDoAcesso(operadorDeA)).isZero();
+    }
+
+    private int versaoDoAcesso(ContaCriada conta) {
+        return TenantContext.executarComo(conta.contaId(),
+                () -> usuarios.findById(conta.usuarioId()).orElseThrow().getVersaoDoAcesso());
     }
 }

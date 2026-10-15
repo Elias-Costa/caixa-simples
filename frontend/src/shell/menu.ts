@@ -14,7 +14,7 @@ export type ItemDoMenu = {
  * recusa. Relatórios e Estoque aparecem só quando o plano os inclui e não estão suspensos, e a
  * tela Plano explica o que falta; o estoque também precisa do controle ligado, que nasce
  * desligado (RF17). A sincronização é dos dois perfis: quem operou sem rede confere ali o que o
- * servidor revisou ou recusou.
+ * servidor revisou ou recusou. A senha também: cada um troca a própria e sai dos próprios aparelhos.
  */
 export function itensDoMenu(identidade: Identidade): ItemDoMenu[] {
   const itens: ItemDoMenu[] = [
@@ -24,6 +24,7 @@ export function itensDoMenu(identidade: Identidade): ItemDoMenu[] {
     { rotulo: 'Clientes', caminho: '/clientes' },
     { rotulo: 'Fiado', caminho: '/fiado' },
     { rotulo: 'Sincronização', caminho: '/sincronizacao' },
+    { rotulo: 'Senha', caminho: '/senha' },
   ]
   if (identidade.perfil !== 'ADMIN') return itens
 

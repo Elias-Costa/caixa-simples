@@ -1,5 +1,6 @@
 package br.com.caixasimples;
 
+import br.com.caixasimples.contas.internal.ListaDeVazadasIndisponivelException;
 import br.com.caixasimples.contas.internal.SenhaRecusadaException;
 import br.com.caixasimples.contas.internal.VerificadorDeSenhaVazada;
 import java.util.HashSet;
@@ -23,7 +24,7 @@ public class VerificadorDeSenhaVazadaFalso implements VerificadorDeSenhaVazada {
     @Override
     public void exigirNaoVazada(String senha) {
         if (indisponivel) {
-            throw new SenhaRecusadaException(
+            throw new ListaDeVazadasIndisponivelException(
                     "Nao foi possivel verificar a senha contra a lista de vazamentos");
         }
         if (vazadas.contains(senha)) {

@@ -1,6 +1,7 @@
 package br.com.caixasimples.contas.web;
 
 import br.com.caixasimples.contas.application.EmailJaCadastradoException;
+import br.com.caixasimples.contas.application.RedefinicaoRecusadaException;
 import br.com.caixasimples.contas.application.UltimoAdministradorException;
 import br.com.caixasimples.contas.application.UsuarioNaoEncontradoException;
 import br.com.caixasimples.contas.application.UsuarioService;
@@ -53,6 +54,14 @@ class UsuarioController {
         return ResponseEntity.noContent().build();
     }
 
+    /** A senha nova é provisória: o operador a troca na próxima entrada. */
+    @PostMapping("/{id}/redefinir-senha")
+    ResponseEntity<Void> redefinirSenha(@PathVariable UUID id,
+            @Valid @RequestBody PedidoDeRedefinicao pedido) {
+        usuarios.redefinirSenha(id, pedido.senha());
+        return ResponseEntity.noContent().build();
+    }
+
     @PostMapping("/{id}/anonimizar")
     ResponseEntity<Void> anonimizar(@PathVariable UUID id) {
         usuarios.anonimizarNome(id);
@@ -64,7 +73,8 @@ class UsuarioController {
         return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, excecao.getMessage());
     }
 
-    @ExceptionHandler({EmailJaCadastradoException.class, UltimoAdministradorException.class})
+    @ExceptionHandler({EmailJaCadastradoException.class, UltimoAdministradorException.class,
+            RedefinicaoRecusadaException.class})
     ProblemDetail conflito(RuntimeException excecao) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, excecao.getMessage());
     }
@@ -79,5 +89,8 @@ class UsuarioController {
     }
 
     record Criado(UUID id) {
+    }
+
+    record PedidoDeRedefinicao(@NotBlank String senha) {
     }
 }
