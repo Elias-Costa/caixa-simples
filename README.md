@@ -353,7 +353,7 @@ Atalhos para avaliar o código sem percorrer o repositório inteiro.
 | Callback Pix e conciliação | [WebhookPixController.java](src/main/java/br/com/caixasimples/vendas/web/WebhookPixController.java) e [VendaPixService.java](src/main/java/br/com/caixasimples/vendas/application/VendaPixService.java) | O aviso autenticado localiza a parcela da Conta, reconsulta o PSP e deixa a raiz confirmar uma vez; a lista de conciliação mostra ao ADMIN dinheiro recebido após fechamento ou cancelamento |
 | Relatórios HTTP e no PWA | [FaturamentoController.java](src/main/java/br/com/caixasimples/relatorios/web/FaturamentoController.java) e [TelaDeRelatorios.tsx](frontend/src/telas/TelaDeRelatorios.tsx) | A tela pede o mesmo período aos três relatórios de uma vez e monta a quebra por forma de pagamento com o filtro da rota, uma chamada por forma, e pede a conferência do cartão quando o período é um dia; os casos de uso restringem as consultas ao administrador, ao plano e à Conta autenticada |
 | Estoque HTTP e no PWA | [EstoqueController.java](src/main/java/br/com/caixasimples/estoque/web/EstoqueController.java) e [TelaDeEstoque.tsx](frontend/src/telas/TelaDeEstoque.tsx) | A API exige controle ligado e perfil ADMIN; a tela mostra saldo, mínimo e alerta e calcula a diferença da contagem antes do ajuste |
-| O servidor entregando o aplicativo | [PwaConfiguration.java](src/main/java/br/com/caixasimples/shared/web/PwaConfiguration.java) | Fallback de página única escrito à mão, com o porquê de cada caso: rota do cliente recebe o shell, arquivo que não existe e rota da API que não existe recebem 404, e os cabeçalhos de cache são explícitos porque o cache heurístico do navegador seguraria uma página antiga. Fora de `/api` tudo é público, e a razão está em [SecurityConfiguration.java](src/main/java/br/com/caixasimples/contas/internal/SecurityConfiguration.java) |
+| O servidor entregando o aplicativo | [PwaConfiguration.java](src/main/java/br/com/caixasimples/shared/web/PwaConfiguration.java) | Fallback de página única escrito à mão, com o porquê de cada caso: rota do cliente recebe o shell, arquivo que não existe e rota da API que não existe recebem 404, e os cabeçalhos de cache são explícitos porque o cache heurístico do navegador seguraria uma página antiga. Fora de `/api` tudo é público; a razão, e as políticas de conteúdo e de permissões que toda resposta leva, estão em [SecurityConfiguration.java](src/main/java/br/com/caixasimples/contas/internal/SecurityConfiguration.java) |
 | O cliente HTTP do aplicativo | [cliente.ts](frontend/src/api/cliente.ts) | Um lugar só envia o token, aceita a renovação da sessão que fez a chamada e traduz o Problem Details em um erro com status, detalhe e mensagem por campo; nenhuma tela precisa lembrar disso. A sessão no dispositivo, e o que acontece na abertura sem rede ou na troca entre abas, está em [SessaoProvider.tsx](frontend/src/sessao/SessaoProvider.tsx); a navegação por perfil, que esconde o que a API recusaria mas não decide autorização, em [menu.ts](frontend/src/shell/menu.ts) |
 | Raiz de agregado sem framework | [SessaoCaixa.java](src/main/java/br/com/caixasimples/caixa/domain/SessaoCaixa.java) | Regra de negócio e invariantes isoladas de Spring e de JPA |
 | Invariante viva, recalculada a cada operação | [Venda.java](src/main/java/br/com/caixasimples/vendas/domain/Venda.java) | O total nunca fica negativo nem diverge dos itens; a Venda CONCLUIDA é coberta por pagamentos confirmados e FIADO pendente. Recebimentos não excedem o fiado; o estado remontado do banco passa pela mesma conferência |
@@ -716,6 +716,16 @@ quem pega o tablet destravado entra até o token expirar. O cliente nunca envia 
 requisição nenhuma, e a navegação por perfil apenas esconde o que o servidor recusaria: a
 autorização continua sendo do caso de uso.
 
+Como o token fica no aparelho, ao alcance de qualquer script da origem, toda resposta sai com uma
+política de conteúdo aplicada: script, estilo, imagem, fonte, conexão, manifest e service worker só
+da própria origem, nada embutido no HTML, nenhum objeto e nenhuma moldura por outro site. Um script
+injetado no futuro, por dependência ou por código novo, não carrega nada de fora nem envia o token
+para outra origem. O build do aplicativo não tem script nem estilo embutido, então a política não
+precisa de exceção. Nenhum `Referer` sai, nem para a própria origem, e a política de permissões nega
+câmera, microfone, localização, pagamento e USB, deixando à própria origem a área de transferência e
+o compartilhamento, que o copia e cola do Pix e o comprovante usam. Os cabeçalhos saem da cadeia de
+segurança da aplicação, ao lado do HSTS, então valem atrás de qualquer proxy e no jar sozinho.
+
 Usuário novo nasce pela gestão de usuários da conta, feita pelo administrador: um `Usuario`, que
 carrega o perfil e o tenant, e uma `Credencial`, que carrega e-mail e senha, gravados na mesma
 transação. A senha inicial passa pela mesma política de qualquer senha, inclusive a verificação de
@@ -965,7 +975,10 @@ A leitura dos cabeçalhos dos proxies é testada contra o servidor de verdade, n
 porque é o Tomcat que a faz, antes de a requisição chegar ao Spring: atrás do proxy da máquina,
 a origem é o cliente e a requisição conta como HTTPS; o prefixo que o cliente forja é
 ignorado; um salto da rede interna é atravessado e um salto público não declarado vira a origem; o
-proxy declarado pela variável é atravessado; e o HSTS só sai quando o proxy diz HTTPS. As rotas de
+proxy declarado pela variável é atravessado; e o HSTS só sai quando o proxy diz HTTPS. Na mesma
+porta real, a política de conteúdo, a de referência e a de permissões saem, uma vez cada, no shell
+pela raiz e por rota do cliente, num arquivo de `assets/`, no manifest, no 404 de arquivo, e na API
+com e sem token, sem tirar os cabeçalhos que o Spring Security já escrevia. As rotas de
 vida e de prontidão respondem sem token e sem consultar o banco. A execução avulsa que cria uma
 Conta tem teste próprio, sem servidor web, como roda em produção.
 
