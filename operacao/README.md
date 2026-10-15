@@ -15,7 +15,7 @@ sem corpo.
 | [`Dockerfile`](../Dockerfile) | Imagem do jar único, com a API e o aplicativo na mesma origem |
 | [`.dockerignore`](../.dockerignore) e [`.dockerignore`](.dockerignore) desta pasta | O que cada build de imagem enxerga: só o que compila o jar, e só os scripts que a imagem da cópia copia |
 | [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) | Testes Java e do front-end, build, lint e avisos de segurança das dependências a cada push no `main` e a cada pull request, e os avisos também uma vez por semana; no push verde, a publicação das imagens; de madrugada ou pelo botão, o deploy |
-| [`vps/`](vps/) | A VPS: o compose da produção, o proxy, o preparo da máquina, o limite de conexões por origem, a configuração, o deploy, a cópia agendada, o vigia e as tarefas do systemd |
+| [`vps/`](vps/) | A VPS: o compose da produção, o proxy, o banco com o papel da aplicação sem superusuário, o preparo da máquina, o limite de conexões por origem, a configuração, o deploy, a cópia agendada, o vigia e as tarefas do systemd |
 | [`dependencias/`](dependencias/) | A verificação dos avisos de segurança das dependências e das imagens, e as exceções fundamentadas a ela |
 | [`copia/`](copia/) | Imagem da cópia, a cópia, a restauração e a conferência entre as duas |
 | [`exclusao/`](exclusao/) | O encerramento de uma Conta a pedido |
@@ -211,7 +211,8 @@ variáveis que o compose lista para ele.
 | Variável | De onde vem | Para quê |
 |---|---|---|
 | `CAIXA_SIMPLES_DOMINIO` | O domínio, com o registro A para a VPS | O site do proxy, o certificado e a conferência do vigia |
-| `CAIXA_SIMPLES_DB_PASSWORD` | Gerada | A senha do banco, para a aplicação, a cópia e a restauração. Trocá-la depois exige trocá-la também dentro do banco |
+| `CAIXA_SIMPLES_DB_PASSWORD` | Gerada | A senha do papel `caixa_simples`, sem superusuário, para a aplicação, a cópia, a restauração e o encerramento; o banco a lê só no primeiro `initdb`, para criar o papel. Trocá-la depois exige trocá-la também dentro do banco; ver [Banco](#banco) |
+| `CAIXA_SIMPLES_DB_SUPERUSUARIO_PASSWORD` | Gerada | A senha do superusuário `postgres`, que só o contêiner do banco recebe, no primeiro `initdb`. Nenhum serviço conecta com ela |
 | `CAIXA_SIMPLES_JWT_SECRET` | Gerada | Assinatura dos tokens, com ao menos 32 bytes. Trocá-la obriga todo mundo a entrar de novo |
 | `CAIXA_SIMPLES_PLANO_SECRET` | Gerado; guarde também fora da máquina | Confere o código de ativação de cada pedido de plano; ver [Pedido de plano](#pedido-de-plano-e-código-de-ativação). A aplicação não sobe sem ele |
 | `CAIXA_SIMPLES_MENSALIDADE_CAIXA_SIMPLES` e `CAIXA_SIMPLES_MENSALIDADE_COMPLETO` | À mão, em reais, com ponto decimal; a do completo maior | Valor dos pedidos de plano. A aplicação não sobe sem elas |
@@ -232,6 +233,24 @@ aplicação, só para leitura.
 
 Uma mudança na configuração vale quando o contêiner é recriado: `sh compose.sh up -d --wait` recria só
 os que mudaram, e a troca da aplicação para o serviço, então vai na janela.
+
+## Banco
+
+O PostgreSQL tem dois papéis. `caixa_simples` é o dono do banco, sem nenhum atributo de superusuário:
+a aplicação, as migrations, a cópia, a restauração e o encerramento de Conta conectam com ele, e uma
+consulta injetada com ele não executa comando na máquina do banco, não lê arquivo dela e não cria
+papel. O superusuário `postgres` nenhum serviço usa. Ele serve ao primeiro `initdb`, em que
+[`banco/criar-papel.sh`](vps/banco/criar-papel.sh) cria o papel e o banco, e à manutenção, que entra
+pelo socket local do contêiner, sem senha, e que só o root da máquina alcança:
+
+```bash
+sh compose.sh exec banco psql -U postgres -d caixa_simples
+```
+
+O script roda só com o volume do banco vazio: na instalação nova, na restauração num projeto à parte e
+na recriação da máquina. Num banco que já existe, mudar uma das duas senhas na configuração não muda
+nada lá dentro. Para trocar a do papel, na janela, porque recria a aplicação: `\password caixa_simples`
+na manutenção acima, a mesma em `CAIXA_SIMPLES_DB_PASSWORD`, e `sh compose.sh up -d --wait`.
 
 ## Primeira publicação
 
@@ -271,10 +290,14 @@ os que mudaram, e a troca da aplicação para o serviço, então vai na janela.
 12. **Tarefas agendadas:** `systemctl start caixa-simples-copia.timer caixa-simples-vigia.timer`.
 13. **Memória:** `sh compose.sh exec app cat /sys/fs/cgroup/memory.max` tem de dar 1073741824, o
     limite em que a JVM foi medida.
-14. **Borda:** conferir pelo access log, como em [Borda](#borda). Conferir também o limite de conexões:
+14. **Banco:** `sh compose.sh exec banco psql -U postgres -tAc "select rolsuper, rolcreaterole,
+    rolcreatedb from pg_roles where rolname = 'caixa_simples'"` tem de dar `f|f|f`, e
+    `sh compose.sh exec banco psql -U postgres -tAc "select distinct usename from pg_stat_activity
+    where datname = 'caixa_simples'"`, só `caixa_simples`.
+15. **Borda:** conferir pelo access log, como em [Borda](#borda). Conferir também o limite de conexões:
     `systemctl is-active caixa-simples-limite` dá `active`, `nft list table inet caixa_simples_limite`
     mostra a regra, e `ss -ltn` mostra o 80 e o 443 só em `0.0.0.0`, sem escuta IPv6.
-15. **Contas de teste** pelo [seed](#criar-uma-conta), com o plano completo ativado pelo
+16. **Contas de teste** pelo [seed](#criar-uma-conta), com o plano completo ativado pelo
     [pedido de plano](#pedido-de-plano-e-código-de-ativação); a [carga](#carga-de-correção); e a
     [restauração](#restauração) pelos dois caminhos.
 
@@ -563,8 +586,10 @@ CAIXA_SIMPLES_REMOCOES_DESTINO=s3:<bucket de remoções>/remocoes sh operacao/vp
 ```
 
 **Num banco vazio na própria VPS**, num projeto de compose à parte, na janela, porque ocupa mais
-512 MB enquanto roda. Como root, na pasta `operacao/vps`, com a credencial de leitura exportada como
-acima e a chave privada copiada só para este comando:
+512 MB enquanto roda. O banco desse projeto nasce com o papel `caixa_simples` pelo `initdb`, e a
+restauração conecta com ele, sem superusuário, como faria na recriação da máquina. Como root, na pasta
+`operacao/vps`, com a credencial de leitura exportada como acima e a chave privada copiada só para este
+comando:
 
 ```bash
 sh compose.sh -p caixa-simples-restauracao up -d --wait banco
@@ -598,8 +623,9 @@ perda fica no que foi escrito depois dela, no máximo uma hora.
    /usr/local/sbin/caixa-simples-implantar "$CAIXA_SIMPLES_VERSAO"
    ```
 
-   O deploy sobe a aplicação sobre o banco restaurado e aplica as migrations que a cópia ainda não
-   tem.
+   O banco sobe pela primeira vez com a restauração e cria, no `initdb`, o papel `caixa_simples` com
+   a senha da configuração nova; a cópia entra nele como esse papel, sem superusuário. O deploy sobe a
+   aplicação sobre o banco restaurado e aplica as migrations que a cópia ainda não tem.
 4. Apontar o registro A do domínio para o IP novo; o proxy obtém o certificado assim que o domínio
    chegar à máquina.
 5. No GitHub, atualizar `VPS_ENDERECO` e `VPS_CHAVE_DO_HOST`.

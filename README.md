@@ -739,7 +739,7 @@ nem cadastros, que só conferem a chave da conta.
 Nenhum segredo mora no repositório. A chave de assinatura dos tokens, o segredo dos códigos de
 plano e as credenciais vêm de variável de ambiente, e a aplicação recusa subir sem eles, em vez de
 cair num valor padrão que seria idêntico em toda instalação. No servidor, eles ficam num arquivo
-que só o administrador lê, fora do repositório, e os que nascem lá, a senha do banco, a chave dos
+que só o administrador lê, fora do repositório, e os que nascem lá, as senhas do banco, a chave dos
 tokens e o segredo dos códigos, são gerados na própria máquina, sem passar por ninguém; o segredo dos
 códigos é guardado também com o mantenedor, porque ele precisa dele para gerar os códigos.
 As mensalidades também vêm do ambiente, e nenhum preço está no código. O build da imagem também não leva
@@ -754,6 +754,12 @@ atravessado. O HTTPS é reconhecido pelo `X-Forwarded-Proto`, e é com ele que o
 `Strict-Transport-Security` sai. Do Actuator, só o health é exposto por HTTP. A cópia do banco sai
 do contêiner já cifrada, e a tarefa que a faz não consegue decifrá-la nem gravar por cima de uma
 cópia existente.
+
+No servidor, a aplicação conecta ao banco com um papel que é dono dele e não tem nenhum atributo de
+superusuário: mesmo uma consulta injetada não executaria comando na máquina do banco, não leria
+arquivo dela e não criaria papel. O mesmo papel aplica as migrations, faz a cópia e a restauração; o
+superusuário serve só para criar o banco e para a manutenção de dentro do contêiner, e nenhum serviço
+conecta com ele.
 
 ## Modelo de dados
 

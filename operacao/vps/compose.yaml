@@ -89,14 +89,20 @@ services:
     # O PostgreSQL termina limpo em segundos; sem esta folga, o Docker o mataria aos 10 s, e a volta
     # passaria pela recuperação do log.
     stop_grace_period: 60s
+    # O superusuário é o postgres da imagem, e nenhum serviço conecta com ele: a aplicação e as
+    # execuções avulsas usam o papel caixa_simples, dono do banco e sem superusuário, criado no
+    # primeiro initdb por banco/criar-papel.sh, que é quem lê a senha do papel daqui. A manutenção
+    # entra como superusuário pelo socket local, por compose.sh exec, que só o root da máquina alcança.
     environment:
-      POSTGRES_DB: caixa_simples
-      POSTGRES_USER: caixa_simples
-      POSTGRES_PASSWORD: ${CAIXA_SIMPLES_DB_PASSWORD:-}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${CAIXA_SIMPLES_DB_SUPERUSUARIO_PASSWORD:-}
+      CAIXA_SIMPLES_DB_PASSWORD: ${CAIXA_SIMPLES_DB_PASSWORD:-}
     volumes:
       - banco-dados:/var/lib/postgresql/data
+    # Pela rede, e não pelo socket: no primeiro initdb, o servidor temporário que cria o papel escuta
+    # só no socket, e pelo socket o banco pareceria pronto antes de o papel existir.
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U caixa_simples -d caixa_simples"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U caixa_simples -d caixa_simples"]
       interval: 2s
       timeout: 3s
       retries: 30

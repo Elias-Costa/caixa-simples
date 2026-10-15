@@ -11,4 +11,9 @@ FROM postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117
 
 RUN rm -f /usr/local/bin/gosu
 
+# O ponto de entrada roda os scripts desta pasta só quando o volume dos dados está vazio, depois de
+# criar o superusuário: é ali que nasce o papel da aplicação, sem superusuário. Com o bit de
+# execução, o script roda num processo à parte, e não dentro do ponto de entrada.
+COPY --chmod=0755 criar-papel.sh /docker-entrypoint-initdb.d/
+
 USER postgres

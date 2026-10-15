@@ -33,10 +33,14 @@ cat > "$ARQUIVO" <<FIM
 # Domínio do aplicativo, com o registro A apontando para esta máquina.
 CAIXA_SIMPLES_DOMINIO=
 
-# Gerados aqui. Trocar a senha do banco depois exige trocá-la também dentro dele; trocar a chave dos
-# tokens obriga todo mundo a entrar de novo; trocar o segredo dos planos invalida os códigos ainda não
-# aplicados. Guarde o segredo dos planos também fora da máquina: o script do código de plano precisa dele.
+# Gerados aqui. A senha do banco é a do papel caixa_simples, sem superusuário, com que a aplicação, a
+# cópia, a restauração e o encerramento conectam; a do superusuário vai só para o contêiner do banco,
+# e nenhum serviço conecta com ela. Trocar uma senha do banco depois exige trocá-la também dentro dele;
+# trocar a chave dos tokens obriga todo mundo a entrar de novo; trocar o segredo dos planos invalida os
+# códigos ainda não aplicados. Guarde o segredo dos planos também fora da máquina: o script do código
+# de plano precisa dele.
 CAIXA_SIMPLES_DB_PASSWORD=$(aleatorio)
+CAIXA_SIMPLES_DB_SUPERUSUARIO_PASSWORD=$(aleatorio)
 CAIXA_SIMPLES_JWT_SECRET=$(aleatorio)
 CAIXA_SIMPLES_PLANO_SECRET=$(aleatorio)
 
