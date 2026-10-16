@@ -1027,7 +1027,10 @@ de segurança publicados para as bibliotecas Java dentro delas, para os pacotes 
 `package-lock` do front-end, inclusive as dependências de build. Um aviso alto ou crítico que já
 tenha correção barra a publicação; a exceção fundamentada entra num arquivo versionado, com data de
 revisão de no máximo 90 dias, e vencida volta a barrar. A mesma verificação roda uma vez por semana,
-sem publicar, e na máquina pelo mesmo script. Só o commit em que tudo passou tem as imagens
+sem publicar, e na máquina pelo mesmo script. As Actions do CI ficam presas pelo SHA do commit, as
+imagens base e as de terceiros pelo digest, e a distribuição do Maven pelo checksum, que o wrapper
+confere ao baixá-la; uma vez por mês, o Dependabot propõe as versões novas das Actions e das imagens
+num pull request que passa pelo mesmo CI. Só o commit em que tudo passou tem as imagens
 publicadas e vai ao ar, de madrugada ou por um botão de urgência. Fora da suíte, uma carga de
 correção roda contra a produção em miniatura, pelo mesmo compose do servidor e com os limites dele: em três
 Contas ao mesmo tempo, cem Vendas com rede e um lote de gestos sem rede enviado duas vezes,
@@ -1052,8 +1055,9 @@ encerramento de Conta. Só o proxy publica porta, e só em IPv4. Um script
 versionado prepara a máquina: atualização automática de segurança, firewall, SSH só por chave, swap,
 logs com prazo de sete dias, Docker e um limite de 50 conexões simultâneas por endereço de origem às
 portas do proxy, contado pelo kernel antes de o proxy aceitar a conexão, para que uma única máquina
-não esgote a memória dele. As imagens de terceiros que vão ao ar, a do proxy e a base do banco,
-ficam presas por digest e passam pela mesma verificação de avisos que as deste repositório.
+não esgote a memória dele. As imagens de terceiros que vão ao ar, a do proxy e as bases da
+aplicação, do banco e da cópia, ficam presas por digest, e a verificação de avisos examina
+exatamente o que está no ar.
 
 O CI publica as imagens no registro do GitHub só no commit em que tudo passou. De madrugada, ou por
 um botão de urgência, ele entra no servidor por uma chave que só roda o script de deploy, e o script
@@ -1089,10 +1093,10 @@ máquina se recria do zero. O passo a passo, do preparo da máquina ao ensaio lo
 | Banco | PostgreSQL 17, com `JSONB` e índice GIN `jsonb_path_ops` |
 | Migrations | Flyway |
 | Segurança | Spring Security e OAuth2 Resource Server, sem biblioteca de JWT de terceiro |
-| Build | Maven, via wrapper versionado |
+| Build | Maven, via wrapper versionado, que confere o checksum da distribuição |
 | Testes | JUnit 5, AssertJ e Testcontainers |
 | Frontend | PWA em React 19, Vite 8 e TypeScript, com React Router, service worker gerado por Workbox, IndexedDB via `idb` e Vitest; empacotado no jar pelo Maven, com o Node fixado no `pom.xml` |
-| Infraestrutura | Imagem Docker do jar único e uma VPS no Brasil com AlmaLinux 9, com o proxy Caddy, a aplicação e o PostgreSQL 17 em contêineres pelo Docker Compose; CI no GitHub Actions, que publica as imagens no registro do GitHub e faz o deploy por SSH, com os avisos de segurança das dependências e das imagens conferidos pelo Trivy; cópia cifrada de hora em hora com age, enviada pelo rclone ao S3 da AWS no Brasil; vigia externo por sinal sem corpo, com alerta de rajada de recusas; ensaiados localmente, com o primeiro deploy público ainda por fazer |
+| Infraestrutura | Imagem Docker do jar único e uma VPS no Brasil com AlmaLinux 9, com o proxy Caddy, a aplicação e o PostgreSQL 17 em contêineres pelo Docker Compose; CI no GitHub Actions, que publica as imagens no registro do GitHub e faz o deploy por SSH, com os avisos de segurança das dependências e das imagens conferidos pelo Trivy e as versões novas das Actions e das imagens propostas pelo Dependabot; cópia cifrada de hora em hora com age, enviada pelo rclone ao S3 da AWS no Brasil; vigia externo por sinal sem corpo, com alerta de rajada de recusas; ensaiados localmente, com o primeiro deploy público ainda por fazer |
 
 A escolha de versão não é acidental. Spring Boot 3.x perde suporte OSS em junho de 2026, então um
 projeto novo não deveria nascer nele; o Spring Modulith 2.1.x é a linha compatível com o Boot 4.1.
@@ -1102,6 +1106,7 @@ projeto novo não deveria nascer nele; o Spring Modulith 2.1.x é a linha compat
 ```
 Dockerfile                  imagem do jar único, com a API e o aplicativo
 .github/workflows/          CI a cada push no main, a cada pull request e uma vez por semana, a publicação das imagens e o deploy
+.github/dependabot.yml      uma vez por mês, as versões novas das Actions e das imagens presas, num pull request
 operacao
 ├── copia/                  imagem da cópia, cópia cifrada de hora em hora, restauração e conferência
 ├── carga/                  carga de correção contra uma instalação

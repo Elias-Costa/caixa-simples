@@ -1,0 +1,60 @@
+# Atualização do que fica preso no repositório: as Actions do CI, pelo SHA do commit, e as imagens de
+# terceiros, pelo digest. Presas, elas não mudam sozinhas. Uma vez por mês, o Dependabot abre um pull
+# request por ecossistema com o que mudou, e o CI inteiro roda sobre ele, inclusive a verificação de
+# avisos de segurança; nada entra sem passar por ali e sem alguém incorporar o pull request.
+#
+# Só entra versão publicada há pelo menos 7 dias: uma versão maliciosa costuma ser retirada em poucos
+# dias. O prefixo segue o tipo das mensagens de commit do projeto.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: build
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # As bases dos Dockerfiles: a da aplicação, a da cópia e a do banco da VPS. A troca só do digest, na
+  # mesma tag, traz a correção da base, inclusive a do Java, que a verificação de avisos não enxerga. A
+  # cópia e o banco usam a mesma base e mudam juntos. Versão maior, outro Java ou outro PostgreSQL, é
+  # decisão e não atualização: o PostgreSQL novo, por exemplo, pede a migração dos dados. A base do
+  # banco recria o banco e só vai ao ar na janela de manutenção.
+  - package-ecosystem: docker
+    directories:
+      - /
+      - /operacao/copia
+      - /operacao/vps/banco
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: build
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      imagens:
+        patterns: ["*"]
+
+  # O proxy, preso por digest no compose da VPS. A mudança no compose recria o proxy e só vai ao ar na
+  # janela de manutenção.
+  - package-ecosystem: docker-compose
+    directory: /operacao/vps
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: build
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      proxy:
+        patterns: ["*"]

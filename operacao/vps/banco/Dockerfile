@@ -6,7 +6,8 @@
 # imagem, e o volume novo herda esse dono.
 #
 # Construída na própria VPS pelo compose, e não publicada: muda só quando este arquivo muda, e cada
-# mudança recria o banco, por isso vai ao ar só na janela de manutenção.
+# mudança recria o banco, por isso vai ao ar só na janela de manutenção. A imagem da cópia usa o
+# mesmo digest, para o pg_dump ser o do servidor, e os dois mudam juntos.
 FROM postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
 
 RUN rm -f /usr/local/bin/gosu

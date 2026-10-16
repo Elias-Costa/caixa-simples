@@ -15,6 +15,7 @@ sem corpo.
 | [`Dockerfile`](../Dockerfile) | Imagem do jar único, com a API e o aplicativo na mesma origem |
 | [`.dockerignore`](../.dockerignore) e [`.dockerignore`](.dockerignore) desta pasta | O que cada build de imagem enxerga: só o que compila o jar, e só os scripts que a imagem da cópia copia |
 | [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) | Testes Java e do front-end, build, lint e avisos de segurança das dependências a cada push no `main` e a cada pull request, e os avisos também uma vez por semana; no push verde, a publicação das imagens; de madrugada ou pelo botão, o deploy |
+| [`.github/dependabot.yml`](../.github/dependabot.yml) | Uma vez por mês, um pull request com as versões novas das Actions do CI e das imagens de terceiros, que ficam [presas](#dependências-presas) pelo SHA do commit e pelo digest |
 | [`vps/`](vps/) | A VPS: o compose da produção, o proxy, o banco com o papel da aplicação sem superusuário, o preparo da máquina, o limite de conexões por origem, a configuração, o deploy, a cópia agendada, o vigia, o alerta de recusas e as tarefas do systemd |
 | [`dependencias/`](dependencias/) | A verificação dos avisos de segurança das dependências e das imagens, e as exceções fundamentadas a ela |
 | [`copia/`](copia/) | Imagem da cópia, a cópia, a restauração e a conferência entre as duas |
@@ -81,6 +82,9 @@ certificados Pix montados. Os testes do front-end rodam no build da imagem, porq
 empacotamento. Os testes Java não, porque sobem um PostgreSQL em contêiner e o build não tem Docker;
 quem os garante é o CI, antes da publicação. O rótulo `org.opencontainers.image.source` liga as duas
 imagens a este repositório no registro, e é por ele que o deploy acha as versões antigas para apagar.
+As imagens base ficam [presas por digest](#dependências-presas). O estágio de build instala o `unzip`:
+sem ele, o wrapper do Maven baixaria o pacote `.tar.gz` no lugar do `.zip`, que tem outro checksum, e
+recusaria a distribuição.
 
 O build enxerga só o que o [`.dockerignore`](../.dockerignore) da raiz deixa passar: o wrapper do
 Maven, o `pom.xml`, `src/main/` e `frontend/`, sem os gerados do front-end e sem configuração local,
@@ -112,8 +116,9 @@ segredo nenhum. O mesmo script roda na máquina, com o Docker de pé, inclusive 
 sh operacao/dependencias/verificar.sh
 ```
 
-As bases de avisos ficam no volume `caixa-simples-trivy`, e os builds usam `--pull`, então as
-imagens base guardadas na máquina são atualizadas a cada execução.
+As bases de avisos ficam no volume `caixa-simples-trivy`. As imagens base estão presas por digest,
+então a verificação examina a mesma base que a publicação constrói e que está no ar, e a execução
+semanal confere a base em produção.
 
 **O que barra a publicação:** aviso alto ou crítico que já tenha versão corrigida. Antes do portão,
 cada alvo tem o relatório completo no log, com as severidades menores e os avisos ainda sem correção,
@@ -140,9 +145,43 @@ com `--format json`.
 
 **O que fica de fora:** as dependências de teste do Java e os plugins do Maven, que não vão para a
 imagem; os binários do PostgreSQL das imagens do banco e da cópia, compilados na base, sem registro de
-pacote para a ferramenta conferir; e, nas duas imagens deste repositório, a base examinada é a da tag
-no dia da verificação, que pode mudar até o build da publicação. Trocar a versão da ferramenta é trocar
-o digest no script, conferido em mais de um registro.
+pacote para a ferramenta conferir; e o Java das bases da Temurin, instalado fora do gerenciador de
+pacotes: a ferramenta vê os pacotes do Alpine e não o JDK. A correção desses dois chega pela troca do
+digest da base, que o Dependabot propõe. Trocar a versão da ferramenta é trocar o digest no script,
+conferido em mais de um registro.
+
+## Dependências presas
+
+O que entra nas imagens ou roda no CI fica preso a uma versão que não pode ser trocada por baixo dela:
+
+| O quê | Preso por | A troca |
+|---|---|---|
+| Actions do [CI](../.github/workflows/ci.yml) | SHA do commit, com a versão no comentário | Dependabot, uma vez por mês |
+| Bases da imagem da aplicação, da cópia e do banco | Digest, nos três Dockerfiles; a cópia e o banco com o mesmo | Dependabot, uma vez por mês |
+| Proxy da VPS | Digest, no [`compose.yaml`](vps/compose.yaml) | Dependabot, uma vez por mês |
+| Maven | SHA-256 do zip, em `distributionSha256Sum` no [`maven-wrapper.properties`](../.mvn/wrapper/maven-wrapper.properties) | À mão |
+| Trivy | Digest, no [`verificar.sh`](dependencias/verificar.sh) | À mão |
+| Pacotes do front-end | `package-lock.json`, instalado com `npm ci` | À mão |
+
+**O pull request do Dependabot.** Uma vez por mês, um por grupo: as Actions; as bases dos três
+Dockerfiles; e o proxy. Só entra versão publicada há ao menos 7 dias, e, nas imagens, nunca versão
+maior: outro Java ou outro PostgreSQL é decisão, e o PostgreSQL novo pede a migração dos dados. O CI
+inteiro roda sobre o pull request, a verificação de avisos inclusive; verde, incorpore. A base do banco
+e o proxy mudam a pasta do banco e o compose, e o deploy os leva só na janela. Um proxy novo pede
+conferir as [exceções do HTTP/2](#avisos-de-segurança-das-dependências), que o pull request não tira
+sozinho.
+
+**Trocar o Maven** é trocar a URL e o `distributionSha256Sum` juntos, com o SHA-256 do zip, conferido
+pelo SHA-512 que a Apache publica. Com a URL nova e o checksum antigo, o wrapper recusa a distribuição.
+Ele confere o arquivo ao baixar: numa máquina nova, no build da imagem e no CI; a distribuição já
+extraída numa máquina não é conferida de novo.
+
+**As imagens deste repositório vão ao ar pelo tag do SHA**, que o registro deixa reescrever. Só o
+reescreve um workflow deste repositório com permissão de publicar pacotes, que é o job `publicar`, com
+as Actions presas, ou uma credencial da conta. Por isso a conta não guarda token clássico com
+`write:packages`. Quem tem acesso de escrita ao repositório já poderia pôr no `main` um commit que passa
+no CI, e o digest no deploy não mudaria isso; contra o roubo da conta vale a verificação em duas etapas
+da [primeira publicação](#primeira-publicação).
 
 ## A VPS
 
@@ -293,22 +332,36 @@ na manutenção acima, a mesma em `CAIXA_SIMPLES_DB_PASSWORD`, e `sh compose.sh 
      `ssh-ed25519 AAAA...`, lida na própria VPS em `/etc/ssh/ssh_host_ed25519_key.pub`, sem o
      comentário do fim;
    - a variável `PUBLICAR_NA_VPS`, com `true`.
-10. **Imagens:** um push no `main` publica as duas imagens. Na primeira vez, conferir na página dos
+10. **Conta e `main` no GitHub:**
+    - a verificação em duas etapas na conta, por aplicativo autenticador ou chave de segurança;
+    - nenhum token clássico com `write:packages` na conta: quem publica os pacotes é só o job
+      `publicar` (ver [Dependências presas](#dependências-presas));
+    - em **Settings**, **Rules**, **Rulesets**, duas regras para o ramo padrão. A primeira, sem
+      ninguém na lista de exceção, com **Restrict deletions** e **Block force pushes**. A segunda,
+      com **Require status checks to pass** e os dois jobs do CI, `Testes, build e lint` e
+      `Avisos de segurança das dependências`, vindos do GitHub Actions, e o papel
+      **Repository admin** na lista de exceção. São duas porque a exceção de uma regra vale para
+      todas as restrições dela: o push direto do administrador continua entrando antes do CI, como
+      hoje, e o force push no `main` não passa para ninguém. O deploy já só pega commit verde; os
+      jobs obrigatórios valem para o pull request, o do Dependabot inclusive;
+    - depois do primeiro push com o [`dependabot.yml`](../.github/dependabot.yml), conferir em
+      **Insights**, **Dependency graph**, **Dependabot**, que os três ecossistemas rodaram sem erro.
+11. **Imagens:** um push no `main` publica as duas imagens. Na primeira vez, conferir na página dos
     pacotes do GitHub que os dois são públicos: a VPS os baixa sem credencial.
-11. **Primeiro deploy**, pelo botão **Run workflow**. Sem versão no ar ainda, ele vai a qualquer hora.
+12. **Primeiro deploy**, pelo botão **Run workflow**. Sem versão no ar ainda, ele vai a qualquer hora.
     A aplicação sobe, aplica as migrations, e o proxy obtém o certificado do domínio.
-12. **Tarefas agendadas:** `systemctl start caixa-simples-copia.timer caixa-simples-vigia.timer
+13. **Tarefas agendadas:** `systemctl start caixa-simples-copia.timer caixa-simples-vigia.timer
     caixa-simples-recusas.timer`.
-13. **Memória:** `sh compose.sh exec app cat /sys/fs/cgroup/memory.max` tem de dar 1073741824, o
+14. **Memória:** `sh compose.sh exec app cat /sys/fs/cgroup/memory.max` tem de dar 1073741824, o
     limite em que a JVM foi medida.
-14. **Banco:** `sh compose.sh exec banco psql -U postgres -tAc "select rolsuper, rolcreaterole,
+15. **Banco:** `sh compose.sh exec banco psql -U postgres -tAc "select rolsuper, rolcreaterole,
     rolcreatedb from pg_roles where rolname = 'caixa_simples'"` tem de dar `f|f|f`, e
     `sh compose.sh exec banco psql -U postgres -tAc "select distinct usename from pg_stat_activity
     where datname = 'caixa_simples'"`, só `caixa_simples`.
-15. **Borda:** conferir pelo access log, como em [Borda](#borda). Conferir também o limite de conexões:
+16. **Borda:** conferir pelo access log, como em [Borda](#borda). Conferir também o limite de conexões:
     `systemctl is-active caixa-simples-limite` dá `active`, `nft list table inet caixa_simples_limite`
     mostra a regra, e `ss -ltn` mostra o 80 e o 443 só em `0.0.0.0`, sem escuta IPv6.
-16. **Contas de teste** pelo [seed](#criar-uma-conta), com o plano completo ativado pelo
+17. **Contas de teste** pelo [seed](#criar-uma-conta), com o plano completo ativado pelo
     [pedido de plano](#pedido-de-plano-e-código-de-ativação); a [carga](#carga-de-correção); e a
     [restauração](#restauração) pelos dois caminhos.
 

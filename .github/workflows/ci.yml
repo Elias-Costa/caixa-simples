@@ -1,5 +1,9 @@
 # Portão entre o push e a produção: só vai ao ar o commit em que os testes, o build e o lint
 # passaram e nenhuma dependência tem aviso de segurança que barre a publicação.
+#
+# Cada Action vai presa pelo SHA do commit, com a versão no comentário da mesma linha: um tag pode
+# ser movido para outro código, e o job publicar roda com permissão de publicar pacotes. O
+# Dependabot propõe a troca uma vez por mês, num pull request que passa por este mesmo CI.
 name: CI
 
 on:
@@ -36,9 +40,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-java@v6
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: '21'
@@ -73,7 +77,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Verificação das dependências e das imagens
         run: sh operacao/dependencias/verificar.sh
@@ -93,7 +97,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Construção e publicação das imagens deste commit
         env:

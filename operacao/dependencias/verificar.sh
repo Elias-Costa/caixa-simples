@@ -24,8 +24,9 @@ cd "$(dirname "$0")/../.."
 # O Docker no Windows precisa da pasta no formato C:/...; o pwd -W só existe no Git Bash.
 repositorio=$(pwd -W 2>/dev/null || pwd)
 
-# Com --pull, as imagens base vêm sempre do registro, como no build da hospedagem: com uma base
-# antiga guardada na máquina, a verificação examinaria uma imagem diferente da publicada.
+# As bases dos Dockerfiles ficam presas por digest, e por isso a verificação examina a mesma base que
+# a publicação constrói. O --pull só faria diferença para uma base sem digest, que viria do registro
+# em vez de uma cópia antiga guardada na máquina.
 docker build --pull --tag caixa-simples:verificacao .
 docker build --pull --tag caixa-simples-copia:verificacao --file operacao/copia/Dockerfile operacao
 

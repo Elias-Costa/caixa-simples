@@ -1,6 +1,9 @@
 # Imagem do job da cópia de hora em hora e da restauração: o cliente do PostgreSQL na mesma versão
 # maior do servidor, o age para cifrar e o rclone para enviar e buscar.
-FROM postgres:17-alpine
+#
+# A base fica presa pelo mesmo digest da imagem do banco da VPS, para o pg_dump ser o do servidor; a
+# troca vem do Dependabot, uma vez por mês, nos dois arquivos juntos.
+FROM postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
 # Liga a imagem publicada a este repositório no registro, e é por ele que o deploy acha as versões
 # antigas para apagar.
 LABEL org.opencontainers.image.source=https://github.com/Elias-Costa/caixa-simples
