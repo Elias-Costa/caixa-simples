@@ -161,14 +161,15 @@ fi
 chown "$UID_DA_APLICACAO:$UID_DA_APLICACAO" "$CONFIGURACAO/efi"
 chmod 700 "$CONFIGURACAO/efi"
 
-passo "Tarefas agendadas: a atualização ligada agora, a cópia e o vigia a partir do boot"
+passo "Tarefas agendadas: a atualização agora; a cópia, o vigia e o alerta de recusas a partir do boot"
 install -m 644 "$REPOSITORIO/operacao/vps/systemd/dnf-automatic.timer.d/janela.conf" \
     /etc/systemd/system/dnf-automatic.timer.d/janela.conf
 install -m 644 "$REPOSITORIO"/operacao/vps/systemd/caixa-simples-*.service \
     "$REPOSITORIO"/operacao/vps/systemd/caixa-simples-*.timer /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now dnf-automatic.timer
-# Parados até o primeiro deploy, que é quando há versão para copiar e aplicação para conferir.
-systemctl enable caixa-simples-copia.timer caixa-simples-vigia.timer
+# Parados até o primeiro deploy, que é quando há versão para copiar, aplicação para conferir e log
+# para ler.
+systemctl enable caixa-simples-copia.timer caixa-simples-vigia.timer caixa-simples-recusas.timer
 
 echo "Pronto. Preencha $CONFIGURACAO/caixa-simples.env e siga a primeira publicação."

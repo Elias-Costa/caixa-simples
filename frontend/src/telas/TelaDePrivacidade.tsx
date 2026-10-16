@@ -19,7 +19,8 @@ export function TelaDePrivacidade() {
     <p>O servidor e as cópias cifradas do banco ficam no Brasil. O aplicativo guarda retratos e
       gestos no aparelho para funcionar sem rede. As cópias horárias expiram em três dias e as
       cópias diárias em trinta dias. Os logs expiram em sete dias e não registram nome, contato
-      nem e-mail. Depois de uma restauração, as remoções posteriores à cópia são reaplicadas
+      nem e-mail. Os eventos de segurança, como o login e a recusa de acesso, registram o
+      endereço IP e a identificação do Usuário. Depois de uma restauração, as remoções posteriores à cópia são reaplicadas
       antes de liberar o acesso.</p>
 
     <h2>Pedidos de remoção</h2>

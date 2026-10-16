@@ -7,6 +7,7 @@ import br.com.caixasimples.contas.application.SenhaAtualIncorretaException;
 import br.com.caixasimples.contas.internal.CredenciaisInvalidasException;
 import br.com.caixasimples.contas.internal.LoginContidoException;
 import br.com.caixasimples.contas.internal.SenhaRecusadaException;
+import br.com.caixasimples.shared.EventoDeSeguranca;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -32,6 +33,10 @@ import org.springframework.web.bind.annotation.RestController;
  * pedido é validado com {@code @Valid} (campo em branco vira 400 antes de chegar ao caso de uso),
  * o controller só traduz e delega, e a exceção que só este módulo lança é traduzida aqui mesmo.
  * O que é transversal, como a recusa por perfil virar 403, fica no tratador de {@code shared}.
+ *
+ * <p>A troca de senha, a recusa dela e a saída de todos os aparelhos vão ao log como evento de
+ * segurança, com a origem, que só a borda HTTP conhece. O login é registrado no caso de uso, o único
+ * que sabe o motivo da recusa.
  */
 @RestController
 @RequestMapping("/api/auth")
@@ -62,14 +67,23 @@ class AutenticacaoController {
     @PostMapping("/senha")
     RespostaDeTrocaDeSenha trocarSenha(@Valid @RequestBody PedidoDeTrocaDeSenha pedido,
             HttpServletRequest requisicao) {
-        return new RespostaDeTrocaDeSenha(autenticacao.trocarSenha(pedido.senhaAtual(),
-                pedido.senhaNova(), requisicao.getRemoteAddr()));
+        String token = autenticacao.trocarSenha(pedido.senhaAtual(), pedido.senhaNova(),
+                requisicao.getRemoteAddr());
+        EventoDeSeguranca.de("senha.trocada")
+                .doContexto()
+                .daOrigem(requisicao.getRemoteAddr())
+                .registrar();
+        return new RespostaDeTrocaDeSenha(token);
     }
 
     /** Derruba todos os aparelhos de quem está autenticado, inclusive este. */
     @PostMapping("/sair-de-todos")
-    ResponseEntity<Void> sairDeTodos() {
+    ResponseEntity<Void> sairDeTodos(HttpServletRequest requisicao) {
         autenticacao.sairDeTodosOsAparelhos();
+        EventoDeSeguranca.de("acessos.revogados")
+                .doContexto()
+                .daOrigem(requisicao.getRemoteAddr())
+                .registrar();
         return ResponseEntity.noContent().build();
     }
 
@@ -131,9 +145,18 @@ class AutenticacaoController {
     /**
      * A senha atual errada responde 400, e não 401: quem pede a troca está autenticado, e o
      * aplicativo trata o 401 como sessão encerrada.
+     *
+     * <p>A recusa vai ao log e conta no alerta de rajada como um login recusado, porque passa pela
+     * mesma contenção dele.
      */
     @ExceptionHandler(SenhaAtualIncorretaException.class)
-    ProblemDetail senhaAtualIncorreta(SenhaAtualIncorretaException excecao) {
+    ProblemDetail senhaAtualIncorreta(SenhaAtualIncorretaException excecao,
+            HttpServletRequest requisicao) {
+        EventoDeSeguranca.de("senha.troca_recusada")
+                .doContexto()
+                .com("motivo", "senha_atual")
+                .daOrigem(requisicao.getRemoteAddr())
+                .registrarRecusa();
         return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, excecao.getMessage());
     }
 

@@ -39,7 +39,10 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.event.ApplicationEvents;
@@ -234,6 +237,36 @@ class WebhookPixHttpTest extends TesteDeIntegracao {
                 .contentType(MediaType.APPLICATION_JSON).content(""))
                 .andExpect(status().isBadRequest());
         verify(gateway, never()).consultar(any());
+    }
+
+    /** O par de identificador e segredo autentica o aviso e por isso não vai ao log. */
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void recusasVaoAoLogComOMotivoEAOrigem(CapturedOutput saida) throws Exception {
+        ContaCriada conta = criador.criar("Webhook Log", "uma senha longa de teste");
+        when(autenticador.autenticar("config-g", "segredo-g")).thenReturn(conta.contaId());
+
+        http.perform(post("/api/webhooks/pix/config-g?hmac=segredo-g")
+                        .with(requisicao -> {
+                            requisicao.setRemoteAddr("203.0.113.90");
+                            return requisicao;
+                        })
+                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isForbidden());
+        http.perform(post("/api/webhooks/pix/config-g?hmac=segredo-trocado")
+                        .with(requisicao -> {
+                            requisicao.setRemoteAddr("203.0.113.91");
+                            return requisicao;
+                        })
+                        .secure(true).requestAttr("jakarta.servlet.request.X509Certificate", certificado())
+                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isForbidden());
+
+        assertThat(saida.getAll())
+                .contains("evento=webhook.recusado motivo=sem_certificado origem=203.0.113.90")
+                .contains("evento=webhook.recusado motivo=hmac origem=203.0.113.91")
+                .doesNotContain("config-g")
+                .doesNotContain("segredo-");
     }
 
     /** Num formulário, o servidor leria o corpo para achar o segredo; a rota recusa antes. */

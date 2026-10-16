@@ -14,7 +14,10 @@ import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
@@ -40,11 +43,12 @@ class TratamentoDeErrosHttpTest extends TesteDeIntegracao {
     @Autowired
     private AutenticadorDeTeste autenticador;
 
+    private ContaCriada conta;
     private RequestPostProcessor autenticado;
 
     @BeforeEach
     void entrar() {
-        ContaCriada conta = criador.criar("Loja da Esquina", SENHA_VALIDA);
+        conta = criador.criar("Loja da Esquina", SENHA_VALIDA);
         autenticado = autenticador.como(conta);
     }
 
@@ -57,6 +61,26 @@ class TratamentoDeErrosHttpTest extends TesteDeIntegracao {
                 .andExpect(jsonPath("$.status").value(403))
                 .andExpect(jsonPath("$.title").isNotEmpty())
                 .andExpect(jsonPath("$.detail").value("operacao restrita ao administrador"));
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    @DisplayName("a recusa por perfil vai ao log com quem tentou, onde e de que origem, sem a query")
+    void acessoNegadoVaiAoLog(CapturedOutput saida) throws Exception {
+        http.perform(get("/api/teste/erros/acesso-negado").queryParam("busca", "Maria")
+                        .with(autenticado)
+                        .with(requisicao -> {
+                            requisicao.setRemoteAddr("203.0.113.80");
+                            return requisicao;
+                        }))
+                .andExpect(status().isForbidden());
+
+        assertThat(saida.getAll())
+                .contains("evento=acesso.recusado conta=" + conta.contaId() + " usuario="
+                        + conta.usuarioId() + " metodo=GET caminho=/api/teste/erros/acesso-negado"
+                        + " origem=203.0.113.80")
+                .doesNotContain("Maria")
+                .doesNotContain(conta.email());
     }
 
     @Test
@@ -157,6 +181,21 @@ class TratamentoDeErrosHttpTest extends TesteDeIntegracao {
                 .andReturn().getResponse().getContentAsString();
 
         assertThat(corpo).doesNotContain(ControllerDeErrosDeTeste.MENSAGEM_INTERNA);
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    @DisplayName("erro inesperado vai ao log com o método, o caminho e a pilha, sem a mensagem")
+    void inesperadoVaiAoLogComAPilha(CapturedOutput saida) throws Exception {
+        http.perform(get("/api/teste/erros/inesperado").with(autenticado))
+                .andExpect(status().isInternalServerError());
+
+        assertThat(saida.getAll())
+                .contains("ERROR")
+                .contains("Erro inesperado em GET /api/teste/erros/inesperado")
+                .contains(RuntimeException.class.getName())
+                .contains("\tat " + ControllerDeErrosDeTeste.class.getName() + ".inesperado(")
+                .doesNotContain(ControllerDeErrosDeTeste.MENSAGEM_INTERNA);
     }
 
     @Test

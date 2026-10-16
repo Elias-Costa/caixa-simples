@@ -15,7 +15,7 @@ sem corpo.
 | [`Dockerfile`](../Dockerfile) | Imagem do jar único, com a API e o aplicativo na mesma origem |
 | [`.dockerignore`](../.dockerignore) e [`.dockerignore`](.dockerignore) desta pasta | O que cada build de imagem enxerga: só o que compila o jar, e só os scripts que a imagem da cópia copia |
 | [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) | Testes Java e do front-end, build, lint e avisos de segurança das dependências a cada push no `main` e a cada pull request, e os avisos também uma vez por semana; no push verde, a publicação das imagens; de madrugada ou pelo botão, o deploy |
-| [`vps/`](vps/) | A VPS: o compose da produção, o proxy, o banco com o papel da aplicação sem superusuário, o preparo da máquina, o limite de conexões por origem, a configuração, o deploy, a cópia agendada, o vigia e as tarefas do systemd |
+| [`vps/`](vps/) | A VPS: o compose da produção, o proxy, o banco com o papel da aplicação sem superusuário, o preparo da máquina, o limite de conexões por origem, a configuração, o deploy, a cópia agendada, o vigia, o alerta de recusas e as tarefas do systemd |
 | [`dependencias/`](dependencias/) | A verificação dos avisos de segurança das dependências e das imagens, e as exceções fundamentadas a ela |
 | [`copia/`](copia/) | Imagem da cópia, a cópia, a restauração e a conferência entre as duas |
 | [`exclusao/`](exclusao/) | O encerramento de uma Conta a pedido |
@@ -179,6 +179,7 @@ Na máquina, fora dos contêineres:
 | `caixa-simples-limite.service` | Carrega esse limite a cada boot, depois do firewalld e antes do Docker |
 | `caixa-simples-copia.timer` | A [cópia](#cópia-de-hora-em-hora-cifrada), toda hora cheia, em UTC |
 | `caixa-simples-vigia.timer` | O sinal de vida para o [vigia](#vigia), a cada 5 minutos |
+| `caixa-simples-recusas.timer` | O [alerta de recusas](#vigia), a cada 5 minutos |
 | `dnf-automatic.timer` | As atualizações de segurança, às 7h30 UTC, dentro da janela, com reinício quando pedido |
 
 O [preparo](vps/preparar.sh) deixa o SSH só por chave e sem root, o firewall só com SSH, HTTP e HTTPS,
@@ -195,7 +196,15 @@ de deploy, e o sudo só lhe deixa rodar esse script, sem argumento, recebendo o 
 cd /opt/caixa-simples/repositorio/operacao/vps
 sh compose.sh ps
 journalctl CONTAINER_NAME=caixa-simples-app-1 --since -1h
+journalctl CONTAINER_NAME=caixa-simples-app-1 --since -1h | grep evento=
 ```
+
+Os eventos de segurança da aplicação saem uma linha cada, começando por `evento=`: o login certo e o
+recusado, o bloqueio do login, o token recusado, o acesso recusado por perfil, o aviso Pix recusado, a
+troca e a redefinição de senha, a saída de todos os aparelhos e as ações do administrador sobre
+usuários, plano, configuração e Cliente. Cada linha leva o IP de origem, os ids de Conta, de Usuário e
+do alvo e o motivo da recusa numa palavra fixa, nunca nome, e-mail, contato, senha ou token. O erro
+inesperado sai com o método, o caminho e a pilha, sem as mensagens das exceções.
 
 Rodar o preparo de novo refaz cada passo sem duplicar nada. Mudou o `implantar.sh` ou o
 `limite-de-conexoes.nft`, rode-o de novo: é ele que copia os dois para fora do repositório e recarrega
@@ -223,7 +232,7 @@ variáveis que o compose lista para ele.
 | `CAIXA_SIMPLES_COPIA_DESTINO` e `CAIXA_SIMPLES_COPIA_DESTINO_DIARIA` | `s3:<bucket>/horaria` e `s3:<bucket>/diaria` | Os dois destinos da cópia |
 | `CAIXA_SIMPLES_COPIA_HORA_DIARIA` | `6` | A hora UTC da cópia que fica 30 dias |
 | `CAIXA_SIMPLES_COPIA_AWS_*` | A credencial do usuário do IAM da cópia | Grava objeto novo no bucket, e mais nada |
-| `CAIXA_SIMPLES_VIGIA_COPIA` e `CAIXA_SIMPLES_VIGIA_MAQUINA` | Os endereços de sinal dos dois checks | O [vigia](#vigia) |
+| `CAIXA_SIMPLES_VIGIA_COPIA`, `CAIXA_SIMPLES_VIGIA_MAQUINA` e `CAIXA_SIMPLES_VIGIA_RECUSAS` | Os endereços de sinal dos três checks | O [vigia](#vigia) |
 
 `/etc/caixa-simples/efi.env` guarda, para cada Conta que recebe Pix, com o UUID da Conta em
 maiúsculas e sem hífens, `CAIXA_SIMPLES_EFI_<UUID>_AMBIENTE`, `_CLIENT_ID`, `_CLIENT_SECRET`,
@@ -275,7 +284,7 @@ na manutenção acima, a mesma em `CAIXA_SIMPLES_DB_PASSWORD`, e `sh compose.sh 
 6. **AWS:** a chave da cópia, o bucket, o usuário do IAM e a credencial de leitura, como em
    [Cópia de hora em hora](#cópia-de-hora-em-hora-cifrada), e o bucket separado de remoções, com
    credencial de gravação para a aplicação e leitura para a restauração.
-7. **Vigia:** os dois checks, como em [Vigia](#vigia).
+7. **Vigia:** os três checks, como em [Vigia](#vigia).
 8. **Configuração:** preencher `/etc/caixa-simples/caixa-simples.env`.
 9. **GitHub**, nas configurações do repositório:
    - o segredo `VPS_CHAVE_DE_IMPLANTACAO`, com o conteúdo da chave privada do CI;
@@ -288,7 +297,8 @@ na manutenção acima, a mesma em `CAIXA_SIMPLES_DB_PASSWORD`, e `sh compose.sh 
     pacotes do GitHub que os dois são públicos: a VPS os baixa sem credencial.
 11. **Primeiro deploy**, pelo botão **Run workflow**. Sem versão no ar ainda, ele vai a qualquer hora.
     A aplicação sobe, aplica as migrations, e o proxy obtém o certificado do domínio.
-12. **Tarefas agendadas:** `systemctl start caixa-simples-copia.timer caixa-simples-vigia.timer`.
+12. **Tarefas agendadas:** `systemctl start caixa-simples-copia.timer caixa-simples-vigia.timer
+    caixa-simples-recusas.timer`.
 13. **Memória:** `sh compose.sh exec app cat /sys/fs/cgroup/memory.max` tem de dar 1073741824, o
     limite em que a JVM foi medida.
 14. **Banco:** `sh compose.sh exec banco psql -U postgres -tAc "select rolsuper, rolcreaterole,
@@ -319,8 +329,8 @@ declara, sem novo build: CIDRs separados por vírgula, com a barra mesmo para um
 porque sem nenhuma barra o valor é lido como expressão regular. Até lá, a origem passa a ser esse
 salto: a falha é fechada, e nenhum endereço escrito pelo cliente vira origem.
 
-O proxy não tem access log: a aplicação não registra cada requisição, e o endereço de quem acessa fica
-fora dos logs, a não ser em recusa e erro.
+O proxy não tem access log: a aplicação não registra cada requisição, e o endereço de quem acessa só vai
+aos logs nos eventos de segurança dela, como o login e a recusa de acesso.
 
 **Tamanho do corpo.** A aplicação recusa com 413, em Problem Details e com a explicação em português, o
 corpo acima do limite da rota: 4 KB no login, 256 KB no aviso de pagamento Pix e 512 KB no resto, o
@@ -453,6 +463,13 @@ operador.
    no primeiro acesso.
 4. **Com o administrador de volta**, peça que ele confira a tela Usuários: usuário que ele não criou
    é inativado, e operador que não consegue entrar tem a senha redefinida por ele.
+5. **No log**, os [eventos de segurança](#a-vps) da Conta nos últimos 7 dias mostram de que origens
+   vieram os logins, as recusas e as ações do administrador; uma origem que não é a do negócio aponta
+   quem a tomou:
+
+   ```bash
+   journalctl CONTAINER_NAME=caixa-simples-app-1 --since -7d | grep 'conta=<uuid da Conta>'
+   ```
 
 Trocar `CAIXA_SIMPLES_JWT_SECRET` também derruba todos os aparelhos, mas de **todas** as Contas, e não
 muda senha nenhuma; fica para a suspeita de que a chave dos tokens vazou.
@@ -675,8 +692,8 @@ perda fica no que foi escrito depois dela, no máximo uma hora.
 4. Apontar o registro A do domínio para o IP novo; o proxy obtém o certificado assim que o domínio
    chegar à máquina.
 5. No GitHub, atualizar `VPS_ENDERECO` e `VPS_CHAVE_DO_HOST`.
-6. `systemctl start caixa-simples-copia.timer caixa-simples-vigia.timer`, e apagar a chave privada da
-   máquina.
+6. `systemctl start caixa-simples-copia.timer caixa-simples-vigia.timer caixa-simples-recusas.timer`,
+   e apagar a chave privada da máquina.
 
 No ensaio local, a recriação inteira, num projeto de compose novo com volume vazio, terminou com a
 conferência em `confere`, a aplicação de pé em 43 segundos e o login de uma Conta que veio da cópia.
@@ -717,18 +734,34 @@ destinos.
 
 ## Vigia
 
-Dois checks no Healthchecks.io, plano gratuito, com aviso por e-mail ao mantenedor quando um sinal
+Três checks no Healthchecks.io, plano gratuito, com aviso por e-mail ao mantenedor quando um sinal
 esperado não chega ou quando chega o de falha:
 
 | Check | Período | Tolerância | Quem manda o sinal |
 |---|---|---|---|
 | cópia | 1 hora | 30 minutos | [`copia-agendada.sh`](vps/copia-agendada.sh), depois de cada cópia: o sinal, ou o de falha |
 | máquina | 5 minutos | 10 minutos | [`vigia.sh`](vps/vigia.sh), depois de conferir a aplicação pelo domínio, passando pelo proxy e pelo certificado |
+| recusas | 5 minutos | 10 minutos | [`vigia-de-recusas.sh`](vps/vigia-de-recusas.sh), depois de contar as recusas dos últimos 5 minutos no log da aplicação: o sinal, ou o de falha acima de 50 |
 
 O endereço de sinal de cada check vai na [configuração](#configuração). O sinal é um GET sem corpo, só
 com o endereço do check: nenhum log e nada das Contas sai da máquina por ele. Cobrem a hora sem cópia,
-a máquina ou a rede fora do ar, a aplicação parada ou travada e o certificado vencido. O deploy que
-falha aparece no CI, que fica vermelho, e o GitHub avisa por e-mail.
+a máquina ou a rede fora do ar, a aplicação parada ou travada, o certificado vencido e a rajada de
+recusas. O deploy que falha aparece no CI, que fica vermelho, e o GitHub avisa por e-mail.
+
+**O alerta de recusas** conta os [eventos de segurança](#a-vps) de login recusado, troca de senha
+recusada, token recusado, acesso recusado por perfil e aviso Pix recusado. Uma origem sozinha não passa
+de 30 falhas de login na janela da contenção; acima de 50 em 5 minutos é força bruta distribuída, ou
+enxurrada de token falso ou de aviso Pix, que nada limita. Com o aviso, a origem e a Conta atacada estão
+no log, e uma origem pode virar regra no firewall:
+
+```bash
+journalctl CONTAINER_NAME=caixa-simples-app-1 --since -30min | grep -E ' evento=[a-z_.]*recusad' \
+  | grep -oE 'origem=[^ ]+' | sort | uniq -c | sort -rn | head
+```
+
+Sem conseguir ler o log, o script não manda sinal nenhum, e o check só cai depois da tolerância: a troca
+da aplicação no deploy não vira alerta. Numa configuração gerada antes do alerta, a linha
+`CAIXA_SIMPLES_VIGIA_RECUSAS=` entra à mão, porque o gerador nunca sobrescreve o arquivo.
 
 ## Ensaio local
 

@@ -16,6 +16,7 @@ import br.com.caixasimples.contas.internal.SenhaRecusadaException;
 import br.com.caixasimples.contas.internal.Usuario;
 import br.com.caixasimples.contas.internal.UsuarioRepository;
 import br.com.caixasimples.shared.ContaId;
+import br.com.caixasimples.shared.EventoDeSeguranca;
 import br.com.caixasimples.shared.FusoDeReferencia;
 import br.com.caixasimples.shared.Perfil;
 import br.com.caixasimples.shared.TenantContext;
@@ -42,7 +43,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <p><strong>Toda falha responde igual e custa igual.</strong> E-mail inexistente, senha errada e
  * usuário inativo produzem a mesma exceção com a mesma mensagem, depois de uma conferência de senha
  * cada um, porque distinguir, pela resposta ou pelo tempo dela, permitiria descobrir quais e-mails
- * existem no sistema.
+ * existem no sistema. Só o log distingue: o login certo e o recusado vão a ele como evento de
+ * segurança, a recusa com o motivo e, quando o e-mail existe, com a Conta e o Usuário da credencial,
+ * para mostrar qual Conta está sendo atacada. Nunca com o e-mail.
  *
  * <p>A troca de senha e a saída de todos os aparelhos sobem a versão de acesso do usuário, que vai
  * dentro do token: todo token emitido antes recebe 401 na requisição seguinte. É a resposta à senha
@@ -113,7 +116,7 @@ public class AutenticacaoService {
         ContencaoDeLogin.Tentativa tentativa = contencao.reservar(origem, email, Instant.now());
         String token;
         try {
-            token = autenticar(email, senha);
+            token = autenticar(email, senha, origem);
         } catch (CredenciaisInvalidasException recusa) {
             // A reserva fica: é a falha que a contenção conta.
             throw recusa;
@@ -126,28 +129,29 @@ public class AutenticacaoService {
         return token;
     }
 
-    private String autenticar(String email, String senha) {
+    private String autenticar(String email, String senha, String origem) {
         Optional<Credencial> encontrada = credenciais.findByEmailIgnoreCase(email.trim());
         if (encontrada.isEmpty()) {
             // Confere a senha mesmo assim, contra o hash sintético: recusar sem o BCrypt responderia
             // mais rápido que a senha errada, e o tempo diria quais e-mails existem.
             encoder.matches(senha, hashSintetico);
-            throw new CredenciaisInvalidasException();
+            throw recusa("email_desconhecido", null, null, origem);
         }
         Credencial credencial = encontrada.get();
+        ContaId conta = credencial.getContaId();
 
         if (!encoder.matches(senha, credencial.getSenhaHash())) {
-            throw new CredenciaisInvalidasException();
+            throw recusa("senha", conta, credencial.getUsuarioId(), origem);
         }
-
-        ContaId conta = credencial.getContaId();
 
         // A partir daqui o tenant existe, e o usuário é lido sob o filtro automático como qualquer
         // outro dado de conta.
-        Usuario usuario = TenantContext.executarComo(conta,
-                () -> usuarios.findById(credencial.getUsuarioId()))
-                .filter(Usuario::isAtivo)
-                .orElseThrow(CredenciaisInvalidasException::new);
+        Optional<Usuario> lido = TenantContext.executarComo(conta,
+                () -> usuarios.findById(credencial.getUsuarioId()));
+        if (lido.isEmpty() || !lido.get().isAtivo()) {
+            throw recusa("usuario_inativo", conta, credencial.getUsuarioId(), origem);
+        }
+        Usuario usuario = lido.get();
 
         if (usuario.getPerfil() == Perfil.ADMIN) {
             TenantContext.executarComo(conta, () -> UsuarioContext.executarComo(
@@ -155,8 +159,26 @@ public class AutenticacaoService {
                     contaService::registrarPrimeiroAcessoSeNecessario));
         }
 
-        return emissor.emitir(usuario.getId(), conta, usuario.getPerfil(),
+        String token = emissor.emitir(usuario.getId(), conta, usuario.getPerfil(),
                 usuario.getVersaoDoAcesso());
+        EventoDeSeguranca.de("login.certo")
+                .com("conta", conta)
+                .com("usuario", usuario.getId())
+                .daOrigem(origem)
+                .registrar();
+        return token;
+    }
+
+    /** Registra a recusa e devolve a exceção, que é a mesma para todo motivo. */
+    private static CredenciaisInvalidasException recusa(String motivo, ContaId conta,
+            UUID usuario, String origem) {
+        EventoDeSeguranca.de("login.recusado")
+                .com("conta", conta)
+                .com("usuario", usuario)
+                .com("motivo", motivo)
+                .daOrigem(origem)
+                .registrarRecusa();
+        return new CredenciaisInvalidasException();
     }
 
     /**

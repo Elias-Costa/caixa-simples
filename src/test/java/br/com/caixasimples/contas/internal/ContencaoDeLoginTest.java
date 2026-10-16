@@ -189,16 +189,18 @@ class ContencaoDeLoginTest {
 
     @Test
     @ExtendWith(OutputCaptureExtension.class)
-    @DisplayName("o bloqueio vai ao log uma vez por contagem e janela, sem IP nem e-mail")
-    void avisoNoLogSemDadoPessoal(CapturedOutput saida) {
+    @DisplayName("o bloqueio vai ao log uma vez por contagem e janela, com a origem e sem o e-mail")
+    void avisoNoLogComAOrigemSemOEmail(CapturedOutput saida) {
         falhar(ORIGEM, EMAIL, 10, INICIO);
         for (int i = 0; i < 3; i++) {
             assertThatThrownBy(() -> contencao.reservar(ORIGEM, EMAIL, INICIO))
                     .isInstanceOf(LoginContidoException.class);
         }
 
-        assertThat(saida.getAll().split("login contido", -1)).hasSize(2);
-        assertThat(saida.getAll()).doesNotContain(ORIGEM).doesNotContain(EMAIL).doesNotContain("ana@");
+        assertThat(saida.getAll().split("evento=login.contido", -1)).hasSize(2);
+        assertThat(saida.getAll()).contains("evento=login.contido contagem=par ate=")
+                .contains(" origem=" + ORIGEM)
+                .doesNotContain(EMAIL).doesNotContain("ana@");
     }
 
     /** Reservas sem devolução, como logins em que a senha não confere. */

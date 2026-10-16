@@ -1,5 +1,6 @@
 package br.com.caixasimples.contas.internal;
 
+import br.com.caixasimples.shared.EventoDeSeguranca;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
@@ -12,8 +13,6 @@ import java.util.HexFormat;
 import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /**
@@ -35,8 +34,9 @@ import org.springframework.stereotype.Component;
  * sem nenhuma espera dentro dela.
  *
  * <p>A contagem fica na memória porque a aplicação roda numa instância só: um reinício a zera, o que
- * dá a quem insiste no máximo uma janela a mais, e nem IP nem e-mail são gravados. A chave do par
- * guarda um resumo do e-mail, e o aviso de bloqueio no log não leva nenhum dos dois.
+ * dá a quem insiste no máximo uma janela a mais, e nem IP nem e-mail são gravados no banco. A chave
+ * do par guarda um resumo do e-mail. O aviso de bloqueio no log leva a origem, como todo evento de
+ * segurança, para o endereço de um ataque poder virar regra no firewall, e nunca o e-mail.
  */
 @Component
 public class ContencaoDeLogin {
@@ -44,8 +44,6 @@ public class ContencaoDeLogin {
     static final int FALHAS_POR_PAR = 10;
     static final int FALHAS_POR_ORIGEM = 30;
     static final Duration JANELA = Duration.ofMinutes(15);
-
-    private static final Logger log = LoggerFactory.getLogger(ContencaoDeLogin.class);
 
     /**
      * Texto que só pode ser um IPv6, abreviado ou não, com ou sem um IPv4 no fim. Nessa forma o JDK
@@ -105,12 +103,18 @@ public class ContencaoDeLogin {
 
         // Fora da trava, porque escrever o log pode esperar pela saída.
         if (avisoDoPar != null) {
-            log.warn("login contido ate {}: {} falhas do mesmo e-mail na mesma origem em {} minutos",
-                    avisoDoPar, FALHAS_POR_PAR, JANELA.toMinutes());
+            EventoDeSeguranca.de("login.contido")
+                    .com("contagem", "par")
+                    .com("ate", avisoDoPar)
+                    .daOrigem(origem)
+                    .registrarRecusa();
         }
         if (avisoDaOrigem != null) {
-            log.warn("login contido ate {}: {} falhas da mesma origem em {} minutos",
-                    avisoDaOrigem, FALHAS_POR_ORIGEM, JANELA.toMinutes());
+            EventoDeSeguranca.de("login.contido")
+                    .com("contagem", "origem")
+                    .com("ate", avisoDaOrigem)
+                    .daOrigem(origem)
+                    .registrarRecusa();
         }
         throw new LoginContidoException(espera);
     }

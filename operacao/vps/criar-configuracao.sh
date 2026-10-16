@@ -64,9 +64,10 @@ CAIXA_SIMPLES_COPIA_HORA_DIARIA=6
 CAIXA_SIMPLES_COPIA_AWS_ACCESS_KEY_ID=
 CAIXA_SIMPLES_COPIA_AWS_SECRET_ACCESS_KEY=
 
-# Endereços de sinal do vigia, um por check: o da cópia e o da máquina.
+# Endereços de sinal do vigia, um por check: o da cópia, o da máquina e o das recusas.
 CAIXA_SIMPLES_VIGIA_COPIA=
 CAIXA_SIMPLES_VIGIA_MAQUINA=
+CAIXA_SIMPLES_VIGIA_RECUSAS=
 FIM
 
 cat > "$PASTA/efi.env" <<FIM

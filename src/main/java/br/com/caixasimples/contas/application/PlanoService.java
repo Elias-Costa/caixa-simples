@@ -121,8 +121,9 @@ public class PlanoService {
      * @return o estado do plano depois da aplicação
      * @throws br.com.caixasimples.shared.AcessoNegadoException se quem chama não é ADMIN
      * @throws PedidoDePlanoNaoEncontradoException se o pedido não existe nesta Conta
-     * @throws IllegalArgumentException se o código está em branco ou não é o deste pedido, deste
-     *         plano e deste valor
+     * @throws IllegalArgumentException se o código está em branco
+     * @throws CodigoDePlanoRecusadoException se o código não é o deste pedido, deste plano e deste
+     *         valor
      * @throws IllegalStateException se o pedido foi substituído por outro
      */
     @Transactional
@@ -137,7 +138,7 @@ public class PlanoService {
         PedidoDePlano pedido = pedidos.findById(pedidoId)
                 .orElseThrow(() -> new PedidoDePlanoNaoEncontradoException(pedidoId));
         if (!assinatura.confere(pedido.getId(), pedido.getPlano(), pedido.getValor(), codigo)) {
-            throw new IllegalArgumentException("o codigo nao e o deste pedido");
+            throw new CodigoDePlanoRecusadoException(pedido.getId());
         }
 
         switch (pedido.getSituacao()) {

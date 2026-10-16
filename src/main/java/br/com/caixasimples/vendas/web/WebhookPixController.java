@@ -3,6 +3,7 @@ package br.com.caixasimples.vendas.web;
 import br.com.caixasimples.pagamentos.application.PixIndisponivelException;
 import br.com.caixasimples.pagamentos.domain.WebhookPixAutenticador;
 import br.com.caixasimples.shared.ContaId;
+import br.com.caixasimples.shared.EventoDeSeguranca;
 import br.com.caixasimples.vendas.application.VendaPixService;
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
@@ -27,6 +28,10 @@ import tools.jackson.databind.ObjectMapper;
  * memória antes de qualquer recusa, porque o Spring resolve os argumentos antes de chamar o método,
  * e o aviso anônimo custaria o mesmo que o legítimo. Só JSON é aceito, já na escolha da rota: um
  * formulário faria o servidor ler o corpo para achar o parâmetro do segredo.
+ *
+ * <p>As duas recusas vão ao log como evento de segurança, com o motivo e a origem, e entram no alerta
+ * de rajada: nada limita quantos avisos falsos chegam. Nem o identificador nem o segredo da URL vão,
+ * porque o par é o que autentica o aviso.
  */
 @RestController
 @RequestMapping("/api/webhooks/pix")
@@ -49,11 +54,13 @@ class WebhookPixController {
         Object atributo = requisicao.getAttribute("jakarta.servlet.request.X509Certificate");
         if (!requisicao.isSecure() || !(atributo instanceof X509Certificate[] certificados)
                 || certificados.length == 0) {
+            registrarRecusa("sem_certificado", requisicao);
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(ProblemDetail.forStatus(HttpStatus.FORBIDDEN));
         }
         ContaId conta = autenticador.autenticar(identificador, hmac);
         if (conta == null) {
+            registrarRecusa("hmac", requisicao);
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(ProblemDetail.forStatus(HttpStatus.FORBIDDEN));
         }
@@ -87,5 +94,12 @@ class WebhookPixController {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                     .body(ProblemDetail.forStatus(HttpStatus.SERVICE_UNAVAILABLE));
         }
+    }
+
+    private static void registrarRecusa(String motivo, HttpServletRequest requisicao) {
+        EventoDeSeguranca.de("webhook.recusado")
+                .com("motivo", motivo)
+                .daOrigem(requisicao.getRemoteAddr())
+                .registrarRecusa();
     }
 }

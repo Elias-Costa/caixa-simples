@@ -4,6 +4,8 @@ import br.com.caixasimples.cadastro.internal.ClienteService;
 import br.com.caixasimples.cadastro.internal.ClienteService.ClienteNaoEncontradoException;
 import br.com.caixasimples.cadastro.internal.ClienteService.ClienteComVersao;
 import br.com.caixasimples.cadastro.internal.ClienteService.DadosDoCliente;
+import br.com.caixasimples.shared.EventoDeSeguranca;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import java.net.URI;
@@ -66,9 +68,18 @@ class ClienteController {
         return ResponseEntity.noContent().build();
     }
 
+    /**
+     * A remoção apaga o nome e o contato e não se desfaz, por isso vai ao log como evento de
+     * segurança, com quem removeu, o Cliente e a origem, sem nada do que foi apagado.
+     */
     @PostMapping("/{id}/remover")
-    ResponseEntity<Void> remover(@PathVariable UUID id) {
+    ResponseEntity<Void> remover(@PathVariable UUID id, HttpServletRequest requisicao) {
         clientes.remover(id);
+        EventoDeSeguranca.de("cliente.removido")
+                .doContexto()
+                .com("alvo", id)
+                .daOrigem(requisicao.getRemoteAddr())
+                .registrar();
         return ResponseEntity.noContent().build();
     }
 

@@ -7,7 +7,9 @@ import br.com.caixasimples.contas.application.UsuarioNaoEncontradoException;
 import br.com.caixasimples.contas.application.UsuarioService;
 import br.com.caixasimples.contas.application.UsuarioService.UsuarioDaConta;
 import br.com.caixasimples.contas.internal.SenhaRecusadaException;
+import br.com.caixasimples.shared.EventoDeSeguranca;
 import br.com.caixasimples.shared.Perfil;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -26,7 +28,13 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Gestão de usuários da Conta autenticada, sem receber conta ou perfil de quem chama. */
+/**
+ * Gestão de usuários da Conta autenticada, sem receber conta ou perfil de quem chama.
+ *
+ * <p>Cada mudança feita vai ao log como evento de segurança, com quem fez, o Usuário alcançado e a
+ * origem: criar alguém, inativar e trocar a senha de outra pessoa são o que um token de
+ * administrador furtado faria. O nome e o e-mail não vão.
+ */
 @RestController
 @RequestMapping("/api/usuarios")
 class UsuarioController {
@@ -43,29 +51,47 @@ class UsuarioController {
     }
 
     @PostMapping
-    ResponseEntity<Criado> criar(@Valid @RequestBody PedidoDeUsuario pedido) {
+    ResponseEntity<Criado> criar(@Valid @RequestBody PedidoDeUsuario pedido,
+            HttpServletRequest requisicao) {
         UUID id = usuarios.criar(pedido.nome(), pedido.perfil(), pedido.email(), pedido.senha());
+        EventoDeSeguranca.de("usuario.criado")
+                .doContexto()
+                .com("alvo", id)
+                .com("perfil", pedido.perfil())
+                .daOrigem(requisicao.getRemoteAddr())
+                .registrar();
         return ResponseEntity.created(URI.create("/api/usuarios/" + id)).body(new Criado(id));
     }
 
     @PostMapping("/{id}/inativar")
-    ResponseEntity<Void> inativar(@PathVariable UUID id) {
+    ResponseEntity<Void> inativar(@PathVariable UUID id, HttpServletRequest requisicao) {
         usuarios.inativar(id);
+        registrar("usuario.inativado", id, requisicao);
         return ResponseEntity.noContent().build();
     }
 
     /** A senha nova é provisória: o operador a troca na próxima entrada. */
     @PostMapping("/{id}/redefinir-senha")
     ResponseEntity<Void> redefinirSenha(@PathVariable UUID id,
-            @Valid @RequestBody PedidoDeRedefinicao pedido) {
+            @Valid @RequestBody PedidoDeRedefinicao pedido, HttpServletRequest requisicao) {
         usuarios.redefinirSenha(id, pedido.senha());
+        registrar("senha.redefinida", id, requisicao);
         return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/{id}/anonimizar")
-    ResponseEntity<Void> anonimizar(@PathVariable UUID id) {
+    ResponseEntity<Void> anonimizar(@PathVariable UUID id, HttpServletRequest requisicao) {
         usuarios.anonimizarNome(id);
+        registrar("usuario.nome_removido", id, requisicao);
         return ResponseEntity.noContent().build();
+    }
+
+    private static void registrar(String evento, UUID alvo, HttpServletRequest requisicao) {
+        EventoDeSeguranca.de(evento)
+                .doContexto()
+                .com("alvo", alvo)
+                .daOrigem(requisicao.getRemoteAddr())
+                .registrar();
     }
 
     @ExceptionHandler(UsuarioNaoEncontradoException.class)

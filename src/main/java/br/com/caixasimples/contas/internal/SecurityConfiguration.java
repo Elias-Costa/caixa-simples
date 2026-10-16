@@ -98,7 +98,11 @@ class SecurityConfiguration {
                         // service worker e os ícones, que são públicos por natureza. Todo dado
                         // sai por /api, com token, então liberar o resto não expõe nada.
                         .anyRequest().permitAll())
-                .oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()))
+                // A entrada da recusa responde o mesmo 401 do Spring Security e registra o token
+                // apresentado que não valeu.
+                .oauth2ResourceServer(oauth2 -> oauth2
+                        .jwt(Customizer.withDefaults())
+                        .authenticationEntryPoint(new RecusaDoTokenNaEntrada()))
                 // A identidade depende da autenticação já resolvida, então vem depois do filtro
                 // que a resolve; a renovação depende da identidade, então vem depois dela.
                 .addFilterAfter(identidadeDoToken, BasicAuthenticationFilter.class)

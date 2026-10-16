@@ -5,9 +5,9 @@
 # conectou ao proxy, junto do X-Forwarded-Proto. A aplicação lê os dois e confia na rede interna
 # dos contêineres, de onde o proxy fala com ela.
 #
-# Sem access log: a aplicação não registra cada requisição, e o endereço de quem acessa fica fora
-# dos logs, a não ser em recusa e erro. Para medir a borda, liga-se o access log da própria
-# aplicação, à mão, e desliga-se depois.
+# Sem access log: a aplicação não registra cada requisição, e o endereço de quem acessa só vai aos
+# logs nos eventos de segurança dela, como o login e a recusa de acesso. Para medir a borda, liga-se
+# o access log da própria aplicação, à mão, e desliga-se depois.
 {
 	# Só HTTP/1.1, pela porta TCP. O HTTP/3 pediria também a porta UDP publicada. O HTTP/2 fica
 	# desligado até sair um build do proxy com a versão do Go que corrige dois avisos de negação de

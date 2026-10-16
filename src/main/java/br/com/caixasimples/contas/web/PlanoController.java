@@ -2,11 +2,14 @@ package br.com.caixasimples.contas.web;
 
 import br.com.caixasimples.contas.Plano;
 import br.com.caixasimples.contas.RecursoDoPlano;
+import br.com.caixasimples.contas.application.CodigoDePlanoRecusadoException;
 import br.com.caixasimples.contas.application.PedidoDePlanoNaoEncontradoException;
 import br.com.caixasimples.contas.application.PlanoService;
 import br.com.caixasimples.contas.application.PlanoService.EstadoDoPlano;
 import br.com.caixasimples.contas.application.PlanoService.PedidoNaConta;
 import br.com.caixasimples.contas.application.PlanoService.Proposta;
+import br.com.caixasimples.shared.EventoDeSeguranca;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -32,6 +35,9 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>Sem id de Conta na rota ou no pedido (RNF05). O id do pedido na rota de aplicação é procurado
  * só na Conta do token, e o de outra Conta responde 404, como um id que nunca existiu.
+ *
+ * <p>O pedido, o código aplicado e o código recusado vão ao log como evento de segurança, com quem
+ * fez e a origem: mudar o plano é ação do administrador sobre a Conta. O código não vai.
  */
 @RestController
 @RequestMapping("/api/conta/plano")
@@ -49,16 +55,41 @@ class PlanoController {
     }
 
     @PostMapping("/pedidos")
-    ResponseEntity<PedidoNaResposta> pedir(@Valid @RequestBody PedidoDeTroca pedido) {
+    ResponseEntity<PedidoNaResposta> pedir(@Valid @RequestBody PedidoDeTroca pedido,
+            HttpServletRequest requisicao) {
         PedidoNaConta criado = planos.pedir(pedido.plano());
+        EventoDeSeguranca.de("plano.pedido")
+                .doContexto()
+                .com("pedido", criado.id())
+                .com("plano", criado.plano())
+                .daOrigem(requisicao.getRemoteAddr())
+                .registrar();
         return ResponseEntity.created(URI.create("/api/conta/plano/pedidos/" + criado.id()))
                 .body(PedidoNaResposta.de(criado));
     }
 
     @PostMapping("/pedidos/{id}/codigo")
     EstadoNaResposta aplicarCodigo(@PathVariable UUID id,
-            @Valid @RequestBody CodigoDeAtivacao corpo) {
-        return EstadoNaResposta.de(planos.aplicarCodigo(id, corpo.codigo()));
+            @Valid @RequestBody CodigoDeAtivacao corpo, HttpServletRequest requisicao) {
+        EstadoDoPlano estado = planos.aplicarCodigo(id, corpo.codigo());
+        EventoDeSeguranca.de("plano.codigo_aplicado")
+                .doContexto()
+                .com("pedido", id)
+                .daOrigem(requisicao.getRemoteAddr())
+                .registrar();
+        return EstadoNaResposta.de(estado);
+    }
+
+    /** A mesma resposta de qualquer argumento recusado, com o registro da tentativa. */
+    @ExceptionHandler(CodigoDePlanoRecusadoException.class)
+    ProblemDetail codigoRecusado(CodigoDePlanoRecusadoException excecao,
+            HttpServletRequest requisicao) {
+        EventoDeSeguranca.de("plano.codigo_recusado")
+                .doContexto()
+                .com("pedido", excecao.pedidoId())
+                .daOrigem(requisicao.getRemoteAddr())
+                .registrarRecusa();
+        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, excecao.getMessage());
     }
 
     @ExceptionHandler(PedidoDePlanoNaoEncontradoException.class)

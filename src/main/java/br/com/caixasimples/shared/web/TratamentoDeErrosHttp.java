@@ -1,9 +1,12 @@
 package br.com.caixasimples.shared.web;
 
 import br.com.caixasimples.shared.AcessoNegadoException;
+import br.com.caixasimples.shared.EventoDeSeguranca;
+import br.com.caixasimples.shared.PilhaSemMensagens;
 import br.com.caixasimples.shared.RegistroDeRemocoesIndisponivelException;
 import br.com.caixasimples.shared.TenantNaoResolvidoException;
 import br.com.caixasimples.shared.UsuarioNaoResolvidoException;
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -41,9 +44,21 @@ class TratamentoDeErrosHttp extends ResponseEntityExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(TratamentoDeErrosHttp.class);
 
-    /** Quem chama está autenticado, mas o perfil dele não alcança a operação (RF30). */
+    /**
+     * Quem chama está autenticado, mas o perfil dele não alcança a operação (RF30).
+     *
+     * <p>A recusa vai ao log como evento de segurança, com quem tentou, onde e de que origem: um
+     * operador batendo em rota do administrador, ou um token furtado explorando a API, aparece aqui.
+     * O caminho vai sem a query, que pode levar o que alguém digitou.
+     */
     @ExceptionHandler(AcessoNegadoException.class)
-    ProblemDetail acessoNegado(AcessoNegadoException excecao) {
+    ProblemDetail acessoNegado(AcessoNegadoException excecao, HttpServletRequest requisicao) {
+        EventoDeSeguranca.de("acesso.recusado")
+                .doContexto()
+                .com("metodo", requisicao.getMethod())
+                .com("caminho", requisicao.getRequestURI())
+                .daOrigem(requisicao.getRemoteAddr())
+                .registrarRecusa();
         return ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, excecao.getMessage());
     }
 
@@ -135,12 +150,18 @@ class TratamentoDeErrosHttp extends ResponseEntityExceptionHandler {
 
     /**
      * Qualquer outra exceção é defeito, não regra: 500 sem detalhe, para a mensagem interna não
-     * viajar ao cliente, e a pilha inteira no log, porque o Spring não registra o que um tratador
-     * de exceção resolveu.
+     * viajar ao cliente.
+     *
+     * <p>O log recebe o método, o caminho e a pilha sem nenhuma mensagem, porque o Spring não registra
+     * o que um tratador de exceção resolveu, e a mensagem pode trazer dado pessoal, como o valor
+     * repetido que o banco cita na violação de unicidade. O caminho chega como o cliente o mandou,
+     * ainda codificado, então não tem espaço nem quebra de linha. Sem Conta nem origem, porque o
+     * defeito não é evento de segurança.
      */
     @ExceptionHandler(Exception.class)
-    ProblemDetail inesperado(Exception excecao) {
-        log.error("Erro inesperado ao atender a requisicao: {}", excecao.getClass().getName());
+    ProblemDetail inesperado(Exception excecao, HttpServletRequest requisicao) {
+        log.error("Erro inesperado em {} {}{}{}", requisicao.getMethod(),
+                requisicao.getRequestURI(), System.lineSeparator(), PilhaSemMensagens.de(excecao));
         return ProblemDetail.forStatus(HttpStatus.INTERNAL_SERVER_ERROR);
     }
 }

@@ -1,6 +1,7 @@
 package br.com.caixasimples.contas.internal;
 
 import br.com.caixasimples.shared.ContaId;
+import br.com.caixasimples.shared.EventoDeSeguranca;
 import br.com.caixasimples.shared.TenantContext;
 import br.com.caixasimples.shared.UsuarioAutenticado;
 import br.com.caixasimples.shared.UsuarioContext;
@@ -36,7 +37,9 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * <p>A mesma leitura confere a versão de acesso. O token que não leva a versão gravada no Usuário foi
  * emitido antes de uma troca de senha, de uma redefinição ou da saída de todos os aparelhos, e recebe
  * 401 como o do usuário inativo. O token sem versão nenhuma também, porque nada garante que ele não
- * seja anterior a uma revogação. A leitura funciona
+ * seja anterior a uma revogação. As duas recusas vão ao log como evento de segurança, com a Conta e
+ * o Usuário do token e a origem: o token revogado que continua chegando é o sinal de um aparelho
+ * furtado ainda em uso. A leitura funciona
  * porque cada consulta de repositório abre a própria sessão do Hibernate, e a sessão resolve o
  * tenant na abertura: o tenant já está definido quando a consulta roda.
  *
@@ -74,16 +77,28 @@ class IdentidadeDoTokenFilter extends OncePerRequestFilter {
         try {
             TenantContext.definir(ContaId.de(conta));
 
-            Optional<Usuario> usuario = usuarios.findById(UUID.fromString(sujeito))
-                    .filter(Usuario::isAtivo)
-                    .filter(lido -> levaAVersaoDoBanco(token, lido));
-            if (usuario.isEmpty()) {
+            Optional<Usuario> lido = usuarios.findById(UUID.fromString(sujeito));
+            String recusa = null;
+            if (lido.isEmpty() || !lido.get().isAtivo()) {
+                recusa = "usuario_inativo";
+            } else if (!levaAVersaoDoBanco(token, lido.get())) {
+                recusa = "versao_antiga";
+            }
+            if (recusa != null) {
+                EventoDeSeguranca.de("token.recusado")
+                        .com("conta", conta)
+                        .com("usuario", sujeito)
+                        .com("motivo", recusa)
+                        .com("metodo", requisicao.getMethod())
+                        .com("caminho", requisicao.getRequestURI())
+                        .daOrigem(requisicao.getRemoteAddr())
+                        .registrarRecusa();
                 resposta.setStatus(HttpStatus.UNAUTHORIZED.value());
                 return;
             }
 
-            UsuarioContext.definir(
-                    new UsuarioAutenticado(usuario.get().getId(), usuario.get().getPerfil()));
+            Usuario usuario = lido.get();
+            UsuarioContext.definir(new UsuarioAutenticado(usuario.getId(), usuario.getPerfil()));
             corrente.doFilter(requisicao, resposta);
         } finally {
             UsuarioContext.limpar();

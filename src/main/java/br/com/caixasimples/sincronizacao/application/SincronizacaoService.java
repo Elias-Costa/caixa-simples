@@ -1,6 +1,7 @@
 package br.com.caixasimples.sincronizacao.application;
 
 import br.com.caixasimples.shared.AcessoNegadoException;
+import br.com.caixasimples.shared.PilhaSemMensagens;
 import br.com.caixasimples.shared.UsuarioContext;
 import br.com.caixasimples.sincronizacao.AplicadorDeOperacoes;
 import br.com.caixasimples.sincronizacao.Aplicacao;
@@ -63,7 +64,8 @@ import tools.jackson.databind.ObjectMapper;
  * reenvia o mesmo id. Violação de integridade devolve a gravação concorrente da mesma operação, se
  * houver; senão, o registro conflita com outro existente, e a operação é recusada. Qualquer outra
  * exceção é recusa, gravada com a mensagem. As recusas previstas vão ao log como aviso; qualquer
- * outra exceção vai como erro, porque pode ser defeito.
+ * outra exceção vai como erro, porque pode ser defeito, com a pilha e sem as mensagens, que podem
+ * conter valores recebidos no gesto.
  *
  * <h2>Relógio</h2>
  *
@@ -346,8 +348,8 @@ public class SincronizacaoService {
             log.warn("operacao {} recusada: {}", operacao.operacaoId(),
                     recusa.getClass().getSimpleName());
         } else {
-            log.error("operacao {} recusada por excecao inesperada: {}",
-                    operacao.operacaoId(), recusa.getClass().getName());
+            log.error("operacao {} recusada por excecao inesperada{}{}", operacao.operacaoId(),
+                    System.lineSeparator(), PilhaSemMensagens.de(recusa));
         }
     }
 
