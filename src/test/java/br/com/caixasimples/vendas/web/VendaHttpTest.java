@@ -269,7 +269,7 @@ class VendaHttpTest extends TesteDeIntegracao {
                 .andExpect(status().isBadRequest());
         pagar(admin, venda, UUID.randomUUID(), "CARTAO", "10", "A".repeat(41))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.detail").value(containsString("limite e 40")));
+                .andExpect(jsonPath("$.detail").value(containsString("o limite é 40")));
         pagar(admin, venda, UUID.randomUUID(), "PIX", "10", "004512")
                 .andExpect(status().isBadRequest());
         pagar(admin, venda, UUID.randomUUID(), "DINHEIRO", "10", "004512")

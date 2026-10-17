@@ -2,6 +2,7 @@ package br.com.caixasimples.contas.internal;
 
 import br.com.caixasimples.shared.Perfil;
 import br.com.caixasimples.shared.ContaId;
+import br.com.caixasimples.shared.LimiteDeTexto;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -28,6 +29,9 @@ import org.hibernate.annotations.TenantId;
 @Entity
 @Table(name = "usuario")
 public class Usuario {
+
+    /** O tamanho da coluna do nome: o texto longo é recusado aqui, e não pelo banco. */
+    private static final int TAMANHO_DO_NOME = 120;
 
     @Id
     private UUID id;
@@ -64,7 +68,8 @@ public class Usuario {
 
     public Usuario(String nome, Perfil perfil) {
         this.id = UUID.randomUUID();
-        this.nome = exigirTexto(nome, "nome");
+        this.nome = LimiteDeTexto.exigirAte(exigirTexto(nome, "nome"), TAMANHO_DO_NOME,
+                "nome do usuário");
         this.perfil = Objects.requireNonNull(perfil, "perfil nao pode ser nulo");
         this.ativo = true;
         this.criadoEm = Instant.now();

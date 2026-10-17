@@ -1,6 +1,7 @@
 package br.com.caixasimples.contas.internal;
 
 import br.com.caixasimples.shared.ContaId;
+import br.com.caixasimples.shared.LimiteDeTexto;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -27,6 +28,9 @@ import java.util.UUID;
 @Entity
 @Table(name = "credencial")
 public class Credencial {
+
+    /** O tamanho da coluna do e-mail: o texto longo é recusado aqui, e não pelo banco. */
+    private static final int TAMANHO_DO_EMAIL = 180;
 
     @Id
     private UUID id;
@@ -64,7 +68,9 @@ public class Credencial {
      */
     public Credencial(String email, String senhaHash, UUID usuarioId, ContaId contaId) {
         this.id = UUID.randomUUID();
-        this.email = exigirTexto(email, "email").toLowerCase();
+        // Contado depois das minúsculas, que é o valor que vai à coluna.
+        this.email = LimiteDeTexto.exigirAte(exigirTexto(email, "email").toLowerCase(),
+                TAMANHO_DO_EMAIL, "e-mail");
         this.senhaHash = exigirTexto(senhaHash, "senhaHash");
         this.usuarioId = Objects.requireNonNull(usuarioId, "usuarioId nao pode ser nulo");
         this.contaId = Objects.requireNonNull(contaId, "contaId nao pode ser nulo").valor();

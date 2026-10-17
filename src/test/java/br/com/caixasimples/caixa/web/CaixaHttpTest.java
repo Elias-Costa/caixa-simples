@@ -1,5 +1,6 @@
 package br.com.caixasimples.caixa.web;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -14,10 +15,15 @@ import br.com.caixasimples.shared.FusoDeReferencia;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.Perfil;
 import br.com.caixasimples.caixa.application.SessaoCaixaService;
+import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
@@ -177,5 +183,47 @@ class CaixaHttpTest extends TesteDeIntegracao {
                         .content("{\"valorAbertura\":" + valor + "}"))
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
         return UUID.fromString(json.readTree(corpo).get("id").asText());
+    }
+
+    /** O motivo de 121 caracteres respondia 409, como se a sessão conflitasse com outra. */
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void motivoAcimaDaColunaRecebe400SemMoverAGaveta(CapturedOutput log) throws Exception {
+        ContaCriada conta = criador.criar("Loja do Motivo", SENHA, Perfil.OPERADOR, true);
+        RequestPostProcessor operador = autenticador.como(conta);
+        UUID id = abrir(operador, "50.00");
+
+        http.perform(post("/api/caixa/sessoes/{id}/sangrias", id).with(operador)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(movimento("10.00", "m".repeat(121))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail")
+                        .value("motivo da sangria com 121 caracteres; o limite é 120."));
+        http.perform(post("/api/caixa/sessoes/{id}/suprimentos", id).with(operador)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(movimento("10.00", "m".repeat(121))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail")
+                        .value("motivo do suprimento com 121 caracteres; o limite é 120."));
+        http.perform(get("/api/caixa/sessoes/aberta").with(operador))
+                .andExpect(jsonPath("$.valorFechamentoEsperado").value(50.0))
+                .andExpect(jsonPath("$.versao").value(0));
+
+        http.perform(post("/api/caixa/sessoes/{id}/sangrias", id).with(operador)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(movimento("10.00", "m".repeat(120))))
+                .andExpect(status().isNoContent());
+        http.perform(post("/api/caixa/sessoes/{id}/suprimentos", id).with(operador)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(movimento("5.00", "m".repeat(120))))
+                .andExpect(status().isNoContent());
+        http.perform(get("/api/caixa/sessoes/aberta").with(operador))
+                .andExpect(jsonPath("$.valorFechamentoEsperado").value(45.0));
+        assertThat(log).doesNotContain("Erro inesperado");
+    }
+
+    private String movimento(String valor, String motivo) {
+        return json.writeValueAsString(Map.of("movimentoId", UUID.randomUUID(),
+                "valor", new BigDecimal(valor), "motivo", motivo));
     }
 }

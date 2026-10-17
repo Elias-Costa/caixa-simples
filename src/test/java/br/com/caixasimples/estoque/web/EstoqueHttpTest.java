@@ -1,5 +1,6 @@
 package br.com.caixasimples.estoque.web;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -18,7 +19,10 @@ import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.Perfil;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -134,5 +138,29 @@ class EstoqueHttpTest extends TesteDeIntegracao {
     private UUID cadastrar(ContaCriada conta, TipoProduto tipo, String nome) {
         return conta.comoUsuario(() -> produtos.cadastrar(tipo,
                 new DadosDoProduto(nome, Money.de("5.00"), null, null, "un", null)));
+    }
+
+    /** O motivo de 121 caracteres respondia 500, com a pilha no log. */
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void motivoDoAjusteAcimaDaColunaRecebe400(CapturedOutput log) throws Exception {
+        ContaCriada conta = criador.criar("Mercado do Motivo", SENHA);
+        criador.contratar(conta.contaId(), Plano.COMPLETO);
+        criador.habilitarEstoque(conta.contaId());
+        UUID produto = cadastrar(conta, TipoProduto.PRODUTO, "Feijao");
+
+        http.perform(post("/api/estoque/produtos/{id}/ajustes", produto)
+                        .with(autenticador.como(conta)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"diferenca\":5,\"motivo\":\"" + "m".repeat(121) + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail")
+                        .value("motivo do ajuste de estoque com 121 caracteres; o limite é 120."));
+        http.perform(post("/api/estoque/produtos/{id}/ajustes", produto)
+                        .with(autenticador.como(conta)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"diferenca\":5,\"motivo\":\"" + "m".repeat(120) + "\"}"))
+                .andExpect(status().isNoContent());
+        http.perform(get("/api/estoque/produtos").with(autenticador.como(conta)))
+                .andExpect(jsonPath("$[0].estoqueAtual").value(5));
+        assertThat(log).doesNotContain("Erro inesperado");
     }
 }

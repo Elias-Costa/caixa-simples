@@ -111,6 +111,25 @@ class SessaoCaixaTest {
     }
 
     @Test
+    @DisplayName("o motivo aceita 120 caracteres sem os espaços das pontas e recusa 121, sem rastro")
+    void motivoNoLimiteDaColuna() {
+        SessaoCaixa sessao = new SessaoCaixa(OPERADOR, Money.de("100.00"));
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> sessao.sangrar(Money.de("10.00"), "m".repeat(121)))
+                .withMessage("motivo da sangria com 121 caracteres; o limite é 120.");
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> sessao.suprir(Money.de("10.00"), "m".repeat(121)))
+                .withMessage("motivo do suprimento com 121 caracteres; o limite é 120.");
+        assertThat(sessao.getMovimentos()).isEmpty();
+
+        sessao.sangrar(Money.de("10.00"), "  " + "m".repeat(120) + "  ");
+        sessao.suprir(Money.de("10.00"), "m".repeat(120));
+        assertThat(sessao.getMovimentos()).extracting(movimento -> movimento.motivo().length())
+                .containsExactly(120, 120);
+    }
+
+    @Test
     @DisplayName("não se retira da gaveta mais do que deveria haver nela")
     void sangriaMaiorQueOEsperadoERecusada() {
         SessaoCaixa sessao = new SessaoCaixa(OPERADOR, Money.de("100.00"));

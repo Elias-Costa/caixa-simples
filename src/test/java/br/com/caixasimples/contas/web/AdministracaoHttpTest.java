@@ -23,9 +23,13 @@ import java.math.BigDecimal;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 import tools.jackson.databind.ObjectMapper;
 
 /** Contrato HTTP da administração, com autorização e isolamento entre Contas (RF17, RF29, RNF05). */
@@ -239,5 +243,53 @@ class AdministracaoHttpTest extends TesteDeIntegracao {
         http.perform(get("/api/auth/eu").with(autenticador.como(operador)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.nsuObrigatorio").value(false));
+    }
+
+    /**
+     * O nome de usuário de 121 caracteres respondia 500, com a pilha no log, e o e-mail de 181 que
+     * o formato aceita também. O domínio os recusa com 400, e nenhum usuário é criado.
+     */
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void nomeEEmailAcimaDaColunaRecebem400(CapturedOutput log) throws Exception {
+        ContaCriada conta = criador.criar("Loja dos Limites", SENHA);
+        criador.contratar(conta.contaId(), Plano.COMPLETO);
+
+        criarOperador(conta, "n".repeat(121), "atendente-" + UUID.randomUUID() + "@exemplo.test")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail")
+                        .value("nome do usuário com 121 caracteres; o limite é 120."));
+        criarOperador(conta, "Atendente", emailDeTamanho(181))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("e-mail com 181 caracteres; o limite é 180."));
+        http.perform(get("/api/usuarios").with(autenticador.como(conta)))
+                .andExpect(jsonPath("$.length()").value(1));
+
+        criarOperador(conta, "n".repeat(120), emailDeTamanho(180))
+                .andExpect(status().isCreated());
+        http.perform(get("/api/usuarios").with(autenticador.como(conta)))
+                .andExpect(jsonPath("$.length()").value(2));
+        assertThat(log).doesNotContain("Erro inesperado");
+    }
+
+    private ResultActions criarOperador(ContaCriada conta, String nome, String email)
+            throws Exception {
+        return http.perform(post("/api/usuarios").with(autenticador.como(conta))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(Map.of("nome", nome, "perfil", "OPERADOR",
+                        "email", email, "senha", SENHA))));
+    }
+
+    /** Um e-mail que o formato aceita, do tamanho pedido, único pelo UUID da parte local. */
+    private static String emailDeTamanho(int tamanho) {
+        String local = "u" + UUID.randomUUID().toString().replace("-", "");
+        // O formato aceita até 63 caracteres em cada parte do domínio, então ele vai em quatro.
+        String inicioDoDominio = "a".repeat(60) + "." + "b".repeat(60) + ".";
+        String fim = ".test";
+        String meio = "c".repeat(
+                tamanho - local.length() - 1 - inicioDoDominio.length() - fim.length());
+        String email = local + "@" + inicioDoDominio + meio + fim;
+        assertThat(email).hasSize(tamanho);
+        return email;
     }
 }

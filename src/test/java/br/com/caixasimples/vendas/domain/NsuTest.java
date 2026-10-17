@@ -36,8 +36,7 @@ class NsuTest {
         assertThat(Nsu.normalizar("  " + QUARENTA + "  ")).isEqualTo(QUARENTA);
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> Nsu.normalizar(QUARENTA + "B"))
-                .withMessageContaining("41 caracteres")
-                .withMessageContaining("limite e 40");
+                .withMessage("NSU com 41 caracteres; o limite é 40.");
     }
 
     @Test
@@ -62,7 +61,7 @@ class NsuTest {
 
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> parcela(FormaPagamento.CARTAO, QUARENTA + "B", agora))
-                .withMessageContaining("limite e 40");
+                .withMessageContaining("o limite é 40");
     }
 
     @Test
@@ -82,7 +81,7 @@ class NsuTest {
         }
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> recebimento(FormaPagamento.CARTAO, QUARENTA + "B"))
-                .withMessageContaining("limite e 40");
+                .withMessageContaining("o limite é 40");
     }
 
     @Test

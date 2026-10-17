@@ -501,6 +501,65 @@ class ProdutoTest {
     }
 
     @Test
+    @DisplayName("cada texto aceita o tamanho da coluna, contado sem os espaços das pontas, e recusa um a mais")
+    void textosNoLimiteDaColuna() {
+        Produto noLimite = new Produto("  " + "n".repeat(120) + "  ", Money.de("1.00"),
+                TipoProduto.PRODUTO, "c".repeat(60), "g".repeat(60), "u".repeat(60), null);
+        assertThat(noLimite.getNome()).hasSize(120);
+        assertThat(noLimite.getCodigo()).hasSize(60);
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new Produto("n".repeat(121), Money.de("1.00"),
+                        TipoProduto.PRODUTO, null, null, null, null))
+                .withMessage("nome do produto com 121 caracteres; o limite é 120.");
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new Produto("Cafe", Money.de("1.00"), TipoProduto.PRODUTO,
+                        "c".repeat(61), null, null, null))
+                .withMessage("código do produto com 61 caracteres; o limite é 60.");
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new Produto("Cafe", Money.de("1.00"), TipoProduto.PRODUTO,
+                        null, "g".repeat(61), null, null))
+                .withMessage("categoria do produto com 61 caracteres; o limite é 60.");
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new Produto("Cafe", Money.de("1.00"), TipoProduto.PRODUTO,
+                        null, null, "u".repeat(61), null))
+                .withMessage("unidade do produto com 61 caracteres; o limite é 60.");
+    }
+
+    @Test
+    @DisplayName("a edição confere o mesmo limite de cada texto")
+    void edicaoNoLimiteDaColuna() {
+        Produto produto = valido(Money.de("6.50"));
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> produto.alterar("n".repeat(121), Money.de("7.00"), null, null,
+                        null, null))
+                .withMessage("nome do produto com 121 caracteres; o limite é 120.");
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> produto.alterar("Cafe", Money.de("7.00"), null, null,
+                        "u".repeat(61), null))
+                .withMessage("unidade do produto com 61 caracteres; o limite é 60.");
+
+        produto.alterar("n".repeat(120), Money.de("7.00"), "c".repeat(60), "g".repeat(60),
+                "u".repeat(60), null);
+        assertThat(produto.getUnidade()).hasSize(60);
+    }
+
+    @Test
+    @DisplayName("o motivo do ajuste aceita 120 caracteres e recusa 121 sem mover o saldo")
+    void motivoDoAjusteNoLimite() {
+        Produto produto = valido(Money.de("6.50"));
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> produto.ajustarEstoque(new BigDecimal("3"), "m".repeat(121)))
+                .withMessage("motivo do ajuste de estoque com 121 caracteres; o limite é 120.");
+        assertThat(produto.getEstoqueAtual()).isEqualByComparingTo("0");
+
+        produto.ajustarEstoque(new BigDecimal("3"), " " + "m".repeat(120) + " ");
+        assertThat(produto.getEstoqueAtual()).isEqualByComparingTo("3");
+    }
+
+    @Test
     @DisplayName("serviço nunca está com estoque baixo, mesmo com saldo zero")
     void servicoNuncaEstaBaixo() {
         Produto servico = new Produto("Corte", Money.de("40.00"), TipoProduto.SERVICO, null, null,

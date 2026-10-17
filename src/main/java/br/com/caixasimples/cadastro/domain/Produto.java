@@ -1,6 +1,7 @@
 package br.com.caixasimples.cadastro.domain;
 
 import br.com.caixasimples.cadastro.TipoProduto;
+import br.com.caixasimples.shared.LimiteDeTexto;
 import br.com.caixasimples.shared.Money;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -35,6 +36,13 @@ import java.util.UUID;
  * cerimônia.
  */
 public class Produto {
+
+    /** O tamanho de cada coluna de texto: o texto longo é recusado aqui, e não pelo banco. */
+    private static final int TAMANHO_DO_NOME = 120;
+    private static final int TAMANHO_DO_CODIGO = 60;
+    private static final int TAMANHO_DA_CATEGORIA = 60;
+    private static final int TAMANHO_DA_UNIDADE = 60;
+    private static final int TAMANHO_DO_MOTIVO = 120;
 
     private final UUID id;
     private final Instant criadoEm;
@@ -108,12 +116,12 @@ public class Produto {
             String codigo, String categoria, String unidade, Map<String, Object> atributos) {
         this.id = Objects.requireNonNull(id, "id do produto nao pode ser nulo");
         this.criadoEm = Objects.requireNonNull(criadoEm, "criadoEm nao pode ser nulo");
-        this.nome = exigirTexto(nome, "nome");
+        this.nome = exigirTexto(nome, "nome do produto", TAMANHO_DO_NOME);
         this.preco = exigirPreco(preco);
         this.tipo = Objects.requireNonNull(tipo, "tipo nao pode ser nulo");
-        this.codigo = textoOpcional(codigo);
-        this.categoria = textoOpcional(categoria);
-        this.unidade = textoOpcional(unidade);
+        this.codigo = textoOpcional(codigo, "código do produto", TAMANHO_DO_CODIGO);
+        this.categoria = textoOpcional(categoria, "categoria do produto", TAMANHO_DA_CATEGORIA);
+        this.unidade = textoOpcional(unidade, "unidade do produto", TAMANHO_DA_UNIDADE);
         this.atributos = copiar(atributos);
         this.estoqueAtual = BigDecimal.ZERO;
         this.estoqueMinimo = BigDecimal.ZERO;
@@ -178,11 +186,11 @@ public class Produto {
         if (!ativo) {
             throw new IllegalStateException("produto inativo nao pode ser editado: " + id);
         }
-        this.nome = exigirTexto(nome, "nome");
+        this.nome = exigirTexto(nome, "nome do produto", TAMANHO_DO_NOME);
         this.preco = exigirPreco(preco);
-        this.codigo = textoOpcional(codigo);
-        this.categoria = textoOpcional(categoria);
-        this.unidade = textoOpcional(unidade);
+        this.codigo = textoOpcional(codigo, "código do produto", TAMANHO_DO_CODIGO);
+        this.categoria = textoOpcional(categoria, "categoria do produto", TAMANHO_DA_CATEGORIA);
+        this.unidade = textoOpcional(unidade, "unidade do produto", TAMANHO_DA_UNIDADE);
         this.atributos = copiar(atributos);
     }
 
@@ -328,6 +336,7 @@ public class Produto {
         if (motivo == null || motivo.isBlank()) {
             throw new IllegalArgumentException("motivo e obrigatorio em ajuste de estoque (RF19)");
         }
+        LimiteDeTexto.exigirAte(motivo.trim(), TAMANHO_DO_MOTIVO, "motivo do ajuste de estoque");
         if (diferenca.signum() == 0) {
             throw new IllegalArgumentException(
                     "diferenca do ajuste nao pode ser zero: nada entrou nem saiu");
@@ -388,18 +397,18 @@ public class Produto {
         return preco;
     }
 
-    private static String exigirTexto(String valor, String campo) {
+    private static String exigirTexto(String valor, String campo, int limite) {
         if (valor == null || valor.isBlank()) {
             throw new IllegalArgumentException(campo + " nao pode ser vazio");
         }
-        return valor.trim();
+        return LimiteDeTexto.exigirAte(valor.trim(), limite, campo);
     }
 
-    private static String textoOpcional(String valor) {
+    private static String textoOpcional(String valor, String campo, int limite) {
         if (valor == null || valor.isBlank()) {
             return null;
         }
-        return valor.trim();
+        return LimiteDeTexto.exigirAte(valor.trim(), limite, campo);
     }
 
     private static Map<String, Object> copiar(Map<String, Object> atributos) {

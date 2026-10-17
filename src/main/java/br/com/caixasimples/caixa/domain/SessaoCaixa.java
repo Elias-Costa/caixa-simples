@@ -2,6 +2,7 @@ package br.com.caixasimples.caixa.domain;
 
 import br.com.caixasimples.caixa.StatusSessaoCaixa;
 import br.com.caixasimples.caixa.TipoMovimentoCaixa;
+import br.com.caixasimples.shared.LimiteDeTexto;
 import br.com.caixasimples.shared.Money;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -89,6 +90,9 @@ import java.util.UUID;
  * nas duas formas.
  */
 public class SessaoCaixa {
+
+    /** O tamanho da coluna do motivo: o texto longo é recusado aqui, e não pelo banco. */
+    private static final int TAMANHO_DO_MOTIVO = 120;
 
     private final UUID id;
     private final UUID usuarioId;
@@ -196,7 +200,7 @@ public class SessaoCaixa {
     }
 
     public void sangrar(UUID movimentoId, Money valor, String motivo, Instant criadoEm) {
-        exigirMotivo(motivo, TipoMovimentoCaixa.SANGRIA);
+        exigirMotivo(motivo, TipoMovimentoCaixa.SANGRIA, "motivo da sangria");
         Objects.requireNonNull(valor, "valor da sangria nao pode ser nulo");
 
         // A conta é feita antes de anexar o movimento, para que uma sangria recusada não deixe
@@ -228,7 +232,7 @@ public class SessaoCaixa {
     }
 
     public void suprir(UUID movimentoId, Money valor, String motivo, Instant criadoEm) {
-        exigirMotivo(motivo, TipoMovimentoCaixa.SUPRIMENTO);
+        exigirMotivo(motivo, TipoMovimentoCaixa.SUPRIMENTO, "motivo do suprimento");
         registrar(movimentoId, TipoMovimentoCaixa.SUPRIMENTO, valor, motivo, null, null, criadoEm);
     }
 
@@ -453,12 +457,14 @@ public class SessaoCaixa {
     /**
      * A exigência de motivo (RF14) vive aqui, e não em {@link MovimentoCaixa}, porque o membro do
      * agregado aceita os três tipos e apenas dois deles exigem justificativa. O CHECK da migration
-     * V5 diz o mesmo no banco.
+     * V5 diz o mesmo no banco. O tamanho é contado sem os espaços das pontas, que o movimento corta
+     * antes de gravar.
      */
-    private static void exigirMotivo(String motivo, TipoMovimentoCaixa tipo) {
+    private static void exigirMotivo(String motivo, TipoMovimentoCaixa tipo, String campo) {
         if (motivo == null || motivo.isBlank()) {
             throw new IllegalArgumentException("motivo e obrigatorio em " + tipo + " (RF14)");
         }
+        LimiteDeTexto.exigirAte(motivo.trim(), TAMANHO_DO_MOTIVO, campo);
     }
 
     public UUID getId() {

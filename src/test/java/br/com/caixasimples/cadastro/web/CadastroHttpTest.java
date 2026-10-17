@@ -1,5 +1,6 @@
 package br.com.caixasimples.cadastro.web;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -11,11 +12,17 @@ import br.com.caixasimples.contas.AutenticadorDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
 import br.com.caixasimples.shared.Perfil;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import tools.jackson.databind.ObjectMapper;
 
@@ -175,5 +182,82 @@ class CadastroHttpTest extends TesteDeIntegracao {
                         .content("{\"nome\":\"  \"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.campos.nome").exists());
+    }
+
+    /**
+     * Cada texto no tamanho da coluna entra, e um caractere a mais é recusado pelo domínio com 400,
+     * antes do banco. O nome longo respondia 409, como se houvesse um registro repetido.
+     */
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void textoAcimaDaColunaRecebe400ComOCampoEOLimite(CapturedOutput log) throws Exception {
+        ContaCriada conta = criador.criar("Cadastro no limite", SENHA);
+        RequestPostProcessor admin = autenticador.como(conta);
+
+        Map<String, Object> produto = new LinkedHashMap<>();
+        produto.put("tipo", "PRODUTO");
+        produto.put("nome", "n".repeat(120));
+        produto.put("preco", 10);
+        produto.put("codigo", "c".repeat(60));
+        produto.put("categoria", "g".repeat(60));
+        produto.put("unidade", "u".repeat(60));
+        UUID produtoId = criado("/api/produtos", admin, produto);
+
+        recusado(post("/api/produtos"), admin, com(produto, "nome", "n".repeat(121)),
+                "nome do produto com 121 caracteres; o limite é 120.");
+        recusado(post("/api/produtos"), admin, com(produto, "codigo", "c".repeat(61)),
+                "código do produto com 61 caracteres; o limite é 60.");
+        recusado(post("/api/produtos"), admin, com(produto, "categoria", "g".repeat(61)),
+                "categoria do produto com 61 caracteres; o limite é 60.");
+        recusado(post("/api/produtos"), admin, com(produto, "unidade", "u".repeat(61)),
+                "unidade do produto com 61 caracteres; o limite é 60.");
+        Map<String, Object> edicao = new LinkedHashMap<>(produto);
+        edicao.remove("tipo");
+        recusado(put("/api/produtos/{id}", produtoId), admin, com(edicao, "nome", "n".repeat(121)),
+                "nome do produto com 121 caracteres; o limite é 120.");
+        recusado(put("/api/produtos/{id}", produtoId), admin,
+                com(edicao, "categoria", "g".repeat(61)),
+                "categoria do produto com 61 caracteres; o limite é 60.");
+        http.perform(get("/api/produtos").with(admin))
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].versao").value(0));
+
+        Map<String, Object> cliente = Map.of("nome", "n".repeat(120), "contato", "c".repeat(180));
+        UUID clienteId = criado("/api/clientes", admin, cliente);
+        recusado(post("/api/clientes"), admin, com(cliente, "nome", "n".repeat(121)),
+                "nome do cliente com 121 caracteres; o limite é 120.");
+        recusado(post("/api/clientes"), admin, com(cliente, "contato", "c".repeat(181)),
+                "contato do cliente com 181 caracteres; o limite é 180.");
+        recusado(put("/api/clientes/{id}", clienteId), admin,
+                com(cliente, "contato", "c".repeat(181)),
+                "contato do cliente com 181 caracteres; o limite é 180.");
+        http.perform(get("/api/clientes").with(admin))
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].versao").value(0));
+
+        assertThat(log).doesNotContain("Erro inesperado");
+    }
+
+    private UUID criado(String rota, RequestPostProcessor quem, Map<String, Object> corpo)
+            throws Exception {
+        String resposta = http.perform(post(rota).with(quem)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(corpo)))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        return UUID.fromString(json.readTree(resposta).get("id").asText());
+    }
+
+    private void recusado(MockHttpServletRequestBuilder pedido, RequestPostProcessor quem,
+            Map<String, Object> corpo, String mensagem) throws Exception {
+        http.perform(pedido.with(quem).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(corpo)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value(mensagem));
+    }
+
+    private static Map<String, Object> com(Map<String, Object> base, String campo, Object valor) {
+        Map<String, Object> copia = new LinkedHashMap<>(base);
+        copia.put(campo, valor);
+        return copia;
     }
 }

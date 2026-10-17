@@ -119,7 +119,7 @@ Venda continuam.
 
 | Módulo | Estado | O que existe hoje |
 |---|---|---|
-| `shared` | Implementado | `Money`, `ContaId`, `FusoDeReferencia` e os dois contextos da requisição: `TenantContext`, a conta em operação, e `UsuarioContext`, quem está operando e com que perfil, com as duas perguntas de autorização que todo caso de uso restrito faz na primeira linha. O registro mínimo de remoções é gravado em objetos separados das cópias do banco; sem essa gravação, a remoção é recusada. O tratamento transversal de erro da API devolve Problem Details: recusa por perfil vira 403, estado inválido vira 409 e indisponibilidade do registro vira 503. Os eventos de segurança saem no log numa linha chave=valor, com os ids e a origem e sem dado pessoal, e o erro inesperado sai com a pilha sem as mensagens. O shell do PWA sai daqui, com o fallback que devolve a mesma página para qualquer rota do cliente e nunca para a API |
+| `shared` | Implementado | `Money`, `ContaId`, `FusoDeReferencia` e os dois contextos da requisição: `TenantContext`, a conta em operação, e `UsuarioContext`, quem está operando e com que perfil, com as duas perguntas de autorização que todo caso de uso restrito faz na primeira linha. O registro mínimo de remoções é gravado em objetos separados das cópias do banco; sem essa gravação, a remoção é recusada. Cada texto que vai a uma coluna limitada passa por uma conferência única de tamanho antes do banco. O tratamento transversal de erro da API devolve Problem Details: recusa por perfil vira 403, estado inválido vira 409 e indisponibilidade do registro vira 503. Os eventos de segurança saem no log numa linha chave=valor, com os ids e a origem e sem dado pessoal, e o erro inesperado sai com a pilha sem as mensagens. O shell do PWA sai daqui, com o fallback que devolve a mesma página para qualquer rota do cliente e nunca para a API |
 | `contas` | Implementado | `Conta`, `Usuario`, `Credencial`, login por JWT com contenção de tentativas repetidas, política de senha, provisionamento de conta, as perguntas que os outros módulos fazem à conta em operação, se o controle de estoque está ligado e se o plano dá direito a um recurso, e a gestão de usuários: o administrador cria operador ou administrador com login próprio, lista e inativa pela API e pelo PWA, com mais de um usuário só no plano mais alto e a conta nunca sem administrador. Inativar apaga a credencial e libera o e-mail; o administrador pode anonimizar o nome depois. A configuração liga o controle de estoque e só o desliga antes do primeiro movimento, e liga ou desliga, em qualquer plano, a exigência do NSU no pagamento em cartão; o menu reage imediatamente à mudança. O filtro que resolve o token lê o usuário no banco a cada requisição, então inativar vale na requisição seguinte, e o perfil que vale é o do banco, não o do token. A mesma leitura confere a versão de acesso que vai no token: cada um troca a própria senha, informando a atual, e os outros aparelhos dele saem na requisição seguinte; sair de todos os aparelhos derruba também o que pediu; o administrador redefine a senha de um operador, que sai de todos os aparelhos. A senha escolhida por outra pessoa, a do seed e a que o administrador define, é provisória, e o PWA só mostra a tela de troca até a pessoa escolher a dela. A senha tem de 15 caracteres a 72 bytes em UTF-8, e uma execução avulsa, como o seed, socorre o administrador que perdeu o acesso. O primeiro login do administrador marca a Conta e publica o primeiro acesso na mesma transação que copia o catálogo sugerido. A troca de plano pela própria Conta grava o pedido, confere o código de ativação recalculando a assinatura do pedido, sem guardá-lo, e mantém o ciclo mensal com aviso, tolerância e suspensão só dos recursos pagos; pedir e aplicar travam a linha da Conta, e a aplicação repetida não ativa duas vezes. Quem está autenticado pergunta em `/api/auth/eu` e recebe o próprio nome, o negócio, o tipo dele, se o estoque está ligado, se o cartão exige o NSU e o plano, com a situação e os recursos que valem hoje: é o cabeçalho de toda tela |
 | `cadastro` | Implementado, com cadastro local recebido pelo lote | `Produto` com atributos `JSONB`, busca por nome ou código para o balcão, `Cliente` como vertical slice, catálogo sugerido por tipo de negócio e copiado no primeiro login do administrador, e o agregado inteiro: `MovimentoEstoque` como membro, com a baixa por venda, o estorno por cancelamento e o ajuste manual gravando movimento e saldo na mesma transação, o estoque mínimo de cada produto e a resposta de quais estão com estoque baixo. A API expõe a revisão de Produto e Cliente; o PWA guarda listas por Conta e gestos por usuário para cadastrar, editar e inativar os dois sem rede, além de reativar Cliente, após a preparação online. Só o administrador remove Cliente: o nome vira `Cliente removido`, o contato sai e o cadastro não volta às listas; dívida ou comanda aberta impede a remoção. Os dois perfis consultam produtos e cadastram clientes no balcão. Os gestos do dispositivo chegam pelo lote de sincronização, com o id e o instante gravados sem rede |
 | `caixa` | Implementado, com gestos locais recebidos pelo lote | `SessaoCaixa`: abertura, sangria, suprimento, fechamento com conferência, histórico por operador e por dia, consulta da sessão aberta do usuário atual e extrato de uma sessão com a Venda de origem nos movimentos. A API e o PWA permitem operar e conferir o caixa, com o esperado visível antes de informar o contado. Sangria e suprimento online recebem o id do movimento do aparelho e aceitam o reenvio igual sem lançá-lo de novo. Sem rede, o PWA guarda os gestos por Conta e usuário, recompõe a sessão após recarga, conta no esperado o dinheiro das Vendas concluídas no dispositivo e mostra a diferença antes do fechamento. O dinheiro em espécie de cada venda concluída entra na gaveta pelo evento, na mesma transação da conclusão e com o instante dela, uma vez só; o cancelamento o estorna. Abertura, sangria, suprimento e fechamento feitos sem rede chegam pelo lote com o id e os instantes do balcão, e o fechamento calcula a diferença com o que o servidor conhece. O caixa é de quem o abriu: o operador só lança, fecha e consulta a própria sessão e só pede o próprio histórico; o administrador toca qualquer sessão da conta, inclusive para fechar o caixa de outro operador |
@@ -171,8 +171,9 @@ de quem pediu, inclusive o desta requisição. O contrato
 de erro já está fixado para todos os endpoints que virão: toda resposta de erro é Problem Details
 (RFC 9457), produzida por um tratador transversal em `shared` que estende o do próprio Spring MVC,
 para o cliente receber uma forma só venha o erro do framework ou da aplicação. A recusa por perfil
-vira 403; argumento que o domínio rejeita, 400, o mesmo da validação de corpo, que ainda lista a
-mensagem por campo; estado que o agregado rejeita, 409; tentativas demais no login, 429 com
+vira 403; argumento que o domínio rejeita, como o texto acima do tamanho da coluna, 400, o mesmo da
+validação de corpo, que ainda lista a mensagem por campo; estado que o agregado rejeita, 409;
+tentativas demais no login, 429 com
 `Retry-After`; corpo acima do limite da rota, 413; erro inesperado, 500 sem a mensagem interna; e o não encontrado de cada módulo é
 traduzido em 404 no pacote `web` do próprio módulo.
 Valor monetário viaja como número, e a conversão para `Money` é escrita no controller. O cadastro
@@ -736,6 +737,16 @@ JSON, e nenhuma rota lê formulário. O proxy da máquina tem um teto único aci
 limites, e o aplicativo trata o 413 no envio da fila como as outras recusas: o lote fica com a
 falha visível e nada sai da fila.
 
+Cada texto que vai a uma coluna `varchar` tem o tamanho conferido no domínio, antes do banco, pela
+mesma função: nome, código, categoria e unidade do produto, nome e contato do cliente, nome e
+e-mail do usuário, motivo da sangria, do suprimento e do ajuste de estoque, e o NSU. A conta é a do
+Java, depois do corte dos espaços das pontas, a mesma do limite dos campos do aplicativo. A rota
+responde 400 com o campo, o tamanho e o limite, e o gesto do lote que traz o mesmo texto vira recusa
+com a mesma mensagem, porque os dois chamam os mesmos casos de uso. A mensagem nunca leva o texto,
+que pode ser o nome de uma pessoa e iria ao registro gravado do lote. Sem essa conferência, o banco
+recusaria a linha, mas a resposta seria um 500 com a pilha no log ou um 409 que mandaria procurar um
+registro repetido que não existe.
+
 A validade do token conta a partir do último contato com o servidor e não do login: toda resposta
 autenticada devolve um token renovado. Na prática, é a janela de resistência que a operação offline
 exige. Inativar alguém derruba o token dele na requisição seguinte, e trocar a senha ou sair de
@@ -798,7 +809,9 @@ conecta com ele.
 
 Toda tabela de negócio carrega `conta_id`. Enums são `varchar` com `CHECK`, e não o tipo `ENUM` do
 Postgres, porque acrescentar valor a um `ENUM` exige `ALTER TYPE` fora de transação. Valores
-monetários são `numeric(12,2)` e timestamps são `timestamptz` gravados em UTC.
+monetários são `numeric(12,2)` e timestamps são `timestamptz` gravados em UTC. Texto é `varchar`
+com limite, a última linha de defesa contra uma escrita que fuja da aplicação; a aplicação confere
+o mesmo limite antes, para a recusa ser um 400 que diz o campo, e não uma violação do banco.
 
 ### Agregados
 

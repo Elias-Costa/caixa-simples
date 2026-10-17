@@ -1,5 +1,7 @@
 package br.com.caixasimples.vendas.domain;
 
+import br.com.caixasimples.shared.LimiteDeTexto;
+
 /**
  * A regra do NSU do pagamento em cartão: o número impresso no comprovante da maquininha, que o
  * operador digita para o dono conferir cada pagamento contra o extrato da operadora.
@@ -30,11 +32,6 @@ public final class Nsu {
         if (nsu == null || nsu.isBlank()) {
             return null;
         }
-        String cortado = nsu.trim();
-        if (cortado.length() > TAMANHO_MAXIMO) {
-            throw new IllegalArgumentException("NSU com " + cortado.length()
-                    + " caracteres; o limite e " + TAMANHO_MAXIMO + ".");
-        }
-        return cortado;
+        return LimiteDeTexto.exigirAte(nsu.trim(), TAMANHO_MAXIMO, "NSU");
     }
 }

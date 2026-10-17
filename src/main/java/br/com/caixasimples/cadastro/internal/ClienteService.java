@@ -3,6 +3,7 @@ package br.com.caixasimples.cadastro.internal;
 import br.com.caixasimples.cadastro.PendenciasDoCliente;
 import br.com.caixasimples.shared.ClienteRemovido;
 import br.com.caixasimples.shared.ContaId;
+import br.com.caixasimples.shared.LimiteDeTexto;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.RegistroDeRemocoes;
 import br.com.caixasimples.shared.RegistroDeRemocoes.Tipo;
@@ -254,6 +255,10 @@ public class ClienteService {
 @Table(name = "cliente")
 class ClienteEntity {
 
+    /** O tamanho de cada coluna de texto: o texto longo é recusado aqui, e não pelo banco. */
+    private static final int TAMANHO_DO_NOME = 120;
+    private static final int TAMANHO_DO_CONTATO = 180;
+
     @Id
     private UUID id;
 
@@ -341,7 +346,7 @@ class ClienteEntity {
         if (nome == null || nome.isBlank()) {
             throw new IllegalArgumentException("nome do cliente nao pode ser vazio");
         }
-        return nome.trim();
+        return LimiteDeTexto.exigirAte(nome.trim(), TAMANHO_DO_NOME, "nome do cliente");
     }
 
     /** Sem contato tem uma representação só: ausente. Nunca a string vazia. */
@@ -349,7 +354,7 @@ class ClienteEntity {
         if (contato == null || contato.isBlank()) {
             return null;
         }
-        return contato.trim();
+        return LimiteDeTexto.exigirAte(contato.trim(), TAMANHO_DO_CONTATO, "contato do cliente");
     }
 
     UUID getId() {
