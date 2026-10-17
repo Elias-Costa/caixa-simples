@@ -112,7 +112,8 @@ class AutenticacaoController {
                 identidade.vencimentoDoPlano(),
                 identidade.inicioDaSuspensao(),
                 identidade.recursos().stream().map(RecursoDoPlano::name).toList(),
-                identidade.senhaProvisoria());
+                identidade.senhaProvisoria(),
+                identidade.termosPendentes());
     }
 
     /**
@@ -182,11 +183,12 @@ class AutenticacaoController {
      * @param vencimentoDoPlano omitido no plano gratuito
      * @param inicioDaSuspensao omitido no plano gratuito
      * @param senhaProvisoria   verdadeiro enquanto a senha for a que outra pessoa escolheu
+     * @param termosPendentes   verdadeiro enquanto a Conta não aceitou a versão vigente dos termos
      */
     record RespostaDeIdentidade(UUID usuarioId, String nome, String perfil, UUID contaId,
             String nomeNegocio, String tipoNegocio, boolean estoqueHabilitado,
             boolean nsuObrigatorio, String plano, String situacaoDoPlano,
             LocalDate vencimentoDoPlano, LocalDate inicioDaSuspensao, List<String> recursos,
-            boolean senhaProvisoria) {
+            boolean senhaProvisoria, boolean termosPendentes) {
     }
 }

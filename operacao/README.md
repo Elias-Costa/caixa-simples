@@ -306,7 +306,10 @@ na manutenção acima, a mesma em `CAIXA_SIMPLES_DB_PASSWORD`, e `sh compose.sh 
 1. **Contratar a VPS** com AlmaLinux 9, sem painel. Antes de qualquer Conta real, confirmar por escrito
    com o fornecedor onde a máquina fica e se há backup dele; até a resposta, só Contas de teste.
 2. **Domínio:** o registro A para o IP da VPS, sem registro AAAA, porque por IPv6 o encaminhamento de
-   porta do Docker não preserva o endereço de origem.
+   porta do Docker não preserva o endereço de origem. Antes da primeira Conta real, o e-mail de
+   atendimento no domínio, num provedor de e-mail no Brasil, com o local confirmado por escrito como o
+   da VPS: ele recebe os pedidos sobre dados pessoais, o encerramento e o pedido de plano, e entra no
+   aviso de privacidade.
 3. **Administrador.** Como root, pelo acesso inicial, um usuário com senha, para o sudo, e com a sua
    chave SSH em `~/.ssh/authorized_keys`, com dono dele e modo 600. O preparo recusa seguir sem essa
    chave, porque depois dele o SSH não aceita senha nem root.
@@ -475,6 +478,11 @@ a verificação de vazamento, e é provisória: no primeiro acesso, o aplicativo
 e a senha que você escolheu deixa de valer quando o administrador escolhe a dele. Entregue-a por um
 canal diferente do que leva o e-mail.
 
+Depois da senha, o administrador só vê os termos de uso até aceitá-los em nome da Conta; o aceite
+fica gravado com a versão, o instante e quem aceitou. Os operadores nunca passam por essa tela. Quando
+os termos ganham uma versão nova, com a data e a constante do servidor e do aplicativo trocadas
+juntas, o administrador de cada Conta aceita de novo no acesso seguinte.
+
 **No ensaio local**, pelo mesmo serviço; ver [Ensaio local](#ensaio-local).
 
 ## Conta comprometida ou administrador sem acesso
@@ -530,7 +538,8 @@ muda senha nenhuma; fica para a suspeita de que a chave dos tokens vazou.
 ## Pedido de plano e código de ativação
 
 Toda Conta nasce no plano gratuito. O administrador pede a adesão, o upgrade ou a renovação na tela
-Plano do aplicativo, manda o texto do pedido pelo canal de atendimento e faz o Pix do valor. O
+Plano do aplicativo, manda o texto do pedido pelo canal de atendimento, o e-mail de atendimento do
+domínio, e faz o Pix do valor. O
 pedido sozinho não muda nada: o plano só vale com o código, e o código só sai depois do Pix
 conferido no extrato.
 

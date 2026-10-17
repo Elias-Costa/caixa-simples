@@ -10,8 +10,11 @@ import br.com.caixasimples.contas.application.PedidoDePlanoNaoEncontradoExceptio
 import br.com.caixasimples.contas.application.PlanoService;
 import br.com.caixasimples.contas.application.PlanoService.EstadoDoPlano;
 import br.com.caixasimples.contas.application.PlanoService.PedidoNaConta;
+import br.com.caixasimples.contas.application.TermosDeUsoService;
 import br.com.caixasimples.contas.application.UsuarioNaoEncontradoException;
 import br.com.caixasimples.contas.application.UsuarioService;
+import br.com.caixasimples.contas.internal.AceiteDosTermos;
+import br.com.caixasimples.contas.internal.AceiteDosTermosRepository;
 import br.com.caixasimples.contas.internal.AssinaturaDePedido;
 import br.com.caixasimples.contas.internal.Credencial;
 import br.com.caixasimples.contas.internal.CredencialRepository;
@@ -58,6 +61,12 @@ class IsolamentoEntreContasTest extends TesteDeIntegracao {
 
     @Autowired
     private AssinaturaDePedido assinatura;
+
+    @Autowired
+    private TermosDeUsoService termos;
+
+    @Autowired
+    private AceiteDosTermosRepository aceites;
 
     @Autowired
     private AutenticacaoService autenticacao;
@@ -147,6 +156,34 @@ class IsolamentoEntreContasTest extends TesteDeIntegracao {
             assertThat(estadoDeB.pedidoAberto()).extracting(PedidoNaConta::id)
                     .isEqualTo(pedidoDeB);
         });
+    }
+
+    @Test
+    @DisplayName("o aceite dos termos da conta A não vale para a conta B, que não enxerga a linha")
+    void aceiteDosTermosNaoAtravessaConta() {
+        ContaCriada contaA = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
+        ContaCriada contaB = criador.criar("Salao Vizinho", SENHA_DE_TESTE);
+
+        contaA.comoUsuario(() -> termos.aceitar(TermosDeUsoService.VERSAO_VIGENTE));
+        UUID aceiteDeA = contaA.comoUsuario(() -> aceites.findAll()).getFirst().getId();
+
+        contaB.comoUsuario(() -> {
+            assertThat(termos.pendentes()).as("a conta B continua sem aceite").isTrue();
+            assertThat(aceites.findById(aceiteDeA)).as("findById atravessando tenant").isEmpty();
+            assertThat(aceites.findAll()).as("listagem da conta B").isEmpty();
+            assertThat(aceites.existsByVersao(TermosDeUsoService.VERSAO_VIGENTE))
+                    .as("derived query da conta B")
+                    .isFalse();
+        });
+
+        // O aceite da conta B grava a linha dela, sem colidir com a da A pela mesma versão.
+        contaB.comoUsuario(() -> termos.aceitar(TermosDeUsoService.VERSAO_VIGENTE));
+        contaA.comoUsuario(() -> assertThat(aceites.findAll())
+                .extracting(AceiteDosTermos::getId)
+                .containsExactly(aceiteDeA));
+        contaB.comoUsuario(() -> assertThat(aceites.findAll())
+                .extracting(AceiteDosTermos::getAceitoPor)
+                .containsExactly(contaB.usuarioId()));
     }
 
     @Test

@@ -38,6 +38,12 @@ export type Identidade = {
    * até a pessoa escolher a dela. Falta na identidade guardada antes da marca, e então não pede.
    */
   senhaProvisoria?: boolean
+  /**
+   * A Conta ainda não aceitou a versão vigente dos termos de uso, e o aplicativo só mostra a tela dos
+   * termos ao administrador até o aceite; o operador entra normalmente. Falta na identidade guardada
+   * antes da marca, e então não pede: a abertura do aplicativo pergunta de novo ao servidor.
+   */
+  termosPendentes?: boolean
 }
 
 /**

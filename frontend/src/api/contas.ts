@@ -73,6 +73,9 @@ export const contas = {
       metodo: 'POST', corpo: { senhaAtual, senhaNova },
     }),
   sairDeTodosOsAparelhos: () => chamarApi<void>('/api/auth/sair-de-todos', { metodo: 'POST' }),
+  /** A versão é a que a tela mostrou; o servidor recusa com 409 a que não é a vigente. */
+  aceitarTermos: (versao: string) =>
+    chamarApi<void>('/api/conta/termos', { metodo: 'POST', corpo: { versao } }),
   configuracao: () => chamarApi<ConfiguracaoDaConta>('/api/conta/configuracao'),
   definirEstoque: (estoqueHabilitado: boolean) =>
     chamarApi<ConfiguracaoDaConta>('/api/conta/configuracao', {

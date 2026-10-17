@@ -12,6 +12,7 @@ import br.com.caixasimples.cadastro.internal.ClienteService.DadosDoCliente;
 import br.com.caixasimples.caixa.application.SessaoCaixaService;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
 import br.com.caixasimples.contas.application.PlanoService;
+import br.com.caixasimples.contas.application.TermosDeUsoService;
 import br.com.caixasimples.pagamentos.FormaPagamento;
 import br.com.caixasimples.pagamentos.domain.SolicitacaoPagamento;
 import br.com.caixasimples.shared.Money;
@@ -41,12 +42,13 @@ class EncerramentoDaContaSqlTest extends TesteDeIntegracao {
     private static final List<String> TABELAS_DA_CONTA = List.of("usuario", "credencial",
             "cliente", "produto", "sessao_caixa", "movimento_caixa", "venda", "item_venda",
             "pagamento", "recebimento", "movimento_estoque", "operacao_sincronizada",
-            "pedido_de_plano");
+            "pedido_de_plano", "aceite_dos_termos");
 
     @Autowired CriadorDeContaDeTeste criador;
     @Autowired ClienteService clientes;
     @Autowired JdbcTemplate banco;
     @Autowired PlanoService planos;
+    @Autowired TermosDeUsoService termos;
     @Autowired ProdutoService produtos;
     @Autowired SessaoCaixaService caixas;
     @Autowired VendaService vendas;
@@ -107,7 +109,8 @@ class EncerramentoDaContaSqlTest extends TesteDeIntegracao {
      * Pelo menos uma linha em cada tabela da lista, gravada pelos casos de uso, como a Conta em
      * operação as grava. Usuário e credencial vêm da criação da Conta; a Venda fiada, concluída com
      * o estoque ligado, dá o item, a parcela e a baixa do produto; o recebimento em dinheiro dá o
-     * movimento do caixa; e o cliente criado pelo lote dá o registro da operação.
+     * movimento do caixa; o cliente criado pelo lote dá o registro da operação; e o administrador
+     * pede o plano e aceita os termos.
      */
     private void darUmaLinhaEmCadaTabela(ContaCriada conta) {
         criador.habilitarEstoque(conta.contaId());
@@ -129,6 +132,8 @@ class EncerramentoDaContaSqlTest extends TesteDeIntegracao {
             // deles.
             planos.pedir(Plano.CAIXA_SIMPLES);
             planos.pedir(Plano.COMPLETO);
+            // O aceite também aponta para o usuário.
+            termos.aceitar(TermosDeUsoService.VERSAO_VIGENTE);
         });
     }
 

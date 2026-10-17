@@ -10,6 +10,7 @@ import br.com.caixasimples.TesteDeIntegracao;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
 import br.com.caixasimples.contas.Plano;
+import br.com.caixasimples.contas.application.TermosDeUsoService;
 import br.com.caixasimples.contas.internal.AssinaturaDePedido;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.Perfil;
@@ -267,6 +268,24 @@ class EventosDeSegurancaHttpTest extends TesteDeIntegracao {
                         + " origem=" + origem)
                 .contains("evento=configuracao.alterada " + quem + " campo=nsu valor=true"
                         + " origem=" + origem);
+        semDadoPessoal(saida, conta.email());
+    }
+
+    @Test
+    @DisplayName("o aceite dos termos vai ao log com a versão aceita")
+    void aceiteDosTermos(CapturedOutput saida) throws Exception {
+        String origem = "192.0.2.20";
+        ContaCriada conta = criador.criar("Papelaria Aurora", SENHA);
+        String admin = entrar(conta.email(), SENHA, origem);
+
+        http.perform(post("/api/conta/termos").with(comToken(admin)).with(deOrigem(origem))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"versao\":\"" + TermosDeUsoService.VERSAO_VIGENTE + "\"}"))
+                .andExpect(status().isNoContent());
+
+        assertThat(saida.getAll()).contains("evento=termos.aceitos conta=" + conta.contaId()
+                + " usuario=" + conta.usuarioId() + " versao=" + TermosDeUsoService.VERSAO_VIGENTE
+                + " origem=" + origem);
         semDadoPessoal(saida, conta.email());
     }
 

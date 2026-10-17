@@ -63,6 +63,7 @@ public class AutenticacaoService {
     private final ContaService contaService;
     private final ContencaoDeLogin contencao;
     private final PoliticaDeSenha politica;
+    private final TermosDeUsoService termos;
     private final TransactionTemplate transacao;
 
     /**
@@ -75,7 +76,7 @@ public class AutenticacaoService {
     AutenticacaoService(CredencialRepository credenciais, UsuarioRepository usuarios,
             ContaRepository contas, PasswordEncoder encoder, EmissorDeToken emissor,
             ContaService contaService, ContencaoDeLogin contencao, PoliticaDeSenha politica,
-            TransactionTemplate transacao) {
+            TermosDeUsoService termos, TransactionTemplate transacao) {
         this.credenciais = credenciais;
         this.usuarios = usuarios;
         this.contas = contas;
@@ -84,6 +85,7 @@ public class AutenticacaoService {
         this.contaService = contaService;
         this.contencao = contencao;
         this.politica = politica;
+        this.termos = termos;
         this.transacao = transacao;
         this.hashSintetico = encoder.encode(UUID.randomUUID().toString());
     }
@@ -296,7 +298,8 @@ public class AutenticacaoService {
      * administrador vê o aviso de vencimento ao abrir o aplicativo, sem depender de outra tela.
      *
      * <p>A marca de senha provisória vem junto porque o aplicativo mostra só a tela de troca enquanto
-     * ela valer, logo depois do login.
+     * ela valer, logo depois do login. A pendência dos termos vem pelo mesmo motivo: o administrador
+     * só vê a tela dos termos até a Conta aceitar a versão vigente.
      *
      * <p>Aqui a transação pode existir, ao contrário do login: o tenant já está no contexto
      * antes de ela abrir.
@@ -326,7 +329,7 @@ public class AutenticacaoService {
                 conta.isEstoqueHabilitado(), conta.isNsuObrigatorio(), conta.getPlano(),
                 conta.situacao(hoje),
                 conta.getProximoVencimento(), conta.inicioDaSuspensao(), conta.recursos(hoje),
-                senhaProvisoria);
+                senhaProvisoria, termos.pendentes());
     }
 
     /**
@@ -341,11 +344,14 @@ public class AutenticacaoService {
      *                          para recusar a parcela sem ele antes de gravá-la sem rede
      * @param recursos          os recursos do plano que valem hoje
      * @param senhaProvisoria   se a senha foi escolhida por outra pessoa e o aplicativo pede a troca
+     * @param termosPendentes   se a Conta ainda não aceitou a versão vigente dos termos de uso; o
+     *                          aplicativo pede o aceite só ao administrador
      */
     public record Identidade(UUID usuarioId, String nome, Perfil perfil, UUID contaId,
             String nomeNegocio, String tipoNegocio, boolean estoqueHabilitado,
             boolean nsuObrigatorio, Plano plano,
             SituacaoDoPlano situacaoDoPlano, LocalDate vencimentoDoPlano,
-            LocalDate inicioDaSuspensao, Set<RecursoDoPlano> recursos, boolean senhaProvisoria) {
+            LocalDate inicioDaSuspensao, Set<RecursoDoPlano> recursos, boolean senhaProvisoria,
+            boolean termosPendentes) {
     }
 }

@@ -42,7 +42,8 @@ class AutenticacaoServiceTest {
         AutenticacaoService autenticacao = new AutenticacaoService(credenciais,
                 mock(UsuarioRepository.class), mock(ContaRepository.class), new BCryptPasswordEncoder(4),
                 mock(EmissorDeToken.class), mock(ContaService.class), contencao,
-                mock(PoliticaDeSenha.class), mock(TransactionTemplate.class));
+                mock(PoliticaDeSenha.class), mock(TermosDeUsoService.class),
+                mock(TransactionTemplate.class));
 
         // Mais que os dez do par e os trinta da origem.
         for (int i = 0; i < 31; i++) {

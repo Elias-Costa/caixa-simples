@@ -76,7 +76,7 @@ export function TelaDeLogin() {
         <button type="submit" className="botao botao--largo" disabled={enviando}>
           {enviando ? 'Entrando...' : 'Entrar'}
         </button>
-        <p><Link to="/privacidade">Aviso de privacidade</Link></p>
+        <p><Link to="/privacidade">Aviso de privacidade</Link> · <Link to="/termos">Termos de uso</Link></p>
       </form>
     </main>
   )
