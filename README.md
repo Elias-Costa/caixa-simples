@@ -1100,7 +1100,9 @@ a enxurrada de token falso ou de aviso Pix, que nenhum limite por origem segura,
 nenhuma linha do log sair da máquina. A restauração decifra direto para o `pg_restore`, num banco vazio, e só
 termina com sucesso quando a conferência do banco restaurado bate com a da origem; é por ela que a
 máquina se recria do zero. O passo a passo, do preparo da máquina ao ensaio local, está em
-[operacao/README.md](operacao/README.md).
+[operacao/README.md](operacao/README.md), junto com o procedimento de incidente de segurança e o
+encaminhamento à Conta dos pedidos sobre dados pessoais que chegam ao mantenedor. Os comandos que
+recebem o e-mail ou o nome de um negócio os leem sem que fiquem no histórico do shell.
 
 ## Stack
 

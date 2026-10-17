@@ -1,8 +1,8 @@
 # Operação
 
 Tudo o que põe o sistema no ar e o mantém de pé: a imagem, o CI que publica e faz o deploy, a VPS e
-o preparo dela, a cópia cifrada de hora em hora, a restauração, a recriação da máquina, a carga de
-correção e o ensaio local de tudo isso.
+o preparo dela, a cópia cifrada de hora em hora, a restauração, a recriação da máquina, o incidente de
+segurança, os pedidos sobre dados pessoais, a carga de correção e o ensaio local de tudo isso.
 
 Nenhum dado pessoal sai do Brasil, nem na cópia cifrada. A aplicação, o PostgreSQL 17 e a cópia rodam
 em contêineres numa VPS no Brasil, e a cópia vai para um bucket do S3 da AWS na região dela no Brasil
@@ -308,8 +308,8 @@ na manutenção acima, a mesma em `CAIXA_SIMPLES_DB_PASSWORD`, e `sh compose.sh 
 2. **Domínio:** o registro A para o IP da VPS, sem registro AAAA, porque por IPv6 o encaminhamento de
    porta do Docker não preserva o endereço de origem. Antes da primeira Conta real, o e-mail de
    atendimento no domínio, num provedor de e-mail no Brasil, com o local confirmado por escrito como o
-   da VPS: ele recebe os pedidos sobre dados pessoais, o encerramento e o pedido de plano, e entra no
-   aviso de privacidade.
+   da VPS: ele recebe os pedidos sobre dados pessoais, o encerramento e o pedido de plano, guarda o
+   registro de incidentes e entra no aviso de privacidade.
 3. **Administrador.** Como root, pelo acesso inicial, um usuário com senha, para o sudo, e com a sua
    chave SSH em `~/.ssh/authorized_keys`, com dono dele e modo 600. O preparo recusa seguir sem essa
    chave, porque depois dele o SSH não aceita senha nem root.
@@ -465,13 +465,15 @@ Conta nasce pelo seed: uma execução avulsa da imagem, com o perfil `seed` e se
 cria a Conta com o administrador e termina. Nunca no serviço. Rodar de novo com o mesmo e-mail não
 cria nada.
 
-**Na VPS**, como root, com a senha lida sem eco, para não ficar no histórico do shell:
+**Na VPS**, como root. O nome do negócio, o e-mail e a senha são lidos pelo `read`, a senha sem eco, e
+o histórico do shell guarda só os comandos: nada que identifica o administrador fica nele.
 
 ```bash
-export CAIXA_SIMPLES_SEED_NOME_NEGOCIO="Nome do negócio" CAIXA_SIMPLES_SEED_EMAIL=<e-mail do administrador>
-read -rs CAIXA_SIMPLES_SEED_SENHA && export CAIXA_SIMPLES_SEED_SENHA
+read -rp 'Nome do negócio: ' CAIXA_SIMPLES_SEED_NOME_NEGOCIO && export CAIXA_SIMPLES_SEED_NOME_NEGOCIO
+read -rp 'E-mail do administrador: ' CAIXA_SIMPLES_SEED_EMAIL && export CAIXA_SIMPLES_SEED_EMAIL
+read -rsp 'Senha provisória: ' CAIXA_SIMPLES_SEED_SENHA && echo && export CAIXA_SIMPLES_SEED_SENHA
 sh compose.sh --profile seed run --rm seed
-unset CAIXA_SIMPLES_SEED_SENHA
+unset CAIXA_SIMPLES_SEED_NOME_NEGOCIO CAIXA_SIMPLES_SEED_EMAIL CAIXA_SIMPLES_SEED_SENHA
 ```
 
 O log termina com `Conta <id> criada`. A senha passa pela mesma política de qualquer senha, inclusive
@@ -510,13 +512,14 @@ operador.
 
 1. **Confirme quem pede** por um canal que você já conhecia antes do pedido, como o telefone do
    contrato, e não pelo e-mail da Conta, que pode estar nas mãos de quem a tomou.
-2. **Na VPS**, como root, com a senha provisória lida sem eco:
+2. **Na VPS**, como root, com o e-mail e a senha provisória lidos pelo `read`, a senha sem eco, para
+   nenhum dos dois ficar no histórico do shell:
 
    ```bash
-   export CAIXA_SIMPLES_REDEFINICAO_EMAIL=<e-mail do administrador>
-   read -rs CAIXA_SIMPLES_REDEFINICAO_SENHA && export CAIXA_SIMPLES_REDEFINICAO_SENHA
+   read -rp 'E-mail do administrador: ' CAIXA_SIMPLES_REDEFINICAO_EMAIL && export CAIXA_SIMPLES_REDEFINICAO_EMAIL
+   read -rsp 'Senha provisória: ' CAIXA_SIMPLES_REDEFINICAO_SENHA && echo && export CAIXA_SIMPLES_REDEFINICAO_SENHA
    sh compose.sh --profile redefinir-senha run --rm redefinir-senha
-   unset CAIXA_SIMPLES_REDEFINICAO_SENHA
+   unset CAIXA_SIMPLES_REDEFINICAO_EMAIL CAIXA_SIMPLES_REDEFINICAO_SENHA
    ```
 
    O log termina com `Senha provisória definida na Conta <id>; acessos de <n> usuários revogados`.
@@ -535,6 +538,205 @@ operador.
 
 Trocar `CAIXA_SIMPLES_JWT_SECRET` também derruba todos os aparelhos, mas de **todas** as Contas, e não
 muda senha nenhuma; fica para a suspeita de que a chave dos tokens vazou.
+
+Uma Conta tomada por outra pessoa é um incidente de segurança: siga também
+[Incidente de segurança](#incidente-de-segurança).
+
+## Incidente de segurança
+
+Incidente de segurança é um evento adverso confirmado que quebra o sigilo, a integridade, a
+disponibilidade ou a autenticidade de dado pessoal: o banco ou uma cópia lidos por quem não devia, uma
+Conta tomada, um segredo vazado com sinal de uso, dados perdidos sem cópia. O sinal pode vir do
+[alerta de recusas](#vigia), de um administrador sem acesso
+([Conta comprometida](#conta-comprometida-ou-administrador-sem-acesso)), do vigia da máquina ou da
+cópia, do fornecedor ou de quem achou uma falha. A suspeita ainda não confirmada passa pelos passos 1 a
+3; confirmada, por todos.
+
+O Caixa Simples tem dois papéis aqui. Dos dados dos Clientes e dos funcionários de uma Conta ele é
+operador: quem os decide é a Conta, e é ela quem comunica à ANPD e a essas pessoas. Do cadastro da
+Conta e do administrador (nome do negócio, nome, e-mail de acesso e resumo da senha do administrador)
+e dos registros de segurança ele é controlador, e comunica ele mesmo. Os prazos contam do dia em que
+se soube que o incidente alcançou dado pessoal; os da ANPD e do titular são os da Resolução CD/ANPD
+nº 15/2024, contados em dobro para o agente de tratamento de pequeno porte:
+
+| A quem | Prazo | Quando |
+|---|---|---|
+| O administrador de cada Conta afetada | 2 dias úteis, como os termos de uso prometem | Sempre que o incidente alcançar dado da Conta, com o que já se souber |
+| A ANPD | 6 dias úteis; o complemento, em até 40 dias úteis da comunicação | Risco ou dano relevante no que é do Caixa Simples |
+| Os titulares do que é do Caixa Simples | 6 dias úteis; a declaração à ANPD de que foram comunicados, em até 3 dias úteis depois | Idem |
+| O registro do incidente | Feito no incidente e guardado 5 anos | Todo incidente confirmado, comunicado ou não |
+
+### 1. Conter
+
+- **Uma origem atacando**, achada no log como no [alerta de recusas](#vigia): bloqueie-a no limite de
+  conexões, com o endereço lido pelo `read`, como root:
+
+  ```bash
+  read -rp 'Origem a bloquear: ' ORIGEM
+  nft insert rule inet caixa_simples_limite encaminhamento ip saddr "$ORIGEM" ct status dnat counter drop
+  ```
+
+  Todo pacote dessa origem às portas do proxy passa a ser descartado, inclusive das conexões já
+  abertas. A regra some quando o limite é recarregado, pelo preparo ou pelo `caixa-simples-limite`, ou
+  quando a máquina reinicia. Para tirá-la antes, `nft -a list chain inet caixa_simples_limite
+  encaminhamento` mostra o `handle` dela, e `nft delete rule inet caixa_simples_limite encaminhamento
+  handle <número>` a apaga.
+- **Um segredo vazado:** troque-o. A chave dos tokens derruba os aparelhos de todas as Contas; a senha
+  do banco, como em [Banco](#banco); o segredo dos planos invalida os códigos ainda não aplicados
+  ([Pedido de plano](#pedido-de-plano-e-código-de-ativação)); as credenciais Pix de uma Conta são
+  trocadas por ela na Efí e depois em `efi.env`; a chave do CI é gerada de novo, como na
+  [primeira publicação](#primeira-publicação); a chave das cópias ganha um par novo, e as cópias antigas
+  expiram sozinhas.
+- **Uma Conta tomada:** os passos de
+  [Conta comprometida](#conta-comprometida-ou-administrador-sem-acesso).
+- **Uma Conta em uso ilegal ou atacando o serviço,** que os termos permitem suspender na hora, com aviso
+  ao administrador: não há execução que suspenda uma Conta só. Bloqueie as origens dela e redefina a
+  senha do administrador pela execução avulsa `redefinir-senha`, que derruba os aparelhos de todos os
+  usuários da Conta; os operadores ainda entram com as próprias senhas. Se isso não bastar,
+  `sh compose.sh stop app` para o serviço de todas as Contas até resolver.
+
+### 2. Preservar
+
+O journald guarda 7 dias. Antes que o período do incidente expire, tire-o da máquina, cifrado para a
+chave pública das cópias, e apague-o da VPS. Parar ou reiniciar a aplicação não apaga o journald. Como
+root, na pasta `operacao/vps`, com o início em UTC, o fuso da máquina, e o seu usuário de administrador
+no lugar de `<administrador>`:
+
+```bash
+chave=$(sed -n 's/^CAIXA_SIMPLES_COPIA_CHAVE_PUBLICA=//p' /etc/caixa-simples/caixa-simples.env)
+arquivo=/home/<administrador>/incidente-$(date -u +%Y%m%dT%H%MZ).log.age
+journalctl --since '<AAAA-MM-DD HH:MM>' -o short-iso-precise \
+  | sh compose.sh --profile copia run --rm -T --no-deps --entrypoint age copia -r "$chave" > "$arquivo"
+chown <administrador> "$arquivo"
+```
+
+São os logs da máquina inteira, com os acessos por SSH, e não só os da aplicação. Do seu computador,
+`scp <administrador>@<VPS>:incidente-*.log.age .`, e depois, na VPS, `rm "$arquivo"`. Para ler,
+`age -d -i <arquivo da chave privada> <arquivo>`, ou pela imagem da cópia, como a chave foi gerada. O
+arquivo fica com você até o incidente fechar, ou, se ele foi comunicado à ANPD, até o processo dela
+terminar, e então é apagado; o registro do incidente guarda o resumo.
+
+### 3. Avaliar
+
+As Contas e as origens envolvidas estão nos [eventos de segurança](#a-vps):
+
+```bash
+journalctl CONTAINER_NAME=caixa-simples-app-1 --since -7d | grep evento= | grep -oE 'conta=[^ ]+' | sort | uniq -c
+journalctl CONTAINER_NAME=caixa-simples-app-1 --since -7d | grep 'conta=<uuid da Conta>' | grep -oE 'origem=[^ ]+' | sort | uniq -c
+```
+
+O número de titulares de cada Conta, pela manutenção do banco: os Clientes não removidos e os usuários,
+inclusive os inativos, que guardam o nome:
+
+```bash
+sh compose.sh exec -T banco psql -U postgres -d caixa_simples <<'FIM'
+select c.id,
+       (select count(*) from cliente cl where cl.conta_id = c.id and cl.removido_em is null) as clientes,
+       (select count(*) from usuario u where u.conta_id = c.id) as usuarios
+from conta c order by c.id;
+FIM
+```
+
+Há risco ou dano relevante quando o incidente pode afetar significativamente os titulares, impedindo o
+uso do serviço ou causando dano material ou moral, fraude ou roubo de identidade, e envolve ao menos um
+destes: dado de autenticação, como a credencial, que é o e-mail e o resumo da senha; dado financeiro,
+como a chave Pix e as credenciais da Efí de uma Conta; dado em larga escala; dado sensível, sob sigilo ou
+de criança, adolescente ou idoso. Sem risco relevante, nada vai à ANPD nem aos titulares do que é do
+Caixa Simples, e o motivo vai ao registro. O aviso à Conta afetada sai do mesmo jeito: é ela quem avalia
+o risco dos seus Clientes e funcionários.
+
+### 4. Avisar cada Conta afetada
+
+Pelo e-mail de atendimento, a todos os administradores ativos da Conta, pelo modelo A, com o que já se
+souber; o que vier depois segue na mesma conversa, e o Caixa Simples responde o que a Conta precisar
+para a comunicação dela. Os e-mails dos administradores, pela manutenção do banco:
+
+```bash
+read -rp 'Conta: ' CONTA
+sh compose.sh exec -T banco psql -U postgres -d caixa_simples -v conta="$CONTA" <<'FIM'
+select cr.email from usuario u join credencial cr on cr.usuario_id = u.id
+where u.conta_id = :'conta' and u.perfil = 'ADMIN' and u.ativo;
+FIM
+```
+
+### 5. Comunicar o que é do Caixa Simples
+
+Com risco ou dano relevante no cadastro da Conta e do administrador ou nos registros de segurança:
+
+- **à ANPD**, pelo formulário eletrônico de comunicação de incidente, no site dela, declarando que o
+  Caixa Simples é agente de tratamento de pequeno porte. O formulário pede: a natureza e a categoria
+  dos dados; o número de titulares afetados e o total de titulares das atividades afetadas; as medidas
+  de segurança de antes e de depois; os riscos e os impactos; o motivo da demora, se houver; as medidas
+  para reverter ou mitigar; a data do incidente e a do conhecimento; a identificação do controlador e
+  de quem o representa; a descrição e a causa. O que faltar vai como complemento;
+- **a cada administrador alcançado**, pelo e-mail dele, pelo modelo B, em linguagem simples; depois, a
+  declaração à ANPD de que eles foram comunicados, e por qual meio;
+- **a quem só aparece no log por um endereço**, sem nome nem contato, e por isso não identificável: o
+  aviso no aplicativo, na tela de login, por ao menos três meses.
+
+### 6. Registrar
+
+Todo incidente confirmado, comunicado ou não, vira uma mensagem no e-mail de atendimento, numa pasta
+de incidentes, pelo modelo C; as comunicações à Conta, aos titulares e à ANPD seguem na mesma conversa.
+O registro fica cinco anos e depois é apagado. Enquanto a caixa de atendimento não existe, só há Contas
+de teste, e o registro fica com o mantenedor, levado para a caixa quando ela existir.
+
+### Modelos
+
+**A. Aviso à Conta afetada**, a todos os administradores ativos dela:
+
+```text
+Assunto: Incidente de segurança com dados da sua Conta no Caixa Simples
+
+Em <data>, soubemos de um incidente de segurança que alcançou dados da Conta <nome do negócio>.
+
+O que aconteceu: <descrição e causa, se conhecida>. Quando: <data do incidente, se conhecida>.
+Que dados: <por exemplo, nomes e contatos de Clientes, nomes e e-mails de usuários, vendas>.
+Quantas pessoas: <Clientes e usuários da Conta alcançados>.
+Riscos para essas pessoas: <o que pode acontecer>.
+Como os dados estavam protegidos e o que já fizemos: <medidas de antes e de depois>.
+O que a Conta pode fazer: <por exemplo, trocar senhas, conferir a tela Usuários, avisar Clientes>.
+
+A Conta decide sobre os dados dos seus Clientes e funcionários e avalia se comunica o incidente à
+ANPD e a eles. O Caixa Simples, <identificação>, trata esses dados em nome da Conta e responde nesta
+conversa o que ela precisar para isso. Este aviso traz o que já sabemos; o resto vem aqui.
+```
+
+**B. Comunicação ao administrador titular:**
+
+```text
+Assunto: Incidente de segurança com o seu cadastro no Caixa Simples
+
+Em <data do conhecimento>, soubemos de um incidente de segurança que alcançou o seu cadastro de
+administrador no Caixa Simples.
+
+Que dados: <por exemplo, o nome, o e-mail de acesso, o resumo protegido da senha, o nome do negócio>.
+Como estavam protegidos: <por exemplo, a senha guardada só como resumo, a conexão cifrada>.
+Riscos para você: <o que pode acontecer>.
+O que já fizemos e o que ainda faremos: <medidas>.
+O que recomendamos: <por exemplo, trocar a senha aqui e onde ela se repita, desconfiar de mensagem
+que peça a senha>.
+<Só se passou do prazo: por que esta comunicação demorou.>
+
+Para qualquer dúvida, responda este e-mail.
+```
+
+**C. Registro do incidente:**
+
+```text
+Assunto: Incidente <AAAA-MM-DD>, <resumo em poucas palavras>
+
+1. Data em que se soube do incidente:
+2. Circunstâncias: o que aconteceu, como foi notado, a causa, se conhecida:
+3. Natureza e categoria dos dados afetados:
+4. Número de titulares afetados, por Conta e no que é do Caixa Simples:
+5. Avaliação do risco e dos possíveis danos aos titulares:
+6. Medidas de correção e de mitigação:
+7. Comunicações feitas, a cada Conta, à ANPD e aos titulares, com a data e o meio
+   (as mensagens seguem nesta conversa):
+8. Sem comunicação à ANPD e aos titulares, o motivo:
+Trecho do log preservado: onde está e quando foi apagado:
+```
 
 ## Pedido de plano e código de ativação
 
@@ -686,8 +888,14 @@ acesso. À mão, `systemctl start caixa-simples-copia.service` roda uma cópia n
 
 A cópia no S3 é o único backup: a VPS não tem backup do fornecedor em uso. Restauração nunca ensaiada
 não prova que a cópia serve, então ela é ensaiada antes da primeira Conta real, pelos dois caminhos
-abaixo, e depois **uma vez por mês**, anotando data, cópia usada, contagens, totais e resultado. O
-registro externo das remoções fica em outro bucket, por 45 dias, mais que a cópia mais antiga.
+abaixo, e depois **uma vez por mês**, pelo da VPS, anotando data, cópia usada, contagens, totais e
+resultado. O registro externo das remoções fica em outro bucket, por 45 dias, mais que a cópia mais
+antiga.
+
+Com dado real, a cópia só é restaurada na VPS. O caminho local decifra o banco inteiro num computador
+pessoal, fora do alcance das remoções feitas depois, e o volume apagado do Docker Desktop fica num disco
+virtual que não encolhe, onde os dados podem seguir legíveis. Ele serve às cópias do
+[ensaio](#ensaio-local) e às de Contas de teste.
 
 [`copia/restaurar.sh`](copia/restaurar.sh) busca o par, confere que o banco de destino está vazio,
 decifra direto para o `pg_restore`, sem dump em claro no disco, e roda a conferência no banco
@@ -698,7 +906,7 @@ diferença e código 1. A credencial de leitura e a chave privada entram só no 
 por `-v`, e nunca ficam na máquina. Para ver as cópias, `rclone lsf s3:<bucket>/diaria/` com a
 mesma credencial.
 
-**Num PostgreSQL 17 local**, o vazio do ensaio, na máquina do mantenedor, com o
+**Num PostgreSQL 17 local**, só sem dado real, o vazio do ensaio, na máquina do mantenedor, com o
 [ensaio](#ensaio-local) preparado:
 
 ```bash
@@ -791,6 +999,34 @@ com `aws s3api put-bucket-lifecycle-configuration --bucket <bucket de remoções
 encerramento gravam sob o prefixo `remocoes/`; a restauração reaplica todo registro que encontra, então
 o prazo não muda nada nela.
 
+**Pedido de Cliente ou de funcionário que chega ao Caixa Simples.** Quem decide sobre esses dados é a
+Conta, e o Caixa Simples só age sobre eles por instrução dela: o pedido é encaminhado, nunca atendido
+direto. Em até 2 dias úteis:
+
+1. Ache a Conta pelo nome do negócio que a pessoa deu, lido pelo `read`, com os e-mails dos
+   administradores ativos dela, como root, na pasta `operacao/vps`:
+
+   ```bash
+   read -rp 'Nome do negócio: ' NEGOCIO
+   sh compose.sh exec -T banco psql -U postgres -d caixa_simples -v negocio="$NEGOCIO" <<'FIM'
+   select c.id, c.nome_negocio, cr.email
+   from conta c join usuario u on u.conta_id = c.id and u.perfil = 'ADMIN' and u.ativo
+   join credencial cr on cr.usuario_id = u.id
+   where c.nome_negocio ilike '%' || :'negocio' || '%';
+   FIM
+   unset NEGOCIO
+   ```
+
+2. Encaminhe a cada administrador o pedido como chegou, com o contato que a pessoa deu, e nada mais.
+   O Caixa Simples não consulta nem muda os dados dela para responder.
+3. Responda à pessoa que o Caixa Simples trata esses dados em nome do negócio, que o pedido foi
+   encaminhado a ele e que a resposta vem dele. Sem o nome do negócio, pergunte qual é, sem dizer se há
+   dado dela em alguma Conta.
+
+O pedido, o encaminhamento e a resposta ficam no e-mail de atendimento cinco anos depois da resposta,
+como prova de que foram atendidos no prazo, e depois são apagados. O pedido do administrador sobre o
+cadastro da Conta ou o dele não é encaminhado: quem decide sobre esse cadastro é o Caixa Simples.
+
 O ADMIN pede encerramento pelo endereço publicado no aviso de privacidade. Antes de executar, confira
 a identidade e o vínculo do ADMIN com a Conta, anote a data do pedido para cumprir o prazo de quinze
 dias e pare a aplicação para impedir novas escritas, com `sh compose.sh stop app`. Retire de
@@ -817,6 +1053,26 @@ antes de reabrir o serviço; uma restauração reaplica o encerramento. O ensaio
 serviço e o volume `remocoes`, separado de `copias`. A restauração precisa de leitura nos dois
 destinos.
 
+Por fim, o histórico do shell. Os comandos deste documento leem o e-mail e o nome do negócio pelo
+`read`, mas um deles pode ter sido digitado à mão. Como root, com os dois lidos da mesma forma:
+
+```bash
+read -rp 'E-mail do administrador: ' EMAIL
+read -rp 'Nome do negócio: ' NEGOCIO
+for historico in /root/.bash_history /home/*/.bash_history; do
+  [ -f "$historico" ] || continue
+  if grep -qiF -e "$EMAIL" -e "$NEGOCIO" "$historico"; then
+    grep -viF -e "$EMAIL" -e "$NEGOCIO" "$historico" > /root/historico.tmp
+    cat /root/historico.tmp > "$historico" && rm /root/historico.tmp
+    echo "linhas apagadas de $historico"
+  fi
+done
+unset EMAIL NEGOCIO
+```
+
+A busca é por texto, sem expressão regular, e sem diferença entre maiúscula e minúscula; um nome de
+negócio curto pode levar junto linhas que não são dele, o que no histórico não faz falta.
+
 ## Vigia
 
 Três checks no Healthchecks.io, plano gratuito, com aviso por e-mail ao mantenedor quando um sinal
@@ -837,7 +1093,7 @@ recusas. O deploy que falha aparece no CI, que fica vermelho, e o GitHub avisa p
 recusada, token recusado, acesso recusado por perfil e aviso Pix recusado. Uma origem sozinha não passa
 de 30 falhas de login na janela da contenção; acima de 50 em 5 minutos é força bruta distribuída, ou
 enxurrada de token falso ou de aviso Pix, que nada limita. Com o aviso, a origem e a Conta atacada estão
-no log, e uma origem pode virar regra no firewall:
+no log, e uma origem pode ser bloqueada como em [Incidente de segurança](#incidente-de-segurança):
 
 ```bash
 journalctl CONTAINER_NAME=caixa-simples-app-1 --since -30min | grep -E ' evento=[a-z_.]*recusad' \
