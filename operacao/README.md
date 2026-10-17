@@ -324,8 +324,9 @@ na manutenção acima, a mesma em `CAIXA_SIMPLES_DB_PASSWORD`, e `sh compose.sh 
    ```
 
 6. **AWS:** a chave da cópia, o bucket, o usuário do IAM e a credencial de leitura, como em
-   [Cópia de hora em hora](#cópia-de-hora-em-hora-cifrada), e o bucket separado de remoções, com
-   credencial de gravação para a aplicação e leitura para a restauração.
+   [Cópia de hora em hora](#cópia-de-hora-em-hora-cifrada), e o bucket separado de remoções, com a
+   regra de 45 dias, credencial de gravação para a aplicação e leitura para a restauração, como em
+   [Remoção](#remoção-de-dados-e-encerramento-da-conta).
 7. **Vigia:** os três checks, como em [Vigia](#vigia).
 8. **Configuração:** preencher `/etc/caixa-simples/caixa-simples.env`.
 9. **GitHub**, nas configurações do repositório:
@@ -686,7 +687,7 @@ acesso. À mão, `systemctl start caixa-simples-copia.service` roda uma cópia n
 A cópia no S3 é o único backup: a VPS não tem backup do fornecedor em uso. Restauração nunca ensaiada
 não prova que a cópia serve, então ela é ensaiada antes da primeira Conta real, pelos dois caminhos
 abaixo, e depois **uma vez por mês**, anotando data, cópia usada, contagens, totais e resultado. O
-registro externo das remoções fica em outro bucket, sem a expiração das cópias.
+registro externo das remoções fica em outro bucket, por 45 dias, mais que a cópia mais antiga.
 
 [`copia/restaurar.sh`](copia/restaurar.sh) busca o par, confere que o banco de destino está vazio,
 decifra direto para o `pg_restore`, sem dump em claro no disco, e roda a conferência no banco
@@ -766,9 +767,29 @@ O ADMIN remove Cliente no aplicativo. Se houver dívida ou comanda ABERTA, a ope
 após quitar ou cancelar a Venda elegível, o pedido pode ser repetido. A inativação de Usuário apaga
 a credencial, e o ADMIN pode anonimizar o nome depois. Essas ações gravam antes um registro mínimo
 em objetos `remocoes/<conta>/<tipo>/<id>/<instante>.json` num bucket S3 separado do backup, na
-região `sa-east-1`. O bucket de remoções não usa o ciclo de vida de três ou trinta dias das cópias.
-A aplicação recebe `CAIXA_SIMPLES_REMOCOES_BUCKET` e uma credencial limitada a gravar nesse bucket.
-Sem acesso ao registro, a API responde 503 e não remove o dado do banco.
+região `sa-east-1`. A aplicação recebe `CAIXA_SIMPLES_REMOCOES_BUCKET` e uma credencial limitada a
+gravar nesse bucket. Sem acesso ao registro, a API responde 503 e não remove o dado do banco.
+
+O registro serve para a restauração reaplicar as remoções feitas depois da cópia, e a cópia mais
+antiga vive até 31 dias. Por isso cada registro fica 45 dias, com folga para uma restauração ou uma
+recriação começada no fim da vida da cópia, e depois o próprio bucket o apaga. Enquanto a Conta existe,
+a remoção continua visível no banco: o Cliente fica marcado como removido, e o Usuário, inativo, sem
+credencial e, se pedido, sem o nome. Ao criar o bucket, com o bloqueio de acesso público e a
+criptografia padrão, como o das cópias, aplique a regra:
+
+```json
+{
+  "Rules": [
+    { "ID": "remocoes-45-dias", "Status": "Enabled", "Filter": { "Prefix": "remocoes/" }, "Expiration": { "Days": 45 } }
+  ]
+}
+```
+
+com `aws s3api put-bucket-lifecycle-configuration --bucket <bucket de remoções>
+--lifecycle-configuration file://remocoes-45-dias.json`, e confira com
+`aws s3api get-bucket-lifecycle-configuration --bucket <bucket de remoções>`. A aplicação e o
+encerramento gravam sob o prefixo `remocoes/`; a restauração reaplica todo registro que encontra, então
+o prazo não muda nada nela.
 
 O ADMIN pede encerramento pelo endereço publicado no aviso de privacidade. Antes de executar, confira
 a identidade e o vínculo do ADMIN com a Conta, anote a data do pedido para cumprir o prazo de quinze
@@ -776,7 +797,9 @@ dias e pare a aplicação para impedir novas escritas, com `sh compose.sh stop a
 `/etc/caixa-simples/efi.env` todas as linhas da Conta, que começam por
 `CAIXA_SIMPLES_EFI_<UUID_DA_CONTA_SEM_HIFENS>_`, e apague o certificado dela em
 `/etc/caixa-simples/efi/`. Confira que nenhuma linha com esse prefixo restou e guarde a evidência
-dessa conferência fora do banco a apagar.
+dessa conferência fora do banco a apagar. O pedido, a data e a evidência ficam guardados no Brasil por
+cinco anos depois do encerramento, como prova de que ele foi pedido e feito no prazo, e depois são
+apagados; o registro do encerramento no bucket de remoções segue os 45 dias dos outros.
 
 Depois, como root, na pasta `operacao/vps`:
 
