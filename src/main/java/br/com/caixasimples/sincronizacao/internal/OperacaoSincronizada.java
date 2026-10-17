@@ -21,8 +21,9 @@ import org.hibernate.type.SqlTypes;
 /**
  * O resultado gravado de uma operação que o dispositivo enviou, com o gesto como ele chegou.
  *
- * <p>É gravado na mesma transação do efeito, e o resultado nunca muda depois. O payload pode ser
- * anonimizado quando o Cliente é removido; o reenvio com o conteúdo antigo vira conflito. O índice
+ * <p>É gravado na mesma transação do efeito, e o resultado nunca muda depois. O payload de um gesto
+ * de Cliente é esvaziado quando o Cliente é editado ou removido, para a cópia não guardar nome nem
+ * contato que o cadastro já não tem; o reenvio com o conteúdo antigo vira conflito. O índice
  * único da migration V19, pela conta e pelo id da
  * operação, é o que impede que dois envios simultâneos da mesma operação apliquem o efeito duas
  * vezes.
@@ -162,13 +163,21 @@ public class OperacaoSincronizada {
 
     /** Retira dados do Cliente sem permitir que o gesto antigo seja reaplicado no reenvio. */
     public void anonimizarCliente() {
-        if (!tipo.startsWith("cliente.")) {
-            throw new IllegalStateException("somente gesto de cliente pode ser anonimizado");
-        }
-        payload = "{}";
+        esvaziarConteudoDoCliente();
         if (detalhe != null) {
             detalhe = "cliente removido";
         }
+    }
+
+    /**
+     * Retira a cópia do cadastro que a edição do Cliente tornou antiga. O detalhe fica: ele diz por
+     * que o gesto foi para revisão ou recusado, sem nome nem contato, e é o que o administrador lê.
+     */
+    public void esvaziarConteudoDoCliente() {
+        if (!tipo.startsWith("cliente.")) {
+            throw new IllegalStateException("somente gesto de cliente pode ser esvaziado");
+        }
+        payload = "{}";
     }
 
     public UUID getOperacaoId() {

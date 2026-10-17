@@ -1,5 +1,7 @@
-import { openDB, type DBSchema, type IDBPTransaction } from 'idb'
-import { lerIdentidade, lerTokenDaSessao, sessaoAtual, sessaoDaAba } from '../sessao/armazenamento'
+import { deleteDB, openDB, type DBSchema, type IDBPTransaction } from 'idb'
+import {
+  apagarChavesDoAparelho, lerIdentidade, lerTokenDaSessao, sessaoAtual, sessaoDaAba,
+} from '../sessao/armazenamento'
 import { tokenExpirado } from '../sessao/token'
 
 export type EstadoDoGesto = 'queued' | 'syncing' | 'sent' | 'failed' | 'needs_review'
@@ -154,6 +156,39 @@ export function sessaoPodeUsarAFila(): boolean {
   } catch {
     return false
   }
+}
+
+/** Há uma sessão aberta no aparelho, talvez em outra aba, que pode estar lendo ou enviando a fila. */
+export class SessaoAbertaNoAparelho extends Error {
+  constructor() {
+    super('Há uma sessão aberta neste aparelho. Saia dela antes de apagar os dados.')
+  }
+}
+
+/**
+ * Quantos gestos de todos os usuários deste aparelho ainda não tiveram resultado do servidor. Não
+ * exige sessão: é lida na tela de entrada, inclusive no aparelho de uma Conta que já não entra.
+ */
+export async function contarGestosSemResultado(): Promise<number> {
+  if (!('indexedDB' in globalThis)) return 0
+  const banco = await abrirBanco()
+  try {
+    return (await banco.getAll('gestos')).filter(gestoPendente).length
+  } finally {
+    banco.close()
+  }
+}
+
+/**
+ * Apaga tudo o que o aplicativo guarda neste aparelho: a fila e os retratos de todos os usuários,
+ * enviados ou não, e as chaves de sessão. Recusa com uma sessão aberta, para não tirar o banco de
+ * quem está usando a fila. A exclusão espera as outras abas fecharem a conexão, e aoBloquear avisa
+ * que alguma a segura.
+ */
+export async function apagarDadosDoAparelho(aoBloquear: () => void = () => undefined): Promise<void> {
+  if (sessaoAtual()) throw new SessaoAbertaNoAparelho()
+  if ('indexedDB' in globalThis) await deleteDB(NOME_DO_BANCO, { blocked: aoBloquear })
+  apagarChavesDoAparelho()
 }
 
 /** Avisa quem mostra ou envia a fila, nesta aba, a cada gesto novo, mudança de estado ou conferência. */

@@ -1,6 +1,7 @@
 package br.com.caixasimples.cadastro.internal;
 
 import br.com.caixasimples.cadastro.PendenciasDoCliente;
+import br.com.caixasimples.shared.ClienteEditado;
 import br.com.caixasimples.shared.ClienteRemovido;
 import br.com.caixasimples.shared.ContaId;
 import br.com.caixasimples.shared.LimiteDeTexto;
@@ -87,7 +88,8 @@ public class ClienteService {
     }
 
     /**
-     * Edição do cadastro (RF04). Substitui os dois campos pelo que veio em {@code dados}.
+     * Edição do cadastro (RF04). Substitui os dois campos pelo que veio em {@code dados}, e as
+     * cópias dos gestos anteriores deste cliente são esvaziadas na mesma transação.
      *
      * @throws ClienteNaoEncontradoException se o id não existe nesta conta
      * @throws IllegalStateException         se o cliente já foi inativado
@@ -99,6 +101,7 @@ public class ClienteService {
         ClienteEntity linha = buscar(id);
         linha.alterar(dados.nome(), dados.contato());
         clientes.save(linha);
+        eventos.publishEvent(new ClienteEditado(TenantContext.exigirAtual(), id));
     }
 
     /**

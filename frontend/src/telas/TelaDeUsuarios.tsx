@@ -57,7 +57,9 @@ export function TelaDeUsuarios() {
     try {
       await contas.inativarUsuario(usuario.id)
       await carregar()
-      setAviso(`${usuario.nome} foi inativado.`)
+      // O aparelho guarda o que a pessoa viu e registrou, e o servidor não o alcança.
+      setAviso(`${usuario.nome} foi inativado. No aparelho que só essa pessoa usava, apague os dados `
+        + 'pelo botão da tela de entrada.')
     } catch (falha) {
       setErro(erroDeCadastro(falha))
     }

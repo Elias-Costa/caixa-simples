@@ -112,6 +112,22 @@ describe('administração na tela', () => {
     expect(screen.queryByLabelText('Senha provisória de Bia')).not.toBeInTheDocument()
   })
 
+  it('depois de inativar, lembra de apagar os dados do aparelho de quem saiu', async () => {
+    vi.spyOn(contas, 'usuarios').mockResolvedValue([
+      { id: 'bia', nome: 'Bia', perfil: 'OPERADOR', ativo: true },
+    ])
+    const inativar = vi.spyOn(contas, 'inativarUsuario').mockResolvedValue(undefined)
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(<TelaDeUsuarios />)
+    expect(await screen.findByText('Bia')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Inativar' }))
+
+    await waitFor(() => expect(inativar).toHaveBeenCalledWith('bia'))
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Bia foi inativado. No aparelho que só essa pessoa usava, apague os dados pelo botão da tela de entrada.')
+  })
+
   it('mostra a recusa por plano sem esconder a lista de usuários', async () => {
     vi.spyOn(contas, 'usuarios').mockResolvedValue([{
       id: 'admin', nome: 'Ana', perfil: 'ADMIN', ativo: true,

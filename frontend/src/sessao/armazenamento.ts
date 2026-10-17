@@ -94,6 +94,21 @@ export function sessaoFoiEncerrada(): boolean {
   return sessionStorage.getItem(CHAVE_DA_SESSAO_ENCERRADA) !== null
 }
 
+/**
+ * Apaga toda chave do aplicativo neste navegador, inclusive as que uma sessão antiga ou uma aba
+ * fechada deixou para trás: tokens, identidades e marcas. Todas começam pelo mesmo prefixo.
+ */
+export function apagarChavesDoAparelho(): void {
+  for (const armazenamento of [localStorage, sessionStorage]) {
+    const chaves: string[] = []
+    for (let indice = 0; indice < armazenamento.length; indice++) {
+      const chave = armazenamento.key(indice)
+      if (chave?.startsWith('caixa-simples.')) chaves.push(chave)
+    }
+    for (const chave of chaves) armazenamento.removeItem(chave)
+  }
+}
+
 export function limparSessao(): void {
   const anterior = sessaoDaAba()
   sessionStorage.removeItem(CHAVE_DA_SESSAO_NA_ABA)

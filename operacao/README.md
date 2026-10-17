@@ -978,6 +978,11 @@ em objetos `remocoes/<conta>/<tipo>/<id>/<instante>.json` num bucket S3 separado
 região `sa-east-1`. A aplicação recebe `CAIXA_SIMPLES_REMOCOES_BUCKET` e uma credencial limitada a
 gravar nesse bucket. Sem acesso ao registro, a API responde 503 e não remove o dado do banco.
 
+O servidor não alcança o aparelho. O que um aparelho guardou, inclusive o cadastro de Clientes, só sai
+dele por Apagar os dados deste aparelho, na tela de entrada, ou pela limpeza dos dados do site no
+navegador; a tela Usuários lembra disso ao inativar alguém. A edição de um Cliente esvazia, na mesma
+transação, o conteúdo dos gestos anteriores dele no registro de sincronização, como a remoção.
+
 O registro serve para a restauração reaplicar as remoções feitas depois da cópia, e a cópia mais
 antiga vive até 31 dias. Por isso cada registro fica 45 dias, com folga para uma restauração ou uma
 recriação começada no fim da vida da cópia, e depois o próprio bucket o apaga. Enquanto a Conta existe,
@@ -1028,8 +1033,13 @@ como prova de que foram atendidos no prazo, e depois são apagados. O pedido do 
 cadastro da Conta ou o dele não é encaminhado: quem decide sobre esse cadastro é o Caixa Simples.
 
 O ADMIN pede encerramento pelo endereço publicado no aviso de privacidade. Antes de executar, confira
-a identidade e o vínculo do ADMIN com a Conta, anote a data do pedido para cumprir o prazo de quinze
-dias e pare a aplicação para impedir novas escritas, com `sh compose.sh stop app`. Retire de
+a identidade e o vínculo do ADMIN com a Conta e anote a data do pedido para cumprir o prazo de quinze
+dias. Responda ao ADMIN que, em cada aparelho da Conta, cada usuário entre com rede, espere o envio do
+que registrou sem rede e saia, e que então alguém toque em Apagar os dados deste aparelho, na tela de
+entrada: o aparelho guarda o cadastro, com nome e contato dos Clientes, e o Caixa Simples não o
+alcança. O botão continua na tela de entrada depois do encerramento, mas o que não tiver sido enviado
+até lá se perde. Na hora de executar, pare a aplicação para impedir novas escritas, com
+`sh compose.sh stop app`. Retire de
 `/etc/caixa-simples/efi.env` todas as linhas da Conta, que começam por
 `CAIXA_SIMPLES_EFI_<UUID_DA_CONTA_SEM_HIFENS>_`, e apague o certificado dela em
 `/etc/caixa-simples/efi/`. Confira que nenhuma linha com esse prefixo restou e guarde a evidência

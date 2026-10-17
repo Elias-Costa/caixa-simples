@@ -32,6 +32,7 @@ import br.com.caixasimples.shared.UsuarioContext;
 import br.com.caixasimples.sincronizacao.application.ResultadoDaOperacao;
 import br.com.caixasimples.sincronizacao.application.ResultadoDaOperacao.Resultado;
 import br.com.caixasimples.sincronizacao.application.SincronizacaoService;
+import br.com.caixasimples.sincronizacao.internal.OperacaoSincronizada;
 import br.com.caixasimples.sincronizacao.internal.OperacaoSincronizadaRepository;
 import br.com.caixasimples.vendas.StatusVenda;
 import br.com.caixasimples.vendas.application.VendaService;
@@ -103,6 +104,88 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
                 .extracting(ResultadoDaOperacao::resultado).containsExactly(Resultado.NAO_APLICADA);
         conta.comoUsuario(() -> assertThat(clientes.consultar(clienteId).nome())
                 .isEqualTo("Cliente removido"));
+    }
+
+    @Test
+    @DisplayName("editar Cliente pelo lote esvazia o payload dos gestos anteriores e o reenvio antigo entra em conflito")
+    void edicaoPeloLoteEsvaziaGestosAnteriores() {
+        ContaCriada conta = criador.criar("Conta com Cliente corrigido", SENHA);
+        UUID clienteId = UUID.randomUUID();
+        GestoDeTeste criacao = GestoDeTeste.de("cliente.criar", clienteId,
+                conteudo("nome", "Nome antigo", "contato", "antigo@exemplo.test"));
+        GestoDeTeste edicao = GestoDeTeste.de("cliente.editar", clienteId,
+                conteudo("nome", "Nome corrigido", "contato", "novo@exemplo.test"), criacao);
+        assertThat(conta.comoUsuario(() -> sincronizacao.sincronizar(recebidas(List.of(criacao)))))
+                .extracting(ResultadoDaOperacao::resultado).containsExactly(Resultado.APLICADA);
+
+        assertThat(conta.comoUsuario(() -> sincronizacao.sincronizar(recebidas(List.of(edicao)))))
+                .extracting(ResultadoDaOperacao::resultado).containsExactly(Resultado.APLICADA);
+
+        conta.comoUsuario(() -> {
+            assertThat(registros.findByOperacaoId(criacao.operacaoId()).orElseThrow().getPayload())
+                    .isEqualTo("{}");
+            assertThat(registros.findByOperacaoId(edicao.operacaoId()).orElseThrow().getPayload())
+                    .contains("Nome corrigido", "novo@exemplo.test");
+            assertThat(clientes.consultar(clienteId).nome()).isEqualTo("Nome corrigido");
+        });
+        // A edição gravou o próprio conteúdo depois de esvaziar as anteriores: o reenvio dela é
+        // reconhecido, e o da criação, com o conteúdo antigo, não.
+        assertThat(conta.comoUsuario(() -> sincronizacao.sincronizar(
+                recebidas(List.of(criacao, edicao)))))
+                .extracting(ResultadoDaOperacao::resultado)
+                .containsExactly(Resultado.NAO_APLICADA, Resultado.APLICADA);
+    }
+
+    @Test
+    @DisplayName("editar Cliente pela rota esvazia o payload anterior e mantém o resultado e o detalhe da revisão")
+    void edicaoPelaRotaMantemResultadoEDetalhe() {
+        ContaCriada conta = criador.criar("Papelaria Sul", SENHA);
+        UUID clienteId = UUID.randomUUID();
+        GestoDeTeste adiantado = GestoDeTeste.de("cliente.criar", clienteId,
+                conteudo("nome", "Nome antigo", "contato", "antigo@exemplo.test"))
+                .registradoEm(Instant.now().plus(10, ChronoUnit.MINUTES)
+                        .truncatedTo(ChronoUnit.MILLIS));
+        assertThat(conta.comoUsuario(() -> sincronizacao.sincronizar(recebidas(List.of(adiantado)))))
+                .extracting(ResultadoDaOperacao::resultado)
+                .containsExactly(Resultado.APLICADA_COM_REVISAO);
+        String detalhe = conta.comoUsuario(() -> registros.findByOperacaoId(adiantado.operacaoId())
+                .orElseThrow().getDetalhe());
+
+        conta.comoUsuario(() -> clientes.editar(clienteId,
+                new ClienteService.DadosDoCliente("Nome corrigido", null)));
+
+        conta.comoUsuario(() -> {
+            OperacaoSincronizada gravada = registros.findByOperacaoId(adiantado.operacaoId())
+                    .orElseThrow();
+            assertThat(gravada.getPayload()).isEqualTo("{}");
+            assertThat(gravada.getResultado()).isEqualTo(Resultado.APLICADA_COM_REVISAO);
+            assertThat(gravada.getDetalhe()).isEqualTo(detalhe).contains("relogio");
+        });
+    }
+
+    @Test
+    @DisplayName("a edição do Cliente na Conta A não esvazia a cópia do lote da B com o mesmo registro (RNF05)")
+    void edicaoNaoAlcancaCopiaDeOutraConta() {
+        ContaCriada contaA = criador.criar("Cafeteria Aurora", SENHA);
+        ContaCriada contaB = criador.criar("Loja da Esquina", SENHA);
+        UUID clienteId = contaA.comoUsuario(() -> clientes.cadastrar(
+                new ClienteService.DadosDoCliente("Joana", null)));
+        // A B usa o id do Cliente da A num gesto que o servidor recusa e grava com o conteúdo.
+        GestoDeTeste naB = GestoDeTeste.de("cliente.criar", clienteId,
+                conteudo("nome", "Nome da B", "contato", "b@exemplo.test"));
+        assertThat(contaB.comoUsuario(() -> sincronizacao.sincronizar(recebidas(List.of(naB)))))
+                .extracting(ResultadoDaOperacao::resultado).containsExactly(Resultado.NAO_APLICADA);
+        String payloadDaB = contaB.comoUsuario(() -> registros.findByOperacaoId(naB.operacaoId())
+                .orElseThrow().getPayload());
+        assertThat(payloadDaB).contains("Nome da B");
+
+        contaA.comoUsuario(() -> clientes.editar(clienteId,
+                new ClienteService.DadosDoCliente("Joana Lima", null)));
+
+        contaB.comoUsuario(() -> assertThat(registros.findByOperacaoId(naB.operacaoId())
+                .orElseThrow().getPayload()).isEqualTo(payloadDaB));
+        contaA.comoUsuario(() -> assertThat(clientes.consultar(clienteId).nome())
+                .isEqualTo("Joana Lima"));
     }
 
     @Test

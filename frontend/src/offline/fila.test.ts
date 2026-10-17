@@ -1,13 +1,14 @@
 import 'fake-indexeddb/auto'
 import { deleteDB, openDB } from 'idb'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { gravarIdentidade, gravarToken } from '../sessao/armazenamento'
+import { gravarIdentidade, gravarToken, lerIdentidade, limparSessao } from '../sessao/armazenamento'
 import type { Identidade } from '../sessao/Identidade'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
 import {
-  atualizarRetratoDoCaixa, conferirGesto, enfileirarGesto, guardarRetrato, guardarRetratoDaVenda, iniciarEnvio,
-  jaEstaNoRetrato, lerCaixaNoAparelho, lerDoServidor, lerRetrato, listarGestos, mudarEstadoDoGesto,
-  recuperarEnviosInterrompidos, registrarDesfechos, type GestoNaFila,
+  apagarDadosDoAparelho, atualizarRetratoDoCaixa, conferirGesto, contarGestosSemResultado, enfileirarGesto,
+  guardarRetrato, guardarRetratoDaVenda, iniciarEnvio, jaEstaNoRetrato, lerCaixaNoAparelho, lerDoServidor,
+  lerRetrato, listarGestos, mudarEstadoDoGesto, recuperarEnviosInterrompidos, registrarDesfechos,
+  SessaoAbertaNoAparelho, type GestoNaFila,
 } from './fila'
 
 const ana: Identidade = {
@@ -333,5 +334,63 @@ describe('fila local de gestos', () => {
     await expect(enfileirarGesto(produto)).rejects.toThrow('Entre novamente')
     entrar(ana)
     expect((await listarGestos()).map((item) => item.operacaoId)).toEqual([primeiro.operacaoId])
+  })
+})
+
+describe('dados do aparelho', () => {
+  const bia: Identidade = { ...ana, usuarioId: 'bia', nome: 'Bia', perfil: 'OPERADOR' }
+  const registro = (final: string) => `00000000-0000-4000-8000-0000000000${final}`
+
+  it('conta, sem sessão, os gestos de todos os usuários que ainda não tiveram resultado', async () => {
+    entrar(ana)
+    await enfileirarGesto(produto)
+    const comFalha = await enfileirarGesto({ ...produto, registroId: registro('42') })
+    const enviado = await enfileirarGesto({ ...produto, registroId: registro('43') })
+    const emRevisao = await enfileirarGesto({ ...produto, registroId: registro('44') })
+    await iniciarEnvio([comFalha.operacaoId, enviado.operacaoId, emRevisao.operacaoId])
+    await registrarDesfechos([
+      { operacaoId: comFalha.operacaoId, estado: 'failed', falha: 'Sem conexão' },
+      { operacaoId: enviado.operacaoId, estado: 'sent', resultado: { aplicada: true } },
+      { operacaoId: emRevisao.operacaoId, estado: 'needs_review', resultado: { aplicada: false } },
+    ])
+    entrar(bia)
+    const emEnvio = await enfileirarGesto({ ...produto, registroId: registro('45') })
+    await iniciarEnvio([emEnvio.operacaoId])
+    limparSessao()
+
+    // Na fila e com falha, da Ana, e em envio, da Bia; o enviado e o em revisão já têm resultado.
+    expect(await contarGestosSemResultado()).toBe(3)
+  })
+
+  it('apaga a fila, os retratos e as chaves do aplicativo, e o nome do Cliente não fica', async () => {
+    entrar(ana)
+    await guardarRetrato('clientesAtivos', [{ id: registro('31'), nome: 'Joana Lima',
+      contato: 'joana@exemplo.test' }], 0)
+    await enfileirarGesto({ tipo: 'cliente.criar', registroId: registro('31'),
+      payload: { nome: 'Joana Lima', contato: 'joana@exemplo.test' } })
+    limparSessao()
+    localStorage.setItem('caixa-simples.token.de-uma-sessao-antiga', 'token')
+    sessionStorage.setItem('caixa-simples.intencao-online.conta-a.ana.resumo', 'id')
+    localStorage.setItem('outro-aplicativo', 'fica')
+
+    await apagarDadosDoAparelho()
+
+    expect(localStorage.getItem('caixa-simples.token.de-uma-sessao-antiga')).toBeNull()
+    expect(sessionStorage.getItem('caixa-simples.intencao-online.conta-a.ana.resumo')).toBeNull()
+    expect(localStorage.getItem('outro-aplicativo')).toBe('fica')
+    expect(await contarGestosSemResultado()).toBe(0)
+    entrar(ana)
+    expect(await listarGestos()).toEqual([])
+    expect(await lerRetrato('clientesAtivos')).toBeNull()
+  })
+
+  it('recusa apagar com uma sessão aberta e não apaga nada', async () => {
+    entrar(ana)
+    await enfileirarGesto(produto)
+
+    await expect(apagarDadosDoAparelho()).rejects.toThrow(SessaoAbertaNoAparelho)
+
+    expect(await listarGestos()).toHaveLength(1)
+    expect(lerIdentidade()).toEqual(ana)
   })
 })
