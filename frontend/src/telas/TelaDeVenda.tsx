@@ -21,6 +21,7 @@ import { erroDeCadastro } from './erroDeCadastro'
 import { filtrarPorNome } from './filtroPorNome'
 import { Mensagem } from './Mensagem'
 import { ROTULO_DA_COBRANCA_PIX, ROTULO_DA_FORMA, ROTULO_DA_VENDA } from './rotulos'
+import { useConfirmacao, type Pergunta } from './useConfirmacao'
 
 const caixa = criarCaixaLocal()
 const vendas = criarVendaLocal()
@@ -41,24 +42,28 @@ function descontoDigitado(texto: string): number | null {
 }
 
 /**
- * Sem resposta, a operação pode ter chegado ao servidor mesmo assim; a comanda relida mostra se ela
- * valeu, e repetir sem olhar poderia lançar duas vezes.
- */
-/**
  * A pergunta antes de cancelar diz o valor e o que muda fora da comanda. O dinheiro só entra no
  * caixa quando a venda conclui, então o estorno só existe para a concluída.
  */
-function perguntaDoCancelamento(venda: Venda): string {
-  const partes = [`Cancelar a venda de ${moeda.format(venda.total)}? O cancelamento não pode ser desfeito.`]
+function perguntaDoCancelamento(venda: Venda): Pergunta {
+  const partes = ['O cancelamento não pode ser desfeito.']
   const emDinheiro = venda.parcelas.some((parcela) => parcela.forma === 'DINHEIRO')
     || venda.recebimentos.some((recebimento) => recebimento.forma === 'DINHEIRO')
   if (venda.status === 'CONCLUIDA' && emDinheiro) partes.push('O dinheiro recebido nela sai do caixa como estorno.')
   if (venda.parcelas.some((parcela) => parcela.pix && parcela.status === 'CONFIRMADO')) {
     partes.push('O Pix recebido precisa ser devolvido fora do sistema.')
   }
-  return partes.join(' ')
+  return {
+    titulo: `Cancelar a venda de ${moeda.format(venda.total)}?`,
+    texto: partes.join(' '),
+    acao: 'Cancelar venda',
+  }
 }
 
+/**
+ * Sem resposta, a operação pode ter chegado ao servidor mesmo assim; a comanda relida mostra se ela
+ * valeu, e repetir sem olhar poderia lançar duas vezes.
+ */
 function erroDaComanda(falha: unknown): string {
   if (falha instanceof SemConexao) return 'Sem resposta do servidor. Confira a comanda antes de repetir.'
   return erroDeCadastro(falha)
@@ -105,7 +110,7 @@ function textoDoComprovante(comprovante: Comprovante, negocio: string, operador:
 
 export function TelaDeVenda() {
   const { identidade } = useSessao()
-  const { definirFaixa } = useContextoDoShell()
+  const { definirFaixa, definirVendaAberta } = useContextoDoShell()
   const { rodada } = useSincronizacao()
   const buscaRef = useRef<HTMLInputElement>(null)
   const [sessao, setSessao] = useState<SessaoCaixa>()
@@ -133,6 +138,7 @@ export function TelaDeVenda() {
   const [erro, setErro] = useState<{ texto: string; lugar: LugarDoErro }>()
   const [ocupado, setOcupado] = useState(false)
   const [carregando, setCarregando] = useState(true)
+  const [confirmar, dialogoDeConfirmacao] = useConfirmacao()
   const online = useOnline()
   const pixPendente = atual?.parcelas.some((parcela) => parcela.pix && parcela.status === 'PENDENTE') ?? false
   const doDispositivo = atual?.pendenteSincronizacao === true
@@ -237,6 +243,14 @@ export function TelaDeVenda() {
     })
     return () => { vivo = false; definirFaixa(null) }
   }, [atual?.clienteId, atual?.saldoDevedor, atual?.pendenteSincronizacao, clientes, definirFaixa, online])
+
+  // Enquanto a venda aberta está na tela, o Shell não oferece a versão nova: a recarga fecharia a
+  // comanda. Concluída, cancelada, deixada pela próxima ou com a tela fechada, o botão volta.
+  const vendaAberta = atual?.status === 'ABERTA'
+  useEffect(() => {
+    definirVendaAberta(vendaAberta)
+    return () => definirVendaAberta(false)
+  }, [vendaAberta, definirVendaAberta])
 
   useEffect(() => {
     const procurado = busca.trim()
@@ -453,7 +467,7 @@ export function TelaDeVenda() {
 
   async function cancelar() {
     if (!atual) return
-    if (!window.confirm(perguntaDoCancelamento(atual))) return
+    if (!(await confirmar(perguntaDoCancelamento(atual)))) return
     setOcupado(true); setErro(undefined)
     try {
       await vendas.cancelar(atual.id); await atualizar(atual.id); setComprovante(undefined)
@@ -788,5 +802,6 @@ export function TelaDeVenda() {
     </section>}
     {/* Fora do papel branco do comprovante, onde o texto claro da mensagem não se leria. */}
     <Mensagem tipo="erro" texto={erroEm('comprovante')} />
+    {dialogoDeConfirmacao}
   </section>
 }

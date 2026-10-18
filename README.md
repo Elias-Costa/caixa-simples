@@ -105,10 +105,11 @@ de um saldo antigo. O cabeçalho mostra o
 que falta enviar e o que está em revisão, e a tela de sincronização mostra cada gesto com o
 detalhe do servidor, para quem operou conferir. O administrador vê também as revisões e recusas
 de todos os aparelhos da Conta e registra no servidor que as conferiu. Sair não apaga o que o
-aparelho guardou: a tela de entrada tem um botão que apaga a fila e as cópias locais de todos os
-usuários, depois de dizer quantos registros feitos sem rede ainda não chegaram ao servidor e de
-pedir confirmação, porque o aparelho de uma Conta encerrada ou de quem foi inativado não entra
-mais e o servidor não o alcança.
+aparelho guardou: a tela de entrada tem um link discreto para uma página que apaga a fila e as
+cópias locais de todos os usuários. Antes do botão, a página diz o que sai do aparelho, que o já
+enviado continua no servidor e quantos registros feitos sem rede ainda não chegaram a ele. Ela fica
+fora do aplicativo porque o aparelho de uma Conta encerrada ou de quem foi inativado não entra mais
+e o servidor não o alcança.
 Nas rotas online de recebimento de fiado, parcela, sangria e suprimento, o aparelho envia um UUID
 para cada intenção. Se a resposta se perder, a aba conserva esse id e o usa na nova tentativa;
 o servidor confirma o mesmo lançamento sem somar dinheiro outra vez e recusa o mesmo id com
@@ -323,7 +324,9 @@ código exato ou o resultado único; a comanda admite pagamento dividido, e o to
 lançar e o botão de concluir ficam num rodapé preso ao fim da tela. O troco aparece em destaque, com
 uma prévia enquanto se digita o valor recebido e botões das notas mais comuns que o preenchem. Uma
 venda simples em dinheiro fecha em até seis toques. Cancelar a venda e fechar o caixa, que não se
-desfazem, pedem confirmação com o valor e a consequência.
+desfazem, pedem confirmação com o valor e a consequência, como as inativações e remoções do
+cadastro: num diálogo do próprio aplicativo, e não no do navegador, com o verbo da ação no botão e o
+foco em Voltar, para o Enter do leitor de código não confirmar.
 No cartão, o PDV e a tela Fiado pedem o NSU do comprovante da maquininha, opcional ou obrigatório
 conforme a Conta; o aparelho sabe da exigência pela identidade e recusa sem rede a parcela que viria
 sem ele, e a lista de parcelas da comanda mostra o número gravado.
@@ -349,8 +352,10 @@ pertence à mesma sessão e traduz todo erro no mesmo objeto, lido do Problem De
 uma Conta anterior são descartadas depois de uma troca de sessão, inclusive entre abas.
 Com token guardado e ainda válido, o aplicativo
 abre sem rede no shell, com a identidade guardada, e pergunta ao servidor quem está operando assim
-que a rede volta; a versão nova avisa e espera o operador mandar atualizar, porque recarregar no
-meio de uma venda custaria a venda.
+que a rede volta. A versão nova é procurada ao abrir o aplicativo, ao voltar a ele e de hora em
+hora, para alcançar o tablet que passa o dia aberto no balcão; ela avisa e espera o operador mandar
+atualizar. Com uma venda aberta na tela, o aviso fica sem o botão até a venda sair dela, porque a
+recarga fecharia a comanda e perderia o que foi digitado e ainda não lançado.
 
 **Implantação.** A imagem, o CI que publica as imagens e faz o deploy, a configuração da VPS, com o
 proxy do HTTPS, a aplicação e o PostgreSQL 17 em contêineres na mesma máquina no Brasil, a cópia
@@ -1199,7 +1204,7 @@ frontend
 │   ├── offline/            fila, retratos locais, envio da fila, cadastro, caixa e Venda no dispositivo, pedido de armazenamento persistente
 │   ├── sessao/             token e identidade no dispositivo, provedor de sessão
 │   ├── shell/              cabeçalho com os avisos da fila e do vencimento do plano, envio automático, navegação por perfil e plano com o botão Mais, rodapé com o aviso de privacidade e os termos, guardas de rota
-│   └── telas/              login, privacidade, termos de uso, produto, cliente, caixa, Venda, relatórios, usuários, configuração, estoque e sincronização, e o que elas dividem: rótulos, mensagens e o campo de senha
+│   └── telas/              login, privacidade, termos de uso, dados do aparelho, produto, cliente, caixa, Venda, relatórios, usuários, configuração, estoque e sincronização, e o que elas dividem: rótulos, mensagens, o campo de senha e o diálogo de confirmação
 ├── public/                 ícones e manifest
 └── vite.config.ts          build, service worker e o proxy de desenvolvimento para a API
 ```

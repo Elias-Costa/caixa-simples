@@ -9,6 +9,7 @@ import { criarCaixaLocal } from '../offline/caixaLocal'
 import { gravarIdentidade, gravarToken } from '../sessao/armazenamento'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
 import { SessaoContext } from '../sessao/contexto'
+import { confirmacaoAberta, responderConfirmacao } from './confirmacaoDeTeste'
 import { TelaDeCaixa } from './TelaDeCaixa'
 
 afterEach(() => vi.restoreAllMocks())
@@ -128,12 +129,14 @@ describe('caixa na tela', () => {
     expect(screen.getByText(/Saldo esperado:/)).toHaveTextContent('R$')
     fireEvent.change(screen.getByLabelText('Valor contado'), { target: { value: '18.00' } })
     // O fechamento não se refaz: a pergunta diz a falta em palavras, e quem desiste não fecha.
-    const pergunta = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValue(true)
     fireEvent.click(screen.getByRole('button', { name: 'Fechar e registrar diferença' }))
-    expect(pergunta.mock.calls[0][0]).toMatch(
-      /^Fechar o caixa com falta de R\$\s2,00\? O fechamento não pode ser refeito\.$/)
+    const pergunta = await confirmacaoAberta()
+    expect(pergunta).toHaveAccessibleName(/^Fechar o caixa com falta de R\$\s2,00\?$/)
+    expect(pergunta).toHaveTextContent('O fechamento não pode ser refeito.')
+    await responderConfirmacao('Voltar')
     expect(fechar).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: 'Fechar e registrar diferença' }))
+    await responderConfirmacao('Fechar caixa')
 
     await waitFor(() => expect(fechar).toHaveBeenCalledWith('s-1', 18))
     expect(await screen.findByText(/Diferença:/)).toHaveTextContent('R$')
@@ -151,8 +154,8 @@ describe('caixa na tela', () => {
     expect((await screen.findAllByText('Pendente de sincronização com o servidor.')).length).toBeGreaterThan(0)
     fireEvent.change(screen.getByLabelText('Valor contado'), { target: { value: '8.00' } })
     expect(screen.getByText(/Diferença prevista:/)).toHaveTextContent('R$ 2,00')
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     fireEvent.click(screen.getByRole('button', { name: 'Fechar e registrar diferença' }))
+    await responderConfirmacao('Fechar caixa')
     expect(await screen.findByText(/Diferença:/)).toHaveTextContent('R$ 2,00')
     expect(remoto).not.toHaveBeenCalled()
     expect(fecharRemoto).not.toHaveBeenCalled()

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router'
 import { useRegisterSW } from 'virtual:pwa-register/react'
 import type { Perfil } from '../sessao/Identidade'
@@ -9,6 +9,9 @@ import { Navegacao } from './Navegacao'
 import { useOnline } from './useOnline'
 import { ContextoDoShellReact } from './ContextoDoShell'
 import { SincronizacaoContext, useEnvioAutomatico } from './sincronizacao'
+
+/** De quanto em quanto tempo o aplicativo aberto procura a versão nova, além da volta à tela. */
+const INTERVALO_DA_PROCURA_DE_VERSAO = 60 * 60 * 1000
 
 /**
  * A moldura de toda tela: quem está operando e em que negócio, a navegação e os avisos que
@@ -23,10 +26,31 @@ export function Shell() {
   const online = useOnline()
   const sincronizacao = useEnvioAutomatico(identidade, sair, pathname)
   const [faixaDeContexto, definirFaixa] = useState<string | null>(null)
+  const [vendaAberta, definirVendaAberta] = useState(false)
+  const [registro, definirRegistro] = useState<ServiceWorkerRegistration>()
   const {
     needRefresh: [precisaAtualizar],
     updateServiceWorker,
-  } = useRegisterSW()
+  } = useRegisterSW({ onRegisteredSW: (_endereco, registration) => definirRegistro(registration) })
+
+  // O navegador só procura a versão nova quando o aplicativo abre ou recarrega: o tablet aberto o
+  // expediente inteiro no balcão e o celular que vai e volta do bolso ficariam horas na versão
+  // antiga, chamando a API nova. A volta à tela alcança o celular, e o intervalo, o tablet. O
+  // onRegisteredSW só entrega o registro, e a procura vive neste efeito: o Shell desmonta nas páginas
+  // públicas, e cada montagem registra de novo; presa ao onRegisteredSW, cada uma somaria um
+  // intervalo e um ouvinte que nada desliga.
+  useEffect(() => {
+    if (!registro) return
+    // Sem rede a procura falha; a próxima volta ou a próxima hora tenta de novo.
+    const procurar = () => { registro.update().catch(() => undefined) }
+    const aoVoltarATela = () => { if (document.visibilityState === 'visible') procurar() }
+    const intervalo = window.setInterval(procurar, INTERVALO_DA_PROCURA_DE_VERSAO)
+    document.addEventListener('visibilitychange', aoVoltarATela)
+    return () => {
+      window.clearInterval(intervalo)
+      document.removeEventListener('visibilitychange', aoVoltarATela)
+    }
+  }, [registro])
 
   if (!identidade) return null
   const vencimento = avisoDoPlano(identidade)
@@ -70,12 +94,17 @@ export function Shell() {
         </button>
       </header>
 
+      {/* Atualizar recarrega a página, e no meio da venda fecharia a comanda com o cliente no
+          balcão, perdendo o que foi digitado e não lançado. Com a venda aberta na tela, a faixa só
+          avisa; o botão volta quando ela sai. */}
       {precisaAtualizar && (
         <div className="faixa" role="status">
-          <span>Nova versão disponível.</span>
-          <button type="button" className="botao" onClick={() => updateServiceWorker(true)}>
-            Atualizar
-          </button>
+          {vendaAberta ? <span>Nova versão disponível. Atualize quando a venda terminar.</span> : <>
+            <span>Nova versão disponível.</span>
+            <button type="button" className="botao" onClick={() => updateServiceWorker(true)}>
+              Atualizar
+            </button>
+          </>}
         </div>
       )}
       {vencimento && (
@@ -89,7 +118,7 @@ export function Shell() {
       <Navegacao itens={itensDoMenu(identidade)} />
 
       <main className="conteudo">
-        <ContextoDoShellReact.Provider value={{ definirFaixa }}>
+        <ContextoDoShellReact.Provider value={{ definirFaixa, definirVendaAberta }}>
           <SincronizacaoContext.Provider value={sincronizacao}><Outlet /></SincronizacaoContext.Provider>
         </ContextoDoShellReact.Provider>
       </main>

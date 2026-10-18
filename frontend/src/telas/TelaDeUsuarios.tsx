@@ -6,6 +6,7 @@ import { CampoDeSenha } from './CampoDeSenha'
 import { erroDeCadastro } from './erroDeCadastro'
 import { Mensagem } from './Mensagem'
 import { problemaDoTamanhoDaSenha } from './regrasDaSenha'
+import { useConfirmacao } from './useConfirmacao'
 
 const vazio: NovoUsuario = { nome: '', perfil: 'OPERADOR', email: '', senha: '' }
 
@@ -30,6 +31,7 @@ export function TelaDeUsuarios() {
   const [senhaProvisoria, setSenhaProvisoria] = useState('')
   const [corrigindo, setCorrigindo] = useState<string | null>(null)
   const [nomeCorrigido, setNomeCorrigido] = useState('')
+  const [confirmar, dialogoDeConfirmacao] = useConfirmacao()
 
   const carregar = useCallback(async () => {
     try {
@@ -71,7 +73,13 @@ export function TelaDeUsuarios() {
   }
 
   async function inativar(usuario: UsuarioDaConta) {
-    if (!window.confirm(`Inativar ${usuario.nome}? O acesso será encerrado na próxima requisição.`)) return
+    const sim = await confirmar({
+      titulo: `Inativar ${usuario.nome}?`,
+      texto: 'O acesso termina na próxima vez que um aparelho dessa pessoa falar com o servidor, e a '
+        + 'inativação não pode ser desfeita.',
+      acao: 'Inativar',
+    })
+    if (!sim) return
     setMensagem(null)
     try {
       await contas.inativarUsuario(usuario.id)
@@ -79,7 +87,7 @@ export function TelaDeUsuarios() {
       // O aparelho guarda o que a pessoa viu e registrou, e o servidor não o alcança.
       setMensagem({ tipo: 'sucesso', onde: usuario.id,
         texto: `${usuario.nome} foi inativado. No aparelho que só essa pessoa usava, apague os dados `
-          + 'pelo botão da tela de entrada.' })
+          + 'pelo link Apagar os dados deste aparelho, na tela de entrada.' })
     } catch (falha) {
       setMensagem({ tipo: 'erro', texto: erroDeCadastro(falha), onde: usuario.id })
     }
@@ -139,7 +147,12 @@ export function TelaDeUsuarios() {
   }
 
   async function anonimizar(usuario: UsuarioDaConta) {
-    if (!window.confirm('Remover o nome deste Usuário? Esta ação não pode ser desfeita.')) return
+    const sim = await confirmar({
+      titulo: `Remover o nome de ${usuario.nome}?`,
+      texto: 'O nome sai do cadastro, e esta ação não pode ser desfeita. O histórico continua, sem ele.',
+      acao: 'Remover o nome',
+    })
+    if (!sim) return
     setMensagem(null)
     try {
       await contas.anonimizarUsuario(usuario.id)
@@ -216,5 +229,6 @@ export function TelaDeUsuarios() {
             onClick={() => void anonimizar(usuario)}>Remover nome</button>}
         {mostrarEm(usuario.id)}
       </li>)}</ul>}
+    {dialogoDeConfirmacao}
   </section>
 }

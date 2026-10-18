@@ -1,5 +1,5 @@
 import 'fake-indexeddb/auto'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { deleteDB } from 'idb'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -9,6 +9,7 @@ import type { Identidade } from '../sessao/Identidade'
 import { SessaoProvider } from '../sessao/SessaoProvider'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
 import { TelaDeLogin } from './TelaDeLogin'
+import { TelaDoAparelho } from './TelaDoAparelho'
 
 const ana: Identidade = {
   contaId: 'conta-a', usuarioId: 'ana', nome: 'Ana', nomeNegocio: 'Café A',
@@ -30,20 +31,18 @@ async function clienteRegistradoSemRede() {
   limparSessao()
 }
 
-function renderizarLogin() {
+function abrir(caminho: string) {
   render(
-    <MemoryRouter initialEntries={['/entrar']}>
+    <MemoryRouter initialEntries={[caminho]}>
       <SessaoProvider>
         <Routes>
           <Route path="/entrar" element={<TelaDeLogin />} />
+          <Route path="/aparelho" element={<TelaDoAparelho />} />
+          <Route path="/" element={<p>dentro do aplicativo</p>} />
         </Routes>
       </SessaoProvider>
     </MemoryRouter>,
   )
-}
-
-function apagar() {
-  fireEvent.click(screen.getByRole('button', { name: 'Apagar os dados deste aparelho' }))
 }
 
 beforeEach(async () => {
@@ -52,42 +51,61 @@ beforeEach(async () => {
 
 afterEach(() => vi.restoreAllMocks())
 
-describe('apagar os dados do aparelho na tela de entrada', () => {
-  it('a pergunta diz que o registro sem resultado se perde, e cancelar não apaga nada', async () => {
+describe('apagar os dados do aparelho', () => {
+  it('a entrada só tem o link, e ele leva à página que explica o que sai e o que fica', async () => {
+    abrir('/entrar')
+
+    expect(screen.queryByRole('button', { name: /Apagar/ })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('link', { name: 'Apagar os dados deste aparelho' }))
+
+    expect(await screen.findByRole('heading', { name: 'Apagar os dados deste aparelho' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Sai deste aparelho' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Continua no servidor' })).toBeInTheDocument()
+  })
+
+  it('diz antes do toque que o registro sem resultado se perde, e voltar não apaga nada', async () => {
     await clienteRegistradoSemRede()
-    const confirmar = vi.spyOn(window, 'confirm').mockReturnValue(false)
-    renderizarLogin()
+    abrir('/aparelho')
 
-    apagar()
+    expect(await screen.findByText(/Um registro feito sem rede ainda não chegou ao servidor e será perdido/))
+      .toBeInTheDocument()
+    fireEvent.click(screen.getByRole('link', { name: 'Voltar à entrada' }))
 
-    await waitFor(() => expect(confirmar).toHaveBeenCalledTimes(1))
-    expect(confirmar.mock.calls[0][0]).toContain(
-      'Um registro feito sem rede ainda não chegou ao servidor e será perdido.')
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Apagar os dados deste aparelho' })).toBeEnabled())
-    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Entrar' })).toBeInTheDocument()
     expect(await contarGestosSemResultado()).toBe(1)
   })
 
-  it('confirmado, apaga a fila e o cadastro guardado e diz que apagou', async () => {
+  it('apagar tira a fila e o cadastro guardado e diz que apagou', async () => {
     await clienteRegistradoSemRede()
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
-    renderizarLogin()
+    abrir('/aparelho')
+    // O botão espera a contagem: sem ela, não se sabe o que se perderia.
+    expect(await screen.findByText(/será perdido/)).toBeInTheDocument()
 
-    apagar()
+    fireEvent.click(screen.getByRole('button', { name: 'Apagar os dados' }))
 
-    expect(await screen.findByRole('status')).toHaveTextContent('Os dados deste aparelho foram apagados.')
+    expect(await screen.findByText('Os dados deste aparelho foram apagados.')).toBeInTheDocument()
     entrarComoAna()
     expect(await listarGestos()).toEqual([])
     expect(await lerRetrato('clientesAtivos')).toBeNull()
   })
 
-  it('sem nada pendente, a pergunta avisa que trabalhar sem rede de novo pede entrar com rede', async () => {
-    const confirmar = vi.spyOn(window, 'confirm').mockReturnValue(false)
-    renderizarLogin()
+  it('sem nada pendente, diz que nada espera envio', async () => {
+    abrir('/aparelho')
 
-    apagar()
+    expect(await screen.findByText('Nada do que foi registrado neste aparelho está esperando envio.'))
+      .toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Apagar os dados' })).toBeEnabled()
+  })
 
-    await waitFor(() => expect(confirmar).toHaveBeenCalledTimes(1))
-    expect(confirmar.mock.calls[0][0]).toContain('será preciso entrar com rede')
+  it('com uma sessão aberta no aparelho, pede para sair antes e não oferece o botão', async () => {
+    // A identidade guardada faz o aplicativo perguntar ao servidor quem entrou; a pergunta fica sem
+    // resposta, porque a página não depende dela.
+    vi.stubGlobal('fetch', vi.fn(() => new Promise(() => undefined)))
+    entrarComoAna()
+    abrir('/aparelho')
+
+    expect(await screen.findByText(/Saia dela antes de apagar os dados/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Apagar os dados' })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Voltar ao aplicativo' })).toBeInTheDocument()
   })
 })

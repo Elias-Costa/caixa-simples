@@ -1,7 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router'
 import { ErroDaApi, SemConexao } from '../api/cliente'
-import { apagarDadosDoAparelho, contarGestosSemResultado, SessaoAbertaNoAparelho } from '../offline/fila'
 import { sessaoFoiEncerrada } from '../sessao/armazenamento'
 import { useSessao } from '../sessao/useSessao'
 import { CampoDeSenha } from './CampoDeSenha'
@@ -13,9 +12,6 @@ export function TelaDeLogin() {
   const [senha, setSenha] = useState('')
   const [erro, setErro] = useState<string | null>(null)
   const [enviando, setEnviando] = useState(false)
-  const [situacaoDoAparelho, setSituacaoDoAparelho] = useState<string | null>(null)
-  const [erroDoAparelho, setErroDoAparelho] = useState<string | null>(null)
-  const [apagando, setApagando] = useState(false)
 
   // Quem já está autenticado neste dispositivo não vê o login de novo.
   if (identidade) return <Navigate to="/" replace />
@@ -30,28 +26,6 @@ export function TelaDeLogin() {
     } catch (falha: unknown) {
       setErro(mensagemDe(falha))
       setEnviando(false)
-    }
-  }
-
-  // Fica aqui, e não dentro do aplicativo, porque o aparelho de uma Conta encerrada ou de quem foi
-  // inativado não entra mais, e porque aqui nenhuma sessão está usando a fila.
-  async function apagarDados() {
-    setSituacaoDoAparelho(null)
-    setErroDoAparelho(null)
-    setApagando(true)
-    try {
-      const semResultado = await contarGestosSemResultado()
-      if (!window.confirm(perguntaAntesDeApagar(semResultado))) return
-      await apagarDadosDoAparelho(() =>
-        setSituacaoDoAparelho('Feche as outras abas do aplicativo para terminar de apagar.'))
-      setSituacaoDoAparelho('Os dados deste aparelho foram apagados.')
-    } catch (falha: unknown) {
-      setSituacaoDoAparelho(null)
-      setErroDoAparelho(falha instanceof SessaoAbertaNoAparelho
-        ? falha.message
-        : 'Não foi possível apagar os dados deste aparelho. Tente de novo.')
-    } finally {
-      setApagando(false)
     }
   }
 
@@ -97,33 +71,14 @@ export function TelaDeLogin() {
           {enviando ? 'Entrando...' : 'Entrar'}
         </button>
         <p className="links-de-apoio"><Link to="/privacidade">Aviso de privacidade</Link> · <Link to="/termos">Termos de uso</Link></p>
-
-        <button type="button" className="botao botao--perigo" disabled={apagando}
-          onClick={() => void apagarDados()}>
-          Apagar os dados deste aparelho
-        </button>
-        {situacaoDoAparelho && <p className="mensagem-info" role="status">{situacaoDoAparelho}</p>}
-        {erroDoAparelho && <p className="login__erro" role="alert">{erroDoAparelho}</p>}
+        {/* Fica aqui, e não dentro do aplicativo, porque o aparelho de uma Conta encerrada ou de quem
+            foi inativado não entra mais. A página explica e confirma antes de apagar. */}
+        <p className="links-de-apoio links-de-apoio--discreto">
+          <Link to="/aparelho">Apagar os dados deste aparelho</Link>
+        </p>
       </form>
     </main>
   )
-}
-
-/**
- * O que não teve resultado do servidor só existe neste aparelho e não volta depois de apagado: a
- * pergunta diz quantos são e como enviá-los antes.
- */
-function perguntaAntesDeApagar(semResultado: number): string {
-  if (semResultado === 0) {
-    return 'Apagar o cadastro, as vendas e o que foi registrado neste aparelho? Para trabalhar sem rede '
-      + 'de novo, será preciso entrar com rede.'
-  }
-  const quantos = semResultado === 1
-    ? 'Um registro feito sem rede ainda não chegou ao servidor e será perdido. Para enviá-lo, entre com o '
-      + 'usuário que o fez e espere o envio.'
-    : `${semResultado} registros feitos sem rede ainda não chegaram ao servidor e serão perdidos. Para `
-      + 'enviá-los, entre com cada usuário que os fez e espere o envio.'
-  return `${quantos} Apagar os dados deste aparelho mesmo assim?`
 }
 
 function mensagemDe(falha: unknown): string {

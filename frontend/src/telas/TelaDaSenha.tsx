@@ -5,6 +5,7 @@ import { marcarSessaoEncerrada, renovarTokenDaSessao, sessaoAtual } from '../ses
 import { useSessao } from '../sessao/useSessao'
 import { CampoDeSenha } from './CampoDeSenha'
 import { problemaDoTamanhoDaSenha } from './regrasDaSenha'
+import { useConfirmacao } from './useConfirmacao'
 
 type Props = {
   /** A senha é a que outra pessoa escolheu, e esta é a única tela até a troca. */
@@ -30,6 +31,7 @@ export function TelaDaSenha({ obrigatoria = false }: Props) {
   const [erro, setErro] = useState<string | null>(null)
   const [aviso, setAviso] = useState<string | null>(null)
   const [enviando, setEnviando] = useState(false)
+  const [confirmar, dialogoDeConfirmacao] = useConfirmacao()
 
   async function trocar(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault()
@@ -61,7 +63,12 @@ export function TelaDaSenha({ obrigatoria = false }: Props) {
   }
 
   async function sairDeTodos() {
-    if (!window.confirm('Sair de todos os aparelhos, inclusive este? Será preciso entrar de novo em cada um.')) return
+    const sim = await confirmar({
+      titulo: 'Sair de todos os aparelhos?',
+      texto: 'Todos saem, inclusive este, e será preciso entrar de novo em cada um.',
+      acao: 'Sair de todos',
+    })
+    if (!sim) return
     setErro(null)
     setAviso(null)
     try {
@@ -111,6 +118,7 @@ export function TelaDaSenha({ obrigatoria = false }: Props) {
         Sair de todos os aparelhos
       </button>
     </div>
+    {dialogoDeConfirmacao}
   </section>
 }
 

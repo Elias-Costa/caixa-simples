@@ -7,6 +7,7 @@ import { listarGestos } from '../offline/fila'
 import { erroDeCadastro, errosDosCampos } from './erroDeCadastro'
 import { filtrarPorNome } from './filtroPorNome'
 import { ErroDoCampo, Mensagem } from './Mensagem'
+import { useConfirmacao } from './useConfirmacao'
 
 type Atributo = { chave: string; valor: string; original?: unknown; textoOriginal?: string }
 type Formulario = {
@@ -77,6 +78,7 @@ export function TelaDeProdutos() {
   const [aviso, setAviso] = useState<string | null>(null)
   const [pendentes, setPendentes] = useState(0)
   const formularioRef = useRef<HTMLFormElement>(null)
+  const [confirmar, dialogoDeConfirmacao] = useConfirmacao()
   const online = useOnline()
 
   const carregar = useCallback(async () => {
@@ -172,7 +174,12 @@ export function TelaDeProdutos() {
   }
 
   async function inativar(produto: Produto) {
-    if (!window.confirm(`Inativar ${produto.nome}?`)) return
+    const sim = await confirmar({
+      titulo: `Inativar ${produto.nome}?`,
+      texto: 'O produto sai da lista de ativos, e as vendas antigas continuam com ele.',
+      acao: 'Inativar',
+    })
+    if (!sim) return
     limparMensagens()
     try {
       await cadastro.inativarProduto(produto.id)
@@ -252,6 +259,7 @@ export function TelaDeProdutos() {
           <button className="botao botao--secundario" type="button" onClick={() => setAberto(false)}>Cancelar</button>
         </div>
       </form>}
+      {dialogoDeConfirmacao}
     </section>
   )
 }

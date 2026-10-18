@@ -281,6 +281,54 @@ textarea:disabled {
   background: var(--cor-info-fundo);
 }
 
+/* O que se perde se a pessoa seguir: nem erro, porque nada falhou, nem informação comum. */
+.mensagem-alerta {
+  padding: 10px 12px;
+  border-left: 4px solid var(--cor-alerta);
+  border-radius: 0 var(--raio) var(--raio) 0;
+  background: var(--cor-alerta-fundo);
+  color: var(--cor-texto);
+  font-weight: 600;
+}
+
+/* Confirmação: o diálogo modal do aplicativo, no lugar do pop-up do navegador. O fundo escurecido
+   diz que o resto da tela espera a resposta. */
+.confirmacao {
+  width: min(calc(100% - 2 * var(--espaco)), 460px);
+  max-width: none;
+  padding: calc(var(--espaco) * 1.5);
+  border: 1px solid var(--cor-borda-controle);
+  border-radius: calc(var(--raio) * 1.5);
+  background: var(--cor-superficie);
+  color: var(--cor-texto);
+}
+
+.confirmacao::backdrop {
+  background: rgba(8, 13, 42, 0.8);
+}
+
+.confirmacao__titulo {
+  margin: 0 0 12px;
+  font-size: 1.25rem;
+}
+
+.confirmacao__texto {
+  margin: 0 0 calc(var(--espaco) * 1.5);
+}
+
+/* O Voltar vem primeiro, com o foco, e a ação depois; no celular estreito os dois ocupam a linha
+   inteira, um embaixo do outro, na mesma ordem. */
+.confirmacao__acoes {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.confirmacao__acoes .botao {
+  flex: 1 1 160px;
+}
+
 /* Login */
 
 .login {
@@ -333,6 +381,33 @@ textarea:disabled {
 
 .login__erro {
   margin: 0 0 var(--espaco);
+}
+
+/* O apagar os dados do aparelho é raro e não se desfaz: na entrada ele é só um link, em texto
+   secundário, para não disputar a atenção com Entrar. */
+.links-de-apoio--discreto {
+  margin: 0;
+}
+
+.links-de-apoio--discreto a {
+  color: var(--cor-texto-secundario);
+}
+
+/* Apagar os dados do aparelho: a página usa o cartão da entrada, que é de onde se chega a ela. */
+.aparelho__subtitulo {
+  margin: calc(var(--espaco) * 1.25) 0 4px;
+  font-size: 1rem;
+}
+
+.aparelho__subtitulo + p {
+  margin-top: 0;
+}
+
+.aparelho__acoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: var(--espaco);
 }
 
 /* Shell: cabeçalho, navegação e conteúdo */

@@ -6,6 +6,7 @@ import type { Identidade } from '../sessao/Identidade'
 import { SessaoProvider } from '../sessao/SessaoProvider'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
 import { ExigeSessao } from '../shell/ExigeSessao'
+import { responderConfirmacao } from './confirmacaoDeTeste'
 import { TelaDaSenha } from './TelaDaSenha'
 import { TelaDeLogin } from './TelaDeLogin'
 
@@ -210,10 +211,10 @@ describe('TelaDaSenha', () => {
   it('sair de todos os aparelhos encerra também este e o login avisa que a fila continua guardada', async () => {
     entrarComo(ana)
     const chamadas = servidor({ '/api/auth/sair-de-todos': () => new Response(null, { status: 204 }) })
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     abrir('/senha')
 
     fireEvent.click(screen.getByRole('button', { name: 'Sair de todos os aparelhos' }))
+    await responderConfirmacao('Sair de todos')
 
     expect(await screen.findByRole('status')).toHaveTextContent('sessão neste aparelho foi encerrada')
     await waitFor(() => expect(lerToken()).toBeNull())

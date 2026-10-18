@@ -12,6 +12,7 @@ import { SessaoProvider } from '../sessao/SessaoProvider'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
 import { useSessao } from '../sessao/useSessao'
 import { itensDoMenu } from '../shell/menu'
+import { confirmacaoAberta, responderConfirmacao } from './confirmacaoDeTeste'
 import { TelaDoPlano } from './TelaDoPlano'
 
 afterEach(() => vi.restoreAllMocks())
@@ -138,12 +139,12 @@ describe('tela do plano', () => {
   it('com um pedido aberto, pedir de novo pede confirmação antes de substituir', async () => {
     vi.spyOn(contas, 'plano').mockResolvedValue({ ...gratis, pedidoAberto: pedido })
     const pedir = vi.spyOn(contas, 'pedirPlano').mockResolvedValue(pedido)
-    const confirmar = vi.spyOn(window, 'confirm').mockReturnValue(false)
     render(<ComSessao />)
 
     fireEvent.click(await screen.findByRole('button', { name: pedirCaixaSimples }))
 
-    expect(confirmar).toHaveBeenCalledWith(expect.stringContaining('substitui o aberto'))
+    expect(await confirmacaoAberta()).toHaveTextContent('substitui o aberto')
+    await responderConfirmacao('Voltar')
     expect(pedir).not.toHaveBeenCalled()
   })
 

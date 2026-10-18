@@ -13,6 +13,7 @@ import { CampoDeDinheiro } from './CampoDeDinheiro'
 import { erroDeCadastro } from './erroDeCadastro'
 import { Mensagem } from './Mensagem'
 import { ROTULO_DO_CAIXA, ROTULO_DO_MOVIMENTO } from './rotulos'
+import { useConfirmacao, type Pergunta } from './useConfirmacao'
 
 const caixa = criarCaixaLocal()
 
@@ -20,20 +21,24 @@ const caixa = criarCaixaLocal()
 type LugarDaMensagem = 'tela' | 'abertura' | 'sessao' | 'movimento' | 'fechamento'
 type MensagemNaTela = { tipo: 'erro' | 'sucesso'; texto: string; lugar: LugarDaMensagem }
 
-/** O valor do campo, ou o erro que diz qual campo corrigir, perto do botão que foi tocado. */
 /**
  * A pergunta antes de fechar diz a diferença em palavras, falta ou sobra, no lugar do sinal: o
  * fechamento não se refaz, e é a última chance de recontar a gaveta. Sem o saldo esperado lido, diz
  * o valor contado.
  */
-function perguntaDoFechamento(contado: number, diferenca: number | null): string {
+function perguntaDoFechamento(contado: number, diferenca: number | null): Pergunta {
   const como = diferenca === null ? `com ${moeda.format(contado)} contados`
     : diferenca > 0 ? `com falta de ${moeda.format(diferenca)}`
       : diferenca < 0 ? `com sobra de ${moeda.format(-diferenca)}`
         : 'sem diferença'
-  return `Fechar o caixa ${como}? O fechamento não pode ser refeito.`
+  return {
+    titulo: `Fechar o caixa ${como}?`,
+    texto: 'O fechamento não pode ser refeito. Se o valor não parece certo, volte e conte a gaveta de novo.',
+    acao: 'Fechar caixa',
+  }
 }
 
+/** O valor do campo, ou o erro que diz qual campo corrigir, perto do botão que foi tocado. */
 function dinheiroDoCampo(texto: string, nome: string): number {
   const valor = lerDinheiro(texto)
   if (valor === null) throw new Error(`Informe ${nome} com até duas casas decimais.`)
@@ -62,6 +67,7 @@ export function TelaDeCaixa() {
   // Qual ação está em curso: só o botão dela diz que está trabalhando.
   const [ocupado, setOcupado] = useState<'abrir' | 'lancar' | 'fechar' | null>(null)
   const [carregando, setCarregando] = useState(true)
+  const [confirmar, dialogoDeConfirmacao] = useConfirmacao()
 
   const carregar = useCallback(async () => {
     try {
@@ -169,7 +175,7 @@ export function TelaDeCaixa() {
         lugar: 'fechamento' })
       return
     }
-    if (!window.confirm(perguntaDoFechamento(contado, diferencaPrevista))) return
+    if (!(await confirmar(perguntaDoFechamento(contado, diferencaPrevista)))) return
     setOcupado('fechar')
     try {
       await caixa.fechar(selecionada.id, contado)
@@ -295,5 +301,6 @@ export function TelaDeCaixa() {
         </details>
       </section>}
     </>}
+    {dialogoDeConfirmacao}
   </section>
 }

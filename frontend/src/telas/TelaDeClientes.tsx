@@ -6,6 +6,7 @@ import { useOnline } from '../shell/useOnline'
 import { erroDeCadastro, errosDosCampos } from './erroDeCadastro'
 import { filtrarPorNome } from './filtroPorNome'
 import { ErroDoCampo, Mensagem } from './Mensagem'
+import { useConfirmacao } from './useConfirmacao'
 
 export function TelaDeClientes() {
   const podeRemover = lerIdentidade()?.perfil === 'ADMIN'
@@ -25,6 +26,7 @@ export function TelaDeClientes() {
   const [aviso, setAviso] = useState<string | null>(null)
   const [pendentes, setPendentes] = useState(0)
   const formularioRef = useRef<HTMLFormElement>(null)
+  const [confirmar, dialogoDeConfirmacao] = useConfirmacao()
 
   const carregar = useCallback(async () => {
     try {
@@ -108,7 +110,12 @@ export function TelaDeClientes() {
   }
 
   async function inativar(cliente: Cliente) {
-    if (!window.confirm(`Inativar ${cliente.nome}?`)) return
+    const sim = await confirmar({
+      titulo: `Inativar ${cliente.nome}?`,
+      texto: 'O cliente sai da lista de ativos e pode ser reativado depois.',
+      acao: 'Inativar',
+    })
+    if (!sim) return
     limparMensagens()
     try {
       await cadastro.inativarCliente(cliente.id)
@@ -131,7 +138,13 @@ export function TelaDeClientes() {
   }
 
   async function remover(cliente: Cliente) {
-    if (!window.confirm(`Remover os dados de ${cliente.nome}? Esta ação não pode ser desfeita.`)) return
+    const sim = await confirmar({
+      titulo: `Remover os dados de ${cliente.nome}?`,
+      texto: 'O nome e o contato saem do cadastro, e esta ação não pode ser desfeita. As vendas '
+        + 'continuam no histórico, sem eles.',
+      acao: 'Remover os dados',
+    })
+    if (!sim) return
     limparMensagens()
     try {
       await cadastro.removerCliente(cliente.id)
@@ -200,5 +213,6 @@ export function TelaDeClientes() {
         <button className="botao botao--secundario" type="button" onClick={() => setAberto(false)}>Cancelar</button>
       </div>
     </form>}
+    {dialogoDeConfirmacao}
   </section>
 }

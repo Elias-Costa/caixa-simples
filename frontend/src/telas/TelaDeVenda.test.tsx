@@ -8,6 +8,7 @@ import { fiado } from '../api/fiado'
 import { vendas, type Comprovante, type Venda } from '../api/vendas'
 import { SessaoContext } from '../sessao/contexto'
 import type { Identidade } from '../sessao/Identidade'
+import { confirmacaoAberta, responderConfirmacao } from './confirmacaoDeTeste'
 import { TelaDeVenda } from './TelaDeVenda'
 
 afterEach(() => { vi.restoreAllMocks(); sessionStorage.clear() })
@@ -112,15 +113,16 @@ describe('PDV no tablet', () => {
       pago: 12.5, faltaPagar: 0 }))
     vi.spyOn(vendas, 'comprovante').mockResolvedValue(comprovante)
     const cancelar = vi.spyOn(vendas, 'cancelar').mockImplementation(async () => { cancelada = true })
-    const pergunta = vi.spyOn(window, 'confirm').mockReturnValue(true)
     mostrar('ADMIN')
 
     fireEvent.click(await screen.findByRole('button', { name: /Concluída.*R\$/ }))
     fireEvent.click(await screen.findByRole('button', { name: 'Cancelar venda' }))
-    await waitFor(() => expect(cancelar).toHaveBeenCalledOnce())
     // A pergunta diz o valor e que o Pix pago volta ao cliente fora do sistema.
-    expect(pergunta.mock.calls[0][0]).toMatch(/^Cancelar a venda de R\$\s12,50\?/)
-    expect(pergunta.mock.calls[0][0]).toContain('O Pix recebido precisa ser devolvido fora do sistema.')
+    const pergunta = await confirmacaoAberta()
+    expect(pergunta).toHaveAccessibleName(/^Cancelar a venda de R\$\s12,50\?$/)
+    expect(pergunta).toHaveTextContent('O Pix recebido precisa ser devolvido fora do sistema.')
+    await responderConfirmacao('Cancelar venda')
+    await waitFor(() => expect(cancelar).toHaveBeenCalledOnce())
     expect(await screen.findByText(/A devolução precisa ser feita fora do sistema/))
       .toHaveTextContent('não verifica se ela aconteceu')
   })
@@ -364,18 +366,18 @@ describe('PDV no tablet', () => {
       status: 'ABERTA', total: comanda.total, criadoEm: comanda.criadoEm }])
     vi.spyOn(vendas, 'consultar').mockResolvedValue(comanda)
     const cancelar = vi.spyOn(vendas, 'cancelar').mockResolvedValue(undefined)
-    const pergunta = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValue(true)
     mostrar()
 
     fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
     expect(await screen.findByText(/1 × Café/)).toBeInTheDocument()
     // Quem desiste na pergunta não cancela nada.
     fireEvent.click(screen.getByRole('button', { name: 'Cancelar venda' }))
-    expect(pergunta).toHaveBeenCalledOnce()
-    expect(cancelar).not.toHaveBeenCalled()
     // A venda aberta não passou pela gaveta: a pergunta não fala de estorno.
-    expect(pergunta.mock.calls[0][0]).not.toContain('estorno')
+    expect(await confirmacaoAberta()).not.toHaveTextContent('estorno')
+    await responderConfirmacao('Voltar')
+    expect(cancelar).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: 'Cancelar venda' }))
+    await responderConfirmacao('Cancelar venda')
     await waitFor(() => expect(cancelar).toHaveBeenCalledWith('venda-1'))
   })
 

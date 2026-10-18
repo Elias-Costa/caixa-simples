@@ -6,6 +6,7 @@ import { Inicio } from './telas/Inicio'
 import { TelaDeLogin } from './telas/TelaDeLogin'
 import { TelaDePrivacidade } from './telas/TelaDePrivacidade'
 import { TelaDosTermos } from './telas/TelaDosTermos'
+import { TelaDoAparelho } from './telas/TelaDoAparelho'
 import { TelaDeProdutos } from './telas/TelaDeProdutos'
 import { TelaDeClientes } from './telas/TelaDeClientes'
 import { TelaDeCaixa } from './telas/TelaDeCaixa'
@@ -21,8 +22,8 @@ import { TelaDaSenha } from './telas/TelaDaSenha'
 
 /**
  * As rotas do aplicativo. Todas, menos o login, o aviso de privacidade e os termos de uso, que se
- * leem antes de entrar, vivem dentro do shell e exigem sessão; as do
- * administrador ficam sob a guarda dele. O servidor não conhece estes caminhos: qualquer um
+ * leem antes de entrar, e o apagar os dados do aparelho, que serve também ao aparelho que não entra
+ * mais, vivem dentro do shell e exigem sessão; as do administrador ficam sob a guarda dele. O servidor não conhece estes caminhos: qualquer um
  * deles, pedido direto, recebe o shell e o roteador escolhe a tela.
  */
 export function App() {
@@ -31,6 +32,7 @@ export function App() {
       <Route path="/entrar" element={<TelaDeLogin />} />
       <Route path="/privacidade" element={<TelaDePrivacidade />} />
       <Route path="/termos" element={<TelaDosTermos />} />
+      <Route path="/aparelho" element={<TelaDoAparelho />} />
 
       <Route element={<ExigeSessao />}>
         <Route element={<Shell />}>

@@ -9,6 +9,7 @@ import type { Plano, SituacaoDoPlano } from '../sessao/Identidade'
 import { useSessao } from '../sessao/useSessao'
 import { useOnline } from '../shell/useOnline'
 import { erroDeCadastro } from './erroDeCadastro'
+import { useConfirmacao } from './useConfirmacao'
 
 const NOME_DO_PLANO: Record<Plano, string> = {
   GRATIS: 'Gratuito',
@@ -53,6 +54,7 @@ export function TelaDoPlano() {
   const [aviso, setAviso] = useState<string | null>(null)
   const [codigo, setCodigo] = useState('')
   const [enviando, setEnviando] = useState(false)
+  const [confirmar, dialogoDeConfirmacao] = useConfirmacao()
 
   const carregar = useCallback(async () => {
     try {
@@ -67,8 +69,14 @@ export function TelaDoPlano() {
 
   async function pedir(proposta: PropostaDePlano) {
     if (!estado) return
-    if (estado.pedidoAberto && !window.confirm('Já existe um pedido aberto. O novo pedido substitui'
-      + ' o aberto, e o código dele deixa de valer. Continuar?')) return
+    if (estado.pedidoAberto) {
+      const sim = await confirmar({
+        titulo: 'Substituir o pedido aberto?',
+        texto: 'O novo pedido substitui o aberto, e o código do aberto deixa de valer.',
+        acao: 'Fazer o novo pedido',
+      })
+      if (!sim) return
+    }
     setEnviando(true)
     setErro(null)
     setAviso(null)
@@ -189,6 +197,7 @@ export function TelaDoPlano() {
         aplicar={(evento) => void aplicar(evento)} copiar={(texto) => void copiar(texto)}
         compartilhar={(texto) => void compartilhar(texto)} />}
     </>}
+    {dialogoDeConfirmacao}
   </section>
 }
 

@@ -1196,9 +1196,9 @@ O ADMIN pede encerramento pelo endereço publicado no aviso de privacidade. Ante
 a identidade e o vínculo do ADMIN com a Conta e anote a data do pedido para cumprir o prazo de quinze
 dias. Responda ao ADMIN que, em cada aparelho da Conta, cada usuário entre com rede, espere o envio do
 que registrou sem rede e saia, e que então alguém toque em Apagar os dados deste aparelho, na tela de
-entrada: o aparelho guarda o cadastro, com nome e contato dos Clientes, e o Caixa Simples não o
-alcança. O botão continua na tela de entrada depois do encerramento, mas o que não tiver sido enviado
-até lá se perde. Na hora de executar, pare a aplicação para impedir novas escritas, com
+entrada, e em Apagar os dados, na página que se abre: o aparelho guarda o cadastro, com nome e contato
+dos Clientes, e o Caixa Simples não o alcança. O link continua na tela de entrada depois do
+encerramento, mas o que não tiver sido enviado até lá se perde. Na hora de executar, pare a aplicação para impedir novas escritas, com
 `sh compose.sh stop app`. Retire de
 `/etc/caixa-simples/efi.env` todas as linhas da Conta, que começam por
 `CAIXA_SIMPLES_EFI_<UUID_DA_CONTA_SEM_HIFENS>_`, e apague o certificado dela em

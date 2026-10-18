@@ -13,6 +13,7 @@ import { SessaoProvider } from '../sessao/SessaoProvider'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
 import { useSessao } from '../sessao/useSessao'
 import { itensDoMenu } from '../shell/menu'
+import { confirmacaoAberta, responderConfirmacao } from './confirmacaoDeTeste'
 import { TelaDeConfiguracao } from './TelaDeConfiguracao'
 import { TelaDeUsuarios } from './TelaDeUsuarios'
 
@@ -124,15 +125,16 @@ describe('administração na tela', () => {
       { id: 'bia', nome: 'Bia', perfil: 'OPERADOR', ativo: true },
     ])
     const inativar = vi.spyOn(contas, 'inativarUsuario').mockResolvedValue(undefined)
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     render(comSessao(<TelaDeUsuarios />))
     expect(await screen.findByText('Bia')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Inativar' }))
+    expect(await confirmacaoAberta()).toHaveTextContent('a inativação não pode ser desfeita')
+    await responderConfirmacao('Inativar')
 
     await waitFor(() => expect(inativar).toHaveBeenCalledWith('bia'))
-    expect(await screen.findByRole('status')).toHaveTextContent(
-      'Bia foi inativado. No aparelho que só essa pessoa usava, apague os dados pelo botão da tela de entrada.')
+    expect(await screen.findByRole('status')).toHaveTextContent('Bia foi inativado. No aparelho que só essa '
+      + 'pessoa usava, apague os dados pelo link Apagar os dados deste aparelho, na tela de entrada.')
   })
 
   it('corrige o nome do operador e o do próprio administrador, que vai também para a identidade', async () => {
