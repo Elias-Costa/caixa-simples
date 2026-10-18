@@ -78,7 +78,7 @@ export function Shell() {
         </div>
       )}
       {vencimento && (
-        <div className="faixa" role="status">
+        <div className="faixa faixa--alerta" role="status">
           <span>{vencimento}</span>
           <Link className="botao" to="/plano">Renovar</Link>
         </div>

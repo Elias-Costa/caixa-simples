@@ -407,11 +407,11 @@ export function TelaDeVenda() {
           </div>
           {!atual ? <p>Busque e escolha o primeiro produto para iniciar.</p> : <>
             <p>Venda {atual.id.slice(0, 8)} · {atual.status}</p>
-            {doDispositivo && <p role="status">Registrada neste dispositivo. Aguardando sincronização com o servidor.</p>}
+            {doDispositivo && <p className="mensagem-info" role="status">Registrada neste dispositivo. Aguardando sincronização com o servidor.</p>}
             {!online && !doDispositivo && atual.status === 'ABERTA' &&
-              <p role="status">Esta Venda está no servidor e continua quando a rede voltar. Para vender agora, comece uma nova venda.</p>}
+              <p className="mensagem-info" role="status">Esta Venda está no servidor e continua quando a rede voltar. Para vender agora, comece uma nova venda.</p>}
             {atual.status === 'CANCELADA' && atual.parcelas.some((p) => p.pix && p.status === 'CONFIRMADO') &&
-              <p role="status">Pix integrado recebido. A devolução precisa ser feita fora do sistema e ainda exige conciliação; este aplicativo não verifica se ela aconteceu.</p>}
+              <p className="mensagem-info" role="status">Pix integrado recebido. A devolução precisa ser feita fora do sistema e ainda exige conciliação; este aplicativo não verifica se ela aconteceu.</p>}
             {atual.status === 'ABERTA' ? <label>Cliente (para fiado)
               <select value={atual.clienteId ?? ''} disabled={ocupado}
                 onChange={(evento) => void vincularCliente(evento.target.value)}>
@@ -464,7 +464,7 @@ export function TelaDeVenda() {
                 </div>}
               </li>)}
             </ul>}
-            {troco !== undefined && <p role="status">Troco: {moeda.format(troco)}</p>}
+            {troco !== undefined && <p className="mensagem-info" role="status">Troco: {moeda.format(troco)}</p>}
             {atual.status === 'ABERTA' && <>
               {atual.itens.length > 0 && atual.faltaPagar > 0 && <form className="pdv__pagamento" onSubmit={(evento) => void pagar(evento)}>
                 <h4>Pagamento</h4>

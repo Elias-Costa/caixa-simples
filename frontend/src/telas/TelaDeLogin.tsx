@@ -57,10 +57,13 @@ export function TelaDeLogin() {
   return (
     <main className="login">
       <form className="login__cartao" onSubmit={enviar} noValidate>
-        <h1 className="login__titulo">Caixa Simples</h1>
+        <div className="login__marca">
+          <img className="login__icone" src="/icone.svg" alt="" width="48" height="48" />
+          <h1 className="login__titulo">Caixa Simples</h1>
+        </div>
 
         {sessaoFoiEncerrada() && (
-          <p role="status">
+          <p className="mensagem-info" role="status">
             A sessão neste aparelho foi encerrada. Entre de novo; o que foi registrado sem rede continua
             guardado aqui e é enviado depois que você entrar.
           </p>
@@ -108,7 +111,7 @@ export function TelaDeLogin() {
           onClick={() => void apagarDados()}>
           Apagar os dados deste aparelho
         </button>
-        {situacaoDoAparelho && <p role="status">{situacaoDoAparelho}</p>}
+        {situacaoDoAparelho && <p className="mensagem-info" role="status">{situacaoDoAparelho}</p>}
         {erroDoAparelho && <p className="login__erro" role="alert">{erroDoAparelho}</p>}
       </form>
     </main>

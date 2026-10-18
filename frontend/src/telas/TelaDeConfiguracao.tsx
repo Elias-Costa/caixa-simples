@@ -77,7 +77,7 @@ export function TelaDeConfiguracao() {
   return <section className="relatorios">
     <h2 className="titulo">Configuração da Conta</h2>
     {erro && <p className="mensagem-erro" role="alert">{erro}</p>}
-    {aviso && <p role="status">{aviso}</p>}
+    {aviso && <p className="mensagem-sucesso" role="status">{aviso}</p>}
     <section className="relatorios__cartao">
       <h3>Nome do negócio</h3>
       {configuracao === null ? <p>Carregando configuração...</p> :

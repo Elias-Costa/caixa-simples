@@ -138,8 +138,8 @@ export function TelaDoPlano() {
   return <section className="cadastro">
     <h2 className="titulo">Plano</h2>
     {erro && <p className="mensagem-erro" role="alert">{erro}</p>}
-    {aviso && <p role="status">{aviso}</p>}
-    {!online && <p role="status">Pedir plano e aplicar código precisam de conexão.</p>}
+    {aviso && <p className="mensagem-info" role="status">{aviso}</p>}
+    {!online && <p className="mensagem-info" role="status">Pedir plano e aplicar código precisam de conexão.</p>}
 
     {estado && <>
       <section className="relatorios__cartao">

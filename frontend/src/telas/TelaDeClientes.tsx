@@ -109,7 +109,7 @@ export function TelaDeClientes() {
       <button className="botao" type="button" onClick={novo}>Novo cliente</button>
     </div>
     {erro && <p className="mensagem-erro" role="alert">{erro}</p>}
-    {pendentes > 0 && <p role="status">{pendentes === 1 ? 'Uma alteração de cliente guardada' : `${pendentes} alterações de cliente guardadas`} neste dispositivo, aguardando sincronização.</p>}
+    {pendentes > 0 && <p className="mensagem-info" role="status">{pendentes === 1 ? 'Uma alteração de cliente guardada' : `${pendentes} alterações de cliente guardadas`} neste dispositivo, aguardando sincronização.</p>}
     {carregando ? <p>Carregando...</p> : <>
       <h3>Ativos</h3>
       {ativos.length === 0 ? <p>Nenhum cliente ativo.</p> : <ul className="cadastro__lista">

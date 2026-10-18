@@ -107,7 +107,7 @@ export function TelaDeEstoque() {
   return <section className="estoque">
     <h2 className="titulo">Estoque</h2>
     {erro && <p className="mensagem-erro" role="alert">{erro}</p>}
-    {aviso && <p role="status">{aviso}</p>}
+    {aviso && <p className="mensagem-sucesso" role="status">{aviso}</p>}
     {carregando ? <p>Carregando estoque...</p> : <>
       <section className="relatorios__cartao">
         <h3>Estoque baixo</h3>

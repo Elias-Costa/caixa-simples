@@ -160,7 +160,7 @@ export function TelaDeProdutos() {
       </div>
 
       {erro && <p className="mensagem-erro" role="alert">{erro}</p>}
-      {pendentes > 0 && <p role="status">{pendentes === 1 ? 'Uma alteração de item guardada' : `${pendentes} alterações de item guardadas`} neste dispositivo, aguardando sincronização.</p>}
+      {pendentes > 0 && <p className="mensagem-info" role="status">{pendentes === 1 ? 'Uma alteração de item guardada' : `${pendentes} alterações de item guardadas`} neste dispositivo, aguardando sincronização.</p>}
       {carregando ? <p>Carregando...</p> : produtos.length === 0 ? <p>Nenhum item ativo.</p> : (
         <ul className="cadastro__lista">
           {produtos.map((produto) => (

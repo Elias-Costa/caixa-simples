@@ -2,18 +2,52 @@
  * Estilo do aplicativo, sem biblioteca de componentes: são poucas telas de formulário e lista,
  * e o que importa nelas é caber num tablet de balcão e ser tocável. Alvo de toque mínimo de
  * 48px em tudo que se aperta; desktop usa o mesmo código, só reorganiza a navegação.
+ *
+ * Tema escuro único, sobre o azul-marinho. Onde a cor da paleta e a legibilidade divergem, o
+ * contraste decide: o azul royal sobre o fundo fica em 3,2:1, abaixo dos 4,5:1 que texto comum
+ * pede, então o link é texto claro sublinhado de royal, e não texto royal. Roxo e violeta só
+ * aparecem dentro do gradiente, que fica em poucos lugares.
  */
 
 :root {
-  --cor-marca: #1f5f4a;
-  --cor-marca-escura: #164536;
-  --cor-fundo: #f4f6f5;
-  --cor-superficie: #ffffff;
-  --cor-texto: #1c2422;
-  --cor-borda: #d5dcd9;
-  --cor-aviso-fundo: #fff4d6;
-  --cor-aviso-texto: #6b4b00;
-  --cor-erro: #b3261e;
+  color-scheme: dark;
+
+  /* Paleta */
+  --cor-fundo: #080d2a;
+  --cor-superficie: #111a38;
+  --cor-superficie-realce: #192448;
+  --cor-borda: #26314d;
+  --cor-texto: #f5f7ff;
+  --cor-texto-secundario: #9aa4b2;
+  --cor-primaria: #164dff;
+  --cor-destaque: #00b7ff;
+  --cor-secundaria: #6a00ff;
+  --cor-acento: #a020f0;
+  --gradiente-marca: linear-gradient(
+    110deg,
+    var(--cor-destaque) 0%,
+    var(--cor-primaria) 45%,
+    var(--cor-secundaria) 75%,
+    var(--cor-acento) 100%
+  );
+
+  /* Derivadas da paleta pelo contraste. O texto claro sobre o realce do botão fica em 4,9:1. A
+     borda da paleta fica em 1,5:1 sobre o fundo: separa cartões, mas não mostra onde está um
+     campo, que pede 3:1. */
+  --cor-primaria-realce: #2a5aff;
+  --cor-borda-controle: #5a6a94;
+
+  /* Funcionais, todas acima de 5:1 sobre o fundo e as superfícies. A informação usa o ciano dos
+     indicadores. O fundo de cada uma é a mesma cor quase transparente sobre o azul-marinho. */
+  --cor-sucesso: #34d399;
+  --cor-sucesso-fundo: rgba(52, 211, 153, 0.12);
+  --cor-alerta: #ffb020;
+  --cor-alerta-fundo: rgba(255, 176, 32, 0.12);
+  --cor-erro: #ff5c6c;
+  --cor-erro-fundo: rgba(255, 92, 108, 0.12);
+  --cor-info: #00b7ff;
+  --cor-info-fundo: rgba(0, 183, 255, 0.1);
+
   --espaco: 16px;
   --raio: 10px;
   --toque: 48px;
@@ -40,41 +74,105 @@ body {
   min-height: 100vh;
 }
 
+a {
+  color: var(--cor-texto);
+  text-decoration-color: var(--cor-primaria);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+a:hover {
+  text-decoration-color: var(--cor-destaque);
+}
+
+:focus-visible {
+  outline: 2px solid var(--cor-destaque);
+  outline-offset: 2px;
+}
+
+code {
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--cor-superficie-realce);
+}
+
 /* Botões e campos */
 
 .botao {
   min-height: var(--toque);
-  padding: 0 calc(var(--espaco) * 1.25);
-  border: 0;
+  /* A folga de cima e de baixo só aparece no botão de várias linhas, como os das listas; o de uma
+     linha continua com a altura de toque. */
+  padding: 8px calc(var(--espaco) * 1.25);
+  border: 1px solid transparent;
   border-radius: var(--raio);
-  background: var(--cor-marca);
-  color: #fff;
+  background: var(--cor-primaria);
+  color: var(--cor-texto);
   font: inherit;
   font-weight: 600;
+  text-decoration: none;
   cursor: pointer;
 }
 
+/* O link com cara de botão (Renovar, no aviso do plano): em linha, ele ignoraria a altura de toque. */
+a.botao {
+  display: inline-flex;
+  align-items: center;
+}
+
 .botao:hover {
-  background: var(--cor-marca-escura);
+  background: var(--cor-primaria-realce);
 }
 
 .botao:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: default;
 }
 
-.botao--secundario {
+.botao:disabled:hover {
+  background: var(--cor-primaria);
+}
+
+.botao--secundario,
+.botao--secundario:disabled:hover {
   background: transparent;
-  color: var(--cor-marca);
-  border: 1px solid var(--cor-borda);
+  color: var(--cor-texto);
+  border-color: var(--cor-borda-controle);
 }
 
 .botao--secundario:hover {
-  background: var(--cor-fundo);
+  background: var(--cor-superficie-realce);
 }
 
 .botao--largo {
   width: 100%;
+}
+
+/* Campo sem classe também: os do caixa, do estoque e da venda não têm uma, e sem esta regra
+   sairiam no tamanho e nas cores do navegador. O :where zera o peso do seletor, para qualquer
+   regra com classe, mais abaixo, sobrepor esta. */
+:where(input:not([type='checkbox'], [type='radio']), select, textarea) {
+  min-height: var(--toque);
+  padding: 0 12px;
+  border: 1px solid var(--cor-borda-controle);
+  border-radius: var(--raio);
+  background: var(--cor-fundo);
+  color: var(--cor-texto);
+  font: inherit;
+}
+
+:where(textarea) {
+  padding: 10px 12px;
+}
+
+::placeholder {
+  color: var(--cor-texto-secundario);
+  opacity: 1;
+}
+
+input:disabled,
+select:disabled,
+textarea:disabled {
+  opacity: 0.6;
 }
 
 .campo {
@@ -90,17 +188,35 @@ body {
 
 .campo__entrada {
   width: 100%;
-  min-height: var(--toque);
-  padding: 0 12px;
-  border: 1px solid var(--cor-borda);
-  border-radius: var(--raio);
-  background: var(--cor-superficie);
-  font: inherit;
 }
 
-.campo__entrada:focus {
-  outline: 2px solid var(--cor-marca);
-  outline-offset: 1px;
+/* Mensagens: barra na cor da função e texto claro, que lê melhor que o texto todo colorido. */
+
+.mensagem-erro,
+.mensagem-sucesso,
+.mensagem-info,
+.login__erro {
+  padding: 10px 12px;
+  border-left: 4px solid;
+  border-radius: 0 var(--raio) var(--raio) 0;
+  color: var(--cor-texto);
+}
+
+.mensagem-erro,
+.login__erro {
+  border-left-color: var(--cor-erro);
+  background: var(--cor-erro-fundo);
+  font-weight: 600;
+}
+
+.mensagem-sucesso {
+  border-left-color: var(--cor-sucesso);
+  background: var(--cor-sucesso-fundo);
+}
+
+.mensagem-info {
+  border-left-color: var(--cor-info);
+  background: var(--cor-info-fundo);
 }
 
 /* Login */
@@ -113,22 +229,48 @@ body {
 }
 
 .login__cartao {
+  position: relative;
+  overflow: hidden;
   width: min(100%, 420px);
   padding: calc(var(--espaco) * 1.5);
   background: var(--cor-superficie);
+  border: 1px solid var(--cor-borda);
   border-radius: calc(var(--raio) * 1.5);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+/* A faixa do gradiente no topo do cartão é a marca na entrada, junto do ícone. */
+.login__cartao::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 4px;
+  background: var(--gradiente-marca);
+}
+
+.login__marca {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 calc(var(--espaco) * 1.25);
+}
+
+.login__icone {
+  width: 48px;
+  height: 48px;
+  flex: none;
 }
 
 .login__titulo {
   margin: 0 0 var(--espaco);
-  color: var(--cor-marca);
   font-size: 1.6rem;
+}
+
+.login__marca .login__titulo {
+  margin: 0;
 }
 
 .login__erro {
   margin: 0 0 var(--espaco);
-  color: var(--cor-erro);
 }
 
 /* Shell: cabeçalho, navegação e conteúdo */
@@ -153,8 +295,10 @@ body {
   align-items: center;
   gap: 8px var(--espaco);
   padding: 12px var(--espaco);
-  background: var(--cor-marca);
-  color: #fff;
+  background: var(--cor-superficie);
+  /* A linha do gradiente sob o cabeçalho é a marca dentro do aplicativo. */
+  border-bottom: 2px solid transparent;
+  border-image: var(--gradiente-marca) 1;
 }
 
 .cabecalho__quem {
@@ -173,28 +317,20 @@ body {
 
 .cabecalho__operador {
   margin: 0;
+  color: var(--cor-texto-secundario);
   font-size: 0.9rem;
-  opacity: 0.85;
 }
 
 .cabecalho__aviso {
   padding: 6px 10px;
+  border: 1px solid rgba(255, 176, 32, 0.45);
   border-radius: 999px;
-  background: var(--cor-aviso-fundo);
-  color: var(--cor-aviso-texto);
+  background: var(--cor-alerta-fundo);
+  color: var(--cor-alerta);
   font-size: 0.85rem;
   font-weight: 600;
   white-space: nowrap;
   text-decoration: none;
-}
-
-.cabecalho .botao--secundario {
-  color: #fff;
-  border-color: rgba(255, 255, 255, 0.5);
-}
-
-.cabecalho .botao--secundario:hover {
-  background: rgba(255, 255, 255, 0.12);
 }
 
 .faixa {
@@ -204,8 +340,13 @@ body {
   justify-content: space-between;
   gap: var(--espaco);
   padding: 8px var(--espaco);
-  background: var(--cor-aviso-fundo);
-  color: var(--cor-aviso-texto);
+  border-left: 4px solid var(--cor-info);
+  background: var(--cor-info-fundo);
+}
+
+.faixa--alerta {
+  border-left-color: var(--cor-alerta);
+  background: var(--cor-alerta-fundo);
 }
 
 .navegacao {
@@ -224,23 +365,28 @@ body {
   min-height: var(--toque);
   padding: 0 14px;
   border-radius: var(--raio);
-  color: var(--cor-texto);
+  color: var(--cor-texto-secundario);
   text-decoration: none;
   font-weight: 600;
   white-space: nowrap;
 }
 
 .navegacao__item:hover {
-  background: var(--cor-fundo);
+  background: var(--cor-superficie-realce);
+  color: var(--cor-texto);
 }
 
+/* O item ativo é um indicador, então leva o ciano: uma barra embaixo no tablet, onde o menu é
+   uma linha, e à esquerda no desktop, onde é coluna. */
 .navegacao__item--ativo {
-  background: var(--cor-marca);
-  color: #fff;
+  background: var(--cor-superficie-realce);
+  color: var(--cor-texto);
+  box-shadow: inset 0 -3px 0 var(--cor-destaque);
 }
 
 .conteudo {
   grid-area: conteudo;
+  min-width: 0;
   padding: var(--espaco);
 }
 
@@ -248,7 +394,7 @@ body {
   grid-area: rodape;
   padding: 12px var(--espaco);
   border-top: 1px solid var(--cor-borda);
-  color: #52605b;
+  color: var(--cor-texto-secundario);
   font-size: 0.9rem;
 }
 
@@ -260,6 +406,11 @@ body {
 .cadastro {
   max-width: 1100px;
   margin: 0 auto;
+}
+
+/* O aviso de privacidade e os termos usam a mesma classe fora do shell, que dá o respiro da borda. */
+main.cadastro {
+  padding: var(--espaco);
 }
 
 .cadastro__topo,
@@ -283,7 +434,7 @@ body {
   border: 1px solid var(--cor-borda);
   border-radius: var(--raio);
 }
-.cadastro__apoio { color: #52605b; font-size: 0.9rem; }
+.cadastro__apoio { color: var(--cor-texto-secundario); font-size: 0.9rem; }
 .cadastro__formulario {
   padding: var(--espaco);
   margin-top: 24px;
@@ -295,7 +446,6 @@ body {
 .cadastro__grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 var(--espaco); }
 .cadastro__atributos { border: 1px solid var(--cor-borda); border-radius: var(--raio); margin: 0 0 var(--espaco); padding: var(--espaco); }
 .cadastro__par { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; margin-bottom: 8px; }
-.mensagem-erro { color: var(--cor-erro); font-weight: 600; }
 
 .caixa { max-width: 1100px; margin: 0 auto; }
 .caixa__cartao { background: var(--cor-superficie); border: 1px solid var(--cor-borda); border-radius: var(--raio); padding: var(--espaco); margin-bottom: var(--espaco); }
@@ -312,7 +462,6 @@ body {
 .relatorios__cartao h3 { margin-top: 0; }
 .relatorios__formulario { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; }
 .relatorios__formulario label { display: grid; gap: 8px; }
-.relatorios__formulario input, .relatorios__formulario select { min-height: var(--toque); padding: 8px; border: 1px solid var(--cor-borda); border-radius: var(--raio); font: inherit; }
 .relatorios__total { margin: 8px 0; font-size: 2rem; font-weight: 700; }
 .relatorios__cartoes { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--espaco); align-items: start; }
 .relatorios__cartoes .relatorios__cartao { margin-bottom: 0; }
@@ -324,7 +473,7 @@ body {
 /* O valor fica numa linha só, à direita; quem quebra, na tela estreita, é o rótulo ou o nome. */
 .relatorios__linhas li > :last-child, .relatorios__linha > :last-child { white-space: nowrap; }
 .relatorios__soma { font-weight: 700; }
-.relatorios__nota { margin-bottom: 0; color: #52605b; font-size: 0.85rem; }
+.relatorios__nota { margin-bottom: 0; color: var(--cor-texto-secundario); font-size: 0.85rem; }
 /* A conferência do cartão põe cada pagamento em duas linhas: o NSU tem até 40 caracteres e não cabe
    ao lado do valor na tela estreita. */
 .relatorios__conferencia { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
@@ -337,7 +486,7 @@ body {
 .estoque__selecao { display: grid; gap: 8px; max-width: 420px; }
 .estoque__formularios { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--espaco); }
 .estoque__formularios form, .estoque__formularios label { display: grid; gap: 8px; align-content: start; }
-.estoque__formularios form { padding: var(--espaco); border: 1px solid var(--cor-borda); border-radius: var(--raio); }
+.estoque__formularios form { padding: var(--espaco); background: var(--cor-superficie); border: 1px solid var(--cor-borda); border-radius: var(--raio); }
 .estoque__formularios input, .estoque__formularios select { width: 100%; }
 
 /* PDV: busca e comanda lado a lado no tablet; histórico abaixo das duas. */
@@ -346,23 +495,33 @@ body {
 .pdv__painel { min-width: 0; padding: var(--espaco); border: 1px solid var(--cor-borda); border-radius: var(--raio); background: var(--cor-superficie); }
 .pdv__painel h3 { margin-top: 0; }
 .pdv__painel label { display: grid; gap: 6px; margin-bottom: 12px; }
-.pdv__painel input, .pdv__painel select { min-height: var(--toque); padding: 8px; border: 1px solid var(--cor-borda); border-radius: var(--raio); font: inherit; max-width: 100%; }
-.pdv__busca { display: grid; grid-template-columns: minmax(0, 1fr) 130px; gap: 12px; }
-.pdv__ajuda { margin-top: 0; color: #52605b; font-size: 0.85rem; }
+.pdv__painel input, .pdv__painel select { max-width: 100%; }
+.pdv__busca { display: grid; grid-template-columns: minmax(0, 1fr) 130px; gap: 12px; align-items: end; }
+/* Sem a largura explícita, o campo sai na largura padrão do navegador, maior que a coluna de 130px
+   da quantidade, e invade a comanda no tablet. */
+.pdv__busca label { min-width: 0; }
+.pdv__busca input { width: 100%; }
+.pdv__ajuda { margin-top: 0; color: var(--cor-texto-secundario); font-size: 0.85rem; }
 .pdv__resultados, .pdv__itens, .pdv__parcelas, .pdv__historico ul { list-style: none; padding: 0; display: grid; gap: 8px; }
 .pdv__resultados .botao, .pdv__historico .botao { text-align: left; width: 100%; white-space: normal; }
 .pdv__itens li, .pdv__topo, .pdv__acoes { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
 .pdv__itens li { border-bottom: 1px solid var(--cor-borda); padding: 8px 0; }
 .pdv__total { font-size: 1.4rem; font-weight: 700; margin-bottom: 4px; }
 .pdv__pagamento { border-top: 1px solid var(--cor-borda); margin-top: var(--espaco); padding-top: var(--espaco); }
-.pdv__qr { display: inline-flex; max-width: 100%; padding: 12px; margin-top: 8px; background: #fff; border: 1px solid var(--cor-borda); }
+/* O QR fica escuro sobre branco: invertido, não é lido por todo aplicativo de banco. */
+.pdv__qr { display: inline-flex; max-width: 100%; padding: 12px; margin-top: 8px; background: #fff; border-radius: var(--raio); }
 .pdv__qr svg { max-width: 100%; height: auto; }
 .pdv__codigo-pix { overflow-wrap: anywhere; }
 .pdv__historico { grid-column: 1 / -1; }
 .pdv__desconto { display: flex; align-items: end; gap: 8px; flex-wrap: wrap; }
-.comprovante { max-width: 540px; margin: 24px auto; padding: 24px; background: #fff; border: 1px solid var(--cor-borda); }
+
+/* O comprovante é a prévia do papel que sai da impressora: branco com texto escuro, também no
+   tema escuro. */
+.comprovante { max-width: 540px; margin: 24px auto; padding: 24px; background: #fff; color: #10142a; border: 1px solid var(--cor-borda); border-radius: var(--raio); }
 .comprovante ul { padding-left: 20px; }
 .comprovante__acoes { display: flex; gap: 8px; flex-wrap: wrap; }
+.comprovante .botao--secundario { color: var(--cor-primaria); border-color: #c4cbe0; }
+.comprovante .botao--secundario:hover { background: #eef2ff; }
 
 @media (max-width: 760px) {
   .pdv__grade { grid-template-columns: 1fr; }
@@ -370,9 +529,10 @@ body {
 }
 
 @media print {
+  html, body { background: #fff; }
   body * { visibility: hidden; }
   .comprovante, .comprovante * { visibility: visible; }
-  .comprovante { position: absolute; inset: 0 auto auto 0; width: 100%; max-width: none; border: 0; margin: 0; }
+  .comprovante { position: absolute; inset: 0 auto auto 0; width: 100%; max-width: none; border: 0; border-radius: 0; margin: 0; }
   .comprovante__acoes { display: none; }
 }
 
@@ -403,6 +563,10 @@ body {
     overflow-x: visible;
     border-bottom: 0;
     border-right: 1px solid var(--cor-borda);
+  }
+
+  .navegacao__item--ativo {
+    box-shadow: inset 3px 0 0 var(--cor-destaque);
   }
 
   .conteudo {

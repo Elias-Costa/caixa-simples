@@ -144,7 +144,7 @@ export function TelaDeUsuarios() {
     <h2 className="titulo">Usuários</h2>
     <p>Crie acessos para quem trabalha nesta Conta. O plano Completo permite mais de um usuário.</p>
     {erro && <p className="mensagem-erro" role="alert">{erro}</p>}
-    {aviso && <p role="status">{aviso}</p>}
+    {aviso && <p className="mensagem-sucesso" role="status">{aviso}</p>}
 
     <form className="cadastro__formulario" onSubmit={(evento) => void criar(evento)}>
       <h3>Novo usuário</h3>

@@ -89,7 +89,7 @@ export function TelaDaSenha({ obrigatoria = false }: Props) {
     </label>
     <p className="cadastro__apoio">De 15 caracteres a 72 letras sem acento; letra com acento ou cedilha conta como duas. Sem regra de número ou símbolo: uma frase longa funciona bem.</p>
     {erro && <p className="mensagem-erro" role="alert">{erro}</p>}
-    {aviso && !obrigatoria && <p role="status">{aviso}</p>}
+    {aviso && !obrigatoria && <p className="mensagem-sucesso" role="status">{aviso}</p>}
     <button className={obrigatoria ? 'botao botao--largo' : 'botao'} disabled={enviando}>
       {enviando ? 'Trocando...' : 'Trocar a senha'}
     </button>
@@ -204,7 +204,7 @@ function SeusDados() {
           value={senhaAtual} required onChange={(evento) => setSenhaAtual(evento.target.value)} />
       </label>
       {erro && <p className="mensagem-erro" role="alert">{erro}</p>}
-      {aviso && <p role="status">{aviso}</p>}
+      {aviso && <p className="mensagem-sucesso" role="status">{aviso}</p>}
       <button className="botao" disabled={enviando}>{enviando ? 'Trocando...' : 'Trocar o e-mail'}</button>
     </form>
   </div>
