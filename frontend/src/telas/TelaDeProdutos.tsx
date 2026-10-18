@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { cadastro, type DadosDoProduto, type Produto, type TipoProduto } from '../api/cadastro'
-import { moeda, valorNoCampo } from '../formatos'
+import { lerDinheiro, moeda, valorNoCampo } from '../formatos'
 import { useOnline } from '../shell/useOnline'
 import { useSessao } from '../sessao/useSessao'
 import { listarGestos } from '../offline/fila'
 import { erroDeCadastro, errosDosCampos } from './erroDeCadastro'
+import { filtrarPorNome } from './filtroPorNome'
 import { ErroDoCampo, Mensagem } from './Mensagem'
 
 type Atributo = { chave: string; valor: string; original?: unknown; textoOriginal?: string }
@@ -38,10 +39,8 @@ function paraFormulario(produto: Produto): Formulario {
 }
 
 function dadosDo(formulario: Formulario): DadosDoProduto {
-  const preco = Number(formulario.preco.replace(',', '.'))
-  if (!Number.isFinite(preco) || preco < 0 || !/^\d+([,.]\d{1,2})?$/.test(formulario.preco)) {
-    throw new Error('Informe um preço válido com até duas casas decimais.')
-  }
+  const preco = lerDinheiro(formulario.preco)
+  if (preco === null) throw new Error('Informe um preço válido com até duas casas decimais.')
   const atributos: Record<string, unknown> = {}
   for (const atributo of formulario.atributos) {
     const chave = atributo.chave.trim()
@@ -65,6 +64,7 @@ export function TelaDeProdutos() {
   const { identidade } = useSessao()
   const admin = identidade?.perfil === 'ADMIN'
   const [produtos, setProdutos] = useState<Produto[]>([])
+  const [busca, setBusca] = useState('')
   const [editando, setEditando] = useState<string | null>(null)
   const [formulario, setFormulario] = useState<Formulario>(vazio)
   const [aberto, setAberto] = useState(false)
@@ -183,6 +183,8 @@ export function TelaDeProdutos() {
     }
   }
 
+  const encontrados = filtrarPorNome(produtos, busca, (produto) => produto.nome)
+
   return (
     <section className="cadastro">
       <div className="cadastro__topo">
@@ -193,9 +195,13 @@ export function TelaDeProdutos() {
       <Mensagem tipo="erro" texto={erro} />
       <Mensagem tipo="sucesso" texto={aviso} />
       {pendentes > 0 && <p className="mensagem-info" role="status">{pendentes === 1 ? 'Uma alteração de item guardada' : `${pendentes} alterações de item guardadas`} neste dispositivo, aguardando sincronização.</p>}
-      {carregando ? <p>Carregando...</p> : produtos.length === 0 ? <p>Nenhum item ativo.</p> : (
+      {carregando ? <p>Carregando...</p> : produtos.length === 0 ? <p>Nenhum item ativo.</p> : <>
+        <label className="cadastro__busca">Buscar por nome
+          <input type="search" value={busca} onChange={(evento) => setBusca(evento.target.value)} />
+        </label>
+        {encontrados.length === 0 && <p role="status">Nenhum item encontrado para {busca.trim()}.</p>}
         <ul className="cadastro__lista">
-          {produtos.map((produto) => (
+          {encontrados.map((produto) => (
             <li className="cadastro__item" key={produto.id}>
               <div className="cadastro__dados">
                 <strong>{produto.nome}</strong> <span className="cadastro__apoio">{produto.tipo === 'SERVICO' ? 'Serviço' : 'Produto'}</span>
@@ -213,7 +219,7 @@ export function TelaDeProdutos() {
             </li>
           ))}
         </ul>
-      )}
+      </>}
 
       {admin && aberto && <form ref={formularioRef} className="cadastro__formulario" onSubmit={(evento) => void salvar(evento)}>
         <h3>{editando ? 'Editar item' : 'Novo item'}</h3>

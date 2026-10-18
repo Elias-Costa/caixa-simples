@@ -4,11 +4,12 @@ import { SemConexao } from '../api/cliente'
 import { contas } from '../api/contas'
 import { intencaoOnline } from '../api/intencaoOnline'
 import { hojeNoBalcao } from '../dataDoBalcao'
-import { dataHora, moeda } from '../formatos'
+import { dataHora, lerDinheiro, moeda, valorNoCampo } from '../formatos'
 import { criarCaixaLocal } from '../offline/caixaLocal'
 import { useSincronizacao } from '../shell/sincronizacao'
 import { useOnline } from '../shell/useOnline'
 import { useSessao } from '../sessao/useSessao'
+import { CampoDeDinheiro } from './CampoDeDinheiro'
 import { erroDeCadastro } from './erroDeCadastro'
 import { Mensagem } from './Mensagem'
 import { ROTULO_DO_CAIXA, ROTULO_DO_MOVIMENTO } from './rotulos'
@@ -19,8 +20,11 @@ const caixa = criarCaixaLocal()
 type LugarDaMensagem = 'tela' | 'abertura' | 'sessao' | 'movimento' | 'fechamento'
 type MensagemNaTela = { tipo: 'erro' | 'sucesso'; texto: string; lugar: LugarDaMensagem }
 
-function dinheiroDigitado(valor: string): number {
-  return Number(valor.replace(',', '.'))
+/** O valor do campo, ou o erro que diz qual campo corrigir, perto do botão que foi tocado. */
+function dinheiroDoCampo(texto: string, nome: string): number {
+  const valor = lerDinheiro(texto)
+  if (valor === null) throw new Error(`Informe ${nome} com até duas casas decimais.`)
+  return valor
 }
 
 export function TelaDeCaixa() {
@@ -33,14 +37,13 @@ export function TelaDeCaixa() {
   const [historico, setHistorico] = useState<SessaoCaixa[]>([])
   const [nomes, setNomes] = useState<Map<string, string>>(() => new Map())
   const [dia, setDia] = useState(hojeNoBalcao)
-  const [valorAbertura, setValorAbertura] = useState('0.00')
+  const [valorAbertura, setValorAbertura] = useState(() => valorNoCampo(0))
   const [tipoMovimento, setTipoMovimento] = useState<'SANGRIA' | 'SUPRIMENTO'>('SANGRIA')
   const [valorMovimento, setValorMovimento] = useState('')
   const [motivo, setMotivo] = useState('')
   const [valorContado, setValorContado] = useState('')
-  const contado = valorContado.trim() ? dinheiroDigitado(valorContado) : null
+  const contado = lerDinheiro(valorContado)
   const diferencaPrevista = selecionada && !selecionada.saldoDesatualizado && contado !== null
-    && Number.isFinite(contado) && contado >= 0
     ? Math.round((selecionada.valorFechamentoEsperado - contado) * 100) / 100 : null
   const [mensagem, setMensagem] = useState<MensagemNaTela>()
   // Qual ação está em curso: só o botão dela diz que está trabalhando.
@@ -105,7 +108,7 @@ export function TelaDeCaixa() {
     setOcupado('abrir')
     setMensagem(undefined)
     try {
-      await caixa.abrir(dinheiroDigitado(valorAbertura))
+      await caixa.abrir(dinheiroDoCampo(valorAbertura, 'o valor inicial'))
       await carregar()
       setMensagem({ tipo: 'sucesso', texto: 'Caixa aberto.', lugar: 'abertura' })
     } catch (falha) {
@@ -122,7 +125,7 @@ export function TelaDeCaixa() {
     setOcupado('lancar')
     setMensagem(undefined)
     try {
-      const valor = dinheiroDigitado(valorMovimento)
+      const valor = dinheiroDoCampo(valorMovimento, 'o valor do movimento')
       const rota = `/api/caixa/sessoes/${selecionada.id}/`
         + (tipo === 'SANGRIA' ? 'sangrias' : 'suprimentos')
       const intencao = await intencaoOnline(rota, { valor, motivo: motivo.trim() }, identidade)
@@ -150,7 +153,7 @@ export function TelaDeCaixa() {
     setOcupado('fechar')
     setMensagem(undefined)
     try {
-      await caixa.fechar(selecionada.id, dinheiroDigitado(valorContado))
+      await caixa.fechar(selecionada.id, dinheiroDoCampo(valorContado, 'o valor contado'))
       setValorContado('')
       await carregar()
       setSelecionada(await caixa.consultar(selecionada.id))
@@ -177,10 +180,7 @@ export function TelaDeCaixa() {
             onClick={() => setSelecionada(aberta)}>Ver meu caixa</button>
         </> : <form onSubmit={(evento) => void abrir(evento)}>
           <p>Nenhum caixa aberto para você.</p>
-          <label>Valor inicial
-            <input type="number" min="0" step="0.01" required value={valorAbertura}
-              onChange={(evento) => setValorAbertura(evento.target.value)} />
-          </label>
+          <CampoDeDinheiro rotulo="Valor inicial" required valor={valorAbertura} aoMudar={setValorAbertura} />
           <button className="botao" disabled={ocupado !== null}>
             {ocupado === 'abrir' ? 'Abrindo...' : 'Abrir caixa'}
           </button>
@@ -239,10 +239,7 @@ export function TelaDeCaixa() {
               <option value="SUPRIMENTO">Suprimento</option>
             </select>
           </label>
-          <label>Valor
-            <input type="number" min="0" step="0.01" required value={valorMovimento}
-              onChange={(evento) => setValorMovimento(evento.target.value)} />
-          </label>
+          <CampoDeDinheiro rotulo="Valor" required valor={valorMovimento} aoMudar={setValorMovimento} />
           <label>Motivo
             <input required value={motivo} onChange={(evento) => setMotivo(evento.target.value)} />
           </label>
@@ -255,10 +252,7 @@ export function TelaDeCaixa() {
           onSubmit={(evento) => void fechar(evento)}>
           <h4>Fechar caixa</h4>
           <p>Confira o dinheiro da gaveta contra o saldo esperado acima.</p>
-          <label>Valor contado
-            <input type="number" min="0" step="0.01" required value={valorContado}
-              onChange={(evento) => setValorContado(evento.target.value)} />
-          </label>
+          <CampoDeDinheiro rotulo="Valor contado" required valor={valorContado} aoMudar={setValorContado} />
           {diferencaPrevista !== null && <p>Diferença prevista: {moeda.format(diferencaPrevista)}
             {' '}(positivo = falta, negativo = sobra)</p>}
           <button className="botao" disabled={ocupado !== null}>

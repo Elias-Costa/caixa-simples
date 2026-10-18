@@ -86,6 +86,40 @@ describe('cadastro na tela', () => {
     await waitFor(() => expect(nome).toHaveFocus())
   })
 
+  it('a busca filtra a lista de produtos já carregada pelo nome, sem diferença de maiúsculas', async () => {
+    const buscar = vi.spyOn(cadastro, 'buscarProdutos')
+    vi.spyOn(cadastro, 'produtos').mockResolvedValue([
+      produto, { ...produto, id: 'item-2', nome: 'Pão de queijo', preco: 4 },
+    ])
+    mostrarProdutos('OPERADOR')
+
+    fireEvent.change(await screen.findByLabelText('Buscar por nome'), { target: { value: 'PÃO' } })
+    expect(screen.getByText('Pão de queijo')).toBeInTheDocument()
+    expect(screen.queryByText('Café')).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Buscar por nome'), { target: { value: 'chá' } })
+    expect(screen.getByRole('status')).toHaveTextContent('Nenhum item encontrado para chá.')
+    expect(buscar).not.toHaveBeenCalled()
+  })
+
+  it('a busca de clientes vale para ativos e inativos', async () => {
+    vi.spyOn(cadastro, 'clientes').mockResolvedValue([
+      { id: 'cliente-1', nome: 'Lia', contato: null },
+      { id: 'cliente-2', nome: 'Marta Lima', contato: null },
+    ])
+    vi.spyOn(cadastro, 'clientesInativos').mockResolvedValue([
+      { id: 'cliente-3', nome: 'Dona Marta', contato: null },
+    ])
+    render(<TelaDeClientes />)
+
+    fireEvent.change(await screen.findByLabelText('Buscar por nome'), { target: { value: 'marta' } })
+    expect(screen.getByText('Marta Lima')).toBeInTheDocument()
+    expect(screen.getByText('Dona Marta')).toBeInTheDocument()
+    expect(screen.queryByText('Lia')).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Buscar por nome'), { target: { value: 'joão' } })
+    expect(screen.getByRole('status')).toHaveTextContent('Nenhum cliente ativo encontrado para joão.')
+    expect(screen.queryByRole('heading', { name: 'Inativos' })).not.toBeInTheDocument()
+  })
+
   it('cliente inativo pode ser reativado pelo balcão', async () => {
     vi.spyOn(cadastro, 'clientes').mockResolvedValue([])
     vi.spyOn(cadastro, 'clientesInativos').mockResolvedValue([

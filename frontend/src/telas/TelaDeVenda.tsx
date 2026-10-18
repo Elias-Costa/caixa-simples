@@ -8,7 +8,7 @@ import { contas } from '../api/contas'
 import { fiado } from '../api/fiado'
 import { intencaoOnline, type IntencaoOnline } from '../api/intencaoOnline'
 import type { Comprovante, ConciliacaoPix, FormaPagamento, ResumoDaVenda, Venda } from '../api/vendas'
-import { dataHora, moeda, valorNoCampo } from '../formatos'
+import { dataHora, lerDinheiro, moeda, valorNoCampo } from '../formatos'
 import { criarCaixaLocal } from '../offline/caixaLocal'
 import { normalizarNsu } from '../offline/raizDaVenda'
 import { criarVendaLocal } from '../offline/vendaLocal'
@@ -16,7 +16,9 @@ import { useContextoDoShell } from '../shell/ContextoDoShell'
 import { useSincronizacao } from '../shell/sincronizacao'
 import { useOnline } from '../shell/useOnline'
 import { useSessao } from '../sessao/useSessao'
+import { CampoDeDinheiro } from './CampoDeDinheiro'
 import { erroDeCadastro } from './erroDeCadastro'
+import { filtrarPorNome } from './filtroPorNome'
 import { Mensagem } from './Mensagem'
 import { ROTULO_DA_COBRANCA_PIX, ROTULO_DA_FORMA, ROTULO_DA_VENDA } from './rotulos'
 
@@ -24,11 +26,19 @@ const caixa = criarCaixaLocal()
 const vendas = criarVendaLocal()
 const PENDENTE_NO_COMPROVANTE = 'Pendente de sincronização com o servidor'
 const CANCELAR_DEPOIS_DE_SINCRONIZAR = 'O cancelamento fica disponível depois da sincronização com o servidor.'
+/** As notas mais comuns na mão do cliente: um toque preenche o valor recebido sem abrir o teclado. */
+const NOTAS = [10, 20, 50, 100]
 
 /** O painel em que a mensagem de erro aparece: o mesmo em que a ação foi tocada. */
 type LugarDoErro = 'tela' | 'busca' | 'comanda' | 'historico' | 'comprovante'
 
+/** A quantidade não é dinheiro: tem três casas, para o que se vende por peso, e fica fora do critério dele. */
 function numero(texto: string): number { return Number(texto.replace(',', '.')) }
+
+/** O desconto em branco é desconto nenhum, como o zero que o campo traz ao abrir. */
+function descontoDigitado(texto: string): number | null {
+  return texto === '' ? 0 : lerDinheiro(texto)
+}
 
 /**
  * Sem resposta, a operação pode ter chegado ao servidor mesmo assim; a comanda relida mostra se ela
@@ -88,6 +98,7 @@ export function TelaDeVenda() {
   const [conciliacoes, setConciliacoes] = useState<ConciliacaoPix[]>([])
   const [conciliacaoSelecionada, setConciliacaoSelecionada] = useState<Venda>()
   const [clientes, setClientes] = useState<Cliente[]>([])
+  const [buscaCliente, setBuscaCliente] = useState('')
   const [atual, setAtual] = useState<Venda>()
   const [comprovante, setComprovante] = useState<Comprovante>()
   const [busca, setBusca] = useState('')
@@ -115,6 +126,23 @@ export function TelaDeVenda() {
   const pixPermitido = online && !doDispositivo
   const formaEscolhida: FormaPagamento = forma === 'PIX' && !pixPermitido ? 'DINHEIRO' : forma
   const termo = busca.trim()
+  const termoCliente = buscaCliente.trim()
+  // A lista de clientes já está carregada: filtrar aqui responde a cada letra, também sem rede.
+  const clientesEncontrados = termoCliente ? filtrarPorNome(clientes, termoCliente, (cliente) => cliente.nome) : []
+  // Com o campo vazio, a parcela é tudo o que falta lançar.
+  const valorDaParcela = !atual ? null : valorPagamento ? lerDinheiro(valorPagamento) : atual.faltaPagar
+  const lancando = atual !== undefined && atual.status === 'ABERTA' && atual.itens.length > 0
+    && atual.faltaPagar > 0
+  const receberEConcluir = lancando && formaEscolhida !== 'PIX' && atual.parcelas.length === 0
+    && valorDaParcela === atual.faltaPagar
+  const concluirSemPagar = atual !== undefined && atual.status === 'ABERTA' && atual.itens.length > 0
+    && atual.faltaPagar === 0 && !pixPendente
+  // A prévia conta em centavos, como o servidor: subtrair em ponto flutuante erraria o último centavo.
+  // O troco que vale continua sendo o que o registro da parcela devolve.
+  const recebidoNaPrevia = lancando && formaEscolhida === 'DINHEIRO' && valorRecebido
+    ? lerDinheiro(valorRecebido) : null
+  const previaDoTroco = recebidoNaPrevia !== null && valorDaParcela !== null
+    ? (Math.round(recebidoNaPrevia * 100) - Math.round(valorDaParcela * 100)) / 100 : undefined
 
   function falhar(lugar: LugarDoErro, texto: string) { setErro({ texto, lugar }) }
   function erroEm(lugar: LugarDoErro) { return erro?.lugar === lugar ? erro.texto : undefined }
@@ -226,6 +254,10 @@ export function TelaDeVenda() {
     return () => { vivo = false; window.clearInterval(intervalo) }
   }, [atual?.id, pixPendente, sessao])
 
+  function nomeDoCliente(clienteId: string): string {
+    return clientes.find((cliente) => cliente.id === clienteId)?.nome ?? clienteId
+  }
+
   function nomeDoOperador(usuarioId: string): string {
     if (identidade && usuarioId === identidade.usuarioId) return identidade.nome
     return nomes.get(usuarioId) ?? `operador ${usuarioId.slice(0, 8)}`
@@ -247,12 +279,17 @@ export function TelaDeVenda() {
 
   async function adicionar(produto: Produto) {
     if (!sessao) return
+    const desconto = descontoDigitado(descontoItem)
+    if (desconto === null) {
+      falhar('busca', 'Informe o desconto do item com até duas casas decimais.')
+      return
+    }
     setOcupado(true); setErro(undefined)
     if (atual?.status !== 'ABERTA') { setComprovante(undefined); setTroco(undefined) }
     let id: string | undefined
     try {
       id = atual?.status === 'ABERTA' ? atual.id : (await vendas.iniciar(sessao.id)).id
-      await vendas.adicionarItem(id, produto, numero(quantidade), numero(descontoItem))
+      await vendas.adicionarItem(id, produto, numero(quantidade), desconto)
       await atualizar(id)
       setBusca(''); setResultados([]); setQuantidade('1'); setDescontoItem('0')
       buscaRef.current?.focus()
@@ -274,8 +311,13 @@ export function TelaDeVenda() {
   async function descontar(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault()
     if (!atual) return
+    const desconto = descontoDigitado(descontoVenda)
+    if (desconto === null) {
+      falhar('comanda', 'Informe o desconto da venda com até duas casas decimais.')
+      return
+    }
     setOcupado(true); setErro(undefined)
-    try { await vendas.descontar(atual.id, numero(descontoVenda)); await atualizar(atual.id) }
+    try { await vendas.descontar(atual.id, desconto); await atualizar(atual.id) }
     catch (falha) { falhar('comanda', erroDaComanda(falha)) }
     finally { setOcupado(false) }
   }
@@ -283,7 +325,10 @@ export function TelaDeVenda() {
   async function vincularCliente(clienteId: string) {
     if (!atual || !clienteId) return
     setOcupado(true); setErro(undefined)
-    try { await vendas.vincularCliente(atual.id, clienteId); await atualizar(atual.id) }
+    try {
+      await vendas.vincularCliente(atual.id, clienteId); await atualizar(atual.id)
+      setBuscaCliente('')
+    }
     catch (falha) { falhar('comanda', erroDaComanda(falha)) }
     finally { setOcupado(false) }
   }
@@ -291,9 +336,26 @@ export function TelaDeVenda() {
   async function pagar(evento: { preventDefault(): void }, concluirJunto = false) {
     evento.preventDefault()
     if (!atual) return
-    const valor = valorPagamento ? numero(valorPagamento) : atual.faltaPagar
-    const recebido = formaEscolhida === 'DINHEIRO'
-      ? (valorRecebido ? numero(valorRecebido) : valor) : undefined
+    // O zero e o recebido abaixo da parcela o servidor também recusa; a tela diz antes, sem a ida.
+    const valor = valorDaParcela
+    if (valor === null) {
+      falhar('comanda', 'Informe o valor da parcela com até duas casas decimais.')
+      return
+    }
+    if (valor <= 0) {
+      falhar('comanda', 'Informe um valor da parcela maior que zero.')
+      return
+    }
+    const recebido = formaEscolhida !== 'DINHEIRO' ? undefined
+      : valorRecebido ? lerDinheiro(valorRecebido) : valor
+    if (recebido === null) {
+      falhar('comanda', 'Informe o valor recebido com até duas casas decimais.')
+      return
+    }
+    if (recebido !== undefined && recebido < valor) {
+      falhar('comanda', 'O valor recebido é menor que o da parcela.')
+      return
+    }
     // O campo fica escondido fora do cartão, e o que foi digitado nele antes da troca não vai junto.
     const nsuDaParcela = formaEscolhida === 'CARTAO' ? nsu : undefined
     setOcupado(true); setErro(undefined)
@@ -372,7 +434,7 @@ export function TelaDeVenda() {
   }
 
   async function selecionar(resumo: ResumoDaVenda) {
-    setErro(undefined); setTroco(undefined); setComprovante(undefined)
+    setErro(undefined); setTroco(undefined); setComprovante(undefined); setBuscaCliente('')
     try {
       await atualizar(resumo.id)
       if (resumo.status === 'CONCLUIDA') setComprovante(await vendas.comprovante(resumo.id))
@@ -409,7 +471,7 @@ export function TelaDeVenda() {
 
   function novaVenda() {
     setAtual(undefined); setComprovante(undefined); setTroco(undefined); setForma('DINHEIRO'); setNsu('')
-    setErro(undefined); setCopiado(undefined)
+    setErro(undefined); setCopiado(undefined); setBuscaCliente('')
     buscaRef.current?.focus()
   }
 
@@ -446,10 +508,8 @@ export function TelaDeVenda() {
             </label>
           </div>
           <p className="pdv__ajuda">Também aceita 3* no início da busca para lançar três unidades.</p>
-          {identidade?.perfil === 'ADMIN' && <label>Desconto deste item
-            <input type="number" min="0" step="0.01" value={descontoItem}
-              onChange={(evento) => setDescontoItem(evento.target.value)} />
-          </label>}
+          {identidade?.perfil === 'ADMIN' &&
+            <CampoDeDinheiro rotulo="Desconto deste item" valor={descontoItem} aoMudar={setDescontoItem} />}
           <Mensagem tipo="erro" texto={erroEm('busca')} />
           {termo && buscado === termo && resultados.length === 0 &&
             <p className="pdv__ajuda" role="status">Nenhum produto encontrado para {termo}.</p>}
@@ -482,13 +542,23 @@ export function TelaDeVenda() {
               <p className="mensagem-info" role="status">Esta Venda está no servidor e continua quando a rede voltar. Para vender agora, comece uma nova venda.</p>}
             {atual.status === 'CANCELADA' && atual.parcelas.some((p) => p.pix && p.status === 'CONFIRMADO') &&
               <p className="mensagem-info" role="status">Pix integrado recebido. A devolução precisa ser feita fora do sistema e ainda exige conciliação; este aplicativo não verifica se ela aconteceu.</p>}
-            {atual.status === 'ABERTA' ? <label>Cliente (para fiado)
-              <select value={atual.clienteId ?? ''} disabled={ocupado}
-                onChange={(evento) => void vincularCliente(evento.target.value)}>
-                <option value="">Selecione um Cliente</option>
-                {clientes.map((cliente) => <option key={cliente.id} value={cliente.id}>{cliente.nome}</option>)}
-              </select>
-            </label> : atual.clienteId && <p>Cliente: {clientes.find((c) => c.id === atual.clienteId)?.nome ?? atual.clienteId}</p>}
+            {/* O cliente se acha pelo nome, como o produto: uma lista com todos não cabe no balcão,
+                e a tela virada para o cliente mostraria o nome de cada um. */}
+            {atual.clienteId && <p>Cliente: {nomeDoCliente(atual.clienteId)}</p>}
+            {atual.status === 'ABERTA' && <>
+              <label>{atual.clienteId ? 'Trocar o cliente' : 'Cliente (para fiado)'}
+                <input type="search" value={buscaCliente} placeholder="Digite o nome" autoComplete="off"
+                  onChange={(evento) => setBuscaCliente(evento.target.value)} />
+              </label>
+              {termoCliente && clientesEncontrados.length === 0 &&
+                <p className="pdv__ajuda" role="status">Nenhum cliente encontrado para {termoCliente}.</p>}
+              {clientesEncontrados.length > 0 && <ul className="pdv__resultados">
+                {clientesEncontrados.map((cliente) => <li key={cliente.id}>
+                  <button type="button" className="botao botao--secundario" disabled={ocupado}
+                    onClick={() => void vincularCliente(cliente.id)}>{cliente.nome}</button>
+                </li>)}
+              </ul>}
+            </>}
             {atual.itens.length === 0 ? <p>Nenhum item lançado.</p> : <ul className="pdv__itens">
               {atual.itens.map((item) => <li key={item.id}>
                 <span>{item.quantidade} × {item.nome} · {moeda.format(item.subtotal)}
@@ -498,14 +568,11 @@ export function TelaDeVenda() {
               </li>)}
             </ul>}
             {identidade?.perfil === 'ADMIN' && atual.status === 'ABERTA' && <form onSubmit={(evento) => void descontar(evento)} className="pdv__desconto">
-              <label>Desconto da venda
-                <input type="number" min="0" step="0.01" value={descontoVenda}
-                  onChange={(evento) => setDescontoVenda(evento.target.value)} />
-              </label>
+              <div className="pdv__desconto-campo">
+                <CampoDeDinheiro rotulo="Desconto da venda" valor={descontoVenda} aoMudar={setDescontoVenda} />
+              </div>
               <button className="botao botao--secundario" disabled={ocupado}>Aplicar</button>
             </form>}
-            <p className="pdv__total">Total: {moeda.format(atual.total)}</p>
-            <p>Parcelas lançadas: {moeda.format(atual.pago)} · Falta lançar: {moeda.format(atual.faltaPagar)}</p>
             {atual.saldoDevedor > 0 && <p><strong>Saldo devedor desta Venda: {moeda.format(atual.saldoDevedor)}</strong></p>}
             {atual.parcelas.length > 0 && <ul className="pdv__parcelas">
               {atual.parcelas.map((parcela) => <li key={parcela.id}>{ROTULO_DA_FORMA[parcela.forma]}: {moeda.format(parcela.valor)}
@@ -535,48 +602,74 @@ export function TelaDeVenda() {
                 </div>}
               </li>)}
             </ul>}
-            {troco !== undefined && <p className="mensagem-info" role="status">Troco: {moeda.format(troco)}</p>}
-            {atual.status === 'ABERTA' && <>
-              {atual.itens.length > 0 && atual.faltaPagar > 0 && <form className="pdv__pagamento" onSubmit={(evento) => void pagar(evento)}>
-                <h4>Pagamento</h4>
-                <label>Forma
-                  <select value={formaEscolhida} onChange={(evento) => setForma(evento.target.value as FormaPagamento)}>
-                    <option value="DINHEIRO">Dinheiro</option>
-                    {pixPermitido && <option value="PIX">Pix integrado</option>}
-                    <option value="CARTAO">Cartão manual</option>
-                    {identidade?.perfil === 'ADMIN' && atual.clienteId &&
-                      !atual.parcelas.some((parcela) => parcela.forma === 'FIADO') &&
-                      <option value="FIADO">Fiado</option>}
-                  </select>
-                </label>
-                <label>Valor da parcela
-                  <input type="number" min="0.01" step="0.01" value={valorPagamento}
-                    placeholder={valorNoCampo(atual.faltaPagar)} onChange={(evento) => setValorPagamento(evento.target.value)} />
-                </label>
-                {formaEscolhida === 'DINHEIRO' && <label>Valor recebido em dinheiro
-                  <input type="number" min="0" step="0.01" value={valorRecebido}
-                    placeholder={valorNoCampo(valorPagamento ? numero(valorPagamento) : atual.faltaPagar)}
-                    onChange={(evento) => setValorRecebido(evento.target.value)} />
-                </label>}
-                {/* Sem limite de tamanho no campo: o navegador cortaria o número colado com espaços
-                    em volta, que o servidor aceita depois de tirar os espaços. */}
-                {formaEscolhida === 'CARTAO' && <label>
-                  {identidade?.nsuObrigatorio ? 'NSU do comprovante' : 'NSU do comprovante (opcional)'}
-                  <input value={nsu} autoComplete="off" required={identidade?.nsuObrigatorio === true}
-                    onChange={(evento) => setNsu(evento.target.value)} />
-                </label>}
-                <div className="pdv__acoes">
-                  <button className="botao botao--secundario" disabled={ocupado}>Registrar parcela</button>
-                  {formaEscolhida !== 'PIX' && atual.parcelas.length === 0 && (!valorPagamento || numero(valorPagamento) === atual.faltaPagar)
-                    && <button className="botao" type="button" disabled={ocupado}
-                    onClick={(evento) => void pagar(evento, true)}>{formaEscolhida === 'FIADO' ? 'Registrar fiado e concluir' : 'Receber e concluir'}</button>}
+            {lancando && <form className="pdv__pagamento" onSubmit={(evento) => void pagar(evento)}>
+              <h4>Pagamento</h4>
+              <label>Forma
+                <select value={formaEscolhida} onChange={(evento) => setForma(evento.target.value as FormaPagamento)}>
+                  <option value="DINHEIRO">Dinheiro</option>
+                  {pixPermitido && <option value="PIX">Pix integrado</option>}
+                  <option value="CARTAO">Cartão manual</option>
+                  {identidade?.perfil === 'ADMIN' && atual.clienteId &&
+                    !atual.parcelas.some((parcela) => parcela.forma === 'FIADO') &&
+                    <option value="FIADO">Fiado</option>}
+                </select>
+              </label>
+              <CampoDeDinheiro rotulo="Valor da parcela" valor={valorPagamento} aoMudar={setValorPagamento}
+                placeholder={valorNoCampo(atual.faltaPagar)} />
+              {formaEscolhida === 'DINHEIRO' && <>
+                <CampoDeDinheiro rotulo="Valor recebido em dinheiro" valor={valorRecebido}
+                  aoMudar={setValorRecebido}
+                  placeholder={valorDaParcela !== null ? valorNoCampo(valorDaParcela) : undefined} />
+                {/* A nota abaixo da parcela fica desligada: o servidor recusaria o recebido menor. */}
+                <div className="pdv__notas" role="group" aria-label="Nota recebida">
+                  {NOTAS.map((nota) => <button key={nota} type="button" className="botao botao--secundario"
+                    disabled={ocupado || (valorDaParcela !== null && nota < valorDaParcela)}
+                    onClick={() => setValorRecebido(valorNoCampo(nota))}>R$ {nota}</button>)}
                 </div>
-              </form>}
-              {atual.faltaPagar === 0 && atual.itens.length > 0 && !atual.parcelas.some((p) => p.pix && p.status === 'PENDENTE') && <button className="botao" type="button"
-                disabled={ocupado} onClick={() => void concluirPendente()}>Concluir venda</button>}
-            </>}
+              </>}
+              {/* Sem limite de tamanho no campo: o navegador cortaria o número colado com espaços
+                  em volta, que o servidor aceita depois de tirar os espaços. */}
+              {formaEscolhida === 'CARTAO' && <label>
+                {identidade?.nsuObrigatorio ? 'NSU do comprovante' : 'NSU do comprovante (opcional)'}
+                <input value={nsu} autoComplete="off" required={identidade?.nsuObrigatorio === true}
+                  onChange={(evento) => setNsu(evento.target.value)} />
+              </label>}
+              <div className="pdv__acoes">
+                <button className="botao botao--secundario" disabled={ocupado}>Registrar parcela</button>
+              </div>
+            </form>}
           </>}
-          <Mensagem tipo="erro" texto={erroEm('comanda')} />
+          {/* O rodapé fica preso ao fim da tela enquanto a comanda está nela: total, o que falta, o
+              troco e o botão principal não dependem de rolar, por mais itens que a venda tenha. O
+              botão principal não envia o formulário, e o Enter num campo continua registrando só a
+              parcela. A mensagem de erro fica aqui também, onde o rodapé não a cobre. */}
+          {atual ? <div className="pdv__rodape">
+            <Mensagem tipo="erro" texto={erroEm('comanda')} />
+            <p className="pdv__linha pdv__total"><span>Total:</span> <span>{moeda.format(atual.total)}</span></p>
+            {/* Sem parcela, o lançado é zero e o que falta é o total: a linha a menos deixa o rodapé
+                mais baixo no celular, onde ele divide a tela com a comanda. */}
+            {atual.status === 'ABERTA' && <p className="pdv__linha">
+              {atual.pago > 0 && <span>Parcelas lançadas: {moeda.format(atual.pago)}</span>}
+              <span>Falta lançar: {moeda.format(atual.faltaPagar)}</span>
+            </p>}
+            {/* Enquanto se digita o recebido, a prévia toma o lugar do troco já registrado, que o
+                cliente já levou. */}
+            {previaDoTroco !== undefined && previaDoTroco >= 0 && <p className="pdv__troco pdv__troco--previa">
+              <span>Troco previsto:</span> <strong>{moeda.format(previaDoTroco)}</strong>
+              <span className="pdv__nota">Prévia: vale o troco confirmado ao registrar.</span>
+            </p>}
+            {previaDoTroco !== undefined && previaDoTroco < 0 && <p className="pdv__troco pdv__troco--previa">
+              <span className="pdv__nota">O valor recebido é menor que o da parcela.</span>
+            </p>}
+            {previaDoTroco === undefined && troco !== undefined && <p className="pdv__troco" role="status">
+              <span>Troco:</span> <strong>{moeda.format(troco)}</strong>
+            </p>}
+            {receberEConcluir && <button className="botao botao--largo" type="button" disabled={ocupado}
+              onClick={(evento) => void pagar(evento, true)}>
+              {formaEscolhida === 'FIADO' ? 'Registrar fiado e concluir' : 'Receber e concluir'}</button>}
+            {concluirSemPagar && <button className="botao botao--largo" type="button" disabled={ocupado}
+              onClick={() => void concluirPendente()}>Concluir venda</button>}
+          </div> : <Mensagem tipo="erro" texto={erroEm('comanda')} />}
         </section>
 
         <section className="pdv__painel pdv__historico">

@@ -83,3 +83,32 @@ it('o recebimento em cartão leva o NSU, exigido quando a identidade traz a exig
   expect(await screen.findByLabelText('Comprovante de recebimento não fiscal'))
     .not.toHaveTextContent('778899')
 })
+
+it('a busca filtra as Vendas com saldo pelo nome do cliente e recusa o valor acima do saldo', async () => {
+  vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue({
+    id: 'sessao-1', usuarioId: 'operador-1', valorAbertura: 0,
+    valorFechamentoEsperado: 0, valorFechamentoContado: null, diferenca: null,
+    abertaEm: '2026-09-23T12:00:00Z', fechadaEm: null, status: 'ABERTA',
+  })
+  vi.spyOn(fiado, 'dividas').mockResolvedValue([
+    { vendaId: 'venda-1', clienteId: 'cliente-1', nomeCliente: 'Lia',
+      concluidoEm: '2026-09-23T12:00:00Z', saldoDevedor: 20 },
+    { vendaId: 'venda-2', clienteId: 'cliente-2', nomeCliente: 'Dona Marta',
+      concluidoEm: '2026-09-23T13:00:00Z', saldoDevedor: 8 },
+  ])
+  const receber = vi.spyOn(vendas, 'receber')
+  render(<MemoryRouter><SessaoContext.Provider value={{
+    identidade: { usuarioId: 'operador-1', nome: 'Ana', perfil: 'OPERADOR',
+      contaId: 'conta-1', nomeNegocio: 'Loja', estoqueHabilitado: false },
+    entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(),
+  }}><TelaDeFiado /></SessaoContext.Provider></MemoryRouter>)
+
+  fireEvent.change(await screen.findByLabelText('Buscar pelo nome do cliente'), { target: { value: 'marta' } })
+  expect(screen.queryByText('Lia')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Receber' }))
+  fireEvent.change(screen.getByLabelText('Valor recebido'), { target: { value: '8,01' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Registrar recebimento' }))
+  const formulario = screen.getByRole('heading', { name: 'Receber de Dona Marta' }).closest('form')!
+  expect(await within(formulario).findByRole('alert')).toHaveTextContent('O valor recebido passa do saldo desta Venda.')
+  expect(receber).not.toHaveBeenCalled()
+})

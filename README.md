@@ -312,17 +312,21 @@ direto ao servidor recebe a mesma página, e o roteador do cliente escolhe a tel
 que não existe nunca recebe a página, e sim 401 sem token e 404 com token. Todo dado sai por
 `/api`, com token. O aplicativo tem hoje o login, a sessão guardada no dispositivo, o shell com o
 nome do negócio e de quem opera, a navegação por perfil e as telas de produtos, clientes, caixa,
-Venda, fiado e relatórios. Nelas se listam e alteram os cadastros, com pares livres de chave e valor para os atributos do
-produto. No caixa, quem opera abre a sessão, lança sangria e suprimento, vê o extrato e o histórico
+Venda, fiado e relatórios. Nelas se listam, se filtram pelo nome e se alteram os cadastros, com pares livres de chave e valor para os atributos do
+produto. Os valores em dinheiro vão em campos de texto com o teclado decimal do aparelho, que aceitam
+vírgula e até duas casas. No caixa, quem opera abre a sessão, lança sangria e suprimento, vê o extrato e o histórico
 do dia e fecha com o saldo esperado à vista e a diferença apurada. No PDV, a busca aceita nome,
-código e multiplicador de quantidade; a comanda mostra o total, o que já foi pago e o que falta,
-admite pagamento dividido e exibe o troco. Uma venda simples em dinheiro fecha em até seis toques.
+código e multiplicador de quantidade; a comanda admite pagamento dividido, e o total, o que falta
+lançar e o botão de concluir ficam num rodapé preso ao fim da tela. O troco aparece em destaque, com
+uma prévia enquanto se digita o valor recebido e botões das notas mais comuns que o preenchem. Uma
+venda simples em dinheiro fecha em até seis toques.
 No cartão, o PDV e a tela Fiado pedem o NSU do comprovante da maquininha, opcional ou obrigatório
 conforme a Conta; o aparelho sabe da exigência pela identidade e recusa sem rede a parcela que viria
 sem ele, e a lista de parcelas da comanda mostra o número gravado.
 O comprovante usa a impressão do navegador e o compartilhamento do dispositivo quando disponível.
-Na Venda, o Cliente ativo selecionado aparece na faixa de contexto do shell com seu saldo devedor;
-a tela Fiado lista as dívidas e registra recebimentos parciais na SessaoCaixa aberta de quem recebe.
+Na Venda, o Cliente ativo, achado pelo nome, aparece na faixa de contexto do shell com seu saldo
+devedor; a tela Fiado lista as dívidas, com a mesma busca pelo nome, e registra recebimentos parciais
+na SessaoCaixa aberta de quem recebe.
 O comprovante da Venda indica o valor pendente e cada recebimento pode ser impresso ou compartilhado.
 O mantenedor confirmou a instalação e abertura do PWA pelo ícone em desktop e tablet real (RNF08).
 O núcleo do PWA e o fiado simples estão concluídos.

@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto'
 import { deleteDB } from 'idb'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { caixa, type SessaoCaixa } from '../api/caixa'
 import { SemConexao } from '../api/cliente'
@@ -47,6 +47,26 @@ describe('caixa na tela', () => {
 
     await waitFor(() => expect(abrir).toHaveBeenCalledWith(20))
     expect(await screen.findByRole('button', { name: 'Ver meu caixa' })).toBeInTheDocument()
+  })
+
+  it('abre com o valor digitado com vírgula e recusa o ponto de milhar no cartão da abertura', async () => {
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(undefined)
+    vi.spyOn(caixa, 'historico').mockResolvedValue([])
+    const abrir = vi.spyOn(caixa, 'abrir').mockResolvedValue({ id: 's-1' })
+    mostrar()
+
+    const campo = await screen.findByLabelText('Valor inicial')
+    expect(campo).toHaveValue('0,00')
+    fireEvent.change(campo, { target: { value: '1.500,00' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir caixa' }))
+    const cartao = screen.getByRole('heading', { name: 'Meu caixa' }).closest('section')!
+    expect(await within(cartao).findByRole('alert'))
+      .toHaveTextContent('Informe o valor inicial com até duas casas decimais.')
+    expect(abrir).not.toHaveBeenCalled()
+
+    fireEvent.change(campo, { target: { value: '150,50' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir caixa' }))
+    await waitFor(() => expect(abrir).toHaveBeenCalledWith(150.5))
   })
 
   it('lança sangria com motivo e valor informado', async () => {

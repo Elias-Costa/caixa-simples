@@ -5,11 +5,13 @@ import { SemConexao } from '../api/cliente'
 import { intencaoOnline } from '../api/intencaoOnline'
 import { fiado, type Divida } from '../api/fiado'
 import type { ComprovanteDeRecebimento, FormaPagamento } from '../api/vendas'
-import { dataHora, moeda } from '../formatos'
+import { dataHora, lerDinheiro, moeda } from '../formatos'
 import { normalizarNsu } from '../offline/raizDaVenda'
 import { criarVendaLocal } from '../offline/vendaLocal'
 import { useSessao } from '../sessao/useSessao'
+import { CampoDeDinheiro } from './CampoDeDinheiro'
 import { erroDeCadastro } from './erroDeCadastro'
+import { filtrarPorNome } from './filtroPorNome'
 import { Mensagem } from './Mensagem'
 import { ROTULO_DA_FORMA } from './rotulos'
 
@@ -32,6 +34,7 @@ export function TelaDeFiado() {
   const { identidade } = useSessao()
   const [sessao, setSessao] = useState<SessaoCaixa>()
   const [dividas, setDividas] = useState<Divida[]>([])
+  const [busca, setBusca] = useState('')
   const [selecionada, setSelecionada] = useState<Divida>()
   const [valor, setValor] = useState('')
   const [forma, setForma] = useState<FormaPagamento>('DINHEIRO')
@@ -70,9 +73,22 @@ export function TelaDeFiado() {
   async function receber(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault()
     if (!selecionada || !sessao) return
+    // O zero e o valor acima do saldo o servidor também recusa; a tela diz antes, perto do botão.
+    const quantia = lerDinheiro(valor)
+    if (quantia === null) {
+      setErro({ lugar: 'recebimento', texto: 'Informe o valor recebido com até duas casas decimais.' })
+      return
+    }
+    if (quantia <= 0) {
+      setErro({ lugar: 'recebimento', texto: 'Informe um valor recebido maior que zero.' })
+      return
+    }
+    if (quantia > selecionada.saldoDevedor) {
+      setErro({ lugar: 'recebimento', texto: 'O valor recebido passa do saldo desta Venda.' })
+      return
+    }
     setOcupado(true); setErro(undefined)
     try {
-      const quantia = Number(valor.replace(',', '.'))
       // O NSU só vai no cartão, e já sem os espaços das pontas, como o servidor compara o reenvio.
       const nsuDoRecebimento = forma === 'CARTAO' ? nsu : undefined
       const intencao = await intencaoOnline(`/api/vendas/${selecionada.vendaId}/recebimentos`,
@@ -102,6 +118,7 @@ export function TelaDeFiado() {
   }
 
   const erroEm = (lugar: LugarDoErro) => erro?.lugar === lugar ? erro.texto : undefined
+  const encontradas = filtrarPorNome(dividas, busca, (divida) => divida.nomeCliente)
 
   return <section className="cadastro">
     <div className="cadastro__topo"><div><h2 className="titulo">Fiado</h2>
@@ -110,22 +127,25 @@ export function TelaDeFiado() {
     <Mensagem tipo="erro" texto={erroEm('tela')} />
     {carregando ? <p>Carregando...</p> : <>
       {!sessao && <p>Abra o seu caixa para registrar recebimentos. <Link to="/caixa">Ir ao caixa</Link></p>}
-      {dividas.length === 0 ? <p>Nenhuma Venda com saldo devedor.</p> :
-        <ul className="cadastro__lista">{dividas.map((divida) => <li className="cadastro__item" key={divida.vendaId}>
+      {dividas.length === 0 ? <p>Nenhuma Venda com saldo devedor.</p> : <>
+        <label className="cadastro__busca">Buscar pelo nome do cliente
+          <input type="search" value={busca} onChange={(evento) => setBusca(evento.target.value)} />
+        </label>
+        {encontradas.length === 0 && <p role="status">Nenhuma Venda encontrada para {busca.trim()}.</p>}
+        <ul className="cadastro__lista">{encontradas.map((divida) => <li className="cadastro__item" key={divida.vendaId}>
           <div><strong>{divida.nomeCliente}</strong>
             <p>Venda {divida.vendaId.slice(0, 8)} · {dataHora.format(new Date(divida.concluidoEm))}</p>
             <p>Saldo: {moeda.format(divida.saldoDevedor)}</p></div>
           {sessao && <button type="button" className="botao botao--secundario"
             onClick={() => { setSelecionada(divida); setComprovante(undefined); setValor(''); setNsu(''); setErro(undefined) }}>
             Receber</button>}
-        </li>)}</ul>}
+        </li>)}</ul>
+      </>}
     </>}
     {selecionada && sessao && <form ref={formularioRef} className="cadastro__formulario" onSubmit={(evento) => void receber(evento)}>
       <h3>Receber de {selecionada.nomeCliente}</h3>
       <p>Saldo desta Venda: {moeda.format(selecionada.saldoDevedor)}</p>
-      <label>Valor recebido
-        <input type="number" min="0.01" max={selecionada.saldoDevedor} step="0.01" required
-          value={valor} onChange={(evento) => setValor(evento.target.value)} /></label>
+      <CampoDeDinheiro rotulo="Valor recebido" required valor={valor} aoMudar={setValor} />
       <label>Forma
         <select value={forma} onChange={(evento) => setForma(evento.target.value as FormaPagamento)}>
           <option value="DINHEIRO">Dinheiro</option><option value="PIX">Pix manual</option>

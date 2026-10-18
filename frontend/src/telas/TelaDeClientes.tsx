@@ -4,6 +4,7 @@ import { listarGestos } from '../offline/fila'
 import { lerIdentidade } from '../sessao/armazenamento'
 import { useOnline } from '../shell/useOnline'
 import { erroDeCadastro, errosDosCampos } from './erroDeCadastro'
+import { filtrarPorNome } from './filtroPorNome'
 import { ErroDoCampo, Mensagem } from './Mensagem'
 
 export function TelaDeClientes() {
@@ -11,6 +12,7 @@ export function TelaDeClientes() {
   const online = useOnline()
   const [ativos, setAtivos] = useState<Cliente[]>([])
   const [inativos, setInativos] = useState<Cliente[]>([])
+  const [busca, setBusca] = useState('')
   const [editando, setEditando] = useState<string | null>(null)
   const [formulario, setFormulario] = useState<DadosDoCliente>({ nome: '', contato: null })
   const [aberto, setAberto] = useState(false)
@@ -140,6 +142,11 @@ export function TelaDeClientes() {
     }
   }
 
+  // A busca vale para as duas listas: quem procura um nome não sabe se o cliente foi inativado.
+  const ativosEncontrados = filtrarPorNome(ativos, busca, (cliente) => cliente.nome)
+  const inativosEncontrados = filtrarPorNome(inativos, busca, (cliente) => cliente.nome)
+  const termo = busca.trim()
+
   return <section className="cadastro">
     <div className="cadastro__topo">
       <div><h2 className="titulo">Clientes</h2><p>Cadastre no balcão com nome e contato opcional.</p></div>
@@ -149,9 +156,14 @@ export function TelaDeClientes() {
     <Mensagem tipo="sucesso" texto={aviso} />
     {pendentes > 0 && <p className="mensagem-info" role="status">{pendentes === 1 ? 'Uma alteração de cliente guardada' : `${pendentes} alterações de cliente guardadas`} neste dispositivo, aguardando sincronização.</p>}
     {carregando ? <p>Carregando...</p> : <>
+      {(ativos.length > 0 || inativos.length > 0) && <label className="cadastro__busca">Buscar por nome
+        <input type="search" value={busca} onChange={(evento) => setBusca(evento.target.value)} />
+      </label>}
       <h3>Ativos</h3>
-      {ativos.length === 0 ? <p>Nenhum cliente ativo.</p> : <ul className="cadastro__lista">
-        {ativos.map((cliente) => <li className="cadastro__item" key={cliente.id}>
+      {ativos.length === 0 ? <p>Nenhum cliente ativo.</p>
+        : ativosEncontrados.length === 0 ? <p role="status">Nenhum cliente ativo encontrado para {termo}.</p>
+        : <ul className="cadastro__lista">
+        {ativosEncontrados.map((cliente) => <li className="cadastro__item" key={cliente.id}>
           <div><strong>{cliente.nome}</strong><p>{cliente.contato ?? 'Sem contato'}</p></div>
           <div className="cadastro__acoes">
             <button className="botao botao--secundario" type="button" onClick={() => editar(cliente)}>Editar</button>
@@ -161,8 +173,8 @@ export function TelaDeClientes() {
           </div>
         </li>)}
       </ul>}
-      {inativos.length > 0 && <><h3>Inativos</h3><ul className="cadastro__lista">
-        {inativos.map((cliente) => <li className="cadastro__item" key={cliente.id}>
+      {inativosEncontrados.length > 0 && <><h3>Inativos</h3><ul className="cadastro__lista">
+        {inativosEncontrados.map((cliente) => <li className="cadastro__item" key={cliente.id}>
           <div><strong>{cliente.nome}</strong><p>{cliente.contato ?? 'Sem contato'}</p></div>
           <button className="botao botao--secundario" type="button" onClick={() => void reativar(cliente)}>Reativar</button>
           {podeRemover && <button className="botao botao--perigo" type="button"

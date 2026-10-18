@@ -226,6 +226,32 @@ textarea:disabled {
   min-width: 0;
 }
 
+/* Campo de dinheiro: o R$ fica dentro da caixa, à esquerda, e o toque nele cai no próprio campo. */
+/* Sem o min-width zero, a largura natural do campo vale de mínimo e ele invade o botão ao lado. */
+.dinheiro {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  max-width: 320px;
+}
+
+.dinheiro::before {
+  content: 'R$';
+  position: absolute;
+  top: 50%;
+  left: 12px;
+  transform: translateY(-50%);
+  color: var(--cor-texto-secundario);
+  pointer-events: none;
+}
+
+.dinheiro input {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  padding-left: 44px;
+}
+
 /* Mensagens: barra na cor da função e texto claro, que lê melhor que o texto todo colorido. */
 
 .mensagem-erro,
@@ -468,6 +494,8 @@ main.cadastro {
 }
 
 .cadastro__topo { margin-bottom: var(--espaco); }
+/* A busca das listas filtra o que já está na tela, sem ir ao servidor. */
+.cadastro__busca { display: grid; gap: 6px; max-width: 420px; margin-bottom: var(--espaco); }
 .cadastro__topo p,
 .cadastro__item p { margin: 4px 0 0; }
 .cadastro__lista { list-style: none; padding: 0; margin: 0 0 24px; }
@@ -559,14 +587,60 @@ main.cadastro {
 .pdv__itens li, .pdv__topo, .pdv__acoes { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
 .pdv__itens li { border-bottom: 1px solid var(--cor-borda); padding: 8px 0; }
 .pdv__venda { margin-bottom: 12px; }
-.pdv__total { font-size: 1.4rem; font-weight: 700; margin-bottom: 4px; }
+.pdv__painel .dinheiro { max-width: none; }
 .pdv__pagamento { border-top: 1px solid var(--cor-borda); margin-top: var(--espaco); padding-top: var(--espaco); }
+/* Quatro notas numa linha cabem na coluna da comanda do tablet com a folga lateral menor. */
+.pdv__notas { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+.pdv__notas .botao { padding: 8px; }
+/* O rodapé da comanda fica preso ao fim da tela enquanto a comanda está nela, no tablet e no
+   celular. As margens negativas o levam até a borda do painel, e a sombra o separa do que rola por
+   baixo dele. */
+.pdv__rodape {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: grid;
+  gap: 8px;
+  margin: var(--espaco) calc(var(--espaco) * -1) calc(var(--espaco) * -1);
+  padding: 12px var(--espaco) var(--espaco);
+  background: var(--cor-superficie-realce);
+  border-top: 1px solid var(--cor-borda-controle);
+  border-radius: 0 0 var(--raio) var(--raio);
+  box-shadow: 0 -8px 16px rgba(0, 0, 0, 0.35);
+}
+.pdv__rodape > * { margin: 0; }
+/* Com o rodapé preso, o campo que recebe o foco pelo teclado, ou a mensagem que rola até a vista,
+   pararia atrás dele. A folga de rolagem do tamanho do rodapé com a prévia do troco faz a rolagem
+   parar acima. Só vale na tela que tem o rodapé. */
+html:has(.pdv__rodape) { scroll-padding-bottom: 240px; }
+.pdv__linha { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; }
+.pdv__total { font-size: 1.4rem; font-weight: 700; }
+/* O troco no tamanho do total dos relatórios: é o número que se lê de longe, com a nota na mão. A
+   cor é a da informação, não a do sucesso, porque sem rede ele foi contado só no aparelho. */
+.pdv__troco {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 12px;
+  padding: 8px 12px;
+  border-left: 4px solid var(--cor-info);
+  border-radius: 0 var(--raio) var(--raio) 0;
+  background: var(--cor-info-fundo);
+}
+.pdv__troco strong { font-size: 2rem; line-height: 1.2; }
+/* A prévia tem borda tracejada e fundo nenhum: ainda não é o troco registrado. */
+.pdv__troco--previa { border: 1px dashed var(--cor-borda-controle); border-radius: var(--raio); background: transparent; }
+.pdv__nota { flex-basis: 100%; color: var(--cor-texto-secundario); font-size: 0.85rem; }
 /* O QR fica escuro sobre branco: invertido, não é lido por todo aplicativo de banco. */
 .pdv__qr { display: inline-flex; max-width: 100%; padding: 12px; margin-top: 8px; background: #fff; border-radius: var(--raio); }
 .pdv__qr svg { max-width: 100%; height: auto; }
 .pdv__codigo-pix { overflow-wrap: anywhere; }
 .pdv__historico { grid-column: 1 / -1; }
-.pdv__desconto { display: flex; align-items: end; gap: 8px; flex-wrap: wrap; }
+.pdv__desconto { display: flex; align-items: end; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.pdv__desconto-campo { flex: 1 1 180px; min-width: 0; }
+/* A folga do rótulo vai para o formulário, e Aplicar fica na linha do campo, não abaixo dela. */
+.pdv__desconto-campo label { margin-bottom: 0; }
 
 /* O comprovante é a prévia do papel que sai da impressora: branco com texto escuro, também no
    tema escuro. */
