@@ -35,7 +35,7 @@ function rede(online: boolean) {
 function apiDeVendas() {
   return {
     ...vendas, iniciar: vi.fn(), daSessao: vi.fn(), conciliacoesPix: vi.fn(), consultar: vi.fn(),
-    vincularCliente: vi.fn(), adicionarItem: vi.fn(), removerItem: vi.fn(), descontar: vi.fn(),
+    vincularCliente: vi.fn(), desvincularCliente: vi.fn(), adicionarItem: vi.fn(), removerItem: vi.fn(), descontar: vi.fn(),
     pagar: vi.fn(), cobrarPix: vi.fn(), concluir: vi.fn(), cancelar: vi.fn(), comprovante: vi.fn(),
   }
 }
@@ -137,6 +137,49 @@ describe('Venda no dispositivo', () => {
     expect(doTipo(gestos, 'venda.adicionarItem').payload).toMatchObject({ precoUnitario: 8, versaoProduto: 0 })
     expect(doTipo(gestos, 'venda.vincularCliente').dependeDe)
       .toEqual([doTipo(gestos, 'venda.adicionarItem').operacaoId, doTipo(gestos, 'cliente.criar').operacaoId])
+  })
+
+  it('tira o Cliente sem rede pela fila e, com a parcela FIADO, recusa sem gravar gesto', async () => {
+    entrar(administradora)
+    rede(false)
+    await prepararCadastro()
+    const api = apiDeVendas()
+    const caixaLocal = criarCaixaLocal()
+    const { id: sessaoId } = await caixaLocal.abrir(20)
+    const { id: clienteId } = await cadastro.criarCliente({ nome: 'Dona Marta', contato: null })
+    const local = criarVendaLocal(api, caixaLocal)
+
+    const { id: semFiado } = await local.iniciar(sessaoId)
+    await local.adicionarItem(semFiado, cafe, 1, 0)
+    await local.vincularCliente(semFiado, clienteId)
+    await local.desvincularCliente(semFiado)
+    expect((await local.consultar(semFiado)).clienteId).toBeNull()
+    const gestos = await listarGestos()
+    const retirada = doTipo(gestos, 'venda.desvincularCliente')
+    expect(retirada).toMatchObject({ registroId: semFiado, payload: {}, versaoBase: 2,
+      dependeDe: [doTipo(gestos, 'venda.vincularCliente').operacaoId] })
+
+    const { id: comFiado } = await local.iniciar(sessaoId)
+    await local.adicionarItem(comFiado, cafe, 1, 0)
+    await local.vincularCliente(comFiado, clienteId)
+    await local.pagar(comFiado, 'FIADO', 6.25)
+    const antes = (await listarGestos()).length
+    await expect(local.desvincularCliente(comFiado)).rejects.toThrow('troque o Cliente')
+    expect(await listarGestos()).toHaveLength(antes)
+    expect((await local.consultar(comFiado)).clienteId).toBe(clienteId)
+    expect(api.desvincularCliente).not.toHaveBeenCalled()
+  })
+
+  it('tira o Cliente da Venda do servidor pela API, com rede', async () => {
+    entrar(operadora)
+    rede(true)
+    const api = apiDeVendas()
+    api.desvincularCliente.mockResolvedValue(undefined)
+    const local = criarVendaLocal(api, criarCaixaLocal())
+
+    await local.desvincularCliente('venda-do-servidor')
+    expect(api.desvincularCliente).toHaveBeenCalledWith('venda-do-servidor')
+    expect(await listarGestos()).toEqual([])
   })
 
   it('recusa sem gravar gesto o que a raiz, o perfil ou o caixa não aceitam', async () => {

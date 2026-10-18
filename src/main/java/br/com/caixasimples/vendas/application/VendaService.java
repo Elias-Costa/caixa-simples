@@ -716,6 +716,17 @@ public class VendaService {
         vendas.save(linha);
     }
 
+    /** Tirar não consulta o cadastro: a venda volta a não ter Cliente, que é o caso comum. */
+    @Transactional
+    public void desvincularCliente(UUID vendaId) {
+        VendaEntity linha = travar(vendaId);
+        Venda venda = linha.paraDominio();
+        UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
+        venda.desvincularCliente();
+        linha.atualizarCom(venda);
+        vendas.save(linha);
+    }
+
     /**
      * Recebe parte ou toda a dívida na sessão ABERTA da pessoa autenticada. O dinheiro entra na
      * gaveta nesta mesma transação, pelo ouvinte de {@link FiadoRecebido}: se o lançamento falhar,

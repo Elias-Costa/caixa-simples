@@ -104,6 +104,12 @@ class VendaController {
         return ResponseEntity.noContent().build();
     }
 
+    @DeleteMapping("/{id}/cliente")
+    ResponseEntity<Void> desvincularCliente(@PathVariable UUID id) {
+        vendas.desvincularCliente(id);
+        return ResponseEntity.noContent().build();
+    }
+
     @PostMapping("/{id}/pagamentos")
     Troco registrarPagamento(@PathVariable UUID id, @Valid @RequestBody PedidoDePagamento pedido) {
         Money recebido = pedido.valorRecebido() == null ? null : Money.de(pedido.valorRecebido());

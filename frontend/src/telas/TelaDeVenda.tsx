@@ -44,6 +44,21 @@ function descontoDigitado(texto: string): number | null {
  * Sem resposta, a operação pode ter chegado ao servidor mesmo assim; a comanda relida mostra se ela
  * valeu, e repetir sem olhar poderia lançar duas vezes.
  */
+/**
+ * A pergunta antes de cancelar diz o valor e o que muda fora da comanda. O dinheiro só entra no
+ * caixa quando a venda conclui, então o estorno só existe para a concluída.
+ */
+function perguntaDoCancelamento(venda: Venda): string {
+  const partes = [`Cancelar a venda de ${moeda.format(venda.total)}? O cancelamento não pode ser desfeito.`]
+  const emDinheiro = venda.parcelas.some((parcela) => parcela.forma === 'DINHEIRO')
+    || venda.recebimentos.some((recebimento) => recebimento.forma === 'DINHEIRO')
+  if (venda.status === 'CONCLUIDA' && emDinheiro) partes.push('O dinheiro recebido nela sai do caixa como estorno.')
+  if (venda.parcelas.some((parcela) => parcela.pix && parcela.status === 'CONFIRMADO')) {
+    partes.push('O Pix recebido precisa ser devolvido fora do sistema.')
+  }
+  return partes.join(' ')
+}
+
 function erroDaComanda(falha: unknown): string {
   if (falha instanceof SemConexao) return 'Sem resposta do servidor. Confira a comanda antes de repetir.'
   return erroDeCadastro(falha)
@@ -121,6 +136,7 @@ export function TelaDeVenda() {
   const online = useOnline()
   const pixPendente = atual?.parcelas.some((parcela) => parcela.pix && parcela.status === 'PENDENTE') ?? false
   const doDispositivo = atual?.pendenteSincronizacao === true
+  const comFiado = atual?.parcelas.some((parcela) => parcela.forma === 'FIADO') ?? false
   // Pix não entra na Venda registrada sem rede: a cobrança depende do provedor, com o cliente
   // presente. A forma escolhida antes de a rede cair volta para dinheiro, sem esperar outro toque.
   const pixPermitido = online && !doDispositivo
@@ -291,7 +307,9 @@ export function TelaDeVenda() {
       id = atual?.status === 'ABERTA' ? atual.id : (await vendas.iniciar(sessao.id)).id
       await vendas.adicionarItem(id, produto, numero(quantidade), desconto)
       await atualizar(id)
-      setBusca(''); setResultados([]); setQuantidade('1'); setDescontoItem('0')
+      // O termo buscado sai junto com os resultados: guardado, o mesmo código passado de novo pareceria
+      // já buscado e sem resultado, e o Enter do leitor não lançaria nada.
+      setBusca(''); setResultados([]); setBuscado(''); setQuantidade('1'); setDescontoItem('0')
       buscaRef.current?.focus()
     } catch (falha) {
       falhar('busca', erroDaComanda(falha))
@@ -327,6 +345,17 @@ export function TelaDeVenda() {
     setOcupado(true); setErro(undefined)
     try {
       await vendas.vincularCliente(atual.id, clienteId); await atualizar(atual.id)
+      setBuscaCliente('')
+    }
+    catch (falha) { falhar('comanda', erroDaComanda(falha)) }
+    finally { setOcupado(false) }
+  }
+
+  async function tirarCliente() {
+    if (!atual) return
+    setOcupado(true); setErro(undefined)
+    try {
+      await vendas.desvincularCliente(atual.id); await atualizar(atual.id)
       setBuscaCliente('')
     }
     catch (falha) { falhar('comanda', erroDaComanda(falha)) }
@@ -424,6 +453,7 @@ export function TelaDeVenda() {
 
   async function cancelar() {
     if (!atual) return
+    if (!window.confirm(perguntaDoCancelamento(atual))) return
     setOcupado(true); setErro(undefined)
     try {
       await vendas.cancelar(atual.id); await atualizar(atual.id); setComprovante(undefined)
@@ -462,11 +492,38 @@ export function TelaDeVenda() {
     }
   }
 
+  /**
+   * O Enter que o leitor de código de barras manda depois do código. Lança o produto cujo código é
+   * igual ao termo, ou o único resultado; com vários achados pelo nome, quem escolhe é a pessoa. O
+   * leitor digita mais rápido que a espera da busca, e o Enter pode chegar antes da resposta: aí a
+   * busca sai na hora.
+   */
+  async function lancarPeloEnter() {
+    const procurado = busca.trim()
+    if (!procurado || ocupado || !sessao) return
+    let encontrados = resultados
+    if (buscado !== procurado) {
+      try {
+        encontrados = await cadastro.buscarProdutos(procurado)
+      } catch (falha) {
+        falhar('busca', falha instanceof SemConexao
+          ? 'Sem resposta do servidor na busca. Tente de novo.' : erroDeCadastro(falha))
+        return
+      }
+      setResultados(encontrados); setBuscado(procurado)
+    }
+    // O campo pode ter mudado durante a busca; lançar pelo termo antigo seria lançar outro produto.
+    if (buscaRef.current && buscaRef.current.value.trim() !== procurado) return
+    const doCodigo = encontrados.find((produto) => produto.codigo === procurado)
+    const escolhido = doCodigo ?? (encontrados.length === 1 ? encontrados[0] : undefined)
+    if (escolhido) await adicionar(escolhido)
+  }
+
   function mudarBusca(texto: string) {
     const separado = separarMultiplicador(texto)
     if (separado.quantidade) setQuantidade(separado.quantidade)
     setBusca(separado.termo)
-    if (!separado.termo.trim()) setResultados([])
+    if (!separado.termo.trim()) { setResultados([]); setBuscado('') }
   }
 
   function novaVenda() {
@@ -500,6 +557,11 @@ export function TelaDeVenda() {
           <div className="pdv__busca">
             <label>Produto por nome ou código
               <input ref={buscaRef} autoFocus value={busca} onChange={(evento) => mudarBusca(evento.target.value)}
+                onKeyDown={(evento) => {
+                  if (evento.key !== 'Enter') return
+                  evento.preventDefault()
+                  void lancarPeloEnter()
+                }}
                 placeholder="Digite ou passe o código" />
             </label>
             <label>Quantidade
@@ -544,7 +606,15 @@ export function TelaDeVenda() {
               <p className="mensagem-info" role="status">Pix integrado recebido. A devolução precisa ser feita fora do sistema e ainda exige conciliação; este aplicativo não verifica se ela aconteceu.</p>}
             {/* O cliente se acha pelo nome, como o produto: uma lista com todos não cabe no balcão,
                 e a tela virada para o cliente mostraria o nome de cada um. */}
-            {atual.clienteId && <p>Cliente: {nomeDoCliente(atual.clienteId)}</p>}
+            {atual.clienteId && <div className="pdv__topo">
+              <p>Cliente: {nomeDoCliente(atual.clienteId)}</p>
+              {atual.status === 'ABERTA' && !comFiado && <button className="botao botao--secundario"
+                type="button" disabled={ocupado} onClick={() => void tirarCliente()}>Tirar o cliente</button>}
+            </div>}
+            {/* A conclusão com fiado exige cliente, e a parcela lançada não se desfaz: sem ele, a
+                venda ficaria sem como concluir. */}
+            {atual.clienteId && atual.status === 'ABERTA' && comFiado &&
+              <p className="pdv__ajuda">Com parcela fiado, o cliente só pode ser trocado.</p>}
             {atual.status === 'ABERTA' && <>
               <label>{atual.clienteId ? 'Trocar o cliente' : 'Cliente (para fiado)'}
                 <input type="search" value={buscaCliente} placeholder="Digite o nome" autoComplete="off"

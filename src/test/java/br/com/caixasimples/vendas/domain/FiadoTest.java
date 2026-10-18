@@ -38,6 +38,46 @@ class FiadoTest {
     }
 
     @Test
+    void comandaSemFiadoFicaSemCliente() {
+        Venda venda = comanda();
+        venda.vincularCliente(UUID.randomUUID());
+        venda.registrarPagamento(FormaPagamento.DINHEIRO, Money.de("20.00"),
+                StatusPagamento.CONFIRMADO, Money.ZERO);
+        venda.desvincularCliente();
+        assertThat(venda.getClienteId()).isNull();
+        venda.concluir();
+        assertThat(venda.getStatus()).isEqualTo(StatusVenda.CONCLUIDA);
+    }
+
+    @Test
+    void parcelaFiadoLancadaNaoDeixaTirarOClienteSoTrocar() {
+        Venda venda = comanda();
+        UUID primeiro = UUID.randomUUID();
+        venda.vincularCliente(primeiro);
+        venda.registrarPagamento(FormaPagamento.FIADO, Money.de("20.00"),
+                StatusPagamento.PENDENTE, Money.ZERO);
+        assertThatIllegalStateException().isThrownBy(venda::desvincularCliente)
+                .withMessageContaining("FIADO");
+        assertThat(venda.getClienteId()).isEqualTo(primeiro);
+        UUID outro = UUID.randomUUID();
+        venda.vincularCliente(outro);
+        assertThat(venda.getClienteId()).isEqualTo(outro);
+    }
+
+    @Test
+    void vendaConcluidaNaoPerdeOCliente() {
+        Venda venda = comanda();
+        UUID cliente = UUID.randomUUID();
+        venda.vincularCliente(cliente);
+        venda.registrarPagamento(FormaPagamento.CARTAO, Money.de("20.00"),
+                StatusPagamento.CONFIRMADO, Money.ZERO);
+        venda.concluir();
+        assertThatIllegalStateException().isThrownBy(venda::desvincularCliente)
+                .withMessageContaining("CONCLUIDA");
+        assertThat(venda.getClienteId()).isEqualTo(cliente);
+    }
+
+    @Test
     void doisRecebimentosParciaisQuitamSemPerderHistorico() {
         Venda venda = comanda();
         venda.vincularCliente(UUID.randomUUID());

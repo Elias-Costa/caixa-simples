@@ -1,5 +1,6 @@
 package br.com.caixasimples.vendas.web;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -247,6 +248,59 @@ class VendaHttpTest extends TesteDeIntegracao {
     }
 
     @Test
+    void clienteSaiDaComandaSemFiadoEFicaNaComandaComFiado() throws Exception {
+        ContaCriada operador = criador.criar("PDV Cliente", SENHA, Perfil.OPERADOR, true);
+        UsuarioCriado admin = criador.criarAdminEm(operador.contaId(), "Gerente");
+        ContaCriada outraConta = criador.criar("PDV Vizinho", SENHA);
+        UUID produto = admin.comoUsuario(() -> produtos.cadastrar(TipoProduto.PRODUTO,
+                new DadosDoProduto("Pão", Money.de("6.00"), null, null, "un", Map.of())));
+        UUID sessaoDoOperador = operador.comoUsuario(() -> caixas.abrir(Money.ZERO));
+        UUID sessaoDoAdmin = admin.comoUsuario(() -> caixas.abrir(Money.ZERO));
+        RequestPostProcessor tokenOperador = autenticador.como(operador);
+        RequestPostProcessor tokenDaOutraConta = autenticador.como(outraConta);
+        UUID cliente = uuidDaResposta(http.perform(post("/api/clientes").with(tokenOperador)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"nome\":\"Rita\",\"contato\":null}"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString());
+
+        UUID semFiado = criarVenda(tokenOperador, sessaoDoOperador);
+        vincular(tokenOperador, semFiado, cliente).andExpect(status().isNoContent());
+        // A venda existe, mas na outra Conta: para esta o id não existe (RNF05).
+        http.perform(delete("/api/vendas/{id}/cliente", semFiado).with(tokenDaOutraConta))
+                .andExpect(status().isNotFound());
+        http.perform(get("/api/vendas/{id}", semFiado).with(tokenOperador))
+                .andExpect(jsonPath("$.clienteId").value(cliente.toString()));
+        http.perform(delete("/api/vendas/{id}/cliente", semFiado).with(tokenOperador))
+                .andExpect(status().isNoContent());
+        http.perform(get("/api/vendas/{id}", semFiado).with(tokenOperador))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.clienteId").doesNotExist());
+
+        UUID comFiado = criarVenda(tokenOperador, sessaoDoOperador);
+        http.perform(post("/api/vendas/{id}/itens", comFiado).with(tokenOperador)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"produtoId\":\"" + produto + "\",\"quantidade\":1,\"desconto\":0}"))
+                .andExpect(status().isCreated());
+        vincular(tokenOperador, comFiado, cliente).andExpect(status().isNoContent());
+        admin.comoUsuario(() -> vendaService.registrarPagamento(comFiado,
+                SolicitacaoPagamento.de(FormaPagamento.FIADO, Money.de("6.00"))));
+        http.perform(delete("/api/vendas/{id}/cliente", comFiado).with(tokenOperador))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.detail").value(containsString("FIADO")));
+        http.perform(get("/api/vendas/{id}", comFiado).with(tokenOperador))
+                .andExpect(jsonPath("$.clienteId").value(cliente.toString()));
+
+        UUID vendaDoAdmin = admin.comoUsuario(() -> {
+            UUID id = vendaService.iniciar(sessaoDoAdmin);
+            vendaService.vincularCliente(id, cliente);
+            return id;
+        });
+        http.perform(delete("/api/vendas/{id}/cliente", vendaDoAdmin).with(tokenOperador))
+                .andExpect(status().isForbidden());
+        assertThat(admin.comoUsuario(() -> vendaService.consultar(vendaDoAdmin).clienteId()))
+                .isEqualTo(cliente);
+    }
+
+    @Test
     void nsuDoCartaoExigidoPelaContaVoltaNoDetalheENaoNoComprovante() throws Exception {
         ContaCriada conta = criador.criar("PDV NSU", SENHA);
         UUID produto = produto(conta);
@@ -411,6 +465,13 @@ class VendaHttpTest extends TesteDeIntegracao {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"sessaoCaixaId\":\"" + sessao + "\"}"))
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString());
+    }
+
+    private ResultActions vincular(RequestPostProcessor usuario, UUID venda, UUID cliente)
+            throws Exception {
+        return http.perform(put("/api/vendas/{id}/cliente", venda).with(usuario)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"clienteId\":\"" + cliente + "\"}"));
     }
 
     private ResultActions pagar(RequestPostProcessor usuario, UUID venda, UUID pagamentoId,

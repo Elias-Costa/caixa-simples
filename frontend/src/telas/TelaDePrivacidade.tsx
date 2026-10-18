@@ -160,12 +160,12 @@ export function TelaDePrivacidade() {
       resposta em até quinze dias do pedido.</p>
     <ul>
       <li><strong>Confirmação e acesso:</strong> cada usuário vê o próprio nome, e-mail e perfil na tela
-        Senha, e o administrador vê a Conta em Configuração e em Plano. O administrador que pedir ao
+        Minha conta, e o administrador vê a Conta em Configuração e em Plano. O administrador que pedir ao
         Caixa Simples recebe a declaração completa dos seus dados, de onde vieram, para que servem e
         por quanto tempo ficam, no e-mail de acesso, depois de confirmada a identidade de quem
         pede.</li>
       <li><strong>Correção:</strong> o administrador corrige o nome de cada usuário e o do negócio;
-        cada usuário troca o próprio e-mail na tela Senha; o Cliente é corrigido pela Conta, na edição
+        cada usuário troca o próprio e-mail na tela Minha conta; o Cliente é corrigido pela Conta, na edição
         do cadastro.</li>
       <li><strong>Anonimização, bloqueio e eliminação:</strong> o administrador remove os dados de um
         Cliente sem saldo devedor nem comanda aberta; ao inativar um usuário, apaga o acesso dele e, a

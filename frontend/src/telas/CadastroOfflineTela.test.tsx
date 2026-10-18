@@ -77,7 +77,9 @@ describe('telas de cadastro sem rede', () => {
     tela.unmount()
     render(<SessaoContext.Provider value={sessao}><TelaDeProdutos /></SessaoContext.Provider>)
     expect(await screen.findByText('R$ 7,50')).toBeInTheDocument()
-    expect(screen.getByRole('status')).toHaveTextContent('aguardando sincronização')
+    // A contagem do que está guardado no aparelho vem de uma leitura do IndexedDB depois da lista:
+    // lida na hora, a asserção dependia de qual das duas terminava primeiro.
+    expect(await screen.findByRole('status')).toHaveTextContent('aguardando sincronização')
   })
 
   it('cadastra Cliente novo sem rede e conserva o UUID na fila após reabrir', async () => {

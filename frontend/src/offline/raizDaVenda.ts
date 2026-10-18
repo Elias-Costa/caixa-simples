@@ -240,6 +240,18 @@ export function vincularCliente(venda: VendaNoDispositivo, clienteId: string): V
 }
 
 /**
+ * Com a parcela FIADO lançada o Cliente não sai: parcela lançada não se desfaz, e a conclusão com
+ * FIADO exige Cliente, então a Venda ficaria sem como concluir. Trocar por outro continua valendo.
+ */
+export function desvincularCliente(venda: VendaNoDispositivo): VendaNoDispositivo {
+  exigirAberta(venda)
+  if (venda.parcelas.some((parcela) => parcela.forma === 'FIADO')) {
+    throw new Error('Venda com parcela FIADO exige Cliente vinculado; troque o Cliente em vez de tirá-lo.')
+  }
+  return avancar(venda, { clienteId: null })
+}
+
+/**
  * Lança uma parcela. Não conclui a Venda, mesmo quando fecha a conta: quem conclui é concluir.
  * O troco sai do que o cliente entregou menos o valor da parcela, e só o dinheiro devolve troco.
  *
@@ -334,6 +346,7 @@ function aplicarGesto(venda: VendaNoDispositivo, gesto: GestoNaFila): VendaNoDis
     case 'venda.removerItem': return removerItem(venda, (gesto.payload as DadosDaRemocao).itemId)
     case 'venda.aplicarDesconto': return aplicarDesconto(venda, (gesto.payload as DadosDoDesconto).valor)
     case 'venda.vincularCliente': return vincularCliente(venda, (gesto.payload as DadosDoVinculo).clienteId)
+    case 'venda.desvincularCliente': return desvincularCliente(venda)
     case 'venda.registrarPagamento': return registrarPagamento(venda, gesto.payload as DadosDaParcela)
     case 'venda.concluir': return concluir(venda, (gesto.payload as DadosDaConclusao).concluidoEm)
     default: throw new Error(`Gesto de Venda desconhecido: ${gesto.tipo}`)

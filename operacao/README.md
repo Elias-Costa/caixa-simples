@@ -498,7 +498,7 @@ juntas, o administrador de cada Conta aceita de novo no acesso seguinte.
 
 ## Conta comprometida ou administrador sem acesso
 
-O administrador resolve sozinho, no aplicativo, a maior parte dos casos, na tela Senha:
+O administrador resolve sozinho, no aplicativo, a maior parte dos casos, na tela Minha conta:
 
 - **senha vazada:** troca a senha, informando a atual; todos os outros aparelhos dele saem na
   requisição seguinte;
@@ -1136,8 +1136,8 @@ os eventos de segurança dele) são do Caixa Simples, que atende o pedido direto
 agente de pequeno porte, em dobro.
 
 - **Correção.** O administrador corrige sozinho, no aplicativo: o nome dele e o de cada Usuário, na tela
-  Usuários; o nome do negócio, na tela Configuração; e o próprio e-mail de entrada, na tela Senha, com a
-  senha atual. Cada funcionário troca o próprio e-mail na tela Senha. Responda com o caminho; não
+  Usuários; o nome do negócio, na tela Configuração; e o próprio e-mail de entrada, na tela Minha conta, com
+  a senha atual. Cada funcionário troca o próprio e-mail na tela Minha conta. Responda com o caminho; não
   corrija por SQL, que pula as regras da aplicação. O administrador que não consegue entrar volta pela
   redefinição de [Conta comprometida](#conta-comprometida-ou-administrador-sem-acesso) e então corrige.
 - **Confirmação e acesso.** A resposta é sempre a declaração completa, em até 15 dias do pedido, que

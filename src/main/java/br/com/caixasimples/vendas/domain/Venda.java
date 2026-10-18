@@ -673,6 +673,22 @@ public class Venda {
         this.clienteId = Objects.requireNonNull(novoClienteId, "clienteId nao pode ser nulo");
     }
 
+    /**
+     * Tira o Cliente da comanda. Com a parcela FIADO lançada, não: parcela lançada não se desfaz,
+     * e a conclusão com FIADO exige Cliente, então a venda ficaria sem como concluir. Nesse caso
+     * o Cliente só pode ser trocado por outro.
+     *
+     * @throws IllegalStateException se a venda não está ABERTA ou já tem parcela FIADO
+     */
+    public void desvincularCliente() {
+        exigirAberta();
+        if (parcelaFiado() != null) {
+            throw new IllegalStateException("venda com parcela FIADO exige cliente vinculado;"
+                    + " troque o cliente em vez de tira-lo");
+        }
+        this.clienteId = null;
+    }
+
     /** Registra cada entrada sem alterar seu histórico; a parcela quita quando o saldo chega a zero. */
     public Recebimento receber(UUID sessaoCaixaId, Money valor, FormaPagamento forma) {
         return receber(UUID.randomUUID(), sessaoCaixaId, valor, forma);

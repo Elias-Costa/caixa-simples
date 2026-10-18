@@ -84,6 +84,39 @@ it('o recebimento em cartão leva o NSU, exigido quando a identidade traz a exig
     .not.toHaveTextContent('778899')
 })
 
+it('quem deve em duas vendas aparece numa linha só, com o total, e as vendas abrem ao tocar', async () => {
+  vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue({
+    id: 'sessao-1', usuarioId: 'operador-1', valorAbertura: 0,
+    valorFechamentoEsperado: 0, valorFechamentoContado: null, diferenca: null,
+    abertaEm: '2026-09-23T12:00:00Z', fechadaEm: null, status: 'ABERTA',
+  })
+  vi.spyOn(fiado, 'dividas').mockResolvedValue([
+    { vendaId: 'venda-1', clienteId: 'cliente-1', nomeCliente: 'Lia',
+      concluidoEm: '2026-09-23T12:00:00Z', saldoDevedor: 20.1 },
+    { vendaId: 'venda-2', clienteId: 'cliente-2', nomeCliente: 'Dona Marta',
+      concluidoEm: '2026-09-23T13:00:00Z', saldoDevedor: 8 },
+    { vendaId: 'venda-3', clienteId: 'cliente-1', nomeCliente: 'Lia',
+      concluidoEm: '2026-09-24T12:00:00Z', saldoDevedor: 0.2 },
+  ])
+  render(<MemoryRouter><SessaoContext.Provider value={{
+    identidade: { usuarioId: 'operador-1', nome: 'Ana', perfil: 'OPERADOR',
+      contaId: 'conta-1', nomeNegocio: 'Loja', estoqueHabilitado: false },
+    entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(),
+  }}><TelaDeFiado /></SessaoContext.Provider></MemoryRouter>)
+
+  expect(await screen.findAllByText('Lia')).toHaveLength(1)
+  // A soma em centavos dá 20,30 certo, onde 20.1 + 0.2 em ponto flutuante daria 20,299999.
+  expect(screen.getByText(/Saldo: R\$\s20,30 em 2 vendas/)).toBeInTheDocument()
+  // Dona Marta deve numa venda só, e o Receber fica na própria linha.
+  expect(screen.getAllByRole('button', { name: 'Receber' })).toHaveLength(1)
+
+  const ver = screen.getByRole('button', { name: 'Ver vendas' })
+  expect(ver).toHaveAttribute('aria-expanded', 'false')
+  fireEvent.click(ver)
+  expect(screen.getByRole('button', { name: 'Esconder vendas' })).toHaveAttribute('aria-expanded', 'true')
+  expect(screen.getAllByRole('button', { name: 'Receber' })).toHaveLength(3)
+})
+
 it('a busca filtra as Vendas com saldo pelo nome do cliente e recusa o valor acima do saldo', async () => {
   vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue({
     id: 'sessao-1', usuarioId: 'operador-1', valorAbertura: 0,

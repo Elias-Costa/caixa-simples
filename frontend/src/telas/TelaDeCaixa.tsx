@@ -21,6 +21,19 @@ type LugarDaMensagem = 'tela' | 'abertura' | 'sessao' | 'movimento' | 'fechament
 type MensagemNaTela = { tipo: 'erro' | 'sucesso'; texto: string; lugar: LugarDaMensagem }
 
 /** O valor do campo, ou o erro que diz qual campo corrigir, perto do botão que foi tocado. */
+/**
+ * A pergunta antes de fechar diz a diferença em palavras, falta ou sobra, no lugar do sinal: o
+ * fechamento não se refaz, e é a última chance de recontar a gaveta. Sem o saldo esperado lido, diz
+ * o valor contado.
+ */
+function perguntaDoFechamento(contado: number, diferenca: number | null): string {
+  const como = diferenca === null ? `com ${moeda.format(contado)} contados`
+    : diferenca > 0 ? `com falta de ${moeda.format(diferenca)}`
+      : diferenca < 0 ? `com sobra de ${moeda.format(-diferenca)}`
+        : 'sem diferença'
+  return `Fechar o caixa ${como}? O fechamento não pode ser refeito.`
+}
+
 function dinheiroDoCampo(texto: string, nome: string): number {
   const valor = lerDinheiro(texto)
   if (valor === null) throw new Error(`Informe ${nome} com até duas casas decimais.`)
@@ -150,10 +163,16 @@ export function TelaDeCaixa() {
   async function fechar(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault()
     if (!selecionada) return
-    setOcupado('fechar')
     setMensagem(undefined)
+    if (contado === null) {
+      setMensagem({ tipo: 'erro', texto: 'Informe o valor contado com até duas casas decimais.',
+        lugar: 'fechamento' })
+      return
+    }
+    if (!window.confirm(perguntaDoFechamento(contado, diferencaPrevista))) return
+    setOcupado('fechar')
     try {
-      await caixa.fechar(selecionada.id, dinheiroDoCampo(valorContado, 'o valor contado'))
+      await caixa.fechar(selecionada.id, contado)
       setValorContado('')
       await carregar()
       setSelecionada(await caixa.consultar(selecionada.id))

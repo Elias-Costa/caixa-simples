@@ -77,8 +77,8 @@ class GestosDaVenda implements AplicadorDeOperacoes {
     @Override
     public Set<String> tipos() {
         return Set.of("venda.iniciar", "venda.adicionarItem", "venda.removerItem",
-                "venda.aplicarDesconto", "venda.vincularCliente", "venda.registrarPagamento",
-                "venda.concluir");
+                "venda.aplicarDesconto", "venda.vincularCliente", "venda.desvincularCliente",
+                "venda.registrarPagamento", "venda.concluir");
     }
 
     @Override
@@ -102,6 +102,10 @@ class GestosDaVenda implements AplicadorDeOperacoes {
                     Vinculo vinculo = operacao.payloadComo(json, Vinculo.class);
                     vendas.vincularCliente(vendaId,
                             operacao.exigir(vinculo.clienteId(), "clienteId"));
+                    yield Aplicacao.aplicada(null);
+                }
+                case "venda.desvincularCliente" -> {
+                    vendas.desvincularCliente(vendaId);
                     yield Aplicacao.aplicada(null);
                 }
                 case "venda.registrarPagamento" -> registrarPagamento(operacao);

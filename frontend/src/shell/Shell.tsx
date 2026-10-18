@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router'
+import { Link, Outlet, useLocation, useNavigate } from 'react-router'
 import { useRegisterSW } from 'virtual:pwa-register/react'
 import type { Perfil } from '../sessao/Identidade'
 import { useSessao } from '../sessao/useSessao'
 import { avisoDoPlano } from './avisoDoPlano'
 import { itensDoMenu } from './menu'
+import { Navegacao } from './Navegacao'
 import { useOnline } from './useOnline'
 import { ContextoDoShellReact } from './ContextoDoShell'
 import { SincronizacaoContext, useEnvioAutomatico } from './sincronizacao'
@@ -85,19 +86,7 @@ export function Shell() {
       )}
       {faixaDeContexto && <div className="faixa" role="status">{faixaDeContexto}</div>}
 
-      <nav className="navegacao" aria-label="Principal">
-        {itensDoMenu(identidade).map((item) => (
-          <NavLink
-            key={item.caminho}
-            to={item.caminho}
-            className={({ isActive }) =>
-              isActive ? 'navegacao__item navegacao__item--ativo' : 'navegacao__item'
-            }
-          >
-            {item.rotulo}
-          </NavLink>
-        ))}
-      </nav>
+      <Navegacao itens={itensDoMenu(identidade)} />
 
       <main className="conteudo">
         <ContextoDoShellReact.Provider value={{ definirFaixa }}>

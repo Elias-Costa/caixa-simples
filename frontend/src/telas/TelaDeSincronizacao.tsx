@@ -28,6 +28,7 @@ const ROTULOS: Record<string, string> = {
   'venda.removerItem': 'Item retirado da Venda',
   'venda.aplicarDesconto': 'Desconto na Venda',
   'venda.vincularCliente': 'Cliente na Venda',
+  'venda.desvincularCliente': 'Cliente retirado da Venda',
   'venda.registrarPagamento': 'Pagamento da Venda',
   'venda.concluir': 'Venda concluída',
   'venda.cancelar': 'Venda cancelada',

@@ -94,6 +94,8 @@ export const vendas = {
   consultar: (id: string) => chamarApi<Venda>(`/api/vendas/${id}`),
   vincularCliente: (id: string, clienteId: string) =>
     chamarApi<void>(`/api/vendas/${id}/cliente`, { metodo: 'PUT', corpo: { clienteId } }),
+  desvincularCliente: (id: string) =>
+    chamarApi<void>(`/api/vendas/${id}/cliente`, { metodo: 'DELETE' }),
   adicionarItem: (id: string, produtoId: string, quantidade: number, desconto: number) =>
     chamarApi<{ id: string }>(`/api/vendas/${id}/itens`, {
       metodo: 'POST', corpo: { produtoId, quantidade, desconto },

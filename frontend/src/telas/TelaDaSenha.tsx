@@ -100,7 +100,7 @@ export function TelaDaSenha({ obrigatoria = false }: Props) {
   }
 
   return <section className="cadastro">
-    <h2 className="titulo">Senha</h2>
+    <h2 className="titulo">Minha conta</h2>
     <SeusDados />
     {formulario}
     <div className="cadastro__formulario">

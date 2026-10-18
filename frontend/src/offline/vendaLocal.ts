@@ -258,6 +258,13 @@ export function criarVendaLocal(remoto: VendasDaApi = vendas, caixa: CaixaDoDisp
         ultimoGesto(alvo.gestos, 'venda.', id), ultimoGesto(alvo.gestos, 'cliente.', clienteId)),
       alvo.venda.versao)
     },
+    async desvincularCliente(id) {
+      const alvo = await localizar(id, false)
+      if (alvo === 'servidor') return remoto.desvincularCliente(id)
+      raiz.desvincularCliente(alvo.venda)
+      await enfileirar('venda.desvincularCliente', id, {}, operacoes(ultimoGesto(alvo.gestos, 'venda.', id)),
+        alvo.venda.versao)
+    },
     async adicionarItem(id, produto, quantidade, desconto) {
       const alvo = await localizar(id, false)
       if (alvo === 'servidor') return remoto.adicionarItem(id, produto.id, quantidade, desconto)

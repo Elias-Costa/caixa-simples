@@ -112,11 +112,15 @@ describe('PDV no tablet', () => {
       pago: 12.5, faltaPagar: 0 }))
     vi.spyOn(vendas, 'comprovante').mockResolvedValue(comprovante)
     const cancelar = vi.spyOn(vendas, 'cancelar').mockImplementation(async () => { cancelada = true })
+    const pergunta = vi.spyOn(window, 'confirm').mockReturnValue(true)
     mostrar('ADMIN')
 
     fireEvent.click(await screen.findByRole('button', { name: /Concluída.*R\$/ }))
     fireEvent.click(await screen.findByRole('button', { name: 'Cancelar venda' }))
     await waitFor(() => expect(cancelar).toHaveBeenCalledOnce())
+    // A pergunta diz o valor e que o Pix pago volta ao cliente fora do sistema.
+    expect(pergunta.mock.calls[0][0]).toMatch(/^Cancelar a venda de R\$\s12,50\?/)
+    expect(pergunta.mock.calls[0][0]).toContain('O Pix recebido precisa ser devolvido fora do sistema.')
     expect(await screen.findByText(/A devolução precisa ser feita fora do sistema/))
       .toHaveTextContent('não verifica se ela aconteceu')
   })
@@ -360,12 +364,98 @@ describe('PDV no tablet', () => {
       status: 'ABERTA', total: comanda.total, criadoEm: comanda.criadoEm }])
     vi.spyOn(vendas, 'consultar').mockResolvedValue(comanda)
     const cancelar = vi.spyOn(vendas, 'cancelar').mockResolvedValue(undefined)
+    const pergunta = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValue(true)
     mostrar()
 
     fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
     expect(await screen.findByText(/1 × Café/)).toBeInTheDocument()
+    // Quem desiste na pergunta não cancela nada.
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar venda' }))
+    expect(pergunta).toHaveBeenCalledOnce()
+    expect(cancelar).not.toHaveBeenCalled()
+    // A venda aberta não passou pela gaveta: a pergunta não fala de estorno.
+    expect(pergunta.mock.calls[0][0]).not.toContain('estorno')
     fireEvent.click(screen.getByRole('button', { name: 'Cancelar venda' }))
     await waitFor(() => expect(cancelar).toHaveBeenCalledWith('venda-1'))
+  })
+
+  it('o Enter do leitor lança o produto do código exato, mesmo antes da resposta da busca', async () => {
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([])
+    // O código casa com outro produto também, pelo começo: vale o que é igual.
+    vi.spyOn(cadastro, 'buscarProdutos').mockResolvedValue([
+      { id: 'produto-2', tipo: 'PRODUTO', nome: 'Café grande', preco: 15, codigo: '7891-2',
+        categoria: null, unidade: 'un', atributos: {} },
+      { id: 'produto-1', tipo: 'PRODUTO', nome: 'Café', preco: 12.5, codigo: '7891',
+        categoria: null, unidade: 'un', atributos: {} },
+    ])
+    vi.spyOn(vendas, 'iniciar').mockResolvedValue({ id: 'venda-1' })
+    const adicionar = vi.spyOn(vendas, 'adicionarItem').mockResolvedValue({ id: 'item-1' })
+    vi.spyOn(vendas, 'consultar').mockResolvedValue(comanda)
+    mostrar()
+
+    const busca = await screen.findByLabelText('Produto por nome ou código')
+    fireEvent.change(busca, { target: { value: '7891' } })
+    fireEvent.keyDown(busca, { key: 'Enter' })
+
+    await waitFor(() => expect(adicionar).toHaveBeenCalledWith('venda-1', 'produto-1', 1, 0))
+    await waitFor(() => expect(busca).toHaveValue(''))
+
+    // O mesmo código passado de novo lança outra unidade: o termo da busca anterior não fica valendo.
+    fireEvent.change(busca, { target: { value: '7891' } })
+    fireEvent.keyDown(busca, { key: 'Enter' })
+    await waitFor(() => expect(adicionar).toHaveBeenCalledTimes(2))
+  })
+
+  it('tira o cliente da venda aberta sem fiado, e com fiado só deixa trocar', async () => {
+    let comCliente = true
+    let fiada = false
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(cadastro, 'clientes').mockResolvedValue([{ id: 'cliente-1', nome: 'Lia', contato: null }])
+    vi.spyOn(fiado, 'saldo').mockResolvedValue({ clienteId: 'cliente-1', saldoDevedor: 0 })
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([{ id: comanda.id,
+      sessaoCaixaId: comanda.sessaoCaixaId, usuarioId: comanda.usuarioId,
+      status: 'ABERTA', total: comanda.total, criadoEm: comanda.criadoEm }])
+    vi.spyOn(vendas, 'consultar').mockImplementation(async () => ({ ...comanda,
+      clienteId: comCliente ? 'cliente-1' : null,
+      parcelas: fiada ? [{ id: 'parcela-1', forma: 'FIADO', valor: 5, status: 'PENDENTE', troco: 0 }] : [],
+      pago: fiada ? 5 : 0, faltaPagar: fiada ? 7.5 : 12.5 }))
+    const tirar = vi.spyOn(vendas, 'desvincularCliente').mockImplementation(async () => { comCliente = false })
+    mostrar('ADMIN')
+
+    fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
+    expect(await screen.findByText('Cliente: Lia')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Tirar o cliente' }))
+    await waitFor(() => expect(tirar).toHaveBeenCalledWith('venda-1'))
+    await waitFor(() => expect(screen.queryByText('Cliente: Lia')).not.toBeInTheDocument())
+    expect(screen.getByLabelText('Cliente (para fiado)')).toBeInTheDocument()
+
+    // Com a parcela fiado lançada, o botão some e a tela diz por quê.
+    comCliente = true
+    fiada = true
+    fireEvent.click(screen.getByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
+    expect(await screen.findByText('Com parcela fiado, o cliente só pode ser trocado.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Tirar o cliente' })).not.toBeInTheDocument()
+  })
+
+  it('o Enter não lança quando o nome digitado acha vários produtos', async () => {
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([])
+    vi.spyOn(cadastro, 'buscarProdutos').mockResolvedValue([
+      { id: 'produto-1', tipo: 'PRODUTO', nome: 'Café', preco: 12.5, codigo: '7891',
+        categoria: null, unidade: 'un', atributos: {} },
+      { id: 'produto-2', tipo: 'PRODUTO', nome: 'Café grande', preco: 15, codigo: '7892',
+        categoria: null, unidade: 'un', atributos: {} },
+    ])
+    const iniciar = vi.spyOn(vendas, 'iniciar')
+    mostrar()
+
+    const busca = await screen.findByLabelText('Produto por nome ou código')
+    fireEvent.change(busca, { target: { value: 'café' } })
+    fireEvent.keyDown(busca, { key: 'Enter' })
+
+    expect(await screen.findByRole('button', { name: /Café grande/ })).toBeInTheDocument()
+    expect(iniciar).not.toHaveBeenCalled()
   })
 
   it('administrador vincula Cliente e conclui fiado com valor pendente no comprovante', async () => {

@@ -302,6 +302,62 @@ class SincronizacaoHttpTest extends TesteDeIntegracao {
     }
 
     @Test
+    @DisplayName("o Cliente sai pelo lote da Venda sem FIADO; com a parcela FIADO lançada, a retirada é recusada e o Cliente fica")
+    void clienteRetiradoPeloLote() throws Exception {
+        ContaCriada conta = criador.criar("Quitanda da Praça", SENHA);
+        RequestPostProcessor admin = autenticador.como(conta);
+        UUID clienteId = UUID.randomUUID();
+        UUID produtoId = UUID.randomUUID();
+        UUID sessaoId = UUID.randomUUID();
+        UUID semFiado = UUID.randomUUID();
+        UUID comFiado = UUID.randomUUID();
+        GestoDeTeste cliente = GestoDeTeste.de("cliente.criar", clienteId,
+                conteudo("nome", "Rita", "contato", null));
+        GestoDeTeste produto = GestoDeTeste.de("produto.criar", produtoId,
+                produto("Banana", "6.00", null));
+        GestoDeTeste abertura = GestoDeTeste.abertura(sessaoId, "0");
+
+        GestoDeTeste inicioSemFiado = GestoDeTeste.inicio(semFiado, sessaoId, abertura);
+        GestoDeTeste vinculoSemFiado = GestoDeTeste.de("venda.vincularCliente", semFiado,
+                conteudo("clienteId", clienteId), inicioSemFiado, cliente).comVersaoBase(0);
+        GestoDeTeste retiradaSemFiado = GestoDeTeste.de("venda.desvincularCliente", semFiado,
+                conteudo(), vinculoSemFiado).comVersaoBase(1);
+
+        GestoDeTeste inicioComFiado = GestoDeTeste.inicio(comFiado, sessaoId, abertura);
+        GestoDeTeste item = GestoDeTeste.item(comFiado, UUID.randomUUID(), produtoId, "1", "6.00",
+                inicioComFiado, produto).comVersaoBase(0);
+        GestoDeTeste vinculoComFiado = GestoDeTeste.de("venda.vincularCliente", comFiado,
+                conteudo("clienteId", clienteId), item, cliente).comVersaoBase(1);
+        GestoDeTeste fiado = GestoDeTeste.de("venda.registrarPagamento", comFiado,
+                conteudo("pagamentoId", UUID.randomUUID(), "forma", "FIADO",
+                        "valor", new BigDecimal("6.00"), "valorRecebido", null),
+                vinculoComFiado).comVersaoBase(2);
+        GestoDeTeste retiradaComFiado = GestoDeTeste.de("venda.desvincularCliente", comFiado,
+                conteudo(), fiado).comVersaoBase(3);
+
+        List<GestoDeTeste> aplicaveis = List.of(cliente, produto, abertura, inicioSemFiado,
+                vinculoSemFiado, retiradaSemFiado, inicioComFiado, item, vinculoComFiado, fiado);
+        List<GestoDeTeste> lote = new ArrayList<>(aplicaveis);
+        lote.add(retiradaComFiado);
+        JsonNode resposta = enviar(admin, lote);
+
+        for (GestoDeTeste gesto : aplicaveis) {
+            assertThat(resultadoDe(resposta, gesto).path("resultado").asText())
+                    .as(gesto.tipo()).isEqualTo("APLICADA");
+        }
+        JsonNode recusa = resultadoDe(resposta, retiradaComFiado);
+        assertThat(recusa.path("resultado").asText()).isEqualTo("NAO_APLICADA");
+        assertThat(recusa.path("detalhe").asText()).contains("FIADO");
+        http.perform(get("/api/vendas/{id}", semFiado).with(admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.clienteId").doesNotExist());
+        http.perform(get("/api/vendas/{id}", comFiado).with(admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.clienteId").value(clienteId.toString()))
+                .andExpect(jsonPath("$.parcelas[0].forma").value("FIADO"));
+    }
+
+    @Test
     @DisplayName("o operador não cadastra produto nem registra Pix pelo lote; o tipo desconhecido é recusado")
     void recusasDePermissaoDePixEDeTipo() throws Exception {
         ContaCriada operador = criador.criar("Loja do Operador", SENHA, Perfil.OPERADOR, true);

@@ -90,20 +90,21 @@ describe('TelaDePrivacidade', () => {
   ])('%s chega ao aviso e aos termos pelo rodapé e volta ao aplicativo', (_, identidade) => {
     entrarComo(identidade)
     abrir('/')
-    expect(screen.getByText(`Olá, ${identidade.nome}`)).toBeInTheDocument()
+    // A entrada leva ao PDV ou ao caixa; a barra de navegação é o que prova estar no aplicativo.
+    expect(screen.getByRole('navigation', { name: 'Principal' })).toBeInTheDocument()
 
     fireEvent.click(within(screen.getByRole('contentinfo')).getByRole('link', { name: 'Aviso de privacidade' }))
     expect(screen.getByRole('heading', { level: 1, name: 'Aviso de privacidade' })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Voltar para o acesso' })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('link', { name: 'Voltar para o aplicativo' }))
-    expect(screen.getByText(`Olá, ${identidade.nome}`)).toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: 'Principal' })).toBeInTheDocument()
 
     fireEvent.click(within(screen.getByRole('contentinfo')).getByRole('link', { name: 'Termos de uso' }))
     expect(screen.getByRole('heading', { level: 1, name: 'Termos de uso' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Aceito os termos' })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('link', { name: 'Voltar para o aplicativo' }))
-    expect(screen.getByText(`Olá, ${identidade.nome}`)).toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: 'Principal' })).toBeInTheDocument()
   })
 })

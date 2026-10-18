@@ -14,9 +14,16 @@ const base: Identidade = {
 const rotulos = (identidade: Identidade) => itensDoMenu(identidade).map((item) => item.rotulo)
 
 describe('itensDoMenu', () => {
-  it('operador vê venda, caixa, cadastro, cobrança do fiado, sincronização e a própria senha', () => {
+  it('operador vê venda, caixa, cadastro, cobrança do fiado, sincronização e a própria conta', () => {
     expect(rotulos(base)).toEqual(['Vender', 'Caixa', 'Produtos', 'Clientes', 'Fiado',
-      'Sincronização', 'Senha'])
+      'Sincronização', 'Minha conta'])
+  })
+
+  it('os itens do balcão ficam à vista, e o resto vai para o Mais', () => {
+    const itens = itensDoMenu({ ...base, perfil: 'ADMIN', recursos: ['RELATORIOS'] })
+    expect(itens.filter((item) => item.principal).map((item) => item.rotulo))
+      .toEqual(['Vender', 'Caixa', 'Produtos', 'Clientes', 'Fiado'])
+    expect(itens.find((item) => item.rotulo === 'Minha conta')?.caminho).toBe('/senha')
   })
 
   it('operador não vê estoque nem com o controle ligado na conta', () => {
@@ -31,7 +38,7 @@ describe('itensDoMenu', () => {
       'Clientes',
       'Fiado',
       'Sincronização',
-      'Senha',
+      'Minha conta',
       'Relatórios',
       'Usuários',
       'Configuração',

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { GestoNaFila } from './fila'
 import {
-  abrirVenda, adicionarItem, aplicarDesconto, concluir, dinheiroNaGaveta, faltaPagar, lancado,
-  normalizarNsu, projetarVendas, registrarPagamento, removerItem, TAMANHO_MAXIMO_DO_NSU, total,
+  abrirVenda, adicionarItem, aplicarDesconto, concluir, desvincularCliente, dinheiroNaGaveta, faltaPagar,
+  lancado, normalizarNsu, projetarVendas, registrarPagamento, removerItem, TAMANHO_MAXIMO_DO_NSU, total,
   vincularCliente, type DadosDaParcela, type DadosDoItem, type VendaNoDispositivo,
 } from './raizDaVenda'
 
@@ -115,6 +115,35 @@ describe('raiz da Venda no dispositivo', () => {
 
     const brinde = concluir(adicionarItem(nova(), item({ precoUnitario: 0 })), agora)
     expect(brinde.status).toBe('CONCLUIDA')
+  })
+
+  it('tira o Cliente da Venda aberta sem FIADO e, com a parcela FIADO, só deixa trocar', () => {
+    const comCliente = vincularCliente(adicionarItem(nova(), item({ precoUnitario: 10 })), 'cliente-1')
+    const semCliente = desvincularCliente(comCliente)
+    expect(semCliente).toMatchObject({ clienteId: null, versao: comCliente.versao + 1 })
+    expect(comCliente.clienteId).toBe('cliente-1')
+    expect(concluir(registrarPagamento(semCliente, parcela({ forma: 'CARTAO', valor: 10 })), agora).status)
+      .toBe('CONCLUIDA')
+
+    const fiado = registrarPagamento(comCliente, parcela({ forma: 'FIADO', valor: 10 }))
+    expect(() => desvincularCliente(fiado)).toThrow('troque o Cliente')
+    expect(vincularCliente(fiado, 'cliente-2').clienteId).toBe('cliente-2')
+
+    const concluida = concluir(fiado, agora)
+    expect(() => desvincularCliente(concluida)).toThrow('não aceita montagem')
+  })
+
+  it('remonta a retirada do Cliente gravada na fila', () => {
+    const gesto = (operacaoId: string, tipo: string, payload: GestoNaFila['payload'],
+      dependeDe: string[]): GestoNaFila => ({
+      operacaoId, registroId: 'venda-1', tipo, payload, dependeDe, estado: 'queued', criadoEm: agora,
+    })
+    const inicio = gesto('op-1', 'venda.iniciar', { sessaoCaixaId: 'sessao-1', criadoEm: agora }, [])
+    const vinculo = gesto('op-2', 'venda.vincularCliente', { clienteId: 'cliente-1' }, ['op-1'])
+    const retirada = gesto('op-3', 'venda.desvincularCliente', {}, ['op-2'])
+
+    const venda = projetarVendas([retirada, vinculo, inicio], 'ana').get('venda-1')
+    expect(venda).toMatchObject({ clienteId: null, versao: 2 })
   })
 
   it('guarda o NSU do cartão sem os espaços das pontas e o recusa nas outras formas', () => {

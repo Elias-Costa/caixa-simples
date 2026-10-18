@@ -411,12 +411,14 @@ textarea:disabled {
   background: var(--cor-alerta-fundo);
 }
 
+/* No celular, os cinco itens do balcão e o Mais numa grade de três colunas, em duas linhas: numa
+   linha só não cabem, e a rolagem lateral escondia itens sem aviso. Os outros ficam presos ao Mais. */
 .navegacao {
   grid-area: navegacao;
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   padding: 10px var(--espaco);
-  overflow-x: auto;
   background: var(--cor-superficie);
   border-bottom: 1px solid var(--cor-borda);
 }
@@ -424,6 +426,7 @@ textarea:disabled {
 .navegacao__item {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   min-height: var(--toque);
   padding: 0 14px;
   border-radius: var(--raio);
@@ -431,6 +434,46 @@ textarea:disabled {
   text-decoration: none;
   font-weight: 600;
   white-space: nowrap;
+}
+
+.navegacao__mais {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.navegacao__mais[aria-expanded='true'] {
+  background: var(--cor-superficie-realce);
+  color: var(--cor-texto);
+}
+
+.navegacao__outros {
+  display: none;
+}
+
+.navegacao--aberta .navegacao__outros {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--cor-borda);
+}
+
+/* No tablet, a barra é uma linha, e a lista do Mais abre embaixo dela. */
+@media (min-width: 600px) {
+  .navegacao {
+    display: flex;
+    flex-wrap: wrap;
+  }
+
+  .navegacao--aberta .navegacao__outros {
+    display: flex;
+    flex-wrap: wrap;
+    flex-basis: 100%;
+  }
 }
 
 .navegacao__item:hover {
@@ -513,6 +556,9 @@ main.cadastro {
 .cadastro__alerta { display: block; color: var(--cor-alerta); font-size: 0.85rem; font-weight: 600; }
 /* A resposta de uma ação no item ocupa a linha inteira, embaixo dos botões. */
 .cadastro__item > .mensagem-erro, .cadastro__item > .mensagem-sucesso { flex-basis: 100%; margin: 0; }
+/* A lista de dentro do item, como as vendas de um devedor, ocupa a largura toda embaixo dele. */
+.cadastro__item > .cadastro__lista { flex-basis: 100%; margin: 0; }
+.cadastro__item > .cadastro__lista[hidden] { display: none; }
 .cadastro__formulario {
   padding: var(--espaco);
   margin-top: 24px;
@@ -687,9 +733,27 @@ html:has(.pdv__rodape) { scroll-padding-bottom: 240px; }
 
   .navegacao {
     flex-direction: column;
-    overflow-x: visible;
+    flex-wrap: nowrap;
     border-bottom: 0;
     border-right: 1px solid var(--cor-borda);
+  }
+
+  /* Na coluna cabem todos: o Mais some, e os outros itens seguem os do balcão. */
+  .navegacao__mais {
+    display: none;
+  }
+
+  .navegacao__outros,
+  .navegacao--aberta .navegacao__outros {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-top: 0;
+    border-top: 0;
+  }
+
+  .navegacao__item {
+    justify-content: flex-start;
   }
 
   .navegacao__item--ativo {

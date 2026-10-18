@@ -37,7 +37,7 @@ class GestosForaDoPlanoTest extends TesteDeIntegracao {
                 "cliente.criar", "cliente.editar", "cliente.inativar", "cliente.reativar",
                 "caixa.abrir", "caixa.sangrar", "caixa.suprir", "caixa.fechar",
                 "venda.iniciar", "venda.adicionarItem", "venda.removerItem",
-                "venda.aplicarDesconto", "venda.vincularCliente", "venda.registrarPagamento",
-                "venda.concluir");
+                "venda.aplicarDesconto", "venda.vincularCliente", "venda.desvincularCliente",
+                "venda.registrarPagamento", "venda.concluir");
     }
 }

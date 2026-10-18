@@ -3,6 +3,11 @@ import { temRecurso, type Identidade } from '../sessao/Identidade'
 export type ItemDoMenu = {
   rotulo: string
   caminho: string
+  /**
+   * Item do balcão, sempre à vista. No tablet e no celular os outros ficam no botão Mais: os dez
+   * itens do administrador não cabem numa linha, e numa rolagem lateral sumiam sem aviso.
+   */
+  principal: boolean
 }
 
 /**
@@ -14,30 +19,31 @@ export type ItemDoMenu = {
  * recusa. Relatórios e Estoque aparecem só quando o plano os inclui e não estão suspensos, e a
  * tela Plano explica o que falta; o estoque também precisa do controle ligado, que nasce
  * desligado (RF17). A sincronização é dos dois perfis: quem operou sem rede confere ali o que o
- * servidor revisou ou recusou. A senha também: cada um troca a própria e sai dos próprios aparelhos.
+ * servidor revisou ou recusou. Minha conta também: cada um vê os próprios dados, troca a própria
+ * senha e sai dos próprios aparelhos.
  */
 export function itensDoMenu(identidade: Identidade): ItemDoMenu[] {
   const itens: ItemDoMenu[] = [
-    { rotulo: 'Vender', caminho: '/vender' },
-    { rotulo: 'Caixa', caminho: '/caixa' },
-    { rotulo: 'Produtos', caminho: '/produtos' },
-    { rotulo: 'Clientes', caminho: '/clientes' },
-    { rotulo: 'Fiado', caminho: '/fiado' },
-    { rotulo: 'Sincronização', caminho: '/sincronizacao' },
-    { rotulo: 'Senha', caminho: '/senha' },
+    { rotulo: 'Vender', caminho: '/vender', principal: true },
+    { rotulo: 'Caixa', caminho: '/caixa', principal: true },
+    { rotulo: 'Produtos', caminho: '/produtos', principal: true },
+    { rotulo: 'Clientes', caminho: '/clientes', principal: true },
+    { rotulo: 'Fiado', caminho: '/fiado', principal: true },
+    { rotulo: 'Sincronização', caminho: '/sincronizacao', principal: false },
+    { rotulo: 'Minha conta', caminho: '/senha', principal: false },
   ]
   if (identidade.perfil !== 'ADMIN') return itens
 
   if (identidade.estoqueHabilitado && temRecurso(identidade, 'ESTOQUE')) {
-    itens.push({ rotulo: 'Estoque', caminho: '/estoque' })
+    itens.push({ rotulo: 'Estoque', caminho: '/estoque', principal: false })
   }
   if (temRecurso(identidade, 'RELATORIOS')) {
-    itens.push({ rotulo: 'Relatórios', caminho: '/relatorios' })
+    itens.push({ rotulo: 'Relatórios', caminho: '/relatorios', principal: false })
   }
   itens.push(
-    { rotulo: 'Usuários', caminho: '/usuarios' },
-    { rotulo: 'Configuração', caminho: '/configuracao' },
-    { rotulo: 'Plano', caminho: '/plano' },
+    { rotulo: 'Usuários', caminho: '/usuarios', principal: false },
+    { rotulo: 'Configuração', caminho: '/configuracao', principal: false },
+    { rotulo: 'Plano', caminho: '/plano', principal: false },
   )
   return itens
 }

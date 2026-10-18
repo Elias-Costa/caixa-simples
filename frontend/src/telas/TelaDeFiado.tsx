@@ -30,11 +30,28 @@ function textoDoComprovante(c: ComprovanteDeRecebimento, negocio: string): strin
     `Venda: ${c.vendaId}`, `Recebimento: ${c.recebimentoId}`].join('\n')
 }
 
+/** As dívidas de um cliente numa linha só: quem deve em dez vendas aparecia dez vezes. */
+type Devedor = { clienteId: string; nomeCliente: string; dividas: Divida[]; totalCentavos: number }
+
+function agruparPorCliente(dividas: Divida[]): Devedor[] {
+  const devedores = new Map<string, Devedor>()
+  for (const divida of dividas) {
+    const devedor = devedores.get(divida.clienteId)
+      ?? { clienteId: divida.clienteId, nomeCliente: divida.nomeCliente, dividas: [], totalCentavos: 0 }
+    devedor.dividas.push(divida)
+    // Em centavos, para a soma de valores de duas casas não juntar o erro do ponto flutuante.
+    devedor.totalCentavos += Math.round(divida.saldoDevedor * 100)
+    devedores.set(divida.clienteId, devedor)
+  }
+  return [...devedores.values()]
+}
+
 export function TelaDeFiado() {
   const { identidade } = useSessao()
   const [sessao, setSessao] = useState<SessaoCaixa>()
   const [dividas, setDividas] = useState<Divida[]>([])
   const [busca, setBusca] = useState('')
+  const [devedorAberto, setDevedorAberto] = useState<string | null>(null)
   const [selecionada, setSelecionada] = useState<Divida>()
   const [valor, setValor] = useState('')
   const [forma, setForma] = useState<FormaPagamento>('DINHEIRO')
@@ -118,11 +135,18 @@ export function TelaDeFiado() {
   }
 
   const erroEm = (lugar: LugarDoErro) => erro?.lugar === lugar ? erro.texto : undefined
-  const encontradas = filtrarPorNome(dividas, busca, (divida) => divida.nomeCliente)
+  const encontrados = filtrarPorNome(agruparPorCliente(dividas), busca, (devedor) => devedor.nomeCliente)
+
+  // O recebimento continua sendo de uma venda por vez, como a dívida é de cada venda.
+  function receberDe(divida: Divida) {
+    return sessao && <button type="button" className="botao botao--secundario"
+      onClick={() => { setSelecionada(divida); setComprovante(undefined); setValor(''); setNsu(''); setErro(undefined) }}>
+      Receber</button>
+  }
 
   return <section className="cadastro">
     <div className="cadastro__topo"><div><h2 className="titulo">Fiado</h2>
-      <p>Vendas com saldo devedor. Cada recebimento entra no caixa de quem o registra.</p>
+      <p>Quem deve, com o saldo de cada venda. Cada recebimento entra no caixa de quem o registra.</p>
     </div></div>
     <Mensagem tipo="erro" texto={erroEm('tela')} />
     {carregando ? <p>Carregando...</p> : <>
@@ -131,15 +155,32 @@ export function TelaDeFiado() {
         <label className="cadastro__busca">Buscar pelo nome do cliente
           <input type="search" value={busca} onChange={(evento) => setBusca(evento.target.value)} />
         </label>
-        {encontradas.length === 0 && <p role="status">Nenhuma Venda encontrada para {busca.trim()}.</p>}
-        <ul className="cadastro__lista">{encontradas.map((divida) => <li className="cadastro__item" key={divida.vendaId}>
-          <div><strong>{divida.nomeCliente}</strong>
-            <p>Venda {divida.vendaId.slice(0, 8)} · {dataHora.format(new Date(divida.concluidoEm))}</p>
-            <p>Saldo: {moeda.format(divida.saldoDevedor)}</p></div>
-          {sessao && <button type="button" className="botao botao--secundario"
-            onClick={() => { setSelecionada(divida); setComprovante(undefined); setValor(''); setNsu(''); setErro(undefined) }}>
-            Receber</button>}
-        </li>)}</ul>
+        {encontrados.length === 0 && <p role="status">Nenhum cliente com saldo encontrado para {busca.trim()}.</p>}
+        <ul className="cadastro__lista">{encontrados.map((devedor) => {
+          // Com uma venda só, o Receber fica na própria linha, sem um toque a mais para abrir a lista.
+          const unica = devedor.dividas.length === 1 ? devedor.dividas[0] : undefined
+          const aberto = devedorAberto === devedor.clienteId
+          const idDasVendas = `fiado-vendas-${devedor.clienteId}`
+          return <li className="cadastro__item" key={devedor.clienteId}>
+            <div className="cadastro__dados"><strong>{devedor.nomeCliente}</strong>
+              <p>Saldo: {moeda.format(devedor.totalCentavos / 100)}
+                {unica ? '' : ` em ${devedor.dividas.length} vendas`}</p>
+              {unica && <p>Venda {unica.vendaId.slice(0, 8)} · {dataHora.format(new Date(unica.concluidoEm))}</p>}
+            </div>
+            {unica ? receberDe(unica) : <>
+              <button type="button" className="botao botao--secundario" aria-expanded={aberto}
+                aria-controls={idDasVendas} onClick={() => setDevedorAberto(aberto ? null : devedor.clienteId)}>
+                {aberto ? 'Esconder vendas' : 'Ver vendas'}</button>
+              <ul id={idDasVendas} className="cadastro__lista" hidden={!aberto}>
+                {devedor.dividas.map((divida) => <li className="cadastro__item" key={divida.vendaId}>
+                  <div><p>Venda {divida.vendaId.slice(0, 8)} · {dataHora.format(new Date(divida.concluidoEm))}</p>
+                    <p>Saldo: {moeda.format(divida.saldoDevedor)}</p></div>
+                  {receberDe(divida)}
+                </li>)}
+              </ul>
+            </>}
+          </li>
+        })}</ul>
       </>}
     </>}
     {selecionada && sessao && <form ref={formularioRef} className="cadastro__formulario" onSubmit={(evento) => void receber(evento)}>
