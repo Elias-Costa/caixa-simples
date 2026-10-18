@@ -12,8 +12,8 @@ import { SincronizacaoContext, useEnvioAutomatico } from './sincronizacao'
 /**
  * A moldura de toda tela: quem está operando e em que negócio, a navegação e os avisos que
  * valem para o aplicativo inteiro (sem rede, fila por enviar, revisão por conferir, versão nova,
- * vencimento do plano). É também onde a fila do aparelho é enviada sozinha, uma vez para o
- * aplicativo inteiro.
+ * vencimento do plano), e o rodapé com o aviso de privacidade e os termos de uso. É também onde a
+ * fila do aparelho é enviada sozinha, uma vez para o aplicativo inteiro.
  */
 export function Shell() {
   const { identidade, sair } = useSessao()
@@ -104,6 +104,11 @@ export function Shell() {
           <SincronizacaoContext.Provider value={sincronizacao}><Outlet /></SincronizacaoContext.Provider>
         </ContextoDoShellReact.Provider>
       </main>
+
+      {/* Em toda tela, para os dois perfis: o aviso e os termos ficam a um toque de quem já entrou. */}
+      <footer className="rodape">
+        <Link to="/privacidade">Aviso de privacidade</Link> · <Link to="/termos">Termos de uso</Link>
+      </footer>
     </div>
   )
 }

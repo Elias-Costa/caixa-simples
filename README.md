@@ -159,7 +159,11 @@ no token e o recusa quando difere, e à credencial a marca de senha provisória,
 credencial nasce. A `V25` cria o aceite dos termos de uso, uma linha por versão aceita na Conta.
 
 O [aviso de privacidade](frontend/src/telas/TelaDePrivacidade.tsx) é público, inclusive antes do
-login. O ADMIN pede o encerramento da Conta pelo canal indicado nele. Os
+login, e o rodapé de toda tela do aplicativo aponta para ele e para os termos. Diz quem trata cada
+dado e com que papel, para que serve e com que base, onde fica e por quanto tempo, inclusive no
+aparelho, com quem é compartilhado, os registros de segurança como tratamento próprio por legítimo
+interesse, e a quem pedir cada direito do art. 18 da LGPD, com o prazo. O ADMIN pede o encerramento
+da Conta pelo canal indicado nele. Os
 [termos de uso](frontend/src/telas/TelaDosTermos.tsx), com o anexo de tratamento de dados, também são
 públicos: dizem o que o Caixa Simples faz com os dados que a Conta registra, onde eles ficam, o aviso
 de incidente e o fim do contrato, e o ADMIN os aceita antes de usar o aplicativo. O procedimento em
@@ -1075,7 +1079,9 @@ diferença zero.
 ## Implantação
 
 Nenhum dado pessoal sai do Brasil: o banco, a aplicação e a cópia, mesmo cifrada, ficam em
-servidores no país. Tudo roda em contêineres numa VPS da HostGator no Brasil, e a cópia vai para o
+servidores no país. A única exceção é o pedido de encerramento da Conta, que o ADMIN manda, só com a
+identificação da Conta, ao endereço do Gmail indicado no aviso de privacidade, que informa a
+transferência; ela acaba quando o e-mail de atendimento num provedor no Brasil existir. Tudo roda em contêineres numa VPS da HostGator no Brasil, e a cópia vai para o
 armazenamento de objetos da AWS, também no Brasil, um segundo fornecedor.
 
 O artefato é um só: o jar com a API e o aplicativo na mesma origem, numa imagem Docker que roda
@@ -1175,7 +1181,7 @@ frontend
 │   ├── api/                o cliente HTTP e as chamadas de cadastro, caixa, vendas, relatórios, estoque e sincronização
 │   ├── offline/            fila, retratos locais, envio da fila, cadastro, caixa e Venda no dispositivo, pedido de armazenamento persistente
 │   ├── sessao/             token e identidade no dispositivo, provedor de sessão
-│   ├── shell/              cabeçalho com os avisos da fila e do vencimento do plano, envio automático, navegação por perfil e plano, guardas de rota
+│   ├── shell/              cabeçalho com os avisos da fila e do vencimento do plano, envio automático, navegação por perfil e plano, rodapé com o aviso de privacidade e os termos, guardas de rota
 │   └── telas/              login, privacidade, termos de uso, produto, cliente, caixa, Venda, relatórios, usuários, configuração, estoque e sincronização
 ├── public/                 ícones e manifest
 └── vite.config.ts          build, service worker e o proxy de desenvolvimento para a API

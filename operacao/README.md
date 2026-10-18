@@ -4,7 +4,10 @@ Tudo o que põe o sistema no ar e o mantém de pé: a imagem, o CI que publica e
 o preparo dela, a cópia cifrada de hora em hora, a restauração, a recriação da máquina, o incidente de
 segurança, os pedidos sobre dados pessoais, a carga de correção e o ensaio local de tudo isso.
 
-Nenhum dado pessoal sai do Brasil, nem na cópia cifrada. A aplicação, o PostgreSQL 17 e a cópia rodam
+Nenhum dado pessoal sai do Brasil, nem na cópia cifrada, com uma exceção: o pedido de encerramento
+da Conta, que o administrador manda, só com a identificação da Conta, ao endereço do Gmail indicado no
+aviso de privacidade, que informa a transferência; ela acaba quando o e-mail de atendimento do passo 2
+da primeira publicação existir, e o endereço dele substitui o Gmail no aviso. A aplicação, o PostgreSQL 17 e a cópia rodam
 em contêineres numa VPS no Brasil, e a cópia vai para um bucket do S3 da AWS na região dela no Brasil
 (`sa-east-1`), outro fornecedor. As imagens são construídas no GitHub Actions e publicadas no registro
 de contêineres do GitHub: levam o código deste repositório, nenhum dado. O vigia recebe só um sinal
@@ -309,7 +312,8 @@ na manutenção acima, a mesma em `CAIXA_SIMPLES_DB_PASSWORD`, e `sh compose.sh 
    porta do Docker não preserva o endereço de origem. Antes da primeira Conta real, o e-mail de
    atendimento no domínio, num provedor de e-mail no Brasil, com o local confirmado por escrito como o
    da VPS: ele recebe os pedidos sobre dados pessoais, o encerramento e o pedido de plano, guarda o
-   registro de incidentes e entra no aviso de privacidade.
+   registro de incidentes e entra no aviso de privacidade, no lugar do Gmail do encerramento, e na tela
+   do plano.
 3. **Administrador.** Como root, pelo acesso inicial, um usuário com senha, para o sudo, e com a sua
    chave SSH em `~/.ssh/authorized_keys`, com dono dele e modo 600. O preparo recusa seguir sem essa
    chave, porque depois dele o SSH não aceita senha nem root.

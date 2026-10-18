@@ -5,6 +5,7 @@ import { contas } from '../api/contas'
 import { sessaoAtual } from '../sessao/armazenamento'
 import { useSessao } from '../sessao/useSessao'
 import { VERSAO_DOS_TERMOS } from './versaoDosTermos'
+import { VoltarDaPaginaPublica } from './VoltarDaPaginaPublica'
 
 type Props = {
   /** A Conta ainda não aceitou esta versão, e esta é a única tela do administrador até o aceite. */
@@ -166,7 +167,7 @@ export function TelaDosTermos({ obrigatoria = false }: Props) {
         </button>
         <p><button className="botao botao--secundario" type="button" onClick={sair}>Sair</button></p>
       </section>
-      : <p><Link to="/entrar">Voltar para o acesso</Link></p>}
+      : <VoltarDaPaginaPublica />}
   </main>
 }
 
