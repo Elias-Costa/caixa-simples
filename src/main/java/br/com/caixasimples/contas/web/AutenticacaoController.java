@@ -4,6 +4,7 @@ import br.com.caixasimples.contas.RecursoDoPlano;
 import br.com.caixasimples.contas.application.AutenticacaoService;
 import br.com.caixasimples.contas.application.AutenticacaoService.Identidade;
 import br.com.caixasimples.contas.application.AutenticacaoService.MeusDados;
+import br.com.caixasimples.contas.application.ContaSuspensaException;
 import br.com.caixasimples.contas.application.EmailJaCadastradoException;
 import br.com.caixasimples.contas.application.SenhaAtualIncorretaException;
 import br.com.caixasimples.contas.internal.CredenciaisInvalidasException;
@@ -169,6 +170,15 @@ class AutenticacaoController {
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
                 .header(HttpHeaders.RETRY_AFTER, Long.toString(segundos))
                 .body(problema);
+    }
+
+    /**
+     * A senha certa de uma Conta com o acesso suspenso responde 403 com a mensagem, que a tela de
+     * entrada mostra. A recusa já foi ao log pelo caso de uso, como as outras do login.
+     */
+    @ExceptionHandler(ContaSuspensaException.class)
+    ProblemDetail contaSuspensa(ContaSuspensaException excecao) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, excecao.getMessage());
     }
 
     /**

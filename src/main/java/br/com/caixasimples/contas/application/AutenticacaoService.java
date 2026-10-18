@@ -47,6 +47,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  * segurança, a recusa com o motivo e, quando o e-mail existe, com a Conta e o Usuário da credencial,
  * para mostrar qual Conta está sendo atacada. Nunca com o e-mail.
  *
+ * <p>A exceção é a Conta com o acesso suspenso: com a senha certa, a recusa diz que a Conta está
+ * suspensa, porque quem sabe a senha não aprende com isso nada sobre os e-mails que existem.
+ *
  * <p>A troca de senha e a saída de todos os aparelhos sobem a versão de acesso do usuário, que vai
  * dentro do token: todo token emitido antes recebe 401 na requisição seguinte. É a resposta à senha
  * vazada e ao aparelho furtado que continua com rede, que de outro modo renovaria o token para
@@ -109,6 +112,7 @@ public class AutenticacaoService {
      * @throws CredenciaisInvalidasException em qualquer falha de credencial
      * @throws LoginContidoException se a origem, ou o e-mail vindo dela, errou demais na janela
      *         atual
+     * @throws ContaSuspensaException se a senha confere, mas o acesso da Conta está suspenso
      */
     public String entrar(String email, String senha, String origem) {
         if (email == null || senha == null) {
@@ -124,6 +128,7 @@ public class AutenticacaoService {
             throw recusa;
         } catch (RuntimeException erro) {
             // Um erro que não diz nada sobre a senha, como o banco fora do ar, não conta como falha.
+            // A Conta suspensa também cai aqui: a senha estava certa.
             contencao.desfazer(tentativa);
             throw erro;
         }
@@ -155,6 +160,13 @@ public class AutenticacaoService {
         }
         Usuario usuario = lido.get();
 
+        // Antes do primeiro acesso, para a Conta suspensa não copiar o catálogo nem marcar a entrada.
+        // A Conta vem da credencial, gravada pela aplicação, e não do pedido.
+        if (contas.estaSuspensa(conta.valor())) {
+            registrarRecusa("conta_suspensa", conta, usuario.getId(), origem);
+            throw new ContaSuspensaException();
+        }
+
         if (usuario.getPerfil() == Perfil.ADMIN) {
             TenantContext.executarComo(conta, () -> UsuarioContext.executarComo(
                     new UsuarioAutenticado(usuario.getId(), usuario.getPerfil()),
@@ -171,16 +183,20 @@ public class AutenticacaoService {
         return token;
     }
 
-    /** Registra a recusa e devolve a exceção, que é a mesma para todo motivo. */
+    /** Registra a recusa e devolve a exceção, que é a mesma para todo motivo de credencial. */
     private static CredenciaisInvalidasException recusa(String motivo, ContaId conta,
             UUID usuario, String origem) {
+        registrarRecusa(motivo, conta, usuario, origem);
+        return new CredenciaisInvalidasException();
+    }
+
+    private static void registrarRecusa(String motivo, ContaId conta, UUID usuario, String origem) {
         EventoDeSeguranca.de("login.recusado")
                 .com("conta", conta)
                 .com("usuario", usuario)
                 .com("motivo", motivo)
                 .daOrigem(origem)
                 .registrarRecusa();
-        return new CredenciaisInvalidasException();
     }
 
     /**

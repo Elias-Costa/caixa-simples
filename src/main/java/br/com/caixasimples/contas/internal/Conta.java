@@ -71,6 +71,14 @@ public class Conta {
     @Column(name = "criado_em", nullable = false, updatable = false)
     private Instant criadoEm;
 
+    /**
+     * O instante da suspensão imediata do acesso, por uso ilegal ou ataque ao serviço; nulo quando o
+     * acesso vale. Não tem relação com o plano: a mensalidade atrasada suspende só os recursos pagos,
+     * pelo vencimento, e a Conta continua entrando.
+     */
+    @Column(name = "suspensa_em")
+    private Instant suspensaEm;
+
     protected Conta() {
         // exigido pelo JPA
     }
@@ -157,6 +165,44 @@ public class Conta {
 
     public Instant getCriadoEm() {
         return criadoEm;
+    }
+
+    /** Se o acesso de todos os usuários da Conta está suspenso. */
+    public boolean isSuspensa() {
+        return suspensaEm != null;
+    }
+
+    /** Nulo quando o acesso vale. */
+    public Instant getSuspensaEm() {
+        return suspensaEm;
+    }
+
+    /**
+     * Suspende o acesso de todos os usuários da Conta. Quem suspende derruba também os tokens já
+     * emitidos, subindo a versão de acesso de cada Usuário na mesma transação.
+     *
+     * @throws IllegalStateException se a Conta já está suspensa: suspender de novo trocaria o instante
+     *         em que a suspensão começou, que o aviso ao administrador informa
+     */
+    public void suspender(Instant agora) {
+        Objects.requireNonNull(agora, "instante nao pode ser nulo");
+        if (suspensaEm != null) {
+            throw new IllegalStateException("a Conta já está suspensa desde " + suspensaEm);
+        }
+        this.suspensaEm = agora;
+    }
+
+    /**
+     * Devolve o acesso à Conta. Os tokens de antes da suspensão continuam recusados, porque a suspensão
+     * subiu a versão de acesso de cada Usuário: todos entram de novo.
+     *
+     * @throws IllegalStateException se a Conta não está suspensa
+     */
+    public void reativar() {
+        if (suspensaEm == null) {
+            throw new IllegalStateException("a Conta não está suspensa");
+        }
+        this.suspensaEm = null;
     }
 
     /** Nulo no plano gratuito. */

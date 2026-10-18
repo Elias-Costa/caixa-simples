@@ -198,6 +198,8 @@ Uma máquina só, com AlmaLinux 9, 1 vCPU e 2 GB, e tudo em contêineres pelo
 | `banco` | PostgreSQL 17, da imagem construída de [`vps/banco/`](vps/banco/Dockerfile), sem porta publicada, com os dados num volume | 512 MB |
 | `seed` | Perfil `seed`: cria uma Conta e termina | 1 GB |
 | `redefinir-senha` | Perfil `redefinir-senha`: dá ao administrador uma senha provisória, derruba os aparelhos de todos os usuários da Conta e termina | 1 GB |
+| `suspender-conta` | Perfil `suspender-conta`: suspende na hora o acesso de uma Conta, derruba os aparelhos de todos os usuários dela e termina | 1 GB |
+| `reativar-conta` | Perfil `reativar-conta`: devolve o acesso à Conta suspensa e termina | 1 GB |
 | `copia` | Perfil `copia`: a cópia cifrada, pelo timer de hora em hora | 256 MB |
 | `restaurar` | Perfil `restauracao`: restaura uma cópia num banco vazio, por padrão o desta máquina | |
 | `encerrar` | Perfil `exclusao`: encerra uma Conta a pedido | |
@@ -245,7 +247,9 @@ Os eventos de segurança da aplicação saem uma linha cada, começando por `eve
 recusado, o bloqueio do login, o token recusado, o acesso recusado por perfil, o aviso Pix recusado, a
 troca e a redefinição de senha, a saída de todos os aparelhos e as ações do administrador sobre
 usuários, plano, configuração e Cliente. Cada linha leva o IP de origem, os ids de Conta, de Usuário e
-do alvo e o motivo da recusa numa palavra fixa, nunca nome, e-mail, contato, senha ou token. O erro
+do alvo e o motivo da recusa numa palavra fixa, nunca nome, e-mail, contato, senha ou token; a recusa
+de uma Conta suspensa leva o motivo `conta_suspensa`. A [suspensão](#suspensão-de-uma-conta) e o
+reverso saem da execução avulsa, como `conta.suspensa` e `conta.reativada`, sem origem. O erro
 inesperado sai com o método, o caminho e a pilha, sem as mensagens das exceções.
 
 Rodar o preparo de novo refaz cada passo sem duplicar nada. Mudou o `implantar.sh` ou o
@@ -546,6 +550,66 @@ muda senha nenhuma; fica para a suspeita de que a chave dos tokens vazou.
 Uma Conta tomada por outra pessoa é um incidente de segurança: siga também
 [Incidente de segurança](#incidente-de-segurança).
 
+## Suspensão de uma Conta
+
+Os termos de uso permitem suspender na hora o acesso de uma Conta em dois casos, e só neles: uso ilegal
+do serviço ou ataque a ele, como a rajada de recusas vinda dos aparelhos da própria Conta. Não é a
+suspensão pelo atraso da mensalidade, que tira só os recursos pagos e acaba com a renovação, nem o
+encerramento, que tem trinta dias de aviso e segue
+[Remoção de dados e encerramento da Conta](#remoção-de-dados-e-encerramento-da-conta). A Conta tomada
+por outra pessoa segue [Conta comprometida](#conta-comprometida-ou-administrador-sem-acesso): suspensa,
+ela tiraria do dono o acesso de que ele precisa para retomá-la.
+
+A execução avulsa `suspender-conta` grava pela aplicação, e não por SQL, o instante da suspensão na
+Conta e derruba os aparelhos de **todos** os usuários dela. Enquanto a Conta está suspensa:
+
+- o aparelho já entrado recebe 401 na requisição seguinte e volta à tela de entrada;
+- o login com a senha certa responde 403 com `O acesso desta Conta está suspenso. O administrador
+  recebeu o aviso por e-mail.`, e a senha errada continua com a recusa de sempre;
+- o que os aparelhos registraram sem rede fica guardado em cada um, sem ser aplicado, e só é enviado
+  quando o mesmo usuário entrar ali de novo, depois do reverso; o aparelho sem rede continua operando
+  até reconectar;
+- o aviso Pix da Efí continua concluindo a Venda, porque o pagamento já aconteceu no PSP;
+- os dados ficam como estão, e as cópias seguem.
+
+1. **Ache o id da Conta.** Num ataque, ele está nos [eventos de segurança](#3-avaliar), no campo
+   `conta=`. Pelo nome do negócio, lido pelo `read`, como root, na pasta `operacao/vps`:
+
+   ```bash
+   read -rp 'Nome do negócio: ' NEGOCIO
+   sh compose.sh exec -T banco psql -U postgres -d caixa_simples -v negocio="$NEGOCIO" <<'FIM'
+   select id, nome_negocio, suspensa_em from conta where nome_negocio ilike '%' || :'negocio' || '%';
+   FIM
+   unset NEGOCIO
+   ```
+
+2. **Suspenda**, com o id lido pelo `read`:
+
+   ```bash
+   read -rp 'Conta: ' CAIXA_SIMPLES_SUSPENSAO_CONTA && export CAIXA_SIMPLES_SUSPENSAO_CONTA
+   sh compose.sh --profile suspender-conta run --rm suspender-conta
+   unset CAIXA_SIMPLES_SUSPENSAO_CONTA
+   ```
+
+   O log termina com `evento=conta.suspensa conta=<id> usuarios=<n>`, o número de usuários cujos
+   aparelhos saíram. Rodar de novo diz desde quando a Conta já estava suspensa e não muda nada; um id
+   que não é de Conta nenhuma termina com erro, sem gravar nada.
+3. **Avise no mesmo dia** todos os administradores ativos da Conta, pelo e-mail de atendimento, pelo
+   [modelo D](#modelos), com os e-mails lidos como em [Avisar cada Conta afetada](#4-avisar-cada-conta-afetada).
+   O aviso segue na conversa do [registro do incidente](#6-registrar). O motivo vai só a eles, e não à
+   tela de entrada, que o funcionário também vê.
+4. **Quando o motivo acabar**, devolva o acesso:
+
+   ```bash
+   read -rp 'Conta: ' CAIXA_SIMPLES_SUSPENSAO_CONTA && export CAIXA_SIMPLES_SUSPENSAO_CONTA
+   sh compose.sh --profile reativar-conta run --rm reativar-conta
+   unset CAIXA_SIMPLES_SUSPENSAO_CONTA
+   ```
+
+   O log termina com `evento=conta.reativada conta=<id>`. Todos os usuários entram de novo com as
+   próprias senhas: nenhum token de antes da suspensão volta a valer. Avise os administradores pelo
+   modelo E, na mesma conversa.
+
 ## Incidente de segurança
 
 Incidente de segurança é um evento adverso confirmado que quebra o sigilo, a integridade, a
@@ -594,10 +658,10 @@ nº 15/2024, contados em dobro para o agente de tratamento de pequeno porte:
 - **Uma Conta tomada:** os passos de
   [Conta comprometida](#conta-comprometida-ou-administrador-sem-acesso).
 - **Uma Conta em uso ilegal ou atacando o serviço,** que os termos permitem suspender na hora, com aviso
-  ao administrador: não há execução que suspenda uma Conta só. Bloqueie as origens dela e redefina a
-  senha do administrador pela execução avulsa `redefinir-senha`, que derruba os aparelhos de todos os
-  usuários da Conta; os operadores ainda entram com as próprias senhas. Se isso não bastar,
-  `sh compose.sh stop app` para o serviço de todas as Contas até resolver.
+  ao administrador no mesmo dia: [Suspensão de uma Conta](#suspensão-de-uma-conta). Os pedidos que
+  continuarem chegando dos aparelhos dela são recusados e contam no alerta de recusas; a origem que
+  atacar de fora deles pode ser bloqueada como acima. Se nada bastar, `sh compose.sh stop app` para o
+  serviço de todas as Contas até resolver.
 
 ### 2. Preservar
 
@@ -740,6 +804,36 @@ Assunto: Incidente <AAAA-MM-DD>, <resumo em poucas palavras>
    (as mensagens seguem nesta conversa):
 8. Sem comunicação à ANPD e aos titulares, o motivo:
 Trecho do log preservado: onde está e quando foi apagado:
+```
+
+**D. Aviso de suspensão**, a todos os administradores ativos da Conta, no mesmo dia da
+[suspensão](#suspensão-de-uma-conta):
+
+```text
+Assunto: Acesso da sua Conta no Caixa Simples suspenso
+
+Em <data e hora>, o acesso da Conta <nome do negócio> ao Caixa Simples foi suspenso, como os termos de
+uso preveem em caso de <uso ilegal do serviço ou ataque ao serviço>.
+
+O que foi observado: <o que aconteceu, sem dados de Clientes ou de funcionários>.
+
+Enquanto durar a suspensão, nenhum usuário da Conta entra no aplicativo. Os dados da Conta continuam
+guardados como estavam. O que os aparelhos registraram sem rede continua guardado em cada um e é
+enviado quando o mesmo usuário entrar ali de novo, depois que o acesso voltar.
+
+Para esclarecer o que aconteceu ou contestar a suspensão, responda este e-mail.
+```
+
+**E. Aviso do reverso**, na mesma conversa:
+
+```text
+Assunto: Acesso da sua Conta no Caixa Simples devolvido
+
+Em <data e hora>, o acesso da Conta <nome do negócio> ao Caixa Simples foi devolvido. Cada usuário
+entra de novo com o próprio e-mail e a própria senha. O que um aparelho registrou sem rede durante a
+suspensão é enviado quando o mesmo usuário entrar ali.
+
+<Se for o caso: o que a Conta combinou fazer ou deixar de fazer.>
 ```
 
 ## Pedido de plano e código de ativação
@@ -1168,8 +1262,9 @@ recusas. O deploy que falha aparece no CI, que fica vermelho, e o GitHub avisa p
 **O alerta de recusas** conta os [eventos de segurança](#a-vps) de login recusado, troca de senha
 recusada, token recusado, acesso recusado por perfil e aviso Pix recusado. Uma origem sozinha não passa
 de 30 falhas de login na janela da contenção; acima de 50 em 5 minutos é força bruta distribuída, ou
-enxurrada de token falso ou de aviso Pix, que nada limita. Com o aviso, a origem e a Conta atacada estão
-no log, e uma origem pode ser bloqueada como em [Incidente de segurança](#incidente-de-segurança):
+enxurrada de token falso ou de aviso Pix, que nada limita. Uma Conta suspensa cujos aparelhos continuam
+pedindo também entra na contagem, com o motivo `conta_suspensa`. Com o aviso, a origem e a Conta atacada
+estão no log, e uma origem pode ser bloqueada como em [Incidente de segurança](#incidente-de-segurança):
 
 ```bash
 journalctl CONTAINER_NAME=caixa-simples-app-1 --since -30min | grep -E ' evento=[a-z_.]*recusad' \
@@ -1231,7 +1326,7 @@ sh operacao/vps/compose.sh --profile restauracao run --rm -T \
   -v "<arquivo da chave privada>:/chave/chave-privada.txt:ro" restaurar /copias/diaria/caixa-simples-<instante UTC>
 
 # Fim: contêineres e volumes do ensaio.
-sh operacao/vps/compose.sh --profile seed --profile redefinir-senha --profile copia --profile restauracao --profile exclusao down -v
+sh operacao/vps/compose.sh --profile seed --profile redefinir-senha --profile suspender-conta --profile reativar-conta --profile copia --profile restauracao --profile exclusao down -v
 ```
 
 No Git Bash do Windows, o `curl` do sistema confere a revogação do certificado, que a autoridade local

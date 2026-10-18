@@ -6,13 +6,14 @@ import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 
 import br.com.caixasimples.contas.Plano;
 import br.com.caixasimples.shared.Money;
+import java.time.Instant;
 import java.time.LocalDate;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * O ciclo do plano pago na raiz {@link Conta}: o que cada mudança de plano recusa, e que a recusa
- * não deixa nada pela metade.
+ * O ciclo do plano pago e a suspensão do acesso na raiz {@link Conta}: o que cada mudança recusa, e
+ * que a recusa não deixa nada pela metade.
  *
  * <p>Teste de unidade puro, com datas fixas: a raiz não lê relógio, e quem chama informa o dia de
  * hoje. O caso de uso recusa antes boa parte destes casos, então a raiz é a segunda linha; a
@@ -125,6 +126,29 @@ class ContaTest {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new Conta("a".repeat(121), null, Plano.GRATIS))
                 .withMessageContaining("o limite é 120");
+    }
+
+    @Test
+    @DisplayName("a suspensão do acesso começa uma vez e só se desfaz na Conta suspensa, sem mexer no plano")
+    void suspensaoDoAcesso() {
+        Conta conta = paga(Plano.COMPLETO);
+        Instant inicio = Instant.parse("2026-03-20T15:00:00Z");
+        assertThatIllegalStateException()
+                .isThrownBy(conta::reativar)
+                .withMessage("a Conta não está suspensa");
+
+        conta.suspender(inicio);
+        assertThat(conta.isSuspensa()).isTrue();
+        // Suspender de novo trocaria o instante que o aviso ao administrador informa.
+        assertThatIllegalStateException()
+                .isThrownBy(() -> conta.suspender(inicio.plusSeconds(60)))
+                .withMessageContaining("já está suspensa");
+        assertThat(conta.getSuspensaEm()).isEqualTo(inicio);
+        conferirCiclo(conta, Plano.COMPLETO, 10, VENCIMENTO);
+
+        conta.reativar();
+        assertThat(conta.isSuspensa()).isFalse();
+        assertThat(conta.getSuspensaEm()).isNull();
     }
 
     private static Conta gratis() {

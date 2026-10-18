@@ -24,4 +24,13 @@ public interface ContaRepository extends JpaRepository<Conta, UUID> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select c from Conta c where c.id = :id")
     Optional<Conta> buscarParaAtualizar(UUID id);
+
+    /**
+     * Se o acesso da Conta está suspenso. Perguntado a cada requisição autenticada, com a Conta do
+     * token, e no login, com a Conta da credencial que acabou de conferir a senha: nos dois casos o id
+     * é o que a própria aplicação gravou, e não um valor do pedido. A Conta que não existe responde
+     * falso, e a recusa dela fica com a leitura do Usuário.
+     */
+    @Query("select count(c) > 0 from Conta c where c.id = :id and c.suspensaEm is not null")
+    boolean estaSuspensa(UUID id);
 }

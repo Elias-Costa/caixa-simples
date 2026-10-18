@@ -43,6 +43,13 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * porque cada consulta de repositório abre a própria sessão do Hibernate, e a sessão resolve o
  * tenant na abertura: o tenant já está definido quando a consulta roda.
  *
+ * <p>Antes do Usuário, a Conta: com o acesso dela suspenso por uso ilegal ou ataque ao serviço, todo
+ * token dela recebe 401, inclusive o que leva a versão de acesso atual. A suspensão sobe a versão de
+ * todos os Usuários, mas um login que leu a Conta antes dela e a versão depois emitiria um token com a
+ * versão nova, que só esta conferência barra. Vem primeiro para o log dizer o motivo real, e não a
+ * versão antiga que a suspensão também produz. O 401, e não o 403, leva o aplicativo ao login, que
+ * explica a suspensão, e devolve à fila do aparelho o lote recusado.
+ *
  * <p>Roda depois da autenticação do Spring Security e sempre limpa os dois contextos no
  * {@code finally}, porque thread reaproveitada não pode herdar a identidade da requisição
  * anterior.
@@ -51,9 +58,11 @@ import org.springframework.web.filter.OncePerRequestFilter;
 class IdentidadeDoTokenFilter extends OncePerRequestFilter {
 
     private final UsuarioRepository usuarios;
+    private final ContaRepository contas;
 
-    IdentidadeDoTokenFilter(UsuarioRepository usuarios) {
+    IdentidadeDoTokenFilter(UsuarioRepository usuarios, ContaRepository contas) {
         this.usuarios = usuarios;
+        this.contas = contas;
     }
 
     @Override
@@ -77,12 +86,17 @@ class IdentidadeDoTokenFilter extends OncePerRequestFilter {
         try {
             TenantContext.definir(ContaId.de(conta));
 
-            Optional<Usuario> lido = usuarios.findById(UUID.fromString(sujeito));
+            Optional<Usuario> lido = Optional.empty();
             String recusa = null;
-            if (lido.isEmpty() || !lido.get().isAtivo()) {
-                recusa = "usuario_inativo";
-            } else if (!levaAVersaoDoBanco(token, lido.get())) {
-                recusa = "versao_antiga";
+            if (contas.estaSuspensa(TenantContext.exigirAtual().valor())) {
+                recusa = "conta_suspensa";
+            } else {
+                lido = usuarios.findById(UUID.fromString(sujeito));
+                if (lido.isEmpty() || !lido.get().isAtivo()) {
+                    recusa = "usuario_inativo";
+                } else if (!levaAVersaoDoBanco(token, lido.get())) {
+                    recusa = "versao_antiga";
+                }
             }
             if (recusa != null) {
                 EventoDeSeguranca.de("token.recusado")

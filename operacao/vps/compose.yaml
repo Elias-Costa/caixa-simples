@@ -142,6 +142,37 @@ services:
       CAIXA_SIMPLES_REDEFINICAO_EMAIL: ${CAIXA_SIMPLES_REDEFINICAO_EMAIL:-}
       CAIXA_SIMPLES_REDEFINICAO_SENHA: ${CAIXA_SIMPLES_REDEFINICAO_SENHA:-}
 
+  # Suspende na hora o acesso de uma Conta, por uso ilegal ou ataque ao serviço, e derruba os aparelhos
+  # de todos os usuários dela. Execução avulsa, como o seed; o reverso é o serviço seguinte.
+  suspender-conta:
+    profiles: [suspender-conta]
+    image: ghcr.io/elias-costa/caixa-simples:${CAIXA_SIMPLES_VERSAO:-}
+    depends_on:
+      banco:
+        condition: service_healthy
+    mem_limit: 1g
+    memswap_limit: 1g
+    environment:
+      <<: *ambiente-da-aplicacao
+      SPRING_PROFILES_ACTIVE: suspender-conta
+      SPRING_MAIN_WEB_APPLICATION_TYPE: none
+      CAIXA_SIMPLES_SUSPENSAO_CONTA: ${CAIXA_SIMPLES_SUSPENSAO_CONTA:-}
+
+  # Devolve o acesso à Conta suspensa; todos os usuários entram de novo.
+  reativar-conta:
+    profiles: [reativar-conta]
+    image: ghcr.io/elias-costa/caixa-simples:${CAIXA_SIMPLES_VERSAO:-}
+    depends_on:
+      banco:
+        condition: service_healthy
+    mem_limit: 1g
+    memswap_limit: 1g
+    environment:
+      <<: *ambiente-da-aplicacao
+      SPRING_PROFILES_ACTIVE: reativar-conta
+      SPRING_MAIN_WEB_APPLICATION_TYPE: none
+      CAIXA_SIMPLES_SUSPENSAO_CONTA: ${CAIXA_SIMPLES_SUSPENSAO_CONTA:-}
+
   # A cópia cifrada, de hora em hora, pelo agendador da máquina. A credencial só grava objeto novo
   # no bucket: não lê, não lista e não apaga.
   copia:

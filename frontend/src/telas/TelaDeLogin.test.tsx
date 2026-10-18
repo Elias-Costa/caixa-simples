@@ -73,6 +73,30 @@ describe('TelaDeLogin', () => {
     )
   })
 
+  it('a Conta suspensa mostra a mensagem do servidor, sem confundir com a senha errada', async () => {
+    marcarSessaoEncerrada()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        respostaJson(403, {
+          title: 'Forbidden',
+          status: 403,
+          detail: 'O acesso desta Conta está suspenso. O administrador recebeu o aviso por e-mail.',
+        }),
+      ),
+    )
+    renderizarLogin()
+
+    preencherEEnviar()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'O acesso desta Conta está suspenso. O administrador recebeu o aviso por e-mail.')
+    expect(screen.getByRole('alert')).not.toHaveTextContent('E-mail ou senha incorretos.')
+    expect(lerToken()).toBeNull()
+    // O aviso de que o registrado sem rede continua guardado fica na tela até o próximo login.
+    expect(sessaoFoiEncerrada()).toBe(true)
+  })
+
   it('sem conexão mostra a mensagem própria', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
     renderizarLogin()
