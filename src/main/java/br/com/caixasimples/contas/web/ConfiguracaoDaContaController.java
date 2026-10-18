@@ -5,6 +5,7 @@ import br.com.caixasimples.contas.application.ContaService.ConfiguracaoDaConta;
 import br.com.caixasimples.shared.EventoDeSeguranca;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -16,11 +17,13 @@ import org.springframework.web.bind.annotation.RestController;
  * Configuração da Conta autenticada, sem id de Conta na rota ou no pedido (RNF05).
  *
  * <p>Cada chave muda por uma rota própria, porque cada uma tem a sua regra: ligar o estoque pede o
- * plano e desligá-lo pede que não haja movimento, e a exigência do NSU não pede nada. As duas
- * respondem a configuração inteira, para a tela não precisar de uma segunda leitura.
+ * plano e desligá-lo pede que não haja movimento, a exigência do NSU não pede nada, e o nome do
+ * negócio só pede texto. Todas respondem a configuração inteira, para a tela não precisar de uma
+ * segunda leitura.
  *
- * <p>Cada mudança vai ao log como evento de segurança, com o campo, o valor novo, quem mudou e a
- * origem: é ação do administrador sobre a Conta.
+ * <p>Cada mudança vai ao log como evento de segurança, com o campo, quem mudou e a origem: é ação do
+ * administrador sobre a Conta. As chaves levam o valor novo; o nome do negócio não, porque pode
+ * identificar o dono.
  */
 @RestController
 @RequestMapping("/api/conta/configuracao")
@@ -53,6 +56,18 @@ class ConfiguracaoDaContaController {
         return Configuracao.de(configuracao);
     }
 
+    @PutMapping("/nome-do-negocio")
+    Configuracao corrigirNomeDoNegocio(@Valid @RequestBody PedidoDoNome pedido,
+            HttpServletRequest requisicao) {
+        ConfiguracaoDaConta configuracao = conta.corrigirNomeDoNegocio(pedido.nomeNegocio());
+        EventoDeSeguranca.de("configuracao.alterada")
+                .doContexto()
+                .com("campo", "nome_negocio")
+                .daOrigem(requisicao.getRemoteAddr())
+                .registrar();
+        return Configuracao.de(configuracao);
+    }
+
     private static void registrar(String campo, boolean valor, HttpServletRequest requisicao) {
         EventoDeSeguranca.de("configuracao.alterada")
                 .doContexto()
@@ -68,10 +83,13 @@ class ConfiguracaoDaContaController {
     record PedidoDoNsu(@NotNull Boolean nsuObrigatorio) {
     }
 
-    record Configuracao(boolean estoqueHabilitado, boolean nsuObrigatorio) {
+    record PedidoDoNome(@NotBlank String nomeNegocio) {
+    }
+
+    record Configuracao(String nomeNegocio, boolean estoqueHabilitado, boolean nsuObrigatorio) {
 
         static Configuracao de(ConfiguracaoDaConta configuracao) {
-            return new Configuracao(configuracao.estoqueHabilitado(),
+            return new Configuracao(configuracao.nomeNegocio(), configuracao.estoqueHabilitado(),
                     configuracao.nsuObrigatorio());
         }
     }

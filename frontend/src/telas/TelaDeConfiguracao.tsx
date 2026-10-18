@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
 import { contas, type ConfiguracaoDaConta } from '../api/contas'
 import { sessaoAtual } from '../sessao/armazenamento'
@@ -9,13 +9,17 @@ import { erroDeCadastro } from './erroDeCadastro'
 export function TelaDeConfiguracao() {
   const { identidade, atualizarIdentidade } = useSessao()
   const [configuracao, setConfiguracao] = useState<ConfiguracaoDaConta | null>(null)
-  // Qual chave está sendo salva: as duas ficam paradas, e só a que mudou diz que está salvando.
-  const [salvando, setSalvando] = useState<'estoque' | 'nsu' | null>(null)
+  const [nomeNegocio, setNomeNegocio] = useState('')
+  // Qual chave está sendo salva: as outras ficam paradas, e só a que mudou diz que está salvando.
+  const [salvando, setSalvando] = useState<'nome' | 'estoque' | 'nsu' | null>(null)
   const [erro, setErro] = useState<string | null>(null)
+  const [aviso, setAviso] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
     try {
-      setConfiguracao(await contas.configuracao())
+      const lida = await contas.configuracao()
+      setConfiguracao(lida)
+      setNomeNegocio(lida.nomeNegocio)
       setErro(null)
     } catch (falha) {
       setErro(erroDeCadastro(falha))
@@ -25,26 +29,44 @@ export function TelaDeConfiguracao() {
   useEffect(() => { queueMicrotask(() => void carregar()) }, [carregar])
 
   /**
-   * As duas chaves respondem a configuração inteira, e a identidade guardada recebe as duas: o
-   * menu depende do estoque, e o PDV sem rede, da exigência do NSU.
+   * Toda mudança responde a configuração inteira, e a identidade guardada recebe o que ela traz: o
+   * cabeçalho e o comprovante mostram o nome do negócio, o menu depende do estoque, e o PDV sem rede,
+   * da exigência do NSU.
    */
-  async function mudar(chave: 'estoque' | 'nsu', pedido: () => Promise<ConfiguracaoDaConta>) {
+  async function mudar(chave: 'nome' | 'estoque' | 'nsu', pedido: () => Promise<ConfiguracaoDaConta>) {
     if (!identidade) return
     const sessao = sessaoAtual()
     if (!sessao) return
     setSalvando(chave)
     setErro(null)
+    setAviso(null)
     try {
       const nova = await pedido()
       setConfiguracao(nova)
       atualizarIdentidade({
-        ...identidade, estoqueHabilitado: nova.estoqueHabilitado, nsuObrigatorio: nova.nsuObrigatorio,
+        ...identidade, nomeNegocio: nova.nomeNegocio,
+        estoqueHabilitado: nova.estoqueHabilitado, nsuObrigatorio: nova.nsuObrigatorio,
       }, sessao)
+      if (chave === 'nome') {
+        setNomeNegocio(nova.nomeNegocio)
+        setAviso('Nome do negócio corrigido.')
+      }
     } catch (falha) {
       setErro(erroDeCadastro(falha))
     } finally {
       setSalvando(null)
     }
+  }
+
+  function corrigirNome(evento: FormEvent<HTMLFormElement>) {
+    evento.preventDefault()
+    const nome = nomeNegocio.trim()
+    if (!nome) {
+      setAviso(null)
+      setErro('Informe o nome do negócio.')
+      return
+    }
+    void mudar('nome', () => contas.corrigirNomeDoNegocio(nome))
   }
 
   // Ligar exige o estoque do plano; desligar, não: um controle ligado pode ser desligado enquanto
@@ -55,6 +77,22 @@ export function TelaDeConfiguracao() {
   return <section className="relatorios">
     <h2 className="titulo">Configuração da Conta</h2>
     {erro && <p className="mensagem-erro" role="alert">{erro}</p>}
+    {aviso && <p role="status">{aviso}</p>}
+    <section className="relatorios__cartao">
+      <h3>Nome do negócio</h3>
+      {configuracao === null ? <p>Carregando configuração...</p> :
+        <form onSubmit={corrigirNome} noValidate>
+          <label className="campo"><span className="campo__rotulo">Nome do negócio</span>
+            <input className="campo__entrada" value={nomeNegocio} required maxLength={120}
+              onChange={(evento) => setNomeNegocio(evento.target.value)} />
+          </label>
+          <p>É o nome que aparece no cabeçalho e no comprovante. Os outros aparelhos passam a
+            mostrá-lo quando o aplicativo for aberto de novo neles, com rede.</p>
+          <button className="botao" disabled={salvando !== null}>
+            {salvando === 'nome' ? 'Salvando...' : 'Salvar o nome'}
+          </button>
+        </form>}
+    </section>
     <section className="relatorios__cartao">
       <h3>Controle de estoque</h3>
       {configuracao === null ? <p>Carregando configuração...</p> : <>

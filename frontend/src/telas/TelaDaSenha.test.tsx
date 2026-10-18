@@ -139,6 +139,74 @@ describe('TelaDaSenha', () => {
     expect(lerToken()).toBe('token-novo')
   })
 
+  it('mostra o nome, o e-mail e o perfil lidos do servidor, sem guardar o e-mail no aparelho', async () => {
+    entrarComo(ana)
+    servidor({
+      '/api/auth/meus-dados': () => respostaJson(200,
+        { nome: 'Ana', email: 'ana@exemplo.test', perfil: 'OPERADOR' }),
+    })
+    abrir('/senha')
+
+    expect(await screen.findByText('ana@exemplo.test')).toBeInTheDocument()
+    expect(screen.getByText('Operador')).toBeInTheDocument()
+    const guardado: string[] = []
+    for (const armazenamento of [localStorage, sessionStorage]) {
+      for (let i = 0; i < armazenamento.length; i++) {
+        guardado.push(armazenamento.getItem(armazenamento.key(i) ?? '') ?? '')
+      }
+    }
+    expect(guardado.join('\n')).toContain('Cafeteria Aurora')
+    expect(guardado.join('\n')).not.toContain('ana@exemplo.test')
+  })
+
+  it('troca o e-mail com a senha atual e mostra o novo; a repetição diferente nem é enviada', async () => {
+    entrarComo(ana)
+    const chamadas = servidor({
+      '/api/auth/meus-dados': () => respostaJson(200,
+        { nome: 'Ana', email: 'ana@exemplo.test', perfil: 'OPERADOR' }),
+      '/api/auth/email': () => new Response(null, { status: 204 }),
+    })
+    abrir('/senha')
+    expect(await screen.findByText('ana@exemplo.test')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('E-mail novo'), { target: { value: 'Ana.Lima@Exemplo.Test' } })
+    fireEvent.change(screen.getByLabelText('Repita o e-mail novo'), { target: { value: 'ana.lima@exemplo.tst' } })
+    fireEvent.change(screen.getByLabelText('Senha atual, para confirmar'), { target: { value: 'abc' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Trocar o e-mail' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('não são iguais')
+    expect(chamadas.map((chamada) => chamada.caminho)).not.toContain('/api/auth/email')
+
+    fireEvent.change(screen.getByLabelText('Repita o e-mail novo'), { target: { value: 'ana.lima@exemplo.test' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Trocar o e-mail' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('entre com o e-mail novo')
+    expect(screen.getByText('ana.lima@exemplo.test')).toBeInTheDocument()
+    expect(chamadas.find((chamada) => chamada.caminho === '/api/auth/email')?.corpo)
+      .toEqual({ senhaAtual: 'abc', emailNovo: 'Ana.Lima@Exemplo.Test' })
+    // Os aparelhos seguem dentro: a troca do e-mail não mexe no token.
+    expect(lerToken()).not.toBeNull()
+  })
+
+  it('a senha atual errada na troca do e-mail mostra a recusa do servidor e mantém o e-mail', async () => {
+    entrarComo(ana)
+    servidor({
+      '/api/auth/meus-dados': () => respostaJson(200,
+        { nome: 'Ana', email: 'ana@exemplo.test', perfil: 'OPERADOR' }),
+      '/api/auth/email': () => respostaJson(400, { title: 'Bad Request', detail: 'A senha atual não confere.' }),
+    })
+    abrir('/senha')
+    expect(await screen.findByText('ana@exemplo.test')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('E-mail novo'), { target: { value: 'outro@exemplo.test' } })
+    fireEvent.change(screen.getByLabelText('Repita o e-mail novo'), { target: { value: 'outro@exemplo.test' } })
+    fireEvent.change(screen.getByLabelText('Senha atual, para confirmar'), { target: { value: 'errada' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Trocar o e-mail' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('A senha atual não confere.')
+    expect(screen.getByText('ana@exemplo.test')).toBeInTheDocument()
+    expect(lerToken()).not.toBeNull()
+  })
+
   it('sair de todos os aparelhos encerra também este e o login avisa que a fila continua guardada', async () => {
     entrarComo(ana)
     const chamadas = servidor({ '/api/auth/sair-de-todos': () => new Response(null, { status: 204 }) })

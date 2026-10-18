@@ -17,7 +17,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Casos de uso da Conta em operação: consultar e configurar o estoque e a exigência do NSU no
- * cartão, marcar o primeiro acesso e conferir se o plano dá direito a um recurso.
+ * cartão, corrigir o nome do negócio, marcar o primeiro acesso e conferir se o plano dá direito a um
+ * recurso.
  *
  * <p><strong>Nenhum método recebe a conta como parâmetro, e essa ausência é a regra.</strong>
  * {@code Conta} é a única entidade de negócio sem filtro automático de tenant, porque o id dela
@@ -161,11 +162,33 @@ public class ContaService {
         return ConfiguracaoDaConta.de(conta);
     }
 
+    /**
+     * Corrige o nome do negócio da Conta autenticada (LGPD, art. 18, III): o nome pode identificar o
+     * dono, como num MEI, e o Caixa Simples é controlador desse cadastro.
+     *
+     * <p>A linha fica travada como nas outras chaves, porque a gravação escreve a linha inteira, com o
+     * plano e o vencimento, e não pode desfazer um código de plano aplicado ao mesmo tempo.
+     *
+     * @throws IllegalArgumentException se o nome está em branco ou passa do tamanho da coluna
+     */
+    @Transactional
+    public ConfiguracaoDaConta corrigirNomeDoNegocio(String nomeNegocio) {
+        UsuarioContext.exigirAdmin();
+        ContaId contaId = TenantContext.exigirAtual();
+        Conta conta = contas.buscarParaAtualizar(contaId.valor())
+                .orElseThrow(() -> new IllegalStateException(
+                        "conta do contexto nao existe: " + contaId));
+        conta.corrigirNomeDoNegocio(nomeNegocio);
+        return ConfiguracaoDaConta.de(conta);
+    }
+
     /** O que o administrador configura na Conta, como a tela o mostra. */
-    public record ConfiguracaoDaConta(boolean estoqueHabilitado, boolean nsuObrigatorio) {
+    public record ConfiguracaoDaConta(String nomeNegocio, boolean estoqueHabilitado,
+            boolean nsuObrigatorio) {
 
         private static ConfiguracaoDaConta de(Conta conta) {
-            return new ConfiguracaoDaConta(conta.isEstoqueHabilitado(), conta.isNsuObrigatorio());
+            return new ConfiguracaoDaConta(conta.getNomeNegocio(), conta.isEstoqueHabilitado(),
+                    conta.isNsuObrigatorio());
         }
     }
 

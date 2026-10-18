@@ -4,6 +4,7 @@ import br.com.caixasimples.contas.Plano;
 import br.com.caixasimples.contas.RecursoDoPlano;
 import br.com.caixasimples.contas.SituacaoDoPlano;
 import br.com.caixasimples.shared.ContaId;
+import br.com.caixasimples.shared.LimiteDeTexto;
 import br.com.caixasimples.shared.Money;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -33,6 +34,9 @@ import java.util.UUID;
 @Entity
 @Table(name = "conta")
 public class Conta {
+
+    /** O tamanho da coluna do nome do negócio: o texto longo é recusado aqui, e não pelo banco. */
+    private static final int TAMANHO_DO_NOME_DO_NEGOCIO = 120;
 
     @Id
     private UUID id;
@@ -77,13 +81,18 @@ public class Conta {
      */
     public Conta(String nomeNegocio, String tipoNegocio, Plano plano) {
         this.id = UUID.randomUUID();
-        this.nomeNegocio = exigirTexto(nomeNegocio, "nomeNegocio");
+        this.nomeNegocio = nomeDoNegocioConferido(nomeNegocio);
         this.tipoNegocio = tipoNegocio;
         this.plano = Objects.requireNonNull(plano, "plano nao pode ser nulo");
         this.estoqueHabilitado = false;
         this.nsuObrigatorio = false;
         this.catalogoInicialAplicado = false;
         this.criadoEm = Instant.now();
+    }
+
+    private static String nomeDoNegocioConferido(String nome) {
+        return LimiteDeTexto.exigirAte(exigirTexto(nome, "nomeNegocio"), TAMANHO_DO_NOME_DO_NEGOCIO,
+                "nome do negócio");
     }
 
     private static String exigirTexto(String valor, String campo) {
@@ -103,6 +112,15 @@ public class Conta {
 
     public String getNomeNegocio() {
         return nomeNegocio;
+    }
+
+    /**
+     * Corrige o nome do negócio. Nada guarda cópia dele no servidor: o aplicativo o lê da identidade
+     * de quem entrou, no cabeçalho e no comprovante, e cada aparelho mostra o nome novo na próxima
+     * leitura dela.
+     */
+    public void corrigirNomeDoNegocio(String novo) {
+        this.nomeNegocio = nomeDoNegocioConferido(novo);
     }
 
     public String getTipoNegocio() {

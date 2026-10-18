@@ -33,7 +33,9 @@ public interface UsuarioRepository extends JpaRepository<Usuario, UUID> {
     /**
      * Serializa as revogações do mesmo usuário: sem a trava, duas revogações simultâneas leriam a
      * mesma versão de acesso e gravariam o mesmo número, e o token emitido por uma valeria depois da
-     * outra. A consulta passa pelo filtro de tenant como qualquer outra deste repositório.
+     * outra. A correção do nome também trava, porque grava a linha inteira e, sem a trava, gravaria
+     * de volta uma versão lida antes de uma revogação. A consulta passa pelo filtro de tenant como
+     * qualquer outra deste repositório.
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select u from Usuario u where u.id = :id")

@@ -1032,6 +1032,68 @@ O pedido, o encaminhamento e a resposta ficam no e-mail de atendimento cinco ano
 como prova de que foram atendidos no prazo, e depois são apagados. O pedido do administrador sobre o
 cadastro da Conta ou o dele não é encaminhado: quem decide sobre esse cadastro é o Caixa Simples.
 
+**Pedido do administrador ao Caixa Simples.** O cadastro da Conta (o nome e o tipo do negócio, o plano)
+e o do administrador (o nome, o e-mail de entrada, o perfil, os aceites dos termos, os pedidos de plano e
+os eventos de segurança dele) são do Caixa Simples, que atende o pedido direto. Os prazos são os do
+agente de pequeno porte, em dobro.
+
+- **Correção.** O administrador corrige sozinho, no aplicativo: o nome dele e o de cada Usuário, na tela
+  Usuários; o nome do negócio, na tela Configuração; e o próprio e-mail de entrada, na tela Senha, com a
+  senha atual. Cada funcionário troca o próprio e-mail na tela Senha. Responda com o caminho; não
+  corrija por SQL, que pula as regras da aplicação. O administrador que não consegue entrar volta pela
+  redefinição de [Conta comprometida](#conta-comprometida-ou-administrador-sem-acesso) e então corrige.
+- **Confirmação e acesso.** A resposta é sempre a declaração completa, em até 15 dias do pedido, que
+  cobre também a confirmação simples:
+  1. Confirme quem pede por um canal que você já conhecia, como o telefone do contrato. O e-mail que
+     escreveu pode não ser do administrador, e a resposta leva os dados dele.
+  2. Na VPS, como root, na pasta `operacao/vps`, com o e-mail lido pelo `read`. As consultas só leem:
+
+     ```bash
+     read -rp 'E-mail do administrador: ' EMAIL
+     sh compose.sh exec -T banco psql -U postgres -d caixa_simples -v email="$EMAIL" <<'FIM'
+     \x on
+     select c.id as conta, c.nome_negocio, c.tipo_negocio, c.plano, c.proximo_vencimento,
+            c.criado_em as conta_criada_em, u.id as usuario, u.nome, u.perfil, u.ativo,
+            u.criado_em as usuario_criado_em, cr.email, cr.senha_provisoria,
+            cr.criado_em as credencial_criada_em
+     from credencial cr
+     join usuario u on u.id = cr.usuario_id
+     join conta c on c.id = cr.conta_id
+     where lower(cr.email) = lower(:'email');
+     \x off
+     select a.versao, a.aceito_em
+     from aceite_dos_termos a join credencial cr on cr.usuario_id = a.aceito_por
+     where lower(cr.email) = lower(:'email') order by a.aceito_em;
+     select p.tipo, p.plano, p.valor, p.situacao, p.criado_em, p.aplicado_em
+     from pedido_de_plano p join credencial cr on cr.usuario_id = p.criado_por
+     where lower(cr.email) = lower(:'email') order by p.criado_em;
+     FIM
+     unset EMAIL
+     ```
+
+     A senha não sai: o banco guarda só o resumo dela, que não entra na declaração.
+  3. Os eventos de segurança dos últimos 7 dias em que ele agiu ou foi o alvo, pelo id do Usuário que a
+     consulta mostrou:
+
+     ```bash
+     journalctl CONTAINER_NAME=caixa-simples-app-1 --since -7d | grep -E '(usuario|alvo)=<uuid do Usuário>'
+     ```
+
+  4. Escreva a declaração do e-mail de atendimento ao e-mail de entrada que a consulta mostrou, e só a
+     ele: os dados das duas consultas; de onde veio cada um (o cadastro da Conta pelo Caixa Simples, o
+     resto pelo próprio administrador no aplicativo, os eventos pela aplicação); para que servem, a base
+     e por quanto tempo ficam, como no aviso de privacidade; e com quem são compartilhados, que é a
+     hospedagem e a cópia no Brasil.
+- **Eliminação.** O cadastro do administrador sai com o encerramento da Conta, abaixo, ou, se ele não é
+  o último administrador, pela inativação por outro administrador, que apaga a credencial e pode remover
+  o nome.
+- **Portabilidade.** Não há exportação dos dados enquanto a ANPD não regulamentar a portabilidade.
+  Responda isso, e que os relatórios e os comprovantes do aplicativo ficam à disposição para ele guardar
+  o que quiser.
+
+O pedido e a resposta ficam no e-mail de atendimento cinco anos depois da resposta, como os outros
+pedidos de titular.
+
 O ADMIN pede encerramento pelo endereço publicado no aviso de privacidade. Antes de executar, confira
 a identidade e o vínculo do ADMIN com a Conta e anote a data do pedido para cumprir o prazo de quinze
 dias. Responda ao ADMIN que, em cada aparelho da Conta, cada usuário entre com rede, espere o envio do

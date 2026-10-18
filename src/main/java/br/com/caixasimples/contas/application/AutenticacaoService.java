@@ -33,8 +33,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Casos de uso de identidade (RNF06): o login, quem está operando agora, a troca da própria senha e
- * a saída de todos os aparelhos.
+ * Casos de uso de identidade (RNF06): o login, quem está operando agora, os próprios dados, a troca
+ * da própria senha e do próprio e-mail e a saída de todos os aparelhos.
  *
  * <p>O login descobre a conta pela credencial, a única busca possível sem tenant, e só então lê o
  * usuário sob o filtro normal de {@code @TenantId}. No primeiro login de ADMIN, marca a Conta e
@@ -214,21 +214,7 @@ public class AutenticacaoService {
         }
 
         Credencial credencial = credencialDe(atual.usuarioId(), contaId);
-        ContencaoDeLogin.Tentativa tentativa =
-                contencao.reservar(origem, credencial.getEmail(), Instant.now());
-        boolean confere;
-        try {
-            confere = encoder.matches(senhaAtual, credencial.getSenhaHash());
-        } catch (RuntimeException erro) {
-            // Um erro que não diz nada sobre a senha não conta como falha.
-            contencao.desfazer(tentativa);
-            throw erro;
-        }
-        if (!confere) {
-            // A reserva fica: é a falha que a contenção conta.
-            throw new SenhaAtualIncorretaException();
-        }
-        contencao.registrarSucesso(tentativa);
+        conferirSenhaAtual(credencial, senhaAtual, origem, SenhaAtualIncorretaException.Troca.SENHA);
 
         if (senhaNova.equals(senhaAtual)) {
             throw new SenhaRecusadaException("A senha nova precisa ser diferente da atual");
@@ -246,6 +232,102 @@ public class AutenticacaoService {
             return usuario.getVersaoDoAcesso();
         });
         return emissor.emitir(atual.usuarioId(), contaId, atual.perfil(), versao);
+    }
+
+    /**
+     * Troca o e-mail de entrada de quem está autenticado, que confirma a senha atual (LGPD, art. 18,
+     * III).
+     *
+     * <p>O e-mail é credencial: a senha atual passa pela mesma contenção da troca de senha, pelo
+     * e-mail atual, para quem pegou um aparelho destravado não trocá-lo e trancar o dono fora. Só
+     * depois dela se pergunta se o e-mail novo já tem dono, então descobrir quais e-mails existem
+     * pede a senha.
+     *
+     * <p>Os tokens continuam valendo, porque não levam o e-mail; o login seguinte é pelo novo. O novo
+     * igual ao atual, sem diferença de maiúscula, termina sem efeito.
+     *
+     * <p><strong>Sem {@code @Transactional} no método</strong>, pelo mesmo motivo da troca de senha: o
+     * BCrypt roda antes, e a escrita trava a linha do usuário, que a troca de senha e a redefinição
+     * também travam antes de mexer na credencial.
+     *
+     * @param origem o IP de quem pede, já lido da cadeia de proxies confiáveis
+     * @return se o e-mail mudou
+     * @throws SenhaAtualIncorretaException se a senha atual não confere
+     * @throws LoginContidoException se a origem, ou o e-mail vindo dela, errou demais na janela atual
+     * @throws EmailJaCadastradoException se outra credencial, nesta ou em outra Conta, já usa o e-mail
+     * @throws IllegalArgumentException se o e-mail novo está em branco ou passa do tamanho da coluna
+     */
+    public boolean trocarEmail(String senhaAtual, String emailNovo, String origem) {
+        UsuarioAutenticado atual = UsuarioContext.exigirAtual();
+        ContaId contaId = TenantContext.exigirAtual();
+        if (senhaAtual == null || emailNovo == null) {
+            throw new IllegalArgumentException("informe a senha atual e o e-mail novo");
+        }
+
+        Credencial credencial = credencialDe(atual.usuarioId(), contaId);
+        conferirSenhaAtual(credencial, senhaAtual, origem, SenhaAtualIncorretaException.Troca.EMAIL);
+
+        String novo = emailNovo.trim();
+        if (novo.equalsIgnoreCase(credencial.getEmail())) {
+            return false;
+        }
+        // Consultado antes de gravar, como na criação de usuário; o índice único continua como rede.
+        if (credenciais.existsByEmailIgnoreCase(novo)) {
+            throw new EmailJaCadastradoException(novo);
+        }
+
+        transacao.executeWithoutResult(status -> {
+            Usuario usuario = usuarioTravado(atual.usuarioId());
+            Credencial paraGravar = credencialDe(usuario.getId(), contaId);
+            paraGravar.trocarEmail(novo);
+            credenciais.save(paraGravar);
+        });
+        return true;
+    }
+
+    /**
+     * Confere a senha atual de quem pede uma troca, contada na contenção do login pela origem e pelo
+     * e-mail atual. Certa, zera o par, como o login certo; errada, a reserva fica, porque é a falha
+     * que a contenção conta.
+     */
+    private void conferirSenhaAtual(Credencial credencial, String senhaAtual, String origem,
+            SenhaAtualIncorretaException.Troca troca) {
+        ContencaoDeLogin.Tentativa tentativa =
+                contencao.reservar(origem, credencial.getEmail(), Instant.now());
+        boolean confere;
+        try {
+            confere = encoder.matches(senhaAtual, credencial.getSenhaHash());
+        } catch (RuntimeException erro) {
+            // Um erro que não diz nada sobre a senha não conta como falha.
+            contencao.desfazer(tentativa);
+            throw erro;
+        }
+        if (!confere) {
+            throw new SenhaAtualIncorretaException(troca);
+        }
+        contencao.registrarSucesso(tentativa);
+    }
+
+    /**
+     * O nome, o e-mail de entrada e o perfil de quem está autenticado, para a própria pessoa ver o que
+     * o Caixa Simples guarda do cadastro dela (LGPD, art. 18, I e II).
+     *
+     * <p>Fica fora da identidade de toda tela de propósito: o aplicativo guarda a identidade no
+     * aparelho, e o e-mail só aparece quando a pessoa abre a tela dos próprios dados.
+     */
+    @Transactional(readOnly = true)
+    public MeusDados meusDados() {
+        UsuarioAutenticado atual = UsuarioContext.exigirAtual();
+        ContaId contaId = TenantContext.exigirAtual();
+        Usuario usuario = usuarios.findById(atual.usuarioId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "usuario do contexto nao existe: " + atual.usuarioId()));
+        Credencial credencial = credencialDe(usuario.getId(), contaId);
+        return new MeusDados(usuario.getNome(), credencial.getEmail(), atual.perfil());
+    }
+
+    /** O cadastro de quem está autenticado, como a própria pessoa o vê. */
+    public record MeusDados(String nome, String email, Perfil perfil) {
     }
 
     /**

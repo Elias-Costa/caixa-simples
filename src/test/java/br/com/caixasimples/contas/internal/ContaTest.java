@@ -107,6 +107,26 @@ class ContaTest {
         conferirCiclo(gratis, Plano.GRATIS, null, null);
     }
 
+    @Test
+    @DisplayName("o nome do negócio é corrigido sem os espaços das pontas; em branco ou acima de 120 caracteres, recusado, também na criação")
+    void nomeDoNegocio() {
+        Conta conta = paga(Plano.COMPLETO);
+        conta.corrigirNomeDoNegocio("  Cafeteria Aurora do Centro  ");
+        assertThat(conta.getNomeNegocio()).isEqualTo("Cafeteria Aurora do Centro");
+
+        assertThatIllegalArgumentException().isThrownBy(() -> conta.corrigirNomeDoNegocio(" "));
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> conta.corrigirNomeDoNegocio("a".repeat(121)))
+                .withMessage("nome do negócio com 121 caracteres; o limite é 120.");
+        assertThat(conta.getNomeNegocio()).isEqualTo("Cafeteria Aurora do Centro");
+        // A correção não mexe no ciclo do plano.
+        conferirCiclo(conta, Plano.COMPLETO, 10, VENCIMENTO);
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new Conta("a".repeat(121), null, Plano.GRATIS))
+                .withMessageContaining("o limite é 120");
+    }
+
     private static Conta gratis() {
         return new Conta("Cafeteria Aurora", null, Plano.GRATIS);
     }

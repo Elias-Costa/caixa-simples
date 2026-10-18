@@ -33,6 +33,9 @@ public class Usuario {
     /** O tamanho da coluna do nome: o texto longo é recusado aqui, e não pelo banco. */
     private static final int TAMANHO_DO_NOME = 120;
 
+    /** O que fica no lugar do nome removido a pedido, nas vendas, nos caixas e nos relatórios. */
+    private static final String NOME_REMOVIDO = "Usuário removido";
+
     @Id
     private UUID id;
 
@@ -123,6 +126,31 @@ public class Usuario {
         if (ativo) {
             throw new IllegalStateException("inative o usuario antes de remover o nome");
         }
-        this.nome = "Usuário removido";
+        this.nome = NOME_REMOVIDO;
+    }
+
+    public boolean isNomeRemovido() {
+        return NOME_REMOVIDO.equals(nome);
+    }
+
+    /**
+     * Corrige o nome, do Usuário ativo ou do inativo, que continua nas vendas e nos caixas que operou.
+     *
+     * <p>O nome removido a pedido não volta: a remoção atendeu a um pedido de eliminação, e
+     * escrevê-lo de novo desfaria isso. Pelo mesmo motivo o marcador não serve de nome novo, porque
+     * quem lê a linha o tomaria por removido.
+     */
+    public void corrigirNome(String novo) {
+        if (isNomeRemovido()) {
+            throw new IllegalStateException(
+                    "O nome deste usuário foi removido a pedido e não pode ser corrigido.");
+        }
+        String corrigido = LimiteDeTexto.exigirAte(exigirTexto(novo, "nome"), TAMANHO_DO_NOME,
+                "nome do usuário");
+        if (NOME_REMOVIDO.equals(corrigido)) {
+            throw new IllegalArgumentException(
+                    "Esse é o texto que marca um usuário removido; escolha outro nome.");
+        }
+        this.nome = corrigido;
     }
 }

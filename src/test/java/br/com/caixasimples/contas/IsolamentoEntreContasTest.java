@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import br.com.caixasimples.TesteDeIntegracao;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
 import br.com.caixasimples.contas.application.AutenticacaoService;
+import br.com.caixasimples.contas.application.ContaService;
 import br.com.caixasimples.contas.application.PedidoDePlanoNaoEncontradoException;
 import br.com.caixasimples.contas.application.PlanoService;
 import br.com.caixasimples.contas.application.PlanoService.EstadoDoPlano;
@@ -73,6 +74,9 @@ class IsolamentoEntreContasTest extends TesteDeIntegracao {
 
     @Autowired
     private UsuarioService usuarioService;
+
+    @Autowired
+    private ContaService contaService;
 
     @Autowired
     private TransactionTemplate transacao;
@@ -258,6 +262,26 @@ class IsolamentoEntreContasTest extends TesteDeIntegracao {
         assertThat(credenciais.findByUsuarioId(operadorDeA.usuarioId()).orElseThrow()
                 .getSenhaHash()).isEqualTo(hashAntes);
         assertThat(versaoDoAcesso(operadorDeA)).isZero();
+    }
+
+    @Test
+    @DisplayName("o ADMIN da conta B não corrige o nome de um Usuário da conta A, e o nome do negócio que corrige é só o da B")
+    void correcaoNaoAtravessaConta() {
+        ContaCriada adminDeA = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
+        ContaCriada adminDeB = criador.criar("Salao Vizinho", SENHA_DE_TESTE);
+
+        adminDeB.comoUsuario(() -> assertThatExceptionOfType(UsuarioNaoEncontradoException.class)
+                .isThrownBy(() -> usuarioService.corrigirNome(adminDeA.usuarioId(),
+                        "Nome trocado pela outra conta")));
+        adminDeB.comoUsuario(() -> contaService.corrigirNomeDoNegocio("Salao Vizinho Renovado"));
+
+        assertThat(TenantContext.executarComo(adminDeA.contaId(),
+                () -> usuarios.findById(adminDeA.usuarioId()).orElseThrow().getNome()))
+                .isEqualTo("Pessoa de Cafeteria Aurora");
+        assertThat(adminDeA.comoUsuario(() -> autenticacao.identidade().nomeNegocio()))
+                .isEqualTo("Cafeteria Aurora");
+        assertThat(adminDeB.comoUsuario(() -> autenticacao.identidade().nomeNegocio()))
+                .isEqualTo("Salao Vizinho Renovado");
     }
 
     private int versaoDoAcesso(ContaCriada conta) {

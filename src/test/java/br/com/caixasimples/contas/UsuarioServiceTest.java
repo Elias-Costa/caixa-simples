@@ -307,6 +307,53 @@ class UsuarioServiceTest extends TesteDeIntegracao {
                 .isEqualTo("Nome pessoal"));
     }
 
+    @Test
+    @DisplayName("o administrador corrige o nome do operador, o do inativo e o próprio, sem pedir o plano, e o operador não corrige nenhum")
+    void correcaoDoNome() {
+        ContaCriada conta = criador.criar("Quitanda Aurora", SENHA_DE_TESTE);
+        UsuarioCriado operador = criador.criarOperadorEm(conta.contaId(), "Joana");
+        UsuarioCriado saiu = criador.criarOperadorEm(conta.contaId(), "Carlos");
+        conta.comoUsuario(() -> usuarioService.inativar(saiu.usuarioId()));
+
+        // A Conta está no plano grátis, sem multiusuário: corrigir não cria ninguém.
+        conta.comoUsuario(() -> {
+            usuarioService.corrigirNome(operador.usuarioId(), "Joana Lima");
+            usuarioService.corrigirNome(saiu.usuarioId(), "Carlos Souza");
+            usuarioService.corrigirNome(conta.usuarioId(), "Dona da Quitanda");
+        });
+        assertThatExceptionOfType(AcessoNegadoException.class).isThrownBy(() ->
+                operador.comoUsuario(() -> usuarioService.corrigirNome(operador.usuarioId(),
+                        "Nome escolhido pelo operador")));
+
+        conta.comoUsuario(() -> assertThat(usuarioService.listar())
+                .extracting(UsuarioDaConta::id, UsuarioDaConta::nome, UsuarioDaConta::ativo)
+                .containsExactlyInAnyOrder(
+                        tuple(conta.usuarioId(), "Dona da Quitanda", true),
+                        tuple(operador.usuarioId(), "Joana Lima", true),
+                        tuple(saiu.usuarioId(), "Carlos Souza", false)));
+    }
+
+    @Test
+    @DisplayName("o nome removido a pedido não é corrigido, e um id desconhecido responde como inexistente")
+    void correcaoDoNomeRemovido() {
+        ContaCriada conta = criador.criar("Banca do Mercado", SENHA_DE_TESTE);
+        UsuarioCriado saiu = criador.criarOperadorEm(conta.contaId(), "Nome pessoal");
+        conta.comoUsuario(() -> {
+            usuarioService.inativar(saiu.usuarioId());
+            usuarioService.anonimizarNome(saiu.usuarioId());
+        });
+
+        assertThatExceptionOfType(IllegalStateException.class).isThrownBy(() ->
+                conta.comoUsuario(() -> usuarioService.corrigirNome(saiu.usuarioId(),
+                        "Nome pessoal")));
+        assertThatExceptionOfType(UsuarioNaoEncontradoException.class).isThrownBy(() ->
+                conta.comoUsuario(() -> usuarioService.corrigirNome(UUID.randomUUID(), "Alguém")));
+        conta.comoUsuario(() -> assertThat(usuarioService.listar())
+                .filteredOn(usuario -> usuario.id().equals(saiu.usuarioId()))
+                .singleElement().extracting(UsuarioDaConta::nome)
+                .isEqualTo("Usuário removido"));
+    }
+
     private String entrar(String email, String senha) throws Exception {
         String corpo = http.perform(login(email, senha))
                 .andExpect(status().isOk())

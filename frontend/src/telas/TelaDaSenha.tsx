@@ -1,6 +1,6 @@
-import { useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { ErroDaApi, SemConexao } from '../api/cliente'
-import { contas } from '../api/contas'
+import { contas, type MeusDados } from '../api/contas'
 import { marcarSessaoEncerrada, renovarTokenDaSessao, sessaoAtual } from '../sessao/armazenamento'
 import { useSessao } from '../sessao/useSessao'
 import { problemaDoTamanhoDaSenha } from './regrasDaSenha'
@@ -11,7 +11,7 @@ type Props = {
 }
 
 /**
- * A própria senha e os aparelhos em que se entrou (RNF06).
+ * Os próprios dados, a própria senha e os aparelhos em que se entrou (RNF06).
  *
  * Trocar a senha derruba todos os outros aparelhos na requisição seguinte; este continua, com o
  * token novo que a resposta traz no corpo. Sair de todos os aparelhos derruba também este, para que
@@ -108,6 +108,7 @@ export function TelaDaSenha({ obrigatoria = false }: Props) {
 
   return <section className="cadastro">
     <h2 className="titulo">Senha</h2>
+    <SeusDados />
     {formulario}
     <div className="cadastro__formulario">
       <h3>Aparelhos</h3>
@@ -120,8 +121,98 @@ export function TelaDaSenha({ obrigatoria = false }: Props) {
   </section>
 }
 
-function mensagemDe(falha: unknown): string {
-  if (falha instanceof SemConexao) return 'Sem conexão. Trocar a senha e sair dos aparelhos precisam de rede.'
+const ROTULO_DO_PERFIL: Record<MeusDados['perfil'], string> = {
+  ADMIN: 'Administrador',
+  OPERADOR: 'Operador',
+}
+
+/**
+ * O que o Caixa Simples guarda do cadastro de quem entrou, e a troca do e-mail de entrada (LGPD, art.
+ * 18, I a III). Os dados são lidos do servidor ao abrir a tela e não ficam no aparelho: a identidade
+ * guardada na sessão não leva o e-mail.
+ *
+ * O e-mail novo é pedido duas vezes porque um erro de digitação só apareceria no login seguinte, com
+ * a pessoa já trancada fora. Os aparelhos seguem dentro: o token não leva o e-mail.
+ */
+function SeusDados() {
+  const [dados, setDados] = useState<MeusDados | null>(null)
+  const [semDados, setSemDados] = useState<string | null>(null)
+  const [emailNovo, setEmailNovo] = useState('')
+  const [repetido, setRepetido] = useState('')
+  const [senhaAtual, setSenhaAtual] = useState('')
+  const [erro, setErro] = useState<string | null>(null)
+  const [aviso, setAviso] = useState<string | null>(null)
+  const [enviando, setEnviando] = useState(false)
+
+  const carregar = useCallback(async () => {
+    try {
+      setDados(await contas.meusDados())
+      setSemDados(null)
+    } catch (falha) {
+      setSemDados(mensagemDe(falha, 'Sem conexão. Ver os seus dados precisa de rede.'))
+    }
+  }, [])
+
+  useEffect(() => { queueMicrotask(() => void carregar()) }, [carregar])
+
+  async function trocarEmail(evento: FormEvent<HTMLFormElement>) {
+    evento.preventDefault()
+    setErro(null)
+    setAviso(null)
+    const novo = emailNovo.trim()
+    const problema = !novo ? 'Informe o e-mail novo.'
+      : novo.toLowerCase() !== repetido.trim().toLowerCase() ? 'O e-mail novo e a repetição não são iguais.'
+        : !senhaAtual ? 'Informe a senha atual para confirmar.' : null
+    if (problema) {
+      setErro(problema)
+      return
+    }
+    setEnviando(true)
+    try {
+      await contas.trocarEmail(senhaAtual, novo)
+      setDados((antes) => antes && { ...antes, email: novo.toLowerCase() })
+      setEmailNovo('')
+      setRepetido('')
+      setSenhaAtual('')
+      setAviso('E-mail trocado. Da próxima vez, entre com o e-mail novo.')
+    } catch (falha) {
+      setErro(mensagemDe(falha, 'Sem conexão. Trocar o e-mail precisa de rede.'))
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  return <div className="cadastro__formulario">
+    <h3>Seus dados</h3>
+    {dados ? <>
+      <p>Nome: <strong>{dados.nome}</strong></p>
+      <p>E-mail de entrada: <strong>{dados.email}</strong></p>
+      <p>Perfil: <strong>{ROTULO_DO_PERFIL[dados.perfil]}</strong></p>
+    </> : <p>{semDados ?? 'Carregando os seus dados...'}</p>}
+    <p className="cadastro__apoio">O nome é corrigido pelo administrador da Conta, na tela Usuários. O e-mail de entrada só você troca, aqui.</p>
+    <form onSubmit={(evento) => void trocarEmail(evento)} noValidate>
+      <label className="campo"><span className="campo__rotulo">E-mail novo</span>
+        <input className="campo__entrada" type="email" autoComplete="email" maxLength={180}
+          value={emailNovo} required onChange={(evento) => setEmailNovo(evento.target.value)} />
+      </label>
+      <label className="campo"><span className="campo__rotulo">Repita o e-mail novo</span>
+        <input className="campo__entrada" type="email" autoComplete="off" maxLength={180}
+          value={repetido} required onChange={(evento) => setRepetido(evento.target.value)} />
+      </label>
+      <label className="campo"><span className="campo__rotulo">Senha atual, para confirmar</span>
+        <input className="campo__entrada" type="password" autoComplete="current-password"
+          value={senhaAtual} required onChange={(evento) => setSenhaAtual(evento.target.value)} />
+      </label>
+      {erro && <p className="mensagem-erro" role="alert">{erro}</p>}
+      {aviso && <p role="status">{aviso}</p>}
+      <button className="botao" disabled={enviando}>{enviando ? 'Trocando...' : 'Trocar o e-mail'}</button>
+    </form>
+  </div>
+}
+
+function mensagemDe(falha: unknown,
+  semRede = 'Sem conexão. Trocar a senha e sair dos aparelhos precisam de rede.'): string {
+  if (falha instanceof SemConexao) return semRede
   if (falha instanceof ErroDaApi) {
     if (falha.status === 401) return 'A sessão foi encerrada. Entre de novo.'
     return falha.detalhe ?? falha.titulo

@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { contas, type NovoUsuario, type UsuarioDaConta } from '../api/contas'
+import { sessaoAtual } from '../sessao/armazenamento'
+import { useSessao } from '../sessao/useSessao'
 import { erroDeCadastro } from './erroDeCadastro'
 import { problemaDoTamanhoDaSenha } from './regrasDaSenha'
 
 const vazio: NovoUsuario = { nome: '', perfil: 'OPERADOR', email: '', senha: '' }
 
+/** O que fica no lugar do nome removido a pedido; esse nome não se corrige nem se remove de novo. */
+const NOME_REMOVIDO = 'Usuário removido'
+
 export function TelaDeUsuarios() {
+  const { identidade, atualizarIdentidade } = useSessao()
   const [usuarios, setUsuarios] = useState<UsuarioDaConta[]>([])
   const [dados, setDados] = useState<NovoUsuario>(vazio)
   const [carregando, setCarregando] = useState(true)
@@ -14,6 +20,8 @@ export function TelaDeUsuarios() {
   const [aviso, setAviso] = useState<string | null>(null)
   const [redefinindo, setRedefinindo] = useState<string | null>(null)
   const [senhaProvisoria, setSenhaProvisoria] = useState('')
+  const [corrigindo, setCorrigindo] = useState<string | null>(null)
+  const [nomeCorrigido, setNomeCorrigido] = useState('')
 
   const carregar = useCallback(async () => {
     try {
@@ -88,6 +96,37 @@ export function TelaDeUsuarios() {
     }
   }
 
+  /**
+   * O nome corrigido aparece no histórico de vendas e de caixas do mesmo Usuário. O do próprio
+   * administrador vai também para a identidade guardada, que o cabeçalho mostra.
+   */
+  async function corrigir(evento: FormEvent<HTMLFormElement>, usuario: UsuarioDaConta) {
+    evento.preventDefault()
+    setErro(null)
+    setAviso(null)
+    const nome = nomeCorrigido.trim()
+    if (!nome) {
+      setErro('Informe o nome.')
+      return
+    }
+    setSalvando(true)
+    try {
+      await contas.corrigirNomeDoUsuario(usuario.id, nome)
+      setCorrigindo(null)
+      setNomeCorrigido('')
+      const sessao = sessaoAtual()
+      if (identidade && sessao && usuario.id === identidade.usuarioId) {
+        atualizarIdentidade({ ...identidade, nome }, sessao)
+      }
+      await carregar()
+      setAviso(`Nome corrigido para ${nome}.`)
+    } catch (falha) {
+      setErro(erroDeCadastro(falha))
+    } finally {
+      setSalvando(false)
+    }
+  }
+
   async function anonimizar(usuario: UsuarioDaConta) {
     if (!window.confirm('Remover o nome deste Usuário? Esta ação não pode ser desfeita.')) return
     setErro(null)
@@ -138,9 +177,22 @@ export function TelaDeUsuarios() {
     {carregando ? <p>Carregando...</p> : usuarios.length === 0 ? <p>Nenhum usuário encontrado.</p> :
       <ul className="cadastro__lista">{usuarios.map((usuario) => <li className="cadastro__item" key={usuario.id}>
         <div><strong>{usuario.nome}</strong><p>{usuario.perfil === 'ADMIN' ? 'Administrador' : 'Operador'} · {usuario.ativo ? 'Ativo' : 'Inativo'}</p></div>
+        {usuario.nome !== NOME_REMOVIDO && corrigindo !== usuario.id &&
+          <button className="botao botao--secundario" type="button"
+            onClick={() => { setCorrigindo(usuario.id); setNomeCorrigido(usuario.nome); setRedefinindo(null) }}>Corrigir nome</button>}
+        {corrigindo === usuario.id &&
+          <form onSubmit={(evento) => void corrigir(evento, usuario)} noValidate>
+            <label className="campo"><span className="campo__rotulo">Nome de {usuario.nome}</span>
+              <input className="campo__entrada" value={nomeCorrigido} required maxLength={120}
+                onChange={(evento) => setNomeCorrigido(evento.target.value)} />
+            </label>
+            <button className="botao" disabled={salvando}>{salvando ? 'Salvando...' : 'Salvar nome'}</button>
+            <button className="botao botao--secundario" type="button"
+              onClick={() => setCorrigindo(null)}>Cancelar</button>
+          </form>}
         {usuario.ativo && usuario.perfil === 'OPERADOR' && redefinindo !== usuario.id &&
           <button className="botao botao--secundario" type="button"
-            onClick={() => { setRedefinindo(usuario.id); setSenhaProvisoria('') }}>Redefinir senha</button>}
+            onClick={() => { setRedefinindo(usuario.id); setSenhaProvisoria(''); setCorrigindo(null) }}>Redefinir senha</button>}
         {redefinindo === usuario.id &&
           <form onSubmit={(evento) => void redefinir(evento, usuario)} noValidate>
             <label className="campo"><span className="campo__rotulo">Senha provisória de {usuario.nome}</span>
@@ -153,7 +205,7 @@ export function TelaDeUsuarios() {
           </form>}
         {usuario.ativo && <button className="botao botao--secundario" type="button"
           onClick={() => void inativar(usuario)}>Inativar</button>}
-        {!usuario.ativo && usuario.nome !== 'Usuário removido' &&
+        {!usuario.ativo && usuario.nome !== NOME_REMOVIDO &&
           <button className="botao botao--secundario" type="button"
             onClick={() => void anonimizar(usuario)}>Remover nome</button>}
       </li>)}</ul>}

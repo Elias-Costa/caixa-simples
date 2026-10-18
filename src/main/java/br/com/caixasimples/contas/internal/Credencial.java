@@ -68,14 +68,18 @@ public class Credencial {
      */
     public Credencial(String email, String senhaHash, UUID usuarioId, ContaId contaId) {
         this.id = UUID.randomUUID();
-        // Contado depois das minúsculas, que é o valor que vai à coluna.
-        this.email = LimiteDeTexto.exigirAte(exigirTexto(email, "email").toLowerCase(),
-                TAMANHO_DO_EMAIL, "e-mail");
+        this.email = emailNormalizado(email);
         this.senhaHash = exigirTexto(senhaHash, "senhaHash");
         this.usuarioId = Objects.requireNonNull(usuarioId, "usuarioId nao pode ser nulo");
         this.contaId = Objects.requireNonNull(contaId, "contaId nao pode ser nulo").valor();
         this.criadoEm = Instant.now();
         this.senhaProvisoria = true;
+    }
+
+    /** Contado depois das minúsculas, que é o valor que vai à coluna. */
+    private static String emailNormalizado(String email) {
+        return LimiteDeTexto.exigirAte(exigirTexto(email, "email").toLowerCase(), TAMANHO_DO_EMAIL,
+                "e-mail");
     }
 
     private static String exigirTexto(String valor, String campo) {
@@ -117,6 +121,14 @@ public class Credencial {
     public void trocarSenha(String novoHash) {
         this.senhaHash = exigirTexto(novoHash, "senhaHash");
         this.senhaProvisoria = false;
+    }
+
+    /**
+     * O próximo login é pelo e-mail novo. Quem chama confere antes que nenhuma outra credencial o
+     * usa; o índice único sobre o e-mail continua como rede.
+     */
+    public void trocarEmail(String novo) {
+        this.email = emailNormalizado(novo);
     }
 
     /** Outra pessoa escolheu a senha nova, e a próxima entrada pede a troca. */

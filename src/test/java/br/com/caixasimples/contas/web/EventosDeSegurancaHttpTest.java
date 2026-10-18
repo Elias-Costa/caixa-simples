@@ -311,6 +311,40 @@ class EventosDeSegurancaHttpTest extends TesteDeIntegracao {
         semDadoPessoal(saida, conta.email(), "Maria", "98888");
     }
 
+    @Test
+    @DisplayName("a troca do e-mail recusada e a feita, e as correções de nome, vão ao log sem o e-mail nem os nomes")
+    void correcoesDoCadastro(CapturedOutput saida) throws Exception {
+        String origem = "192.0.2.21";
+        ContaCriada conta = criador.criar("Livraria Aurora", SENHA);
+        String admin = entrar(conta.email(), SENHA, origem);
+        UUID operador = criador.criarOperadorEm(conta.contaId(), "Atendente Joana").usuarioId();
+        String emailNovo = "novo-" + UUID.randomUUID() + "@exemplo.test";
+
+        trocarEmail(admin, ERRADA, emailNovo, origem).andExpect(status().isBadRequest());
+        trocarEmail(admin, SENHA, emailNovo, origem).andExpect(status().isNoContent());
+        http.perform(put("/api/usuarios/{id}/nome", operador).with(comToken(admin))
+                        .with(deOrigem(origem))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nome\":\"Atendente Rosalinda\"}"))
+                .andExpect(status().isNoContent());
+        http.perform(put("/api/conta/configuracao/nome-do-negocio").with(comToken(admin))
+                        .with(deOrigem(origem))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nomeNegocio\":\"Livraria Rosalinda\"}"))
+                .andExpect(status().isOk());
+
+        String quem = "conta=" + conta.contaId() + " usuario=" + conta.usuarioId();
+        assertThat(saida.getAll())
+                .contains("evento=email.troca_recusada " + quem + " motivo=senha_atual origem="
+                        + origem)
+                .contains("evento=email.trocado " + quem + " origem=" + origem)
+                .contains("evento=usuario.nome_corrigido " + quem + " alvo=" + operador
+                        + " origem=" + origem)
+                .contains("evento=configuracao.alterada " + quem + " campo=nome_negocio origem="
+                        + origem);
+        semDadoPessoal(saida, conta.email(), emailNovo, "Rosalinda");
+    }
+
     /** As senhas de teste e os dados pessoais do caso não aparecem em lugar nenhum do log. */
     private static void semDadoPessoal(CapturedOutput saida, String... dados) {
         assertThat(saida.getAll())
@@ -356,6 +390,13 @@ class EventosDeSegurancaHttpTest extends TesteDeIntegracao {
         return http.perform(post("/api/auth/senha").with(comToken(token)).with(deOrigem(origem))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(json.writeValueAsString(Map.of("senhaAtual", atual, "senhaNova", nova))));
+    }
+
+    private ResultActions trocarEmail(String token, String atual, String emailNovo, String origem)
+            throws Exception {
+        return http.perform(post("/api/auth/email").with(comToken(token)).with(deOrigem(origem))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(Map.of("senhaAtual", atual, "emailNovo", emailNovo))));
     }
 
     private ResultActions aplicar(String token, UUID pedido, String codigo, String origem)

@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -32,8 +33,8 @@ import org.springframework.web.bind.annotation.RestController;
  * Gestão de usuários da Conta autenticada, sem receber conta ou perfil de quem chama.
  *
  * <p>Cada mudança feita vai ao log como evento de segurança, com quem fez, o Usuário alcançado e a
- * origem: criar alguém, inativar e trocar a senha de outra pessoa são o que um token de
- * administrador furtado faria. O nome e o e-mail não vão.
+ * origem: criar alguém, corrigir o nome, inativar e trocar a senha de outra pessoa são o que um token
+ * de administrador furtado faria. O nome e o e-mail não vão.
  */
 @RestController
 @RequestMapping("/api/usuarios")
@@ -61,6 +62,15 @@ class UsuarioController {
                 .daOrigem(requisicao.getRemoteAddr())
                 .registrar();
         return ResponseEntity.created(URI.create("/api/usuarios/" + id)).body(new Criado(id));
+    }
+
+    /** O histórico de vendas e de caixas passa a mostrar o nome corrigido, que não vai ao log. */
+    @PutMapping("/{id}/nome")
+    ResponseEntity<Void> corrigirNome(@PathVariable UUID id, @Valid @RequestBody PedidoDeNome pedido,
+            HttpServletRequest requisicao) {
+        usuarios.corrigirNome(id, pedido.nome());
+        registrar("usuario.nome_corrigido", id, requisicao);
+        return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/{id}/inativar")
@@ -118,5 +128,8 @@ class UsuarioController {
     }
 
     record PedidoDeRedefinicao(@NotBlank String senha) {
+    }
+
+    record PedidoDeNome(@NotBlank String nome) {
     }
 }

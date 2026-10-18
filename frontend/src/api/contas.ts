@@ -17,8 +17,15 @@ export type NovoUsuario = {
   senha: string
 }
 
-/** As duas rotas de mudança respondem a configuração inteira. */
-export type ConfiguracaoDaConta = { estoqueHabilitado: boolean; nsuObrigatorio: boolean }
+/** Todas as rotas de mudança respondem a configuração inteira. */
+export type ConfiguracaoDaConta = {
+  nomeNegocio: string
+  estoqueHabilitado: boolean
+  nsuObrigatorio: boolean
+}
+
+/** O cadastro de quem entrou, lido na hora e nunca guardado no aparelho. */
+export type MeusDados = { nome: string; email: string; perfil: Perfil }
 
 export type TipoDePedido = 'ADESAO' | 'UPGRADE' | 'RENOVACAO'
 
@@ -61,6 +68,9 @@ export const contas = {
     chamarApi<void>(`/api/usuarios/${id}/inativar`, { metodo: 'POST' }),
   anonimizarUsuario: (id: string) =>
     chamarApi<void>(`/api/usuarios/${id}/anonimizar`, { metodo: 'POST' }),
+  /** O histórico de vendas e de caixas do Usuário passa a mostrar o nome corrigido. */
+  corrigirNomeDoUsuario: (id: string, nome: string) =>
+    chamarApi<void>(`/api/usuarios/${id}/nome`, { metodo: 'PUT', corpo: { nome } }),
   /** A senha nova é provisória: o operador a troca na próxima entrada. */
   redefinirSenha: (id: string, senha: string) =>
     chamarApi<void>(`/api/usuarios/${id}/redefinir-senha`, { metodo: 'POST', corpo: { senha } }),
@@ -73,6 +83,10 @@ export const contas = {
       metodo: 'POST', corpo: { senhaAtual, senhaNova },
     }),
   sairDeTodosOsAparelhos: () => chamarApi<void>('/api/auth/sair-de-todos', { metodo: 'POST' }),
+  meusDados: () => chamarApi<MeusDados>('/api/auth/meus-dados'),
+  /** Os aparelhos seguem dentro: o token não leva o e-mail, e só o próximo login usa o novo. */
+  trocarEmail: (senhaAtual: string, emailNovo: string) =>
+    chamarApi<void>('/api/auth/email', { metodo: 'POST', corpo: { senhaAtual, emailNovo } }),
   /** A versão é a que a tela mostrou; o servidor recusa com 409 a que não é a vigente. */
   aceitarTermos: (versao: string) =>
     chamarApi<void>('/api/conta/termos', { metodo: 'POST', corpo: { versao } }),
@@ -84,6 +98,10 @@ export const contas = {
   definirNsu: (nsuObrigatorio: boolean) =>
     chamarApi<ConfiguracaoDaConta>('/api/conta/configuracao/nsu', {
       metodo: 'PUT', corpo: { nsuObrigatorio },
+    }),
+  corrigirNomeDoNegocio: (nomeNegocio: string) =>
+    chamarApi<ConfiguracaoDaConta>('/api/conta/configuracao/nome-do-negocio', {
+      metodo: 'PUT', corpo: { nomeNegocio },
     }),
   /** Quem está operando, relido depois de uma mudança que o menu precisa refletir. */
   identidade: () => chamarApi<Identidade>('/api/auth/eu'),

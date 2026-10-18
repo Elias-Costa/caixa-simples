@@ -23,8 +23,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Gestão de usuários da conta em operação (RF29): criar, listar, inativar, redefinir a senha de um
- * operador e anonimizar o nome.
+ * Gestão de usuários da conta em operação (RF29): criar, listar, corrigir o nome, inativar, redefinir
+ * a senha de um operador e anonimizar o nome.
  *
  * <p><strong>Só o administrador chama</strong>, e cada caso de uso pergunta isso na primeira
  * linha. A conta nunca chega por parâmetro: é a do contexto, como em {@link ContaService}, e o
@@ -218,6 +218,34 @@ public class UsuarioService {
         usuarios.save(usuario);
     }
 
+    /**
+     * Corrige o nome de um Usuário da conta, ativo ou inativo (LGPD, art. 18, III). O histórico de
+     * vendas e de caixas dele passa a mostrar o nome corrigido, que é o mesmo Usuário.
+     *
+     * <p>É do administrador porque quem operou cada caixa é registro do negócio, como na remoção do
+     * nome. Não pede o recurso de multiusuário do plano: o Usuário já existe, como na inativação.
+     *
+     * <p><strong>A linha do Usuário é lida com a trava</strong>, que vale até o commit. A gravação
+     * escreve a linha inteira, inclusive a versão de acesso; sem a trava, uma troca de senha dele ao
+     * mesmo tempo subiria a versão, e esta correção a gravaria de volta com o valor lido antes,
+     * desfazendo a revogação dos outros aparelhos.
+     *
+     * @throws br.com.caixasimples.shared.AcessoNegadoException se quem chama não é ADMIN
+     * @throws UsuarioNaoEncontradoException se o id não existe nesta conta
+     * @throws IllegalStateException se o nome foi removido a pedido
+     * @throws IllegalArgumentException se o nome está em branco, passa do tamanho da coluna ou é o
+     *         marcador de removido
+     */
+    @Transactional
+    public void corrigirNome(UUID usuarioId, String nome) {
+        UsuarioContext.exigirAdmin();
+        Objects.requireNonNull(usuarioId, "usuarioId nao pode ser nulo");
+        Usuario usuario = usuarios.buscarParaAtualizar(usuarioId)
+                .orElseThrow(() -> new UsuarioNaoEncontradoException(usuarioId));
+        usuario.corrigirNome(nome);
+        usuarios.save(usuario);
+    }
+
     /** A pedido, retira o nome do Usuário já inativo, sem tocar no histórico. */
     @Transactional
     public void anonimizarNome(UUID usuarioId) {
@@ -228,7 +256,7 @@ public class UsuarioService {
         if (usuario.isAtivo()) {
             throw new IllegalStateException("inative o usuario antes de remover o nome");
         }
-        if ("Usuário removido".equals(usuario.getNome())) {
+        if (usuario.isNomeRemovido()) {
             return;
         }
         registroDeRemocoes.registrar(Tipo.NOME_USUARIO, usuarioId, Instant.now(),

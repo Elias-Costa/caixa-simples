@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { contas } from '../api/contas'
@@ -59,6 +59,13 @@ function ConfiguracaoComProvedorReal() {
   </MemoryRouter>
 }
 
+/** A tela dentro de uma sessão da Ana, com a atualização da identidade observável pelo teste. */
+function comSessao(tela: ReactNode, atualizarIdentidade = vi.fn()) {
+  return <SessaoContext.Provider value={{
+    identidade: admin, entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade,
+  }}>{tela}</SessaoContext.Provider>
+}
+
 function ComSessaoEConfig() {
   const [identidade, atualizarIdentidade] = useState(admin)
   return <SessaoContext.Provider value={{
@@ -72,9 +79,9 @@ function ComSessaoEConfig() {
 describe('administração na tela', () => {
   it('liga o estoque e mostra o menu imediatamente', async () => {
     gravarToken('token-admin')
-    vi.spyOn(contas, 'configuracao').mockResolvedValue({ estoqueHabilitado: false, nsuObrigatorio: false })
+    vi.spyOn(contas, 'configuracao').mockResolvedValue({ nomeNegocio: 'Loja', estoqueHabilitado: false, nsuObrigatorio: false })
     const definir = vi.spyOn(contas, 'definirEstoque')
-      .mockResolvedValue({ estoqueHabilitado: true, nsuObrigatorio: false })
+      .mockResolvedValue({ nomeNegocio: 'Loja', estoqueHabilitado: true, nsuObrigatorio: false })
     render(<ComSessaoEConfig />)
 
     fireEvent.click(await screen.findByRole('switch', { name: 'Ligar controle de estoque' }))
@@ -91,7 +98,7 @@ describe('administração na tela', () => {
       { id: 'caio', nome: 'Caio', perfil: 'OPERADOR', ativo: false },
     ])
     const redefinir = vi.spyOn(contas, 'redefinirSenha').mockResolvedValue(undefined)
-    render(<TelaDeUsuarios />)
+    render(comSessao(<TelaDeUsuarios />))
     expect(await screen.findByText('Bia')).toBeInTheDocument()
 
     // Um botão só: o da Bia. O administrador e o inativo não têm.
@@ -118,7 +125,7 @@ describe('administração na tela', () => {
     ])
     const inativar = vi.spyOn(contas, 'inativarUsuario').mockResolvedValue(undefined)
     vi.spyOn(window, 'confirm').mockReturnValue(true)
-    render(<TelaDeUsuarios />)
+    render(comSessao(<TelaDeUsuarios />))
     expect(await screen.findByText('Bia')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Inativar' }))
@@ -128,6 +135,66 @@ describe('administração na tela', () => {
       'Bia foi inativado. No aparelho que só essa pessoa usava, apague os dados pelo botão da tela de entrada.')
   })
 
+  it('corrige o nome do operador e o do próprio administrador, que vai também para a identidade', async () => {
+    gravarToken('token-admin')
+    vi.spyOn(contas, 'usuarios').mockResolvedValue([
+      { id: 'admin', nome: 'Ana', perfil: 'ADMIN', ativo: true },
+      { id: 'bia', nome: 'Bia', perfil: 'OPERADOR', ativo: true },
+      { id: 'caio', nome: 'Usuário removido', perfil: 'OPERADOR', ativo: false },
+    ])
+    const corrigir = vi.spyOn(contas, 'corrigirNomeDoUsuario').mockResolvedValue(undefined)
+    const atualizarIdentidade = vi.fn()
+    render(comSessao(<TelaDeUsuarios />, atualizarIdentidade))
+    expect(await screen.findByText('Bia')).toBeInTheDocument()
+
+    // O nome removido a pedido não se corrige: dois botões, o da Ana e o da Bia.
+    const botoes = screen.getAllByRole('button', { name: 'Corrigir nome' })
+    expect(botoes).toHaveLength(2)
+
+    fireEvent.click(botoes[1])
+    fireEvent.change(screen.getByLabelText('Nome de Bia'), { target: { value: '   ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar nome' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('Informe o nome.')
+    expect(corrigir).not.toHaveBeenCalled()
+
+    fireEvent.change(screen.getByLabelText('Nome de Bia'), { target: { value: ' Bia Souza ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar nome' }))
+    await waitFor(() => expect(corrigir).toHaveBeenCalledWith('bia', 'Bia Souza'))
+    expect(await screen.findByRole('status')).toHaveTextContent('Nome corrigido para Bia Souza.')
+    expect(atualizarIdentidade).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Corrigir nome' })[0])
+    fireEvent.change(screen.getByLabelText('Nome de Ana'), { target: { value: 'Ana Paula' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar nome' }))
+    await waitFor(() => expect(corrigir).toHaveBeenCalledWith('admin', 'Ana Paula'))
+    expect(atualizarIdentidade).toHaveBeenCalledWith(
+      expect.objectContaining({ usuarioId: 'admin', nome: 'Ana Paula' }), expect.anything())
+  })
+
+  it('corrige o nome do negócio e o leva à identidade, e recusa o nome em branco sem enviar', async () => {
+    gravarToken('token-admin')
+    vi.spyOn(contas, 'configuracao')
+      .mockResolvedValue({ nomeNegocio: 'Loja', estoqueHabilitado: false, nsuObrigatorio: false })
+    const corrigir = vi.spyOn(contas, 'corrigirNomeDoNegocio')
+      .mockResolvedValue({ nomeNegocio: 'Loja da Ana', estoqueHabilitado: false, nsuObrigatorio: false })
+    const atualizarIdentidade = vi.fn()
+    render(<MemoryRouter>{comSessao(<TelaDeConfiguracao />, atualizarIdentidade)}</MemoryRouter>)
+
+    const campo = await screen.findByLabelText('Nome do negócio')
+    expect(campo).toHaveValue('Loja')
+    fireEvent.change(campo, { target: { value: '  ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar o nome' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('Informe o nome do negócio.')
+    expect(corrigir).not.toHaveBeenCalled()
+
+    fireEvent.change(campo, { target: { value: ' Loja da Ana ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar o nome' }))
+    await waitFor(() => expect(corrigir).toHaveBeenCalledWith('Loja da Ana'))
+    expect(await screen.findByRole('status')).toHaveTextContent('Nome do negócio corrigido.')
+    expect(atualizarIdentidade).toHaveBeenCalledWith(
+      expect.objectContaining({ nomeNegocio: 'Loja da Ana', estoqueHabilitado: false }), expect.anything())
+  })
+
   it('mostra a recusa por plano sem esconder a lista de usuários', async () => {
     vi.spyOn(contas, 'usuarios').mockResolvedValue([{
       id: 'admin', nome: 'Ana', perfil: 'ADMIN', ativo: true,
@@ -135,7 +202,7 @@ describe('administração na tela', () => {
     vi.spyOn(contas, 'criarUsuario').mockRejectedValue(
       new ErroDaApi(409, 'Conflict', 'o plano admite um único usuário', {}),
     )
-    render(<TelaDeUsuarios />)
+    render(comSessao(<TelaDeUsuarios />))
     expect(await screen.findByText('Ana')).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText('Nome'), { target: { value: 'Bia' } })
@@ -148,7 +215,7 @@ describe('administração na tela', () => {
   })
 
   it('sem o estoque no plano, ligar o controle fica indisponível e a tela aponta o plano', async () => {
-    vi.spyOn(contas, 'configuracao').mockResolvedValue({ estoqueHabilitado: false, nsuObrigatorio: false })
+    vi.spyOn(contas, 'configuracao').mockResolvedValue({ nomeNegocio: 'Loja', estoqueHabilitado: false, nsuObrigatorio: false })
     const definir = vi.spyOn(contas, 'definirEstoque')
     render(<MemoryRouter>
       <SessaoContext.Provider value={{
@@ -167,9 +234,9 @@ describe('administração na tela', () => {
 
   it('exige o NSU no cartão mesmo no plano grátis e guarda a exigência na identidade', async () => {
     gravarToken('token-admin')
-    vi.spyOn(contas, 'configuracao').mockResolvedValue({ estoqueHabilitado: false, nsuObrigatorio: false })
+    vi.spyOn(contas, 'configuracao').mockResolvedValue({ nomeNegocio: 'Loja', estoqueHabilitado: false, nsuObrigatorio: false })
     const definir = vi.spyOn(contas, 'definirNsu')
-      .mockResolvedValue({ estoqueHabilitado: false, nsuObrigatorio: true })
+      .mockResolvedValue({ nomeNegocio: 'Loja', estoqueHabilitado: false, nsuObrigatorio: true })
     const atualizarIdentidade = vi.fn()
     render(<MemoryRouter>
       <SessaoContext.Provider value={{
@@ -192,8 +259,8 @@ describe('administração na tela', () => {
 
   it('pelo provedor de sessão real, guarda a exigência do NSU na identidade da sessão da aba', async () => {
     abrirComoAna()
-    vi.spyOn(contas, 'configuracao').mockResolvedValue({ estoqueHabilitado: false, nsuObrigatorio: false })
-    vi.spyOn(contas, 'definirNsu').mockResolvedValue({ estoqueHabilitado: false, nsuObrigatorio: true })
+    vi.spyOn(contas, 'configuracao').mockResolvedValue({ nomeNegocio: 'Loja', estoqueHabilitado: false, nsuObrigatorio: false })
+    vi.spyOn(contas, 'definirNsu').mockResolvedValue({ nomeNegocio: 'Loja', estoqueHabilitado: false, nsuObrigatorio: true })
     render(<ConfiguracaoComProvedorReal />)
 
     fireEvent.click(await screen.findByRole('switch', { name: 'Exigir o NSU no cartão' }))
@@ -204,10 +271,10 @@ describe('administração na tela', () => {
 
   it('não grava a identidade desta aba na sessão da Conta que outra aba abriu', async () => {
     const sessaoDaAna = abrirComoAna()
-    vi.spyOn(contas, 'configuracao').mockResolvedValue({ estoqueHabilitado: false, nsuObrigatorio: false })
+    vi.spyOn(contas, 'configuracao').mockResolvedValue({ nomeNegocio: 'Loja', estoqueHabilitado: false, nsuObrigatorio: false })
     // O cliente HTTP recusaria esta chamada, saída depois que outra aba trocou a sessão; aqui ela
     // responde mesmo assim, para provar que o provedor também recusa a identidade.
-    vi.spyOn(contas, 'definirNsu').mockResolvedValue({ estoqueHabilitado: false, nsuObrigatorio: true })
+    vi.spyOn(contas, 'definirNsu').mockResolvedValue({ nomeNegocio: 'Loja', estoqueHabilitado: false, nsuObrigatorio: true })
     render(<ConfiguracaoComProvedorReal />)
     const exigir = await screen.findByRole('switch', { name: 'Exigir o NSU no cartão' })
 

@@ -3,6 +3,8 @@ package br.com.caixasimples.contas.web;
 import br.com.caixasimples.contas.RecursoDoPlano;
 import br.com.caixasimples.contas.application.AutenticacaoService;
 import br.com.caixasimples.contas.application.AutenticacaoService.Identidade;
+import br.com.caixasimples.contas.application.AutenticacaoService.MeusDados;
+import br.com.caixasimples.contas.application.EmailJaCadastradoException;
 import br.com.caixasimples.contas.application.SenhaAtualIncorretaException;
 import br.com.caixasimples.contas.internal.CredenciaisInvalidasException;
 import br.com.caixasimples.contas.internal.LoginContidoException;
@@ -10,6 +12,7 @@ import br.com.caixasimples.contas.internal.SenhaRecusadaException;
 import br.com.caixasimples.shared.EventoDeSeguranca;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import java.time.LocalDate;
 import java.util.List;
@@ -34,9 +37,9 @@ import org.springframework.web.bind.annotation.RestController;
  * o controller só traduz e delega, e a exceção que só este módulo lança é traduzida aqui mesmo.
  * O que é transversal, como a recusa por perfil virar 403, fica no tratador de {@code shared}.
  *
- * <p>A troca de senha, a recusa dela e a saída de todos os aparelhos vão ao log como evento de
- * segurança, com a origem, que só a borda HTTP conhece. O login é registrado no caso de uso, o único
- * que sabe o motivo da recusa.
+ * <p>A troca de senha e a de e-mail, a recusa delas e a saída de todos os aparelhos vão ao log como
+ * evento de segurança, com a origem, que só a borda HTTP conhece. O login é registrado no caso de
+ * uso, o único que sabe o motivo da recusa.
  */
 @RestController
 @RequestMapping("/api/auth")
@@ -74,6 +77,31 @@ class AutenticacaoController {
                 .daOrigem(requisicao.getRemoteAddr())
                 .registrar();
         return new RespostaDeTrocaDeSenha(token);
+    }
+
+    /**
+     * Troca o e-mail de entrada de quem está autenticado. Os tokens seguem, porque não levam o
+     * e-mail; o evento vai ao log só quando o e-mail mudou, e nunca com ele.
+     */
+    @PostMapping("/email")
+    ResponseEntity<Void> trocarEmail(@Valid @RequestBody PedidoDeTrocaDeEmail pedido,
+            HttpServletRequest requisicao) {
+        boolean trocou = autenticacao.trocarEmail(pedido.senhaAtual(), pedido.emailNovo(),
+                requisicao.getRemoteAddr());
+        if (trocou) {
+            EventoDeSeguranca.de("email.trocado")
+                    .doContexto()
+                    .daOrigem(requisicao.getRemoteAddr())
+                    .registrar();
+        }
+        return ResponseEntity.noContent().build();
+    }
+
+    /** O cadastro de quem está autenticado: nome, e-mail de entrada e perfil. */
+    @GetMapping("/meus-dados")
+    RespostaDeMeusDados meusDados() {
+        MeusDados dados = autenticacao.meusDados();
+        return new RespostaDeMeusDados(dados.nome(), dados.email(), dados.perfil().name());
     }
 
     /** Derruba todos os aparelhos de quem está autenticado, inclusive este. */
@@ -147,13 +175,16 @@ class AutenticacaoController {
      * A senha atual errada responde 400, e não 401: quem pede a troca está autenticado, e o
      * aplicativo trata o 401 como sessão encerrada.
      *
-     * <p>A recusa vai ao log e conta no alerta de rajada como um login recusado, porque passa pela
-     * mesma contenção dele.
+     * <p>A recusa vai ao log com o nome da troca que tentou, a da senha ou a do e-mail, e conta no
+     * alerta de rajada como um login recusado, porque passa pela mesma contenção dele.
      */
     @ExceptionHandler(SenhaAtualIncorretaException.class)
     ProblemDetail senhaAtualIncorreta(SenhaAtualIncorretaException excecao,
             HttpServletRequest requisicao) {
-        EventoDeSeguranca.de("senha.troca_recusada")
+        String evento = excecao.troca() == SenhaAtualIncorretaException.Troca.EMAIL
+                ? "email.troca_recusada"
+                : "senha.troca_recusada";
+        EventoDeSeguranca.de(evento)
                 .doContexto()
                 .com("motivo", "senha_atual")
                 .daOrigem(requisicao.getRemoteAddr())
@@ -166,6 +197,12 @@ class AutenticacaoController {
         return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, excecao.getMessage());
     }
 
+    /** O e-mail novo já entra em outra credencial, desta ou de outra Conta, como na criação. */
+    @ExceptionHandler(EmailJaCadastradoException.class)
+    ProblemDetail emailJaCadastrado(EmailJaCadastradoException excecao) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, excecao.getMessage());
+    }
+
     record PedidoDeLogin(@NotBlank String email, @NotBlank String senha) {
     }
 
@@ -176,6 +213,12 @@ class AutenticacaoController {
     }
 
     record RespostaDeTrocaDeSenha(String token) {
+    }
+
+    record PedidoDeTrocaDeEmail(@NotBlank String senhaAtual, @NotBlank @Email String emailNovo) {
+    }
+
+    record RespostaDeMeusDados(String nome, String email, String perfil) {
     }
 
     /**
