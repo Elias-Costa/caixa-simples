@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { contas, type NovoUsuario, type UsuarioDaConta } from '../api/contas'
 import { sessaoAtual } from '../sessao/armazenamento'
 import { useSessao } from '../sessao/useSessao'
+import { CampoDeSenha } from './CampoDeSenha'
 import { erroDeCadastro } from './erroDeCadastro'
+import { Mensagem } from './Mensagem'
 import { problemaDoTamanhoDaSenha } from './regrasDaSenha'
 
 const vazio: NovoUsuario = { nome: '', perfil: 'OPERADOR', email: '', senha: '' }
@@ -10,14 +12,20 @@ const vazio: NovoUsuario = { nome: '', perfil: 'OPERADOR', email: '', senha: '' 
 /** O que fica no lugar do nome removido a pedido; esse nome não se corrige nem se remove de novo. */
 const NOME_REMOVIDO = 'Usuário removido'
 
+/**
+ * A resposta de uma ação aparece onde ela foi tocada: no alto, quando é da lista (onde é lista), no
+ * formulário de usuário novo (novo) ou no item do usuário (o id dele), que numa lista longa fica
+ * longe do alto da tela.
+ */
+type MensagemNaTela = { tipo: 'erro' | 'sucesso'; texto: string; onde: string }
+
 export function TelaDeUsuarios() {
   const { identidade, atualizarIdentidade } = useSessao()
   const [usuarios, setUsuarios] = useState<UsuarioDaConta[]>([])
   const [dados, setDados] = useState<NovoUsuario>(vazio)
   const [carregando, setCarregando] = useState(true)
   const [salvando, setSalvando] = useState(false)
-  const [erro, setErro] = useState<string | null>(null)
-  const [aviso, setAviso] = useState<string | null>(null)
+  const [mensagem, setMensagem] = useState<MensagemNaTela | null>(null)
   const [redefinindo, setRedefinindo] = useState<string | null>(null)
   const [senhaProvisoria, setSenhaProvisoria] = useState('')
   const [corrigindo, setCorrigindo] = useState<string | null>(null)
@@ -26,9 +34,9 @@ export function TelaDeUsuarios() {
   const carregar = useCallback(async () => {
     try {
       setUsuarios(await contas.usuarios())
-      setErro(null)
+      setMensagem((atual) => atual?.onde === 'lista' ? null : atual)
     } catch (falha) {
-      setErro(erroDeCadastro(falha))
+      setMensagem({ tipo: 'erro', texto: erroDeCadastro(falha), onde: 'lista' })
     } finally {
       setCarregando(false)
     }
@@ -36,13 +44,16 @@ export function TelaDeUsuarios() {
 
   useEffect(() => { queueMicrotask(() => void carregar()) }, [carregar])
 
+  function mostrarEm(onde: string) {
+    return mensagem?.onde === onde ? <Mensagem tipo={mensagem.tipo} texto={mensagem.texto} /> : null
+  }
+
   async function criar(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault()
-    setErro(null)
-    setAviso(null)
+    setMensagem(null)
     const problema = problemaDoTamanhoDaSenha(dados.senha)
     if (problema) {
-      setErro(problema)
+      setMensagem({ tipo: 'erro', texto: problema, onde: 'novo' })
       return
     }
     setSalvando(true)
@@ -50,9 +61,10 @@ export function TelaDeUsuarios() {
       await contas.criarUsuario(dados)
       setDados(vazio)
       await carregar()
-      setAviso('Usuário criado. Ele entra com o e-mail e a senha cadastrados e escolhe a própria senha no primeiro acesso.')
+      setMensagem({ tipo: 'sucesso', onde: 'novo',
+        texto: 'Usuário criado. Ele entra com o e-mail e a senha cadastrados e escolhe a própria senha no primeiro acesso.' })
     } catch (falha) {
-      setErro(erroDeCadastro(falha))
+      setMensagem({ tipo: 'erro', texto: erroDeCadastro(falha), onde: 'novo' })
     } finally {
       setSalvando(false)
     }
@@ -60,27 +72,26 @@ export function TelaDeUsuarios() {
 
   async function inativar(usuario: UsuarioDaConta) {
     if (!window.confirm(`Inativar ${usuario.nome}? O acesso será encerrado na próxima requisição.`)) return
-    setErro(null)
-    setAviso(null)
+    setMensagem(null)
     try {
       await contas.inativarUsuario(usuario.id)
       await carregar()
       // O aparelho guarda o que a pessoa viu e registrou, e o servidor não o alcança.
-      setAviso(`${usuario.nome} foi inativado. No aparelho que só essa pessoa usava, apague os dados `
-        + 'pelo botão da tela de entrada.')
+      setMensagem({ tipo: 'sucesso', onde: usuario.id,
+        texto: `${usuario.nome} foi inativado. No aparelho que só essa pessoa usava, apague os dados `
+          + 'pelo botão da tela de entrada.' })
     } catch (falha) {
-      setErro(erroDeCadastro(falha))
+      setMensagem({ tipo: 'erro', texto: erroDeCadastro(falha), onde: usuario.id })
     }
   }
 
   /** A senha que o administrador escolhe é provisória: o operador a troca ao entrar. */
   async function redefinir(evento: FormEvent<HTMLFormElement>, usuario: UsuarioDaConta) {
     evento.preventDefault()
-    setErro(null)
-    setAviso(null)
+    setMensagem(null)
     const problema = problemaDoTamanhoDaSenha(senhaProvisoria)
     if (problema) {
-      setErro(problema)
+      setMensagem({ tipo: 'erro', texto: problema, onde: usuario.id })
       return
     }
     setSalvando(true)
@@ -88,9 +99,10 @@ export function TelaDeUsuarios() {
       await contas.redefinirSenha(usuario.id, senhaProvisoria)
       setRedefinindo(null)
       setSenhaProvisoria('')
-      setAviso(`Senha de ${usuario.nome} redefinida. Os aparelhos dele saíram, e ele escolhe a própria senha ao entrar.`)
+      setMensagem({ tipo: 'sucesso', onde: usuario.id,
+        texto: `Senha de ${usuario.nome} redefinida. Os aparelhos dele saíram, e ele escolhe a própria senha ao entrar.` })
     } catch (falha) {
-      setErro(erroDeCadastro(falha))
+      setMensagem({ tipo: 'erro', texto: erroDeCadastro(falha), onde: usuario.id })
     } finally {
       setSalvando(false)
     }
@@ -102,11 +114,10 @@ export function TelaDeUsuarios() {
    */
   async function corrigir(evento: FormEvent<HTMLFormElement>, usuario: UsuarioDaConta) {
     evento.preventDefault()
-    setErro(null)
-    setAviso(null)
+    setMensagem(null)
     const nome = nomeCorrigido.trim()
     if (!nome) {
-      setErro('Informe o nome.')
+      setMensagem({ tipo: 'erro', texto: 'Informe o nome.', onde: usuario.id })
       return
     }
     setSalvando(true)
@@ -119,9 +130,9 @@ export function TelaDeUsuarios() {
         atualizarIdentidade({ ...identidade, nome }, sessao)
       }
       await carregar()
-      setAviso(`Nome corrigido para ${nome}.`)
+      setMensagem({ tipo: 'sucesso', texto: `Nome corrigido para ${nome}.`, onde: usuario.id })
     } catch (falha) {
-      setErro(erroDeCadastro(falha))
+      setMensagem({ tipo: 'erro', texto: erroDeCadastro(falha), onde: usuario.id })
     } finally {
       setSalvando(false)
     }
@@ -129,22 +140,20 @@ export function TelaDeUsuarios() {
 
   async function anonimizar(usuario: UsuarioDaConta) {
     if (!window.confirm('Remover o nome deste Usuário? Esta ação não pode ser desfeita.')) return
-    setErro(null)
-    setAviso(null)
+    setMensagem(null)
     try {
       await contas.anonimizarUsuario(usuario.id)
       await carregar()
-      setAviso('Nome do Usuário removido.')
+      setMensagem({ tipo: 'sucesso', texto: 'Nome do Usuário removido.', onde: usuario.id })
     } catch (falha) {
-      setErro(erroDeCadastro(falha))
+      setMensagem({ tipo: 'erro', texto: erroDeCadastro(falha), onde: usuario.id })
     }
   }
 
   return <section className="cadastro">
     <h2 className="titulo">Usuários</h2>
     <p>Crie acessos para quem trabalha nesta Conta. O plano Completo permite mais de um usuário.</p>
-    {erro && <p className="mensagem-erro" role="alert">{erro}</p>}
-    {aviso && <p className="mensagem-sucesso" role="status">{aviso}</p>}
+    {mostrarEm('lista')}
 
     <form className="cadastro__formulario" onSubmit={(evento) => void criar(evento)}>
       <h3>Novo usuário</h3>
@@ -164,12 +173,11 @@ export function TelaDeUsuarios() {
           <input className="campo__entrada" type="email" value={dados.email} required
             onChange={(evento) => setDados({ ...dados, email: evento.target.value })} />
         </label>
-        <label className="campo"><span className="campo__rotulo">Senha inicial</span>
-          <input className="campo__entrada" type="password" value={dados.senha} required minLength={15}
-            onChange={(evento) => setDados({ ...dados, senha: evento.target.value })} />
-        </label>
+        <CampoDeSenha rotulo="Senha inicial" autoComplete="new-password" minLength={15} valor={dados.senha}
+          aoMudar={(senha) => setDados({ ...dados, senha })} />
       </div>
       <p className="cadastro__apoio">A senha precisa ter de 15 caracteres a 72 letras sem acento, em que letra com acento ou cedilha conta como duas, e passa pela verificação de vazamentos. O usuário escolhe a própria senha no primeiro acesso.</p>
+      {mostrarEm('novo')}
       <button className="botao" disabled={salvando}>{salvando ? 'Criando...' : 'Criar usuário'}</button>
     </form>
 
@@ -195,19 +203,18 @@ export function TelaDeUsuarios() {
             onClick={() => { setRedefinindo(usuario.id); setSenhaProvisoria(''); setCorrigindo(null) }}>Redefinir senha</button>}
         {redefinindo === usuario.id &&
           <form onSubmit={(evento) => void redefinir(evento, usuario)} noValidate>
-            <label className="campo"><span className="campo__rotulo">Senha provisória de {usuario.nome}</span>
-              <input className="campo__entrada" type="password" autoComplete="new-password"
-                value={senhaProvisoria} required onChange={(evento) => setSenhaProvisoria(evento.target.value)} />
-            </label>
+            <CampoDeSenha rotulo={`Senha provisória de ${usuario.nome}`} autoComplete="new-password"
+              valor={senhaProvisoria} aoMudar={setSenhaProvisoria} />
             <button className="botao" disabled={salvando}>{salvando ? 'Salvando...' : 'Salvar senha provisória'}</button>
             <button className="botao botao--secundario" type="button"
               onClick={() => setRedefinindo(null)}>Cancelar</button>
           </form>}
-        {usuario.ativo && <button className="botao botao--secundario" type="button"
+        {usuario.ativo && <button className="botao botao--perigo" type="button"
           onClick={() => void inativar(usuario)}>Inativar</button>}
         {!usuario.ativo && usuario.nome !== NOME_REMOVIDO &&
-          <button className="botao botao--secundario" type="button"
+          <button className="botao botao--perigo" type="button"
             onClick={() => void anonimizar(usuario)}>Remover nome</button>}
+        {mostrarEm(usuario.id)}
       </li>)}</ul>}
   </section>
 }

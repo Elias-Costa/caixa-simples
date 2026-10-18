@@ -1,18 +1,23 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import type { SessaoCaixa } from '../api/caixa'
 import { SemConexao } from '../api/cliente'
+import { contas } from '../api/contas'
 import { intencaoOnline } from '../api/intencaoOnline'
 import { hojeNoBalcao } from '../dataDoBalcao'
+import { dataHora, moeda } from '../formatos'
 import { criarCaixaLocal } from '../offline/caixaLocal'
 import { useSincronizacao } from '../shell/sincronizacao'
+import { useOnline } from '../shell/useOnline'
 import { useSessao } from '../sessao/useSessao'
 import { erroDeCadastro } from './erroDeCadastro'
+import { Mensagem } from './Mensagem'
+import { ROTULO_DO_CAIXA, ROTULO_DO_MOVIMENTO } from './rotulos'
 
-const moeda = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
 const caixa = criarCaixaLocal()
-const dataHora = new Intl.DateTimeFormat('pt-BR', {
-  dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Bahia',
-})
+
+/** O cartão em que a resposta de uma ação aparece: o mesmo em que ela foi tocada. */
+type LugarDaMensagem = 'tela' | 'abertura' | 'sessao' | 'movimento' | 'fechamento'
+type MensagemNaTela = { tipo: 'erro' | 'sucesso'; texto: string; lugar: LugarDaMensagem }
 
 function dinheiroDigitado(valor: string): number {
   return Number(valor.replace(',', '.'))
@@ -21,9 +26,12 @@ function dinheiroDigitado(valor: string): number {
 export function TelaDeCaixa() {
   const { identidade } = useSessao()
   const { rodada } = useSincronizacao()
+  const online = useOnline()
+  const administrador = identidade?.perfil === 'ADMIN'
   const [aberta, setAberta] = useState<SessaoCaixa | undefined>()
   const [selecionada, setSelecionada] = useState<SessaoCaixa | undefined>()
   const [historico, setHistorico] = useState<SessaoCaixa[]>([])
+  const [nomes, setNomes] = useState<Map<string, string>>(() => new Map())
   const [dia, setDia] = useState(hojeNoBalcao)
   const [valorAbertura, setValorAbertura] = useState('0.00')
   const [tipoMovimento, setTipoMovimento] = useState<'SANGRIA' | 'SUPRIMENTO'>('SANGRIA')
@@ -34,8 +42,9 @@ export function TelaDeCaixa() {
   const diferencaPrevista = selecionada && !selecionada.saldoDesatualizado && contado !== null
     && Number.isFinite(contado) && contado >= 0
     ? Math.round((selecionada.valorFechamentoEsperado - contado) * 100) / 100 : null
-  const [erro, setErro] = useState<string | null>(null)
-  const [ocupado, setOcupado] = useState(false)
+  const [mensagem, setMensagem] = useState<MensagemNaTela>()
+  // Qual ação está em curso: só o botão dela diz que está trabalhando.
+  const [ocupado, setOcupado] = useState<'abrir' | 'lancar' | 'fechar' | null>(null)
   const [carregando, setCarregando] = useState(true)
 
   const carregar = useCallback(async () => {
@@ -50,9 +59,10 @@ export function TelaDeCaixa() {
           ?? (sessaoAberta?.id === atual.id ? sessaoAberta : atual)
         return sessaoAberta
       })
-      setErro(null)
+      // A releitura só apaga o erro da própria leitura: a resposta de uma ação continua à vista.
+      setMensagem((atual) => atual?.lugar === 'tela' ? undefined : atual)
     } catch (falha) {
-      setErro(erroDeCadastro(falha))
+      setMensagem({ tipo: 'erro', texto: erroDeCadastro(falha), lugar: 'tela' })
     } finally {
       setCarregando(false)
     }
@@ -66,68 +76,96 @@ export function TelaDeCaixa() {
     caixa.consultar(selecionada.id).then((detalhes) => {
       if (ativo) setSelecionada(detalhes)
     }).catch((falha) => {
-      if (ativo) setErro(erroDeCadastro(falha))
+      if (ativo) setMensagem({ tipo: 'erro', texto: erroDeCadastro(falha), lugar: 'sessao' })
     })
     return () => { ativo = false }
   }, [selecionada])
 
+  // O administrador vê os caixas de todos; o nome de quem abriu vem da lista de usuários da Conta.
+  useEffect(() => {
+    if (!administrador || !online) return
+    let ativo = true
+    contas.usuarios().then((lista) => {
+      if (ativo) setNomes(new Map(lista.map((usuario) => [usuario.id, usuario.nome])))
+    }).catch(() => { /* fica o começo do id, como nos relatórios */ })
+    return () => { ativo = false }
+  }, [administrador, online])
+
+  function nomeDoOperador(usuarioId: string): string {
+    if (identidade && usuarioId === identidade.usuarioId) return identidade.nome
+    return nomes.get(usuarioId) ?? `operador ${usuarioId.slice(0, 8)}`
+  }
+
+  function mostrarEm(lugar: LugarDaMensagem) {
+    return mensagem?.lugar === lugar ? <Mensagem tipo={mensagem.tipo} texto={mensagem.texto} /> : null
+  }
+
   async function abrir(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault()
-    setOcupado(true)
+    setOcupado('abrir')
+    setMensagem(undefined)
     try {
       await caixa.abrir(dinheiroDigitado(valorAbertura))
       await carregar()
+      setMensagem({ tipo: 'sucesso', texto: 'Caixa aberto.', lugar: 'abertura' })
     } catch (falha) {
-      setErro(erroDeCadastro(falha))
+      setMensagem({ tipo: 'erro', texto: erroDeCadastro(falha), lugar: 'abertura' })
     } finally {
-      setOcupado(false)
+      setOcupado(null)
     }
   }
 
   async function lancar(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault()
     if (!selecionada) return
-    setOcupado(true)
+    const tipo = tipoMovimento
+    setOcupado('lancar')
+    setMensagem(undefined)
     try {
       const valor = dinheiroDigitado(valorMovimento)
       const rota = `/api/caixa/sessoes/${selecionada.id}/`
-        + (tipoMovimento === 'SANGRIA' ? 'sangrias' : 'suprimentos')
+        + (tipo === 'SANGRIA' ? 'sangrias' : 'suprimentos')
       const intencao = await intencaoOnline(rota, { valor, motivo: motivo.trim() }, identidade)
-      if (tipoMovimento === 'SANGRIA') await caixa.sangrar(selecionada.id, valor, motivo, intencao.id)
+      if (tipo === 'SANGRIA') await caixa.sangrar(selecionada.id, valor, motivo, intencao.id)
       else await caixa.suprir(selecionada.id, valor, motivo, intencao.id)
       await carregar()
       setSelecionada(await caixa.consultar(selecionada.id))
       intencao.confirmar()
       setValorMovimento('')
       setMotivo('')
+      setMensagem({ tipo: 'sucesso', lugar: 'movimento',
+        texto: tipo === 'SANGRIA' ? 'Sangria registrada.' : 'Suprimento registrado.' })
     } catch (falha) {
-      setErro(falha instanceof SemConexao
+      setMensagem({ tipo: 'erro', lugar: 'movimento', texto: falha instanceof SemConexao
         ? 'Sem conexão. Tente registrar o mesmo movimento quando a rede voltar.'
-        : erroDeCadastro(falha))
+        : erroDeCadastro(falha) })
     } finally {
-      setOcupado(false)
+      setOcupado(null)
     }
   }
 
   async function fechar(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault()
     if (!selecionada) return
-    setOcupado(true)
+    setOcupado('fechar')
+    setMensagem(undefined)
     try {
       await caixa.fechar(selecionada.id, dinheiroDigitado(valorContado))
       setValorContado('')
       await carregar()
       setSelecionada(await caixa.consultar(selecionada.id))
+      // Os formulários somem com o caixa fechado; o aviso vai para o alto do cartão da sessão.
+      setMensagem({ tipo: 'sucesso', texto: 'Caixa fechado.', lugar: 'sessao' })
     } catch (falha) {
-      setErro(erroDeCadastro(falha))
+      setMensagem({ tipo: 'erro', texto: erroDeCadastro(falha), lugar: 'fechamento' })
     } finally {
-      setOcupado(false)
+      setOcupado(null)
     }
   }
 
   return <section className="caixa">
     <h2 className="titulo">Caixa</h2>
-    {erro && <p className="mensagem-erro" role="alert">{erro}</p>}
+    {mostrarEm('tela')}
     {carregando ? <p>Carregando...</p> : <>
       <section className="caixa__cartao">
         <h3>Meu caixa</h3>
@@ -143,8 +181,11 @@ export function TelaDeCaixa() {
             <input type="number" min="0" step="0.01" required value={valorAbertura}
               onChange={(evento) => setValorAbertura(evento.target.value)} />
           </label>
-          <button className="botao" disabled={ocupado}>Abrir caixa</button>
+          <button className="botao" disabled={ocupado !== null}>
+            {ocupado === 'abrir' ? 'Abrindo...' : 'Abrir caixa'}
+          </button>
         </form>}
+        {mostrarEm('abertura')}
       </section>
 
       <section className="caixa__cartao">
@@ -152,14 +193,14 @@ export function TelaDeCaixa() {
         <label>Dia
           <input type="date" value={dia} onChange={(evento) => setDia(evento.target.value)} />
         </label>
-        <p>{!navigator.onLine ? 'Sessões deste operador guardadas no dispositivo.'
-          : identidade?.perfil === 'ADMIN' ? 'Sessões de todos os operadores.' : 'Suas sessões.'}</p>
+        <p>{!online ? 'Sessões deste operador guardadas no dispositivo.'
+          : administrador ? 'Sessões de todos os operadores.' : 'Suas sessões.'}</p>
         {historico.length === 0 ? <p>Nenhuma sessão neste dia.</p> : <ul className="caixa__lista">
           {historico.map((sessao) => <li key={sessao.id}>
             <button className="botao botao--secundario" type="button"
               onClick={() => setSelecionada(sessao)}>
-              {dataHora.format(new Date(sessao.abertaEm))} · {sessao.status} · {moeda.format(sessao.valorAbertura)}
-              {identidade?.perfil === 'ADMIN' && ` · operador ${sessao.usuarioId}`}
+              {dataHora.format(new Date(sessao.abertaEm))} · {ROTULO_DO_CAIXA[sessao.status]} · {moeda.format(sessao.valorAbertura)}
+              {administrador && ` · ${nomeDoOperador(sessao.usuarioId)}`}
             </button>
           </li>)}
         </ul>}
@@ -167,7 +208,8 @@ export function TelaDeCaixa() {
 
       {selecionada && <section className="caixa__cartao">
         <h3>Sessão selecionada</h3>
-        <p>Status: <strong>{selecionada.status}</strong></p>
+        {mostrarEm('sessao')}
+        <p>Situação: <strong>{ROTULO_DO_CAIXA[selecionada.status]}</strong></p>
         {selecionada.pendenteSincronizacao && <p>Pendente de sincronização com o servidor.</p>}
         <p>Abertura: {dataHora.format(new Date(selecionada.abertaEm))}</p>
         <p>Valor inicial: {moeda.format(selecionada.valorAbertura)}</p>
@@ -185,18 +227,8 @@ export function TelaDeCaixa() {
                 {' '}(positivo = falta, negativo = sobra)</p>}
           </>)}
 
-        <h4>Movimentos</h4>
-        {!selecionada.movimentos ? <p>Carregando extrato...</p>
-          : selecionada.movimentos.length === 0 ? <p>Nenhum movimento nesta sessão.</p>
-            : <ul className="caixa__movimentos">
-              {selecionada.movimentos.map((movimento) => <li key={movimento.id}>
-                <strong>{movimento.tipo}</strong> · {moeda.format(movimento.valor)}
-                {' · '}{dataHora.format(new Date(movimento.criadoEm))}
-                {movimento.motivo && <span> · {movimento.motivo}</span>}
-                {movimento.vendaId && <span> · Venda {movimento.vendaId}</span>}
-              </li>)}
-            </ul>}
-
+        {/* As ações vêm antes do extrato: cada venda acrescenta uma linha a ele, e o fechamento, no
+            fim do dia, ficaria depois de todas. */}
         {selecionada.status === 'ABERTA' && <form className="caixa__formulario"
           onSubmit={(evento) => void lancar(evento)}>
           <h4>Lançar movimento</h4>
@@ -214,7 +246,10 @@ export function TelaDeCaixa() {
           <label>Motivo
             <input required value={motivo} onChange={(evento) => setMotivo(evento.target.value)} />
           </label>
-          <button className="botao" disabled={ocupado}>Registrar {tipoMovimento.toLowerCase()}</button>
+          <button className="botao" disabled={ocupado !== null}>
+            {ocupado === 'lancar' ? 'Registrando...' : `Registrar ${tipoMovimento.toLowerCase()}`}
+          </button>
+          {mostrarEm('movimento')}
         </form>}
         {selecionada.status === 'ABERTA' && <form className="caixa__formulario"
           onSubmit={(evento) => void fechar(evento)}>
@@ -226,8 +261,25 @@ export function TelaDeCaixa() {
           </label>
           {diferencaPrevista !== null && <p>Diferença prevista: {moeda.format(diferencaPrevista)}
             {' '}(positivo = falta, negativo = sobra)</p>}
-          <button className="botao" disabled={ocupado}>Fechar e registrar diferença</button>
+          <button className="botao" disabled={ocupado !== null}>
+            {ocupado === 'fechar' ? 'Fechando...' : 'Fechar e registrar diferença'}
+          </button>
+          {mostrarEm('fechamento')}
         </form>}
+
+        <details className="caixa__extrato" open>
+          <summary>Movimentos{selecionada.movimentos ? ` (${selecionada.movimentos.length})` : ''}</summary>
+          {!selecionada.movimentos ? <p>Carregando extrato...</p>
+            : selecionada.movimentos.length === 0 ? <p>Nenhum movimento nesta sessão.</p>
+              : <ul className="caixa__movimentos">
+                {selecionada.movimentos.map((movimento) => <li key={movimento.id}>
+                  <strong>{ROTULO_DO_MOVIMENTO[movimento.tipo]}</strong> · {moeda.format(movimento.valor)}
+                  {' · '}{dataHora.format(new Date(movimento.criadoEm))}
+                  {movimento.motivo && <span> · {movimento.motivo}</span>}
+                  {movimento.vendaId && <span> · Venda {movimento.vendaId.slice(0, 8)}</span>}
+                </li>)}
+              </ul>}
+        </details>
       </section>}
     </>}
   </section>

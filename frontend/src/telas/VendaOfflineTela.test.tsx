@@ -89,7 +89,7 @@ describe('PDV sem rede', () => {
     document.removeEventListener('click', contar)
     tela.unmount()
     mostrar()
-    fireEvent.click(await screen.findByRole('button', { name: /CONCLUIDA.*pendente de sincronização/ }, espera))
+    fireEvent.click(await screen.findByRole('button', { name: /Concluída.*pendente de sincronização/ }, espera))
     expect(await screen.findByLabelText('Comprovante não fiscal', undefined, espera))
       .toHaveTextContent('Troco: R$ 7,50')
     expect(screen.getByText('Registrada neste dispositivo. Aguardando sincronização com o servidor.'))

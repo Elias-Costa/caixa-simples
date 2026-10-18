@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { contas } from '../api/contas'
 import { sincronizacao, type RevisaoDaConta, type RevisoesDaConta } from '../api/sincronizacao'
 import { hojeNoBalcao } from '../dataDoBalcao'
+import { dataHora, moeda } from '../formatos'
 import {
   aoMudarFila, conferirGesto, gestoPendente, listarGestos, type GestoNaFila, type ValorJson,
 } from '../offline/fila'
@@ -9,11 +10,6 @@ import { useSincronizacao } from '../shell/sincronizacao'
 import { useOnline } from '../shell/useOnline'
 import { useSessao } from '../sessao/useSessao'
 import { erroDeCadastro } from './erroDeCadastro'
-
-const moeda = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
-const dataHora = new Intl.DateTimeFormat('pt-BR', {
-  dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Bahia',
-})
 
 const ROTULOS: Record<string, string> = {
   'produto.criar': 'Produto cadastrado',

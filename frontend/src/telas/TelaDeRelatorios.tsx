@@ -4,14 +4,14 @@ import {
   relatorios, type ConferenciaDoCartao, type Faturamento, type FluxoDeCaixa, type MaisVendidos,
 } from '../api/relatorios'
 import type { FormaPagamento, StatusVenda } from '../api/vendas'
-import { hojeNoBalcao } from '../dataDoBalcao'
+import { FUSO_DO_BALCAO, hojeNoBalcao } from '../dataDoBalcao'
+import { moeda } from '../formatos'
 import { erroDeCadastro } from './erroDeCadastro'
 
-const moeda = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
 // Venda fracionada é real: até três casas, e nenhuma quando a quantidade é inteira.
 const numero = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 3 })
 // A hora do balcão, a mesma do extrato da maquininha que a conferência acompanha.
-const hora = new Intl.DateTimeFormat('pt-BR', { timeStyle: 'short', timeZone: 'America/Bahia' })
+const hora = new Intl.DateTimeFormat('pt-BR', { timeStyle: 'short', timeZone: FUSO_DO_BALCAO })
 
 const TAMANHO_DO_RANKING = 10
 

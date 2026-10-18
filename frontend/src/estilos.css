@@ -143,6 +143,19 @@ a.botao {
   background: var(--cor-superficie-realce);
 }
 
+/* Ação que inativa, remove, cancela ou apaga: a borda na cor do erro a separa das ações comuns ao
+   lado. O texto continua claro, que lê melhor que o texto todo colorido. */
+.botao--perigo,
+.botao--perigo:disabled:hover {
+  background: transparent;
+  color: var(--cor-texto);
+  border-color: var(--cor-erro);
+}
+
+.botao--perigo:hover {
+  background: var(--cor-erro-fundo);
+}
+
 .botao--largo {
   width: 100%;
 }
@@ -188,6 +201,29 @@ textarea:disabled {
 
 .campo__entrada {
   width: 100%;
+}
+
+/* A borda do campo que o servidor recusou acompanha a mensagem embaixo dele, que diz o porquê. */
+[aria-invalid='true'] {
+  border-color: var(--cor-erro);
+}
+
+.campo__erro {
+  display: block;
+  margin-top: 6px;
+  color: var(--cor-erro);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.campo__senha {
+  display: flex;
+  gap: 8px;
+}
+
+.campo__senha .campo__entrada {
+  flex: 1;
+  min-width: 0;
 }
 
 /* Mensagens: barra na cor da função e texto claro, que lê melhor que o texto todo colorido. */
@@ -402,6 +438,14 @@ textarea:disabled {
   color: inherit;
 }
 
+/* Os links soltos do rodapé e da entrada não são texto corrido: precisam de 24px de altura para o
+   toque, e a linha do texto sozinha dá 21. */
+.rodape a,
+.links-de-apoio a {
+  display: inline-block;
+  padding: 4px 0;
+}
+
 /* Cadastro: lista e formulário usam a largura do tablet sem encolher os alvos de toque. */
 .cadastro {
   max-width: 1100px;
@@ -435,6 +479,12 @@ main.cadastro {
   border-radius: var(--raio);
 }
 .cadastro__apoio { color: var(--cor-texto-secundario); font-size: 0.9rem; }
+/* Os dados crescem e empurram preço e ações para a direita, onde ficam alinhados de item a item. */
+.cadastro__dados { flex: 1 1 240px; min-width: 0; }
+.cadastro__valor { min-width: 7.5em; text-align: right; }
+.cadastro__alerta { display: block; color: var(--cor-alerta); font-size: 0.85rem; font-weight: 600; }
+/* A resposta de uma ação no item ocupa a linha inteira, embaixo dos botões. */
+.cadastro__item > .mensagem-erro, .cadastro__item > .mensagem-sucesso { flex-basis: 100%; margin: 0; }
 .cadastro__formulario {
   padding: var(--espaco);
   margin-top: 24px;
@@ -456,6 +506,8 @@ main.cadastro {
 .caixa__lista { list-style: none; padding: 0; display: grid; gap: 8px; }
 .caixa__lista .botao { text-align: left; white-space: normal; }
 .caixa__movimentos { padding-left: 20px; display: grid; gap: 8px; overflow-wrap: anywhere; }
+.caixa__extrato { margin-top: var(--espaco); }
+.caixa__extrato summary { padding: 12px 0; font-weight: 700; cursor: pointer; }
 
 .relatorios { max-width: 1100px; margin: 0 auto; }
 .relatorios__cartao { background: var(--cor-superficie); border: 1px solid var(--cor-borda); border-radius: var(--raio); padding: var(--espaco); margin-bottom: var(--espaco); }
@@ -506,6 +558,7 @@ main.cadastro {
 .pdv__resultados .botao, .pdv__historico .botao { text-align: left; width: 100%; white-space: normal; }
 .pdv__itens li, .pdv__topo, .pdv__acoes { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
 .pdv__itens li { border-bottom: 1px solid var(--cor-borda); padding: 8px 0; }
+.pdv__venda { margin-bottom: 12px; }
 .pdv__total { font-size: 1.4rem; font-weight: 700; margin-bottom: 4px; }
 .pdv__pagamento { border-top: 1px solid var(--cor-borda); margin-top: var(--espaco); padding-top: var(--espaco); }
 /* O QR fica escuro sobre branco: invertido, não é lido por todo aplicativo de banco. */

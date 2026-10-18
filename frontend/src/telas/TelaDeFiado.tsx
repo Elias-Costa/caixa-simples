@@ -1,25 +1,29 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
 import { caixa, type SessaoCaixa } from '../api/caixa'
 import { SemConexao } from '../api/cliente'
 import { intencaoOnline } from '../api/intencaoOnline'
 import { fiado, type Divida } from '../api/fiado'
 import type { ComprovanteDeRecebimento, FormaPagamento } from '../api/vendas'
+import { dataHora, moeda } from '../formatos'
 import { normalizarNsu } from '../offline/raizDaVenda'
 import { criarVendaLocal } from '../offline/vendaLocal'
 import { useSessao } from '../sessao/useSessao'
 import { erroDeCadastro } from './erroDeCadastro'
+import { Mensagem } from './Mensagem'
+import { ROTULO_DA_FORMA } from './rotulos'
 
 // O recebimento continua só com rede. Ele passa pelo aparelho para que o caixa guardado, usado sem
 // rede, não fique com o saldo de antes do dinheiro recebido.
 const vendas = criarVendaLocal()
-const moeda = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
-const dataHora = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
+
+/** Onde o erro aparece: na lista, no formulário do recebimento ou junto do comprovante. */
+type LugarDoErro = 'tela' | 'recebimento' | 'comprovante'
 
 function textoDoComprovante(c: ComprovanteDeRecebimento, negocio: string): string {
   return [negocio, 'Comprovante de recebimento não fiscal',
     `Cliente: ${c.nomeCliente}`, `Recebido em: ${dataHora.format(new Date(c.recebidoEm))}`,
-    `Forma: ${c.forma}`, `Valor recebido: ${moeda.format(c.valor)}`,
+    `Forma: ${ROTULO_DA_FORMA[c.forma]}`, `Valor recebido: ${moeda.format(c.valor)}`,
     `Saldo da Venda após recebimento: ${moeda.format(c.saldoApos)}`,
     `Venda: ${c.vendaId}`, `Recebimento: ${c.recebimentoId}`].join('\n')
 }
@@ -33,9 +37,10 @@ export function TelaDeFiado() {
   const [forma, setForma] = useState<FormaPagamento>('DINHEIRO')
   const [nsu, setNsu] = useState('')
   const [comprovante, setComprovante] = useState<ComprovanteDeRecebimento>()
-  const [erro, setErro] = useState<string>()
+  const [erro, setErro] = useState<{ texto: string; lugar: LugarDoErro }>()
   const [ocupado, setOcupado] = useState(false)
   const [carregando, setCarregando] = useState(true)
+  const formularioRef = useRef<HTMLFormElement>(null)
 
   const carregar = useCallback(async () => {
     const [aberta, lista] = await Promise.all([caixa.abertaDoOperadorAtual(), fiado.dividas()])
@@ -48,10 +53,19 @@ export function TelaDeFiado() {
     let vivo = true
     Promise.all([caixa.abertaDoOperadorAtual(), fiado.dividas()]).then(([aberta, lista]) => {
       if (vivo) { setSessao(aberta); setDividas(lista) }
-    }).catch((falha) => { if (vivo) setErro(erroDeCadastro(falha)) })
+    }).catch((falha) => { if (vivo) setErro({ texto: erroDeCadastro(falha), lugar: 'tela' }) })
       .finally(() => { if (vivo) setCarregando(false) })
     return () => { vivo = false }
   }, [])
+
+  // O formulário abre depois da lista inteira: sem rolar até ele, tocar Receber no primeiro devedor
+  // de uma lista longa não mudaria nada à vista.
+  const vendaSelecionada = selecionada?.vendaId
+  useEffect(() => {
+    if (!vendaSelecionada) return
+    formularioRef.current?.scrollIntoView?.({ block: 'start' })
+    formularioRef.current?.querySelector('input')?.focus()
+  }, [vendaSelecionada])
 
   async function receber(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault()
@@ -70,9 +84,9 @@ export function TelaDeFiado() {
       intencao.confirmar()
       setValor(''); setNsu('')
     } catch (falha) {
-      setErro(falha instanceof SemConexao
+      setErro({ lugar: 'recebimento', texto: falha instanceof SemConexao
         ? 'Sem conexão. Tente registrar o mesmo recebimento quando a rede voltar.'
-        : erroDeCadastro(falha))
+        : erroDeCadastro(falha) })
     }
     finally { setOcupado(false) }
   }
@@ -83,28 +97,30 @@ export function TelaDeFiado() {
       await navigator.share({ title: 'Comprovante de recebimento não fiscal',
         text: textoDoComprovante(comprovante, identidade.nomeNegocio) })
     } catch (falha) {
-      if ((falha as Error).name !== 'AbortError') setErro(erroDeCadastro(falha))
+      if ((falha as Error).name !== 'AbortError') setErro({ texto: erroDeCadastro(falha), lugar: 'comprovante' })
     }
   }
 
+  const erroEm = (lugar: LugarDoErro) => erro?.lugar === lugar ? erro.texto : undefined
+
   return <section className="cadastro">
     <div className="cadastro__topo"><div><h2 className="titulo">Fiado</h2>
-      <p>Vendas com saldo devedor. Cada recebimento pertence à SessaoCaixa de quem o registra.</p>
+      <p>Vendas com saldo devedor. Cada recebimento entra no caixa de quem o registra.</p>
     </div></div>
-    {erro && <p className="mensagem-erro" role="alert">{erro}</p>}
+    <Mensagem tipo="erro" texto={erroEm('tela')} />
     {carregando ? <p>Carregando...</p> : <>
-      {!sessao && <p>Abra sua SessaoCaixa para registrar recebimentos. <Link to="/caixa">Ir ao caixa</Link></p>}
+      {!sessao && <p>Abra o seu caixa para registrar recebimentos. <Link to="/caixa">Ir ao caixa</Link></p>}
       {dividas.length === 0 ? <p>Nenhuma Venda com saldo devedor.</p> :
         <ul className="cadastro__lista">{dividas.map((divida) => <li className="cadastro__item" key={divida.vendaId}>
           <div><strong>{divida.nomeCliente}</strong>
             <p>Venda {divida.vendaId.slice(0, 8)} · {dataHora.format(new Date(divida.concluidoEm))}</p>
             <p>Saldo: {moeda.format(divida.saldoDevedor)}</p></div>
           {sessao && <button type="button" className="botao botao--secundario"
-            onClick={() => { setSelecionada(divida); setComprovante(undefined); setValor(''); setNsu('') }}>
+            onClick={() => { setSelecionada(divida); setComprovante(undefined); setValor(''); setNsu(''); setErro(undefined) }}>
             Receber</button>}
         </li>)}</ul>}
     </>}
-    {selecionada && sessao && <form className="cadastro__formulario" onSubmit={(evento) => void receber(evento)}>
+    {selecionada && sessao && <form ref={formularioRef} className="cadastro__formulario" onSubmit={(evento) => void receber(evento)}>
       <h3>Receber de {selecionada.nomeCliente}</h3>
       <p>Saldo desta Venda: {moeda.format(selecionada.saldoDevedor)}</p>
       <label>Valor recebido
@@ -119,7 +135,9 @@ export function TelaDeFiado() {
         {identidade?.nsuObrigatorio ? 'NSU do comprovante' : 'NSU do comprovante (opcional)'}
         <input value={nsu} autoComplete="off" required={identidade?.nsuObrigatorio === true}
           onChange={(evento) => setNsu(evento.target.value)} /></label>}
-      <div className="cadastro__acoes"><button className="botao" disabled={ocupado}>Registrar recebimento</button>
+      <Mensagem tipo="erro" texto={erroEm('recebimento')} />
+      <div className="cadastro__acoes"><button className="botao" disabled={ocupado}>
+        {ocupado ? 'Registrando...' : 'Registrar recebimento'}</button>
         <button type="button" className="botao botao--secundario"
           onClick={() => setSelecionada(undefined)}>Cancelar</button></div>
     </form>}
@@ -128,7 +146,7 @@ export function TelaDeFiado() {
       <p><strong>Comprovante de recebimento não fiscal</strong></p>
       <p>Cliente: {comprovante.nomeCliente}</p>
       <p>Recebido em: {dataHora.format(new Date(comprovante.recebidoEm))}</p>
-      <p>Forma: {comprovante.forma}</p>
+      <p>Forma: {ROTULO_DA_FORMA[comprovante.forma]}</p>
       <p>Valor recebido: {moeda.format(comprovante.valor)}</p>
       <p>Saldo da Venda após recebimento: {moeda.format(comprovante.saldoApos)}</p>
       <p>Venda: {comprovante.vendaId}</p><p>Recebimento: {comprovante.recebimentoId}</p>
@@ -138,5 +156,7 @@ export function TelaDeFiado() {
           type="button" onClick={() => void compartilhar()}>Compartilhar</button>}
       </div>
     </section>}
+    {/* Fora do papel branco do comprovante, onde o texto claro da mensagem não se leria. */}
+    <Mensagem tipo="erro" texto={erroEm('comprovante')} />
   </section>
 }

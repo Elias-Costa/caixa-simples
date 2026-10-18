@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, expect, it, vi } from 'vitest'
 import { caixa } from '../api/caixa'
@@ -32,16 +32,20 @@ it('operador registra recebimento parcial e vê comprovante com saldo restante',
   }}><TelaDeFiado /></SessaoContext.Provider></MemoryRouter>)
 
   fireEvent.click(await screen.findByRole('button', { name: 'Receber' }))
+  // O formulário abre depois da lista; o foco vai ao valor, para o toque em Receber ter efeito à vista.
+  await waitFor(() => expect(screen.getByLabelText('Valor recebido')).toHaveFocus())
   fireEvent.change(screen.getByLabelText('Valor recebido'), { target: { value: '7' } })
   fireEvent.change(screen.getByLabelText('Forma'), { target: { value: 'PIX' } })
   fireEvent.click(screen.getByRole('button', { name: 'Registrar recebimento' }))
   await waitFor(() => expect(receber).toHaveBeenCalledTimes(1))
-  expect(await screen.findByRole('alert')).toHaveTextContent('Sem conexão')
+  const formulario = screen.getByRole('heading', { name: 'Receber de Lia' }).closest('form')!
+  expect(await within(formulario).findByRole('alert')).toHaveTextContent('Sem conexão')
   fireEvent.click(screen.getByRole('button', { name: 'Registrar recebimento' }))
   await waitFor(() => expect(receber).toHaveBeenCalledTimes(2))
   expect(receber.mock.calls[0][3]).toBe(receber.mock.calls[1][3])
-  expect(await screen.findByLabelText('Comprovante de recebimento não fiscal'))
-    .toHaveTextContent('Saldo da Venda após recebimento: R$ 13,00')
+  const papel = await screen.findByLabelText('Comprovante de recebimento não fiscal')
+  expect(papel).toHaveTextContent('Saldo da Venda após recebimento: R$ 13,00')
+  expect(papel).toHaveTextContent('Forma: Pix')
 })
 
 it('o recebimento em cartão leva o NSU, exigido quando a identidade traz a exigência', async () => {

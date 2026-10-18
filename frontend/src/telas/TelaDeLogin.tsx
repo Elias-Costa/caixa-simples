@@ -4,6 +4,7 @@ import { ErroDaApi, SemConexao } from '../api/cliente'
 import { apagarDadosDoAparelho, contarGestosSemResultado, SessaoAbertaNoAparelho } from '../offline/fila'
 import { sessaoFoiEncerrada } from '../sessao/armazenamento'
 import { useSessao } from '../sessao/useSessao'
+import { CampoDeSenha } from './CampoDeSenha'
 
 export function TelaDeLogin() {
   const { identidade, entrar } = useSessao()
@@ -83,18 +84,8 @@ export function TelaDeLogin() {
           />
         </label>
 
-        <label className="campo">
-          <span className="campo__rotulo">Senha</span>
-          <input
-            className="campo__entrada"
-            type="password"
-            name="senha"
-            autoComplete="current-password"
-            value={senha}
-            onChange={(evento) => setSenha(evento.target.value)}
-            required
-          />
-        </label>
+        <CampoDeSenha rotulo="Senha" name="senha" autoComplete="current-password" valor={senha}
+          aoMudar={setSenha} />
 
         {erro && (
           <p className="login__erro" role="alert">
@@ -105,9 +96,9 @@ export function TelaDeLogin() {
         <button type="submit" className="botao botao--largo" disabled={enviando}>
           {enviando ? 'Entrando...' : 'Entrar'}
         </button>
-        <p><Link to="/privacidade">Aviso de privacidade</Link> · <Link to="/termos">Termos de uso</Link></p>
+        <p className="links-de-apoio"><Link to="/privacidade">Aviso de privacidade</Link> · <Link to="/termos">Termos de uso</Link></p>
 
-        <button type="button" className="botao botao--secundario" disabled={apagando}
+        <button type="button" className="botao botao--perigo" disabled={apagando}
           onClick={() => void apagarDados()}>
           Apagar os dados deste aparelho
         </button>

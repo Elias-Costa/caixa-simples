@@ -32,6 +32,19 @@ function respostaJson(status: number, corpo: unknown) {
 }
 
 describe('TelaDeLogin', () => {
+  it('mostra a senha digitada a quem toca em Mostrar, e a esconde de novo', () => {
+    renderizarLogin()
+    const senha = screen.getByLabelText('Senha')
+    fireEvent.change(senha, { target: { value: 'abc' } })
+    expect(senha).toHaveAttribute('type', 'password')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mostrar' }))
+    expect(senha).toHaveAttribute('type', 'text')
+    expect(screen.getByRole('button', { name: 'Ocultar' })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(screen.getByRole('button', { name: 'Ocultar' }))
+    expect(senha).toHaveAttribute('type', 'password')
+  })
+
   it('credencial recusada mostra a mensagem e não guarda nada', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 401 })))
     renderizarLogin()

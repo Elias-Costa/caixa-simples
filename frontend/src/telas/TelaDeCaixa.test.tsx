@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { caixa, type SessaoCaixa } from '../api/caixa'
 import { SemConexao } from '../api/cliente'
+import { contas } from '../api/contas'
 import { criarCaixaLocal } from '../offline/caixaLocal'
 import { gravarIdentidade, gravarToken } from '../sessao/armazenamento'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
@@ -61,6 +62,20 @@ describe('caixa na tela', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Registrar sangria' }))
 
     await waitFor(() => expect(sangrar).toHaveBeenCalledWith('s-1', 5, 'Retirada', expect.any(String)))
+    expect(await screen.findByRole('status')).toHaveTextContent('Sangria registrada.')
+  })
+
+  it('o administrador vê no histórico o nome de quem abriu o caixa, e não o id', async () => {
+    const daBia = { ...aberta, id: 's-2', usuarioId: 'u-2' }
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(undefined)
+    vi.spyOn(caixa, 'historico').mockResolvedValue([daBia])
+    vi.spyOn(contas, 'usuarios').mockResolvedValue([
+      { id: 'u-2', nome: 'Bia', perfil: 'OPERADOR', ativo: true },
+    ])
+    mostrar('ADMIN')
+
+    expect(await screen.findByRole('button', { name: /Aberto.*Bia$/ })).toBeInTheDocument()
+    expect(screen.queryByText(/u-2/)).not.toBeInTheDocument()
   })
 
   it('mostra esperado antes de fechar, diferença depois e Venda no extrato', async () => {
@@ -85,6 +100,11 @@ describe('caixa na tela', () => {
     mostrar()
 
     expect(await screen.findByText(/Venda v-1/)).toBeInTheDocument()
+    expect(screen.getByText('Venda', { selector: 'strong' })).toBeInTheDocument()
+    // O fechamento vem antes do extrato, que ganha uma linha a cada venda do dia.
+    const fechamento = screen.getByRole('heading', { name: 'Fechar caixa' })
+    expect(fechamento.compareDocumentPosition(screen.getByText('Movimentos (1)'))
+      & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(screen.getByText(/Saldo esperado:/)).toHaveTextContent('R$')
     fireEvent.change(screen.getByLabelText('Valor contado'), { target: { value: '18.00' } })
     fireEvent.click(screen.getByRole('button', { name: 'Fechar e registrar diferença' }))
@@ -126,7 +146,7 @@ describe('caixa na tela', () => {
     mostrar()
 
     expect(await screen.findByText('Nenhum caixa aberto para você.')).toBeInTheDocument()
-    fireEvent.click(await screen.findByRole('button', { name: /FECHADA/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /Fechado/ }))
     expect(await screen.findByText('Fechada no servidor; valor contado e diferença aparecem quando a rede voltar.'))
       .toBeInTheDocument()
     expect(screen.queryByText(/Valor contado:/)).not.toBeInTheDocument()

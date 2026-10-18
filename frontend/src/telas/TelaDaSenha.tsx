@@ -3,6 +3,7 @@ import { ErroDaApi, SemConexao } from '../api/cliente'
 import { contas, type MeusDados } from '../api/contas'
 import { marcarSessaoEncerrada, renovarTokenDaSessao, sessaoAtual } from '../sessao/armazenamento'
 import { useSessao } from '../sessao/useSessao'
+import { CampoDeSenha } from './CampoDeSenha'
 import { problemaDoTamanhoDaSenha } from './regrasDaSenha'
 
 type Props = {
@@ -75,18 +76,10 @@ export function TelaDaSenha({ obrigatoria = false }: Props) {
   const formulario = <form className={obrigatoria ? undefined : 'cadastro__formulario'}
     onSubmit={(evento) => void trocar(evento)} noValidate>
     {!obrigatoria && <h3>Trocar a senha</h3>}
-    <label className="campo"><span className="campo__rotulo">Senha atual</span>
-      <input className="campo__entrada" type="password" autoComplete="current-password" value={atual}
-        required onChange={(evento) => setAtual(evento.target.value)} />
-    </label>
-    <label className="campo"><span className="campo__rotulo">Senha nova</span>
-      <input className="campo__entrada" type="password" autoComplete="new-password" value={nova}
-        required onChange={(evento) => setNova(evento.target.value)} />
-    </label>
-    <label className="campo"><span className="campo__rotulo">Repita a senha nova</span>
-      <input className="campo__entrada" type="password" autoComplete="new-password" value={repetida}
-        required onChange={(evento) => setRepetida(evento.target.value)} />
-    </label>
+    <CampoDeSenha rotulo="Senha atual" autoComplete="current-password" valor={atual} aoMudar={setAtual} />
+    <CampoDeSenha rotulo="Senha nova" autoComplete="new-password" valor={nova} aoMudar={setNova} />
+    <CampoDeSenha rotulo="Repita a senha nova" autoComplete="new-password" valor={repetida}
+      aoMudar={setRepetida} />
     <p className="cadastro__apoio">De 15 caracteres a 72 letras sem acento; letra com acento ou cedilha conta como duas. Sem regra de número ou símbolo: uma frase longa funciona bem.</p>
     {erro && <p className="mensagem-erro" role="alert">{erro}</p>}
     {aviso && !obrigatoria && <p className="mensagem-sucesso" role="status">{aviso}</p>}
@@ -199,10 +192,8 @@ function SeusDados() {
         <input className="campo__entrada" type="email" autoComplete="off" maxLength={180}
           value={repetido} required onChange={(evento) => setRepetido(evento.target.value)} />
       </label>
-      <label className="campo"><span className="campo__rotulo">Senha atual, para confirmar</span>
-        <input className="campo__entrada" type="password" autoComplete="current-password"
-          value={senhaAtual} required onChange={(evento) => setSenhaAtual(evento.target.value)} />
-      </label>
+      <CampoDeSenha rotulo="Senha atual, para confirmar" autoComplete="current-password"
+        valor={senhaAtual} aoMudar={setSenhaAtual} />
       {erro && <p className="mensagem-erro" role="alert">{erro}</p>}
       {aviso && <p className="mensagem-sucesso" role="status">{aviso}</p>}
       <button className="botao" disabled={enviando}>{enviando ? 'Trocando...' : 'Trocar o e-mail'}</button>

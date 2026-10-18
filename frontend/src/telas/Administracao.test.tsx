@@ -84,10 +84,10 @@ describe('administração na tela', () => {
       .mockResolvedValue({ nomeNegocio: 'Loja', estoqueHabilitado: true, nsuObrigatorio: false })
     render(<ComSessaoEConfig />)
 
-    fireEvent.click(await screen.findByRole('switch', { name: 'Ligar controle de estoque' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Ligar controle de estoque' }))
     await waitFor(() => expect(definir).toHaveBeenCalledWith(true))
-    expect(await screen.findByRole('switch', { name: 'Desligar controle de estoque' }))
-      .toHaveAttribute('aria-checked', 'true')
+    expect(await screen.findByRole('button', { name: 'Desligar controle de estoque' })).toBeInTheDocument()
+    expect(screen.getByText('Ligado')).toBeInTheDocument()
     expect(screen.getByText(/Menu:.*Estoque/)).toBeInTheDocument()
   })
 
@@ -226,7 +226,7 @@ describe('administração na tela', () => {
       </SessaoContext.Provider>
     </MemoryRouter>)
 
-    expect(await screen.findByRole('switch', { name: 'Ligar controle de estoque' })).toBeDisabled()
+    expect(await screen.findByRole('button', { name: 'Ligar controle de estoque' })).toBeDisabled()
     expect(screen.getByText(/faz parte do plano Completo/)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Plano' })).toHaveAttribute('href', '/plano')
     expect(definir).not.toHaveBeenCalled()
@@ -248,10 +248,9 @@ describe('administração na tela', () => {
     </MemoryRouter>)
 
     expect(await screen.findByText('Opcional')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('switch', { name: 'Exigir o NSU no cartão' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Exigir o NSU no cartão' }))
     await waitFor(() => expect(definir).toHaveBeenCalledWith(true))
-    expect(await screen.findByRole('switch', { name: 'Deixar o NSU opcional' }))
-      .toHaveAttribute('aria-checked', 'true')
+    expect(await screen.findByRole('button', { name: 'Deixar o NSU opcional' })).toBeInTheDocument()
     expect(screen.getByText('Obrigatório')).toBeInTheDocument()
     expect(atualizarIdentidade).toHaveBeenCalledWith(
       expect.objectContaining({ nsuObrigatorio: true, estoqueHabilitado: false }), expect.anything())
@@ -263,7 +262,7 @@ describe('administração na tela', () => {
     vi.spyOn(contas, 'definirNsu').mockResolvedValue({ nomeNegocio: 'Loja', estoqueHabilitado: false, nsuObrigatorio: true })
     render(<ConfiguracaoComProvedorReal />)
 
-    fireEvent.click(await screen.findByRole('switch', { name: 'Exigir o NSU no cartão' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Exigir o NSU no cartão' }))
 
     expect(await screen.findByText('Na aba: Ana, NSU exigido')).toBeInTheDocument()
     expect(lerIdentidade()).toEqual({ ...admin, nsuObrigatorio: true })
@@ -276,12 +275,12 @@ describe('administração na tela', () => {
     // responde mesmo assim, para provar que o provedor também recusa a identidade.
     vi.spyOn(contas, 'definirNsu').mockResolvedValue({ nomeNegocio: 'Loja', estoqueHabilitado: false, nsuObrigatorio: true })
     render(<ConfiguracaoComProvedorReal />)
-    const exigir = await screen.findByRole('switch', { name: 'Exigir o NSU no cartão' })
+    const exigir = await screen.findByRole('button', { name: 'Exigir o NSU no cartão' })
 
     outraAbaEntraNaContaB(sessaoDaAna)
     fireEvent.click(exigir)
 
-    await waitFor(() => expect(screen.getByRole('switch', { name: 'Deixar o NSU opcional' })).toBeEnabled())
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Deixar o NSU opcional' })).toBeEnabled())
     expect(lerIdentidade()).toEqual(daContaB)
   })
 })

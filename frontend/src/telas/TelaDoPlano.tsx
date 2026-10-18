@@ -3,13 +3,12 @@ import { SemConexao } from '../api/cliente'
 import {
   contas, type EstadoDoPlano, type PedidoDePlano, type PropostaDePlano, type TipoDePedido,
 } from '../api/contas'
+import { moeda } from '../formatos'
 import { sessaoAtual } from '../sessao/armazenamento'
 import type { Plano, SituacaoDoPlano } from '../sessao/Identidade'
 import { useSessao } from '../sessao/useSessao'
 import { useOnline } from '../shell/useOnline'
 import { erroDeCadastro } from './erroDeCadastro'
-
-const moeda = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
 
 const NOME_DO_PLANO: Record<Plano, string> = {
   GRATIS: 'Gratuito',

@@ -1,8 +1,9 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cadastro } from '../api/cadastro'
 import { caixa } from '../api/caixa'
+import { ErroDaApi } from '../api/cliente'
 import { fiado } from '../api/fiado'
 import { vendas, type Comprovante, type Venda } from '../api/vendas'
 import { SessaoContext } from '../sessao/contexto'
@@ -73,7 +74,7 @@ describe('PDV no tablet', () => {
     })
     mostrar()
 
-    fireEvent.click(await screen.findByRole('button', { name: /ABERTA.*retomar ou cancelar/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
     fireEvent.change(await screen.findByLabelText('Forma'), { target: { value: 'PIX' } })
     expect(screen.queryByRole('button', { name: 'Receber e concluir' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Registrar parcela' }))
@@ -83,6 +84,16 @@ describe('PDV no tablet', () => {
     expect(screen.getByRole('img', { name: 'QR Pix da cobrança' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Concluir venda' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Cancelar venda' })).toBeEnabled()
+
+    const escrever = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: escrever }, configurable: true })
+    try {
+      fireEvent.click(screen.getByRole('button', { name: 'Copiar' }))
+      expect(await screen.findByRole('button', { name: 'Copiado' })).toBeInTheDocument()
+      expect(escrever).toHaveBeenCalledWith('codigo-pix')
+    } finally {
+      Reflect.deleteProperty(navigator, 'clipboard')
+    }
   })
 
   it('permite cancelar Venda concluída com Pix pago e mantém aviso de devolução manual', async () => {
@@ -103,7 +114,7 @@ describe('PDV no tablet', () => {
     const cancelar = vi.spyOn(vendas, 'cancelar').mockImplementation(async () => { cancelada = true })
     mostrar('ADMIN')
 
-    fireEvent.click(await screen.findByRole('button', { name: /CONCLUIDA.*R\$/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /Concluída.*R\$/ }))
     fireEvent.click(await screen.findByRole('button', { name: 'Cancelar venda' }))
     await waitFor(() => expect(cancelar).toHaveBeenCalledOnce())
     expect(await screen.findByText(/A devolução precisa ser feita fora do sistema/))
@@ -122,7 +133,7 @@ describe('PDV no tablet', () => {
           estado: 'DISPONIVEL' } }] })
     mostrar()
 
-    fireEvent.click(await screen.findByRole('button', { name: /CANCELADA.*R\$/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /Cancelada.*R\$/ }))
     expect(await screen.findByText(/cobrança removida/)).toBeInTheDocument()
     expect(screen.queryByRole('img', { name: 'QR Pix da cobrança' })).not.toBeInTheDocument()
     expect(screen.queryByText(/codigo-removido/)).not.toBeInTheDocument()
@@ -158,9 +169,41 @@ describe('PDV no tablet', () => {
     await waitFor(() => expect(pagar).toHaveBeenCalledWith('venda-1', 'DINHEIRO', 12.5, 15,
       expect.any(String), undefined))
     await waitFor(() => expect(concluir).toHaveBeenCalledWith('venda-1'))
-    expect(await screen.findByLabelText('Comprovante não fiscal')).toHaveTextContent('Troco: R$ 2,50')
+    const papel = await screen.findByLabelText('Comprovante não fiscal')
+    expect(papel).toHaveTextContent('Troco: R$ 2,50')
+    expect(papel).toHaveTextContent('Dinheiro: R$ 12,50')
+    expect(papel).not.toHaveTextContent('DINHEIRO')
+    // A próxima venda começa sem um toque para voltar à busca.
+    await waitFor(() => expect(busca).toHaveFocus())
     expect(toques).toBeLessThanOrEqual(6)
     document.removeEventListener('click', contar)
+  })
+
+  it('diz quando a busca não encontra produto', async () => {
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([])
+    vi.spyOn(cadastro, 'buscarProdutos').mockResolvedValue([])
+    mostrar()
+
+    fireEvent.change(await screen.findByLabelText('Produto por nome ou código'), { target: { value: 'xyz' } })
+    expect(await screen.findByText('Nenhum produto encontrado para xyz.')).toBeInTheDocument()
+  })
+
+  it('mostra a recusa do item no painel da busca, onde o produto foi tocado', async () => {
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([])
+    vi.spyOn(cadastro, 'buscarProdutos').mockResolvedValue([{ id: 'produto-1', tipo: 'PRODUTO',
+      nome: 'Café', preco: 12.5, codigo: 'CA-1', categoria: null, unidade: 'un', atributos: {} }])
+    vi.spyOn(vendas, 'iniciar').mockResolvedValue({ id: 'venda-1' })
+    vi.spyOn(vendas, 'adicionarItem').mockRejectedValue(
+      new ErroDaApi(409, 'Conflict', 'O produto foi inativado.', {}))
+    vi.spyOn(vendas, 'consultar').mockResolvedValue({ ...comanda, itens: [], total: 0, faltaPagar: 0 })
+    mostrar()
+
+    fireEvent.change(await screen.findByLabelText('Produto por nome ou código'), { target: { value: 'CA-1' } })
+    fireEvent.click(await screen.findByRole('button', { name: /Café · R\$\s*12,50/ }))
+    const painel = screen.getByRole('heading', { name: 'Busca de produtos' }).closest('section')!
+    expect(await within(painel).findByRole('alert')).toHaveTextContent('O produto foi inativado.')
   })
 
   it('pede o NSU no cartão, manda o número sem os espaços e o mostra na lista de parcelas', async () => {
@@ -179,7 +222,7 @@ describe('PDV no tablet', () => {
     })
     mostrar('OPERADOR', { nsuObrigatorio: true })
 
-    fireEvent.click(await screen.findByRole('button', { name: /ABERTA.*retomar ou cancelar/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
     expect(await screen.findByLabelText('Forma')).toHaveValue('DINHEIRO')
     expect(screen.queryByLabelText(/NSU do comprovante/)).not.toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Forma'), { target: { value: 'CARTAO' } })
@@ -190,7 +233,7 @@ describe('PDV no tablet', () => {
 
     await waitFor(() => expect(pagar).toHaveBeenCalledWith('venda-1', 'CARTAO', 12.5, undefined,
       expect.any(String), '004512'))
-    expect(await screen.findByText('CARTAO: R$ 12,50 · NSU 004512', { normalizer: (texto) =>
+    expect(await screen.findByText('Cartão: R$ 12,50 · NSU 004512', { normalizer: (texto) =>
       texto.replace(/\s+/g, ' ').trim() })).toBeInTheDocument()
   })
 
@@ -203,7 +246,7 @@ describe('PDV no tablet', () => {
     const pagar = vi.spyOn(vendas, 'pagar').mockResolvedValue({ troco: 0 })
     mostrar()
 
-    fireEvent.click(await screen.findByRole('button', { name: /ABERTA.*retomar ou cancelar/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
     fireEvent.change(await screen.findByLabelText('Forma'), { target: { value: 'CARTAO' } })
     expect(screen.getByLabelText('NSU do comprovante (opcional)')).not.toBeRequired()
     fireEvent.click(screen.getByRole('button', { name: 'Registrar parcela' }))
@@ -221,7 +264,7 @@ describe('PDV no tablet', () => {
     const cancelar = vi.spyOn(vendas, 'cancelar').mockResolvedValue(undefined)
     mostrar()
 
-    fireEvent.click(await screen.findByRole('button', { name: /ABERTA.*retomar ou cancelar/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
     expect(await screen.findByText(/1 × Café/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Cancelar venda' }))
     await waitFor(() => expect(cancelar).toHaveBeenCalledWith('venda-1'))
@@ -256,7 +299,7 @@ describe('PDV no tablet', () => {
     })
     mostrar('ADMIN')
 
-    fireEvent.click(await screen.findByRole('button', { name: /ABERTA.*retomar ou cancelar/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
     fireEvent.change(await screen.findByLabelText('Cliente (para fiado)'), { target: { value: 'cliente-1' } })
     await waitFor(() => expect(vincular).toHaveBeenCalledWith('venda-1', 'cliente-1'))
     fireEvent.change(await screen.findByLabelText('Forma'), { target: { value: 'FIADO' } })

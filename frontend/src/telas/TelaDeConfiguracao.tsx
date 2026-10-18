@@ -5,6 +5,7 @@ import { sessaoAtual } from '../sessao/armazenamento'
 import { temRecurso } from '../sessao/Identidade'
 import { useSessao } from '../sessao/useSessao'
 import { erroDeCadastro } from './erroDeCadastro'
+import { Mensagem } from './Mensagem'
 
 export function TelaDeConfiguracao() {
   const { identidade, atualizarIdentidade } = useSessao()
@@ -76,8 +77,8 @@ export function TelaDeConfiguracao() {
 
   return <section className="relatorios">
     <h2 className="titulo">Configuração da Conta</h2>
-    {erro && <p className="mensagem-erro" role="alert">{erro}</p>}
-    {aviso && <p className="mensagem-sucesso" role="status">{aviso}</p>}
+    <Mensagem tipo="erro" texto={erro} />
+    <Mensagem tipo="sucesso" texto={aviso} />
     <section className="relatorios__cartao">
       <h3>Nome do negócio</h3>
       {configuracao === null ? <p>Carregando configuração...</p> :
@@ -101,7 +102,9 @@ export function TelaDeConfiguracao() {
         <p>Depois do primeiro movimento de estoque, o controle não pode ser desligado.</p>
         {semPlanoParaLigar && <p>O controle de estoque faz parte do plano Completo, sem
           suspensão. Veja a tela <Link to="/plano">Plano</Link>.</p>}
-        <button className="botao" type="button" role="switch" aria-checked={configuracao.estoqueHabilitado}
+        {/* Botão comum, e não interruptor: o texto diz a ação, e um interruptor seria lido como
+            "Desligar controle de estoque, ligado". O estado está no parágrafo acima. */}
+        <button className="botao" type="button"
           disabled={salvando !== null || semPlanoParaLigar}
           onClick={() => void mudar('estoque', () => contas.definirEstoque(!configuracao.estoqueHabilitado))}>
           {salvando === 'estoque' ? 'Salvando...'
@@ -118,7 +121,7 @@ export function TelaDeConfiguracao() {
         <p>Quando obrigatório, a venda e o recebimento de fiado em cartão só são registrados com o
           NSU. O que já foi lançado sem ele continua valendo, e a venda feita sem rede que chegar sem
           NSU aparece em Sincronização para conferência.</p>
-        <button className="botao" type="button" role="switch" aria-checked={configuracao.nsuObrigatorio}
+        <button className="botao" type="button"
           disabled={salvando !== null}
           onClick={() => void mudar('nsu', () => contas.definirNsu(!configuracao.nsuObrigatorio))}>
           {salvando === 'nsu' ? 'Salvando...'
