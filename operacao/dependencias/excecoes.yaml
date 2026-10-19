@@ -41,3 +41,16 @@ vulnerabilities:
       Consumo de memória ao processar o ECH, a extensão que cifra o início do TLS. O proxy da VPS não
       tem ECH configurado, e sem as chaves dele o servidor não processa essa extensão.
     expired_at: 2026-11-09
+
+  # A base da imagem da aplicação, o eclipse-temurin 21 sobre o Alpine 3.24.2, traz a libexpat 2.8.5.
+  # A correção está na 2.9.0, e ainda não saiu base nova da mesma tag com ela. Saindo, troca-se o
+  # digest no Dockerfile e esta exceção sai.
+  - id: CVE-2026-77214
+    purls:
+      - pkg:apk/alpine/libexpat@2.8.5-r0?arch=x86_64&distro=3.24.2
+    statement: >-
+      Leitura além do buffer ao interpretar XML, em XML_ParseBuffer. Na imagem, só o fontconfig usa a
+      libexpat, e ele lê só os arquivos de configuração de fontes da própria imagem. A aplicação não
+      desenha texto nem imagem, que é o que levaria a JVM ao fontconfig, e a JVM lê XML com o próprio
+      leitor, sem a libexpat; nenhum dado vindo de fora chega a ela.
+    expired_at: 2026-11-17
