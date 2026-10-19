@@ -32,8 +32,6 @@ class AssinaturaDePedidoTest {
     void vetorFixo() {
         assertThat(assinatura.codigo(PEDIDO, Plano.COMPLETO, VALOR))
                 .isEqualTo("Q18E-8RDD-QZ4S-3HQH");
-        assertThat(assinatura.codigo(PEDIDO, Plano.CAIXA_SIMPLES, Money.de("67.89")))
-                .isEqualTo("95FG-7CV3-TMWE-NDJV");
         assertThat(assinatura.codigo(
                 UUID.fromString("0f1e2d3c-4b5a-4968-8776-655443322110"), Plano.COMPLETO,
                 Money.de("0.50")))
@@ -66,7 +64,7 @@ class AssinaturaDePedidoTest {
     @DisplayName("código de outro plano, de outro pedido ou com um caractere trocado não confere")
     void codigoDeOutroPedidoOuPlano() {
         assertThat(assinatura.confere(PEDIDO, Plano.COMPLETO, VALOR,
-                assinatura.codigo(PEDIDO, Plano.CAIXA_SIMPLES, VALOR))).isFalse();
+                assinatura.codigo(PEDIDO, Plano.GRATIS, VALOR))).isFalse();
         assertThat(assinatura.confere(PEDIDO, Plano.COMPLETO, VALOR, "Z667-1W9N-QWRG-9ET4"))
                 .isFalse();
         assertThat(assinatura.confere(PEDIDO, Plano.COMPLETO, VALOR, "Q18E-8RDD-QZ4S-3HQJ"))

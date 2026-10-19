@@ -1,14 +1,12 @@
 package br.com.caixasimples.contas.internal;
 
 import br.com.caixasimples.contas.SituacaoDoPlano;
-import br.com.caixasimples.shared.Money;
 import java.time.LocalDate;
 import java.time.YearMonth;
-import java.time.temporal.ChronoUnit;
 import java.util.Objects;
 
 /**
- * As datas do ciclo mensal do plano pago e o valor proporcional do upgrade.
+ * As datas do ciclo mensal do plano pago.
  *
  * <p>Só data e aritmética, sem relógio: quem chama informa o dia de hoje no fuso do balcão, o que
  * deixa cada regra verificável com uma data fixa.
@@ -45,11 +43,6 @@ public final class CicloDeVencimento {
      */
     public static LocalDate seguinte(LocalDate dataDoCiclo, int diaDoCiclo) {
         return vencimentoNoMes(YearMonth.from(dataDoCiclo).plusMonths(1), diaDoCiclo);
-    }
-
-    /** O vencimento do mês anterior: o início do período que termina na data dada. */
-    public static LocalDate anterior(LocalDate dataDoCiclo, int diaDoCiclo) {
-        return vencimentoNoMes(YearMonth.from(dataDoCiclo).minusMonths(1), diaDoCiclo);
     }
 
     /** O primeiro dia sem os recursos pagos, se não houver renovação: o oitavo depois do vencimento. */
@@ -95,29 +88,6 @@ public final class CicloDeVencimento {
             fim = seguinte(inicio, diaDoCiclo);
         }
         return new Periodo(inicio, fim);
-    }
-
-    /**
-     * O valor do upgrade no meio do período: a diferença das mensalidades vezes os dias de hoje,
-     * inclusive, até o vencimento, exclusive, sobre os dias do período que termina no vencimento.
-     *
-     * <p>O crédito do Pix é presumido no dia do pedido. Com renovação adiantada, os dias até o
-     * vencimento passam dos dias do período, e o valor cresce na mesma proporção, porque a
-     * diferença é devida por todos os dias já pagos no plano menor.
-     *
-     * @throws IllegalArgumentException se hoje não é anterior ao vencimento: sem período pago, não
-     *         há dias restantes para a proporção
-     */
-    public static Money valorDoUpgrade(Money diferencaMensal, LocalDate vencimento, int diaDoCiclo,
-            LocalDate hoje) {
-        Objects.requireNonNull(diferencaMensal, "diferenca nao pode ser nula");
-        if (!hoje.isBefore(vencimento)) {
-            throw new IllegalArgumentException(
-                    "upgrade so com o periodo pago: hoje " + hoje + ", vencimento " + vencimento);
-        }
-        long diasRestantes = ChronoUnit.DAYS.between(hoje, vencimento);
-        long diasDoPeriodo = ChronoUnit.DAYS.between(anterior(vencimento, diaDoCiclo), vencimento);
-        return diferencaMensal.proporcionalArredondando(diasRestantes, diasDoPeriodo);
     }
 
     /**

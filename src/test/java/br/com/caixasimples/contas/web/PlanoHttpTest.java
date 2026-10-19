@@ -67,9 +67,10 @@ class PlanoHttpTest extends TesteDeIntegracao {
                 .andExpect(jsonPath("$.vencimento").doesNotExist())
                 .andExpect(jsonPath("$.recursos", empty()))
                 .andExpect(jsonPath("$.mensalidadeCompleto").value(70.0))
-                .andExpect(jsonPath("$.propostas.length()").value(2))
-                .andExpect(jsonPath("$.propostas[1].tipo").value("ADESAO"))
-                .andExpect(jsonPath("$.propostas[1].plano").value("COMPLETO"))
+                .andExpect(jsonPath("$.mensalidadeCaixaSimples").doesNotExist())
+                .andExpect(jsonPath("$.propostas.length()").value(1))
+                .andExpect(jsonPath("$.propostas[0].tipo").value("ADESAO"))
+                .andExpect(jsonPath("$.propostas[0].plano").value("COMPLETO"))
                 .andExpect(jsonPath("$.pedidoAberto").doesNotExist());
         http.perform(get("/api/auth/eu").with(admin))
                 .andExpect(jsonPath("$.plano").value("GRATIS"))
@@ -116,18 +117,18 @@ class PlanoHttpTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("pedido substituído responde 409, pedido de outra Conta 404, operador 403 e pedido sem plano 400")
+    @DisplayName("pedido substituído responde 409, pedido de outra Conta 404, operador 403, pedido sem plano ou de plano que não existe 400")
     void recusasPorStatus() throws Exception {
         ContaCriada conta = criador.criar("Loja da Esquina", SENHA);
         ContaCriada outra = criador.criar("Loja do Outro Lado", SENHA);
         ContaCriada operador = criador.criar("Loja do Operador", SENHA, Perfil.OPERADOR, true);
         RequestPostProcessor admin = autenticador.como(conta);
 
-        UUID primeiro = UUID.fromString(pedir(admin, "CAIXA_SIMPLES").path("id").asText());
+        UUID primeiro = UUID.fromString(pedir(admin, "COMPLETO").path("id").asText());
         pedir(admin, "COMPLETO");
 
-        String codigoDoPrimeiro = assinatura.codigo(primeiro, Plano.CAIXA_SIMPLES,
-                Money.de(MENSALIDADE_CAIXA_SIMPLES));
+        String codigoDoPrimeiro = assinatura.codigo(primeiro, Plano.COMPLETO,
+                Money.de(MENSALIDADE_COMPLETO));
         http.perform(aplicar(admin, primeiro, codigoDoPrimeiro))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.detail").value(containsString("substituido")));
@@ -142,6 +143,11 @@ class PlanoHttpTest extends TesteDeIntegracao {
         http.perform(post("/api/conta/plano/pedidos").with(admin)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
+                .andExpect(status().isBadRequest());
+        // O plano intermediário saiu: o valor dele não é mais um plano que a API leia.
+        http.perform(post("/api/conta/plano/pedidos").with(admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"plano\":\"CAIXA_SIMPLES\"}"))
                 .andExpect(status().isBadRequest());
         http.perform(post("/api/conta/plano/pedidos").with(admin)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -159,7 +165,7 @@ class PlanoHttpTest extends TesteDeIntegracao {
         http.perform(get("/api/relatorios/faturamento/dia").param("dia", hoje)
                         .with(autenticador.como(conta)))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.detail").value(containsString("Caixa Simples")));
+                .andExpect(jsonPath("$.detail").value(containsString("plano Completo")));
         http.perform(get("/api/estoque/produtos").with(autenticador.como(conta)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.detail").value(containsString("plano Completo")));
@@ -200,7 +206,7 @@ class PlanoHttpTest extends TesteDeIntegracao {
                 .andExpect(jsonPath("$.recursos", empty()));
         http.perform(faturamentoDoDia(gratis, hoje))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.detail").value(containsString("Caixa Simples")));
+                .andExpect(jsonPath("$.detail").value(containsString("plano Completo")));
 
         // A suspensa continua com o próprio plano, o vencimento e a suspensão.
         http.perform(get("/api/conta/plano").with(autenticador.como(suspensa)))

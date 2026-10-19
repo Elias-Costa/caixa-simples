@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException
 import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 
 import br.com.caixasimples.contas.Plano;
-import br.com.caixasimples.shared.Money;
 import java.time.Instant;
 import java.time.LocalDate;
 import org.junit.jupiter.api.DisplayName;
@@ -27,7 +26,7 @@ class ContaTest {
     private static final LocalDate VENCIMENTO = LocalDate.of(2026, 4, 10);
 
     @Test
-    @DisplayName("a adesão parte do plano grátis para um plano pago, e só uma vez")
+    @DisplayName("a adesão parte do plano grátis para o plano pago, e só uma vez")
     void adesaoSoDoGratisParaUmPlanoPago() {
         Conta gratis = gratis();
         assertThatIllegalArgumentException()
@@ -36,12 +35,6 @@ class ContaTest {
         conferirCiclo(gratis, Plano.GRATIS, null, null);
 
         // Uma segunda adesão recomeçaria o ciclo no dia dela, apagando o período já pago.
-        Conta intermediaria = paga(Plano.CAIXA_SIMPLES);
-        assertThatIllegalStateException()
-                .isThrownBy(() -> intermediaria.ativarPlano(Plano.COMPLETO, ADESAO.plusDays(5)))
-                .withMessageContaining("ja tem o plano");
-        conferirCiclo(intermediaria, Plano.CAIXA_SIMPLES, 10, VENCIMENTO);
-
         Conta completa = paga(Plano.COMPLETO);
         assertThatIllegalStateException()
                 .isThrownBy(() -> completa.ativarPlano(Plano.COMPLETO, ADESAO.plusDays(5)))
@@ -50,60 +43,37 @@ class ContaTest {
     }
 
     @Test
-    @DisplayName("o upgrade vale só a partir do plano intermediário, e não mexe no vencimento")
-    void upgradeSoDoIntermediario() {
-        Conta gratis = gratis();
-        assertThatIllegalStateException()
-                .isThrownBy(gratis::subirParaCompleto)
-                .withMessageContaining("upgrade vale so");
-        conferirCiclo(gratis, Plano.GRATIS, null, null);
-
-        Conta completa = paga(Plano.COMPLETO);
-        assertThatIllegalStateException()
-                .isThrownBy(completa::subirParaCompleto)
-                .withMessageContaining("upgrade vale so");
-        conferirCiclo(completa, Plano.COMPLETO, 10, VENCIMENTO);
-
-        Conta intermediaria = paga(Plano.CAIXA_SIMPLES);
-        intermediaria.subirParaCompleto();
-        conferirCiclo(intermediaria, Plano.COMPLETO, 10, VENCIMENTO);
-    }
-
-    @Test
     @DisplayName("a renovação é do plano da Conta e de um período ainda não pago")
     void renovacaoDoProprioPlanoEDeUmPeriodoAindaNaoPago() {
-        Conta conta = paga(Plano.CAIXA_SIMPLES);
+        Conta conta = paga(Plano.COMPLETO);
         LocalDate maio = LocalDate.of(2026, 5, 10);
 
         assertThatIllegalStateException()
-                .isThrownBy(() -> conta.renovar(Plano.COMPLETO, maio))
+                .isThrownBy(() -> conta.renovar(Plano.GRATIS, maio))
                 .withMessageContaining("a renovacao e do plano");
         assertThatIllegalStateException()
-                .isThrownBy(() -> conta.renovar(Plano.CAIXA_SIMPLES, VENCIMENTO))
+                .isThrownBy(() -> conta.renovar(Plano.COMPLETO, VENCIMENTO))
                 .withMessageContaining("ja esta pago");
         assertThatIllegalStateException()
-                .isThrownBy(() -> conta.renovar(Plano.CAIXA_SIMPLES, VENCIMENTO.minusDays(1)))
+                .isThrownBy(() -> conta.renovar(Plano.COMPLETO, VENCIMENTO.minusDays(1)))
                 .withMessageContaining("ja esta pago");
-        conferirCiclo(conta, Plano.CAIXA_SIMPLES, 10, VENCIMENTO);
+        conferirCiclo(conta, Plano.COMPLETO, 10, VENCIMENTO);
 
         // O limite: o período seguinte ao pago renova, e o dia do ciclo não muda.
-        conta.renovar(Plano.CAIXA_SIMPLES, maio);
-        conferirCiclo(conta, Plano.CAIXA_SIMPLES, 10, maio);
+        conta.renovar(Plano.COMPLETO, maio);
+        conferirCiclo(conta, Plano.COMPLETO, 10, maio);
     }
 
     @Test
-    @DisplayName("a Conta no plano grátis não tem ciclo: não renova, não tem período nem valor de upgrade")
+    @DisplayName("a Conta no plano grátis não tem ciclo: não renova nem tem período")
     void contaGratisNaoTemCiclo() {
         Conta gratis = gratis();
 
         assertThatIllegalStateException()
-                .isThrownBy(() -> gratis.renovar(Plano.CAIXA_SIMPLES, VENCIMENTO))
+                .isThrownBy(() -> gratis.renovar(Plano.COMPLETO, VENCIMENTO))
                 .withMessageContaining("gratuito nao tem ciclo");
         assertThatIllegalStateException()
                 .isThrownBy(() -> gratis.periodoDaRenovacao(ADESAO))
-                .withMessageContaining("gratuito nao tem ciclo");
-        assertThatIllegalStateException()
-                .isThrownBy(() -> gratis.valorDoUpgrade(Money.de("40.00"), ADESAO))
                 .withMessageContaining("gratuito nao tem ciclo");
         conferirCiclo(gratis, Plano.GRATIS, null, null);
     }

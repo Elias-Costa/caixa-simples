@@ -1,6 +1,6 @@
 #!/bin/sh
 # Gera o arquivo de configuração de uma instalação, uma vez: os segredos que nascem na máquina saem
-# aleatórios, e o que vem de fora (domínio, mensalidades, buckets, credenciais da AWS, chave pública
+# aleatórios, e o que vem de fora (domínio, mensalidade, buckets, credenciais da AWS, chave pública
 # da cópia e endereços do vigia) fica vazio, para preencher à mão. Nunca sobrescreve um arquivo que
 # já existe: trocar a senha do banco ou a chave dos tokens depois de no ar é outra operação.
 #
@@ -44,8 +44,7 @@ CAIXA_SIMPLES_DB_SUPERUSUARIO_PASSWORD=$(aleatorio)
 CAIXA_SIMPLES_JWT_SECRET=$(aleatorio)
 CAIXA_SIMPLES_PLANO_SECRET=$(aleatorio)
 
-# Mensalidades em reais, com ponto decimal; a do completo maior que a do intermediário.
-CAIXA_SIMPLES_MENSALIDADE_CAIXA_SIMPLES=
+# Mensalidade do plano completo em reais, com ponto decimal.
 CAIXA_SIMPLES_MENSALIDADE_COMPLETO=
 
 # Registro mínimo das remoções, num bucket separado das cópias, sem expiração. A credencial só grava

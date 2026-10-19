@@ -9,11 +9,11 @@ const admin: Identidade = {
   contaId: '2',
   nomeNegocio: 'Cafeteria Aurora',
   estoqueHabilitado: false,
-  plano: 'CAIXA_SIMPLES',
+  plano: 'COMPLETO',
   situacaoDoPlano: 'EM_DIA',
   vencimentoDoPlano: '2026-03-10',
   inicioDaSuspensao: '2026-03-18',
-  recursos: ['RELATORIOS'],
+  recursos: ['RELATORIOS', 'ESTOQUE', 'MULTIUSUARIO'],
 }
 
 describe('avisoDoPlano', () => {

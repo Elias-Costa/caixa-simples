@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException
 
 import br.com.caixasimples.contas.SituacaoDoPlano;
 import br.com.caixasimples.contas.internal.CicloDeVencimento.Periodo;
-import br.com.caixasimples.shared.Money;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import org.junit.jupiter.api.DisplayName;
@@ -16,8 +15,6 @@ import org.junit.jupiter.api.Test;
  * dia de hoje.
  */
 class CicloDeVencimentoTest {
-
-    private static final Money DIFERENCA = Money.de("40.00");
 
     @Test
     @DisplayName("mês sem o dia do ciclo vence no último dia, inclusive em fevereiro bissexto")
@@ -52,8 +49,6 @@ class CicloDeVencimentoTest {
         assertThat(marco).isEqualTo(LocalDate.of(2026, 3, 31));
         assertThat(abril).isEqualTo(LocalDate.of(2026, 4, 30));
         assertThat(maio).isEqualTo(LocalDate.of(2026, 5, 31));
-        assertThat(CicloDeVencimento.anterior(marco, dia)).isEqualTo(fevereiro);
-        assertThat(CicloDeVencimento.anterior(fevereiro, dia)).isEqualTo(adesao);
     }
 
     @Test
@@ -123,44 +118,6 @@ class CicloDeVencimentoTest {
         assertThat(CicloDeVencimento.periodoDaRenovacao(LocalDate.of(2026, 2, 28), 31,
                 LocalDate.of(2026, 4, 5)))
                 .isEqualTo(new Periodo(LocalDate.of(2026, 3, 31), LocalDate.of(2026, 4, 30)));
-    }
-
-    @Test
-    @DisplayName("o upgrade cobra a diferença pelos dias que faltam, sobre os dias do período")
-    void upgradeProporcional() {
-        LocalDate vencimento = LocalDate.of(2026, 4, 10);
-
-        // Período de 10 de março a 10 de abril: 31 dias. De 25 de março faltam 16: 640/31 = 20,645.
-        assertThat(CicloDeVencimento.valorDoUpgrade(DIFERENCA, vencimento, 10,
-                LocalDate.of(2026, 3, 25))).isEqualTo(Money.de("20.65"));
-        // Na véspera, um dia: 40/31 = 1,290.
-        assertThat(CicloDeVencimento.valorDoUpgrade(DIFERENCA, vencimento, 10,
-                LocalDate.of(2026, 4, 9))).isEqualTo(Money.de("1.29"));
-        // No primeiro dia do período, a diferença inteira.
-        assertThat(CicloDeVencimento.valorDoUpgrade(DIFERENCA, vencimento, 10,
-                LocalDate.of(2026, 3, 10))).isEqualTo(DIFERENCA);
-        // Fevereiro tem 28 dias: de 24 de fevereiro faltam 14, a metade.
-        assertThat(CicloDeVencimento.valorDoUpgrade(DIFERENCA, LocalDate.of(2026, 3, 10), 10,
-                LocalDate.of(2026, 2, 24))).isEqualTo(Money.de("20.00"));
-    }
-
-    @Test
-    @DisplayName("com renovação adiantada, o upgrade cobra todos os dias já pagos no plano menor")
-    void upgradeComRenovacaoAdiantada() {
-        // Pago até 10 de maio; o período que termina nele tem 30 dias, e de 25 de março faltam 46.
-        assertThat(CicloDeVencimento.valorDoUpgrade(DIFERENCA, LocalDate.of(2026, 5, 10), 10,
-                LocalDate.of(2026, 3, 25))).isEqualTo(Money.de("61.33"));
-    }
-
-    @Test
-    @DisplayName("sem período pago não há upgrade proporcional")
-    void upgradeNoVencimentoRecusado() {
-        LocalDate vencimento = LocalDate.of(2026, 4, 10);
-
-        assertThatIllegalArgumentException().isThrownBy(
-                () -> CicloDeVencimento.valorDoUpgrade(DIFERENCA, vencimento, 10, vencimento));
-        assertThatIllegalArgumentException().isThrownBy(() -> CicloDeVencimento.valorDoUpgrade(
-                DIFERENCA, vencimento, 10, LocalDate.of(2026, 4, 15)));
     }
 
     @Test

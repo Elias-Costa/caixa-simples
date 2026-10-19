@@ -33,15 +33,11 @@ class PedidoDePlanoTest {
     private static final UUID OUTRA_PESSOA = UUID.randomUUID();
     private static final Instant AGORA = Instant.parse("2026-03-10T15:00:00Z");
     private static final Instant DEPOIS = AGORA.plusSeconds(60);
-    private static final Money MENSALIDADE = Money.de("30.00");
+    private static final Money MENSALIDADE = Money.de("70.00");
     private static final Periodo MARCO = new Periodo(LocalDate.of(2026, 3, 10),
             LocalDate.of(2026, 4, 10));
     private static final Periodo ABRIL = new Periodo(LocalDate.of(2026, 4, 10),
             LocalDate.of(2026, 5, 10));
-
-    /** O upgrade pedido no dia 25 paga do pedido até o vencimento do período em curso. */
-    private static final Periodo RESTO_DE_MARCO = new Periodo(LocalDate.of(2026, 3, 25),
-            LocalDate.of(2026, 4, 10));
 
     @Test
     @DisplayName("só o pedido aberto se aplica ou é substituído: o aplicado e o substituído recusam e não mudam")
@@ -94,21 +90,15 @@ class PedidoDePlanoTest {
     }
 
     @Test
-    @DisplayName("só a adesão recebe o período na aplicação: a renovação e o upgrade já nascem com o que pagam")
+    @DisplayName("só a adesão recebe o período na aplicação: a renovação já nasce com o que paga")
     void periodoNaAplicacaoSoNaAdesao() {
         PedidoDePlano renovacao = renovacao();
-        PedidoDePlano upgrade = PedidoDePlano.upgrade(Money.de("20.65"), RESTO_DE_MARCO, QUEM_PEDE,
-                AGORA);
 
         assertThatIllegalStateException()
                 .isThrownBy(() -> renovacao.aplicarAdesao(ABRIL, QUEM_APLICA, AGORA))
                 .withMessageContaining("so a adesao");
-        assertThatIllegalStateException()
-                .isThrownBy(() -> upgrade.aplicarAdesao(ABRIL, QUEM_APLICA, AGORA))
-                .withMessageContaining("so a adesao");
 
         conferir(renovacao, Situacao.ABERTO, MARCO, null, null);
-        conferir(upgrade, Situacao.ABERTO, RESTO_DE_MARCO, null, null);
     }
 
     @Test
@@ -124,34 +114,25 @@ class PedidoDePlanoTest {
     }
 
     @Test
-    @DisplayName("valor negativo é recusado nos três tipos; zero vale, porque o upgrade pode arredondar a nada")
-    void valorNegativoRecusadoEZeroAceito() {
+    @DisplayName("valor negativo é recusado nos dois tipos")
+    void valorNegativoRecusado() {
         Money negativo = Money.de("-0.01");
 
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> PedidoDePlano.adesao(Plano.CAIXA_SIMPLES, negativo, QUEM_PEDE,
-                        AGORA))
-                .withMessageContaining("negativo");
-        assertThatIllegalArgumentException()
-                .isThrownBy(() -> PedidoDePlano.upgrade(negativo, RESTO_DE_MARCO, QUEM_PEDE, AGORA))
+                .isThrownBy(() -> PedidoDePlano.adesao(Plano.COMPLETO, negativo, QUEM_PEDE, AGORA))
                 .withMessageContaining("negativo");
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> PedidoDePlano.renovacao(Plano.COMPLETO, negativo, MARCO,
                         QUEM_PEDE, AGORA))
                 .withMessageContaining("negativo");
-
-        // Uma diferença mensal pequena, pedida na véspera do vencimento, dá menos de meio centavo.
-        Periodo vespera = new Periodo(LocalDate.of(2026, 4, 9), LocalDate.of(2026, 4, 10));
-        assertThat(PedidoDePlano.upgrade(Money.ZERO, vespera, QUEM_PEDE, AGORA).getValor())
-                .isEqualTo(Money.ZERO);
     }
 
     private static PedidoDePlano adesao() {
-        return PedidoDePlano.adesao(Plano.CAIXA_SIMPLES, MENSALIDADE, QUEM_PEDE, AGORA);
+        return PedidoDePlano.adesao(Plano.COMPLETO, MENSALIDADE, QUEM_PEDE, AGORA);
     }
 
     private static PedidoDePlano renovacao() {
-        return PedidoDePlano.renovacao(Plano.CAIXA_SIMPLES, MENSALIDADE, MARCO, QUEM_PEDE, AGORA);
+        return PedidoDePlano.renovacao(Plano.COMPLETO, MENSALIDADE, MARCO, QUEM_PEDE, AGORA);
     }
 
     /** A situação, o período e a aplicação: o que uma recusa não pode ter mudado. */

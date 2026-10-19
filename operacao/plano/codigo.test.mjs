@@ -10,13 +10,11 @@ const PEDIDO = '8d5b2c1e-4f3a-4b6c-9d7e-1a2b3c4d5e6f'
 
 test('dá o código do vetor fixo, o mesmo da aplicação', () => {
   assert.equal(codigoDoPedido(SEGREDO, PEDIDO, 'COMPLETO', '123.45'), 'Q18E-8RDD-QZ4S-3HQH')
-  assert.equal(codigoDoPedido(SEGREDO, PEDIDO, 'CAIXA_SIMPLES', '67.89'), '95FG-7CV3-TMWE-NDJV')
   assert.equal(codigoDoPedido(SEGREDO, '0f1e2d3c-4b5a-4968-8776-655443322110', 'COMPLETO', '0.50'),
     'Z667-1W9N-QWRG-9ET4')
 })
 
 test('aceita o plano como no texto do pedido e o id com maiúsculas e espaços', () => {
-  assert.equal(codigoDoPedido(SEGREDO, PEDIDO, 'Caixa Simples', '67.89'), '95FG-7CV3-TMWE-NDJV')
   assert.equal(codigoDoPedido(SEGREDO, PEDIDO, 'completo', '123.45'), 'Q18E-8RDD-QZ4S-3HQH')
   assert.equal(codigoDoPedido(SEGREDO, ` ${PEDIDO.toUpperCase()} `, 'Completo', '123.45'),
     'Q18E-8RDD-QZ4S-3HQH')
@@ -49,6 +47,11 @@ test('recusa segredo curto, id que não é de pedido, plano sem pedido e valor a
   assert.throws(() => codigoDoPedido(undefined, PEDIDO, 'COMPLETO', '123.45'), /32 bytes/)
   assert.throws(() => codigoDoPedido(SEGREDO, 'pedido-123', 'COMPLETO', '123.45'), /id de pedido/)
   assert.throws(() => codigoDoPedido(SEGREDO, PEDIDO, 'GRATIS', '123.45'), /plano invalido/)
+  // O plano intermediário saiu: o código dele não existe mais.
+  for (const plano of ['CAIXA_SIMPLES', 'Caixa Simples', undefined]) {
+    assert.throws(() => codigoDoPedido(SEGREDO, PEDIDO, plano, '123.45'), /plano invalido/,
+      String(plano))
+  }
   // 1.234 sem vírgula pode ser mil duzentos e trinta e quatro ou um real e vinte e três: recusado.
   for (const valor of [undefined, '', 'R$', 'Simples', '1.234', '123,456', '-123,45', '12a,00',
     '1,2,3']) {

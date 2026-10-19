@@ -59,9 +59,9 @@ class ConferenciaDoCartaoHttpTest extends TesteDeIntegracao {
     @Test
     void administradorListaOCartaoDoDiaComONsuOuAFaltaDele() throws Exception {
         ContaCriada conta = criador.criar("Cafeteria Aurora", SENHA);
-        criador.contratar(conta.contaId(), Plano.CAIXA_SIMPLES);
+        criador.contratar(conta.contaId(), Plano.COMPLETO);
         ContaCriada outra = criador.criar("Loja da Esquina", SENHA);
-        criador.contratar(outra.contaId(), Plano.CAIXA_SIMPLES);
+        criador.contratar(outra.contaId(), Plano.COMPLETO);
         UUID caixa = conta.comoUsuario(() -> caixas.abrir(Money.ZERO));
         UUID caixaDaOutra = outra.comoUsuario(() -> caixas.abrir(Money.ZERO));
         UUID comNsu = vendaNoCartao(conta, caixa, StatusVenda.CONCLUIDA, LocalTime.of(9, 0),
@@ -111,9 +111,9 @@ class ConferenciaDoCartaoHttpTest extends TesteDeIntegracao {
     @Test
     void recusaOperadorPlanoSemRelatorioEParametroInvalido() throws Exception {
         ContaCriada conta = criador.criar("Padaria Aurora", SENHA);
-        criador.contratar(conta.contaId(), Plano.CAIXA_SIMPLES);
+        criador.contratar(conta.contaId(), Plano.COMPLETO);
         ContaCriada operador = criador.criar("Ponto do Operador", SENHA, Perfil.OPERADOR, true);
-        criador.contratar(operador.contaId(), Plano.CAIXA_SIMPLES);
+        criador.contratar(operador.contaId(), Plano.COMPLETO);
         ContaCriada gratis = criador.criar("Banca Aurora", SENHA);
 
         conferencia(operador, DIA, null).andExpect(status().isForbidden());

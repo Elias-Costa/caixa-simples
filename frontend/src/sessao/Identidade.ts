@@ -1,6 +1,6 @@
 export type Perfil = 'ADMIN' | 'OPERADOR'
 
-export type Plano = 'GRATIS' | 'CAIXA_SIMPLES' | 'COMPLETO'
+export type Plano = 'GRATIS' | 'COMPLETO'
 
 /** Onde a Conta está no ciclo mensal do plano pago, no dia de hoje do balcão. */
 export type SituacaoDoPlano = 'SEM_MENSALIDADE' | 'EM_DIA' | 'A_VENCER' | 'VENCIDO' | 'SUSPENSO'

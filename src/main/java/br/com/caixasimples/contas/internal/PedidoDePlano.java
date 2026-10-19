@@ -16,8 +16,8 @@ import java.util.UUID;
 import org.hibernate.annotations.TenantId;
 
 /**
- * O pedido de plano que o administrador faz no aplicativo: adesão, upgrade ou renovação. Entidade
- * única, sem membros.
+ * O pedido de plano que o administrador faz no aplicativo: adesão ou renovação. Entidade única, sem
+ * membros.
  *
  * <p>O pedido é o que o mantenedor confere contra o Pix recebido, pelo id, pelo valor e pelo
  * período, e o código de ativação fica preso ao id, ao plano e ao valor dele. Guarda quem pediu e
@@ -34,10 +34,9 @@ import org.hibernate.annotations.TenantId;
 @Table(name = "pedido_de_plano")
 public class PedidoDePlano {
 
-    /** Adesão sai do plano gratuito; upgrade, do intermediário ao completo; renovação paga um mês. */
+    /** Adesão sai do plano gratuito; renovação paga um mês do plano pago. */
     public enum Tipo {
         ADESAO,
-        UPGRADE,
         RENOVACAO
     }
 
@@ -118,14 +117,6 @@ public class PedidoDePlano {
     public static PedidoDePlano adesao(Plano plano, Money mensalidade, UUID criadoPor,
             Instant agora) {
         return new PedidoDePlano(Tipo.ADESAO, plano, mensalidade, null, criadoPor, agora);
-    }
-
-    /** De hoje, em que o crédito é presumido, até o vencimento do período já pago. */
-    public static PedidoDePlano upgrade(Money diferencaProporcional,
-            CicloDeVencimento.Periodo restante, UUID criadoPor, Instant agora) {
-        Objects.requireNonNull(restante, "periodo nao pode ser nulo");
-        return new PedidoDePlano(Tipo.UPGRADE, Plano.COMPLETO, diferencaProporcional, restante,
-                criadoPor, agora);
     }
 
     public static PedidoDePlano renovacao(Plano plano, Money mensalidade,

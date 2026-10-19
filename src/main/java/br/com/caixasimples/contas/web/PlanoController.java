@@ -109,15 +109,14 @@ class PlanoController {
      * @param pedidoAberto      omitido sem pedido à espera do código
      */
     record EstadoNaResposta(String plano, String situacao, LocalDate vencimento,
-            LocalDate inicioDaSuspensao, List<String> recursos, BigDecimal mensalidadeCaixaSimples,
-            BigDecimal mensalidadeCompleto, List<PropostaNaResposta> propostas,
-            PedidoNaResposta pedidoAberto) {
+            LocalDate inicioDaSuspensao, List<String> recursos, BigDecimal mensalidadeCompleto,
+            List<PropostaNaResposta> propostas, PedidoNaResposta pedidoAberto) {
 
         static EstadoNaResposta de(EstadoDoPlano estado) {
             return new EstadoNaResposta(estado.plano().name(), estado.situacao().name(),
                     estado.vencimento(), estado.inicioDaSuspensao(),
                     estado.recursos().stream().map(RecursoDoPlano::name).toList(),
-                    estado.mensalidadeCaixaSimples().valor(), estado.mensalidadeCompleto().valor(),
+                    estado.mensalidadeCompleto().valor(),
                     estado.propostas().stream().map(PropostaNaResposta::de).toList(),
                     estado.pedidoAberto() == null ? null : PedidoNaResposta.de(estado.pedidoAberto()));
         }

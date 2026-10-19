@@ -130,7 +130,7 @@ class EncerramentoDaContaSqlTest extends TesteDeIntegracao {
                     conteudo("nome", "Cliente sem rede", "contato", null)).recebida(json)));
             // Um pedido substituído e outro aberto: os dois apontam para o usuário que sai depois
             // deles.
-            planos.pedir(Plano.CAIXA_SIMPLES);
+            planos.pedir(Plano.COMPLETO);
             planos.pedir(Plano.COMPLETO);
             // O aceite também aponta para o usuário.
             termos.aceitar(TermosDeUsoService.VERSAO_VIGENTE);

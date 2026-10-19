@@ -144,7 +144,7 @@ class IsolamentoEntreContasTest extends TesteDeIntegracao {
 
         // A conta B pede o próprio plano: o pedido dela não substitui o aberto da A nem colide com
         // ele, e o código já entregue à A continua valendo.
-        UUID pedidoDeB = contaB.comoUsuario(() -> planos.pedir(Plano.CAIXA_SIMPLES)).id();
+        UUID pedidoDeB = contaB.comoUsuario(() -> planos.pedir(Plano.COMPLETO)).id();
         assertThat(pedidoDeB).isNotEqualTo(pedidoDeA);
         contaA.comoUsuario(() -> {
             assertThat(planos.consultar().pedidoAberto())

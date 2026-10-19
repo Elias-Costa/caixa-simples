@@ -27,12 +27,8 @@ const gratis: EstadoDoPlano = {
   plano: 'GRATIS',
   situacao: 'SEM_MENSALIDADE',
   recursos: [],
-  mensalidadeCaixaSimples: 30,
   mensalidadeCompleto: 70,
-  propostas: [
-    { tipo: 'ADESAO', plano: 'CAIXA_SIMPLES', valor: 30 },
-    { tipo: 'ADESAO', plano: 'COMPLETO', valor: 70 },
-  ],
+  propostas: [{ tipo: 'ADESAO', plano: 'COMPLETO', valor: 70 }],
 }
 
 const pedido: PedidoDePlano = {
@@ -44,7 +40,7 @@ const pedido: PedidoDePlano = {
 const completoEmDia: EstadoDoPlano = {
   plano: 'COMPLETO', situacao: 'EM_DIA', vencimento: '2026-11-03',
   inicioDaSuspensao: '2026-11-11', recursos: ['RELATORIOS', 'ESTOQUE', 'MULTIUSUARIO'],
-  mensalidadeCaixaSimples: 30, mensalidadeCompleto: 70,
+  mensalidadeCompleto: 70,
   propostas: [{ tipo: 'RENOVACAO', plano: 'COMPLETO', valor: 70,
     periodoInicio: '2026-11-03', periodoFim: '2026-12-03' }],
 }
@@ -61,7 +57,6 @@ const daContaB: Identidade = {
 
 /** O formato de moeda separa o símbolo do número com espaço inseparável; \s também o aceita. */
 const pedirCompleto = /^Pedir o Completo \(R\$\s70,00 por mês\)$/
-const pedirCaixaSimples = /^Pedir o Caixa Simples \(R\$\s30,00 por mês\)$/
 
 function ComSessao() {
   const [identidade, atualizarIdentidade] = useState(admin)
@@ -102,13 +97,15 @@ function PlanoComProvedorReal() {
 }
 
 describe('tela do plano', () => {
-  it('mostra o que cada plano inclui, as mensalidades e o aviso de NFC-e antes do pedido', async () => {
+  it('mostra o que cada plano inclui, a mensalidade e o aviso de NFC-e antes do pedido', async () => {
     vi.spyOn(contas, 'plano').mockResolvedValue(gratis)
     render(<ComSessao />)
 
     expect(await screen.findByText('Plano atual: Gratuito')).toBeInTheDocument()
-    expect(screen.getByText(/mais os relatórios de faturamento/)).toHaveTextContent('R$ 30,00 por mês')
-    expect(screen.getByText(/mais o controle de estoque/)).toHaveTextContent('R$ 70,00 por mês')
+    expect(screen.getAllByRole('listitem')).toHaveLength(2)
+    expect(screen.getByText(/Sem mensalidade\./)).toHaveTextContent('com um usuário.')
+    expect(screen.getByText(/mais os relatórios de faturamento/))
+      .toHaveTextContent('o controle de estoque e mais de um usuário. R$ 70,00 por mês')
     expect(screen.getByText('A emissão de NFC-e ainda não está disponível.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: pedirCompleto })).toBeInTheDocument()
   })
@@ -141,7 +138,7 @@ describe('tela do plano', () => {
     const pedir = vi.spyOn(contas, 'pedirPlano').mockResolvedValue(pedido)
     render(<ComSessao />)
 
-    fireEvent.click(await screen.findByRole('button', { name: pedirCaixaSimples }))
+    fireEvent.click(await screen.findByRole('button', { name: pedirCompleto }))
 
     expect(await confirmacaoAberta()).toHaveTextContent('substitui o aberto')
     await responderConfirmacao('Voltar')
@@ -216,19 +213,19 @@ describe('tela do plano', () => {
     expect(screen.getByLabelText('Texto do pedido')).toBeInTheDocument()
   })
 
-  it('com o intermediário vencido, explica que o upgrade espera a renovação', async () => {
+  it('com o Completo suspenso, oferece só a renovação do período e diz desde quando os recursos param', async () => {
     vi.spyOn(contas, 'plano').mockResolvedValue({
-      ...gratis, plano: 'CAIXA_SIMPLES', situacao: 'SUSPENSO', vencimento: '2026-09-01',
-      inicioDaSuspensao: '2026-09-09',
-      propostas: [{ tipo: 'RENOVACAO', plano: 'CAIXA_SIMPLES', valor: 30,
+      ...completoEmDia, situacao: 'SUSPENSO', vencimento: '2026-09-01',
+      inicioDaSuspensao: '2026-09-09', recursos: [],
+      propostas: [{ tipo: 'RENOVACAO', plano: 'COMPLETO', valor: 70,
         periodoInicio: '2026-09-01', periodoFim: '2026-10-01' }],
     })
     render(<ComSessao />)
 
-    expect(await screen.findByText(/renove antes o Caixa Simples/)).toBeInTheDocument()
-    expect(screen.getByText(/suspensos desde 09\/09\/2026/)).toBeInTheDocument()
+    expect(await screen.findByText(/suspensos desde 09\/09\/2026/)).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /^(Pedir|Renovar)/ })).toHaveLength(1)
     expect(screen.getByRole('button',
-      { name: /^Renovar o Caixa Simples de 01\/09\/2026 a 30\/09\/2026 \(R\$\s30,00\)$/ }))
+      { name: /^Renovar o Completo de 01\/09\/2026 a 30\/09\/2026 \(R\$\s70,00\)$/ }))
       .toBeInTheDocument()
   })
 })

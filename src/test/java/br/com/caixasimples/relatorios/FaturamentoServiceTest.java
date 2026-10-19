@@ -81,7 +81,7 @@ class FaturamentoServiceTest extends TesteDeIntegracao {
     @DisplayName("o dia é delimitado no fuso do balcão e conta só as vendas CONCLUIDA")
     void faturamentoDoDiaNoFusoDoBalcao() {
         ContaCriada conta = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
-        criador.contratar(conta.contaId(), Plano.CAIXA_SIMPLES);
+        criador.contratar(conta.contaId(), Plano.COMPLETO);
         Cenario cenario = prepararCenario(conta);
 
         // Dentro do dia: a primeira venda da manhã e a última antes da meia-noite.
@@ -115,7 +115,7 @@ class FaturamentoServiceTest extends TesteDeIntegracao {
     @DisplayName("o período soma todos os dias, com os dois extremos incluídos")
     void faturamentoDoPeriodoIncluiOsExtremos() {
         ContaCriada conta = criador.criar("Padaria Central", SENHA_DE_TESTE);
-        criador.contratar(conta.contaId(), Plano.CAIXA_SIMPLES);
+        criador.contratar(conta.contaId(), Plano.COMPLETO);
         Cenario cenario = prepararCenario(conta);
 
         concluida(conta, cenario, "10.00", noBalcao(DIA, LocalTime.MIDNIGHT));
@@ -146,7 +146,7 @@ class FaturamentoServiceTest extends TesteDeIntegracao {
     @DisplayName("o operador não lê o faturamento, nem o próprio: é relatório do administrador (RF30)")
     void operadorNaoLeOFaturamento() {
         ContaCriada conta = criador.criar("Mercearia com Atendente", SENHA_DE_TESTE);
-        criador.contratar(conta.contaId(), Plano.CAIXA_SIMPLES);
+        criador.contratar(conta.contaId(), Plano.COMPLETO);
         UsuarioCriado operador = criador.criarOperadorEm(conta.contaId(), "Atendente");
 
         assertThatExceptionOfType(AcessoNegadoException.class)
@@ -163,7 +163,7 @@ class FaturamentoServiceTest extends TesteDeIntegracao {
     @DisplayName("dia sem venda devolve zero, nunca nulo; período invertido é recusado")
     void diaSemVendaEPeriodoInvertido() {
         ContaCriada conta = criador.criar("Mercearia da Rua", SENHA_DE_TESTE);
-        criador.contratar(conta.contaId(), Plano.CAIXA_SIMPLES);
+        criador.contratar(conta.contaId(), Plano.COMPLETO);
 
         Faturamento vazio = conta.comoUsuario(
                 () -> faturamento.doDia(DIA));
@@ -181,11 +181,11 @@ class FaturamentoServiceTest extends TesteDeIntegracao {
     @DisplayName("duas contas com vendas no mesmo dia recebem cada uma só o seu faturamento (RNF05)")
     void contasComDadosEquivalentesRecebemResultadosDistintos() {
         ContaCriada contaA = criador.criar("Loja A", SENHA_DE_TESTE);
-        criador.contratar(contaA.contaId(), Plano.CAIXA_SIMPLES);
+        criador.contratar(contaA.contaId(), Plano.COMPLETO);
         ContaCriada contaB = criador.criar("Loja B", SENHA_DE_TESTE);
-        criador.contratar(contaB.contaId(), Plano.CAIXA_SIMPLES);
+        criador.contratar(contaB.contaId(), Plano.COMPLETO);
         ContaCriada contaC = criador.criar("Loja C", SENHA_DE_TESTE);
-        criador.contratar(contaC.contaId(), Plano.CAIXA_SIMPLES);
+        criador.contratar(contaC.contaId(), Plano.COMPLETO);
         Cenario cenarioA = prepararCenario(contaA);
         Cenario cenarioB = prepararCenario(contaB);
 
@@ -212,7 +212,7 @@ class FaturamentoServiceTest extends TesteDeIntegracao {
     @DisplayName("por forma de pagamento, a venda dividida se reparte pelo valor de cada parcela (RF24)")
     void filtroPorFormaReparteAVendaDividida() {
         ContaCriada conta = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
-        criador.contratar(conta.contaId(), Plano.CAIXA_SIMPLES);
+        criador.contratar(conta.contaId(), Plano.COMPLETO);
         Cenario cenario = prepararCenario(conta);
 
         // Dividida: dez em dinheiro e vinte em Pix, uma venda só de trinta.
@@ -264,7 +264,7 @@ class FaturamentoServiceTest extends TesteDeIntegracao {
     @DisplayName("por operador, contam só as vendas dele, e o filtro combina com a forma (RF24)")
     void filtroPorOperadorSozinhoECombinado() {
         ContaCriada conta = criador.criar("Padaria Central", SENHA_DE_TESTE);
-        criador.contratar(conta.contaId(), Plano.CAIXA_SIMPLES);
+        criador.contratar(conta.contaId(), Plano.COMPLETO);
         Cenario doTitular = prepararCenario(conta);
         Cenario daColega = prepararCenarioDeOutroOperador(conta, doTitular, "Beatriz");
 
@@ -309,7 +309,7 @@ class FaturamentoServiceTest extends TesteDeIntegracao {
     @DisplayName("filtros nulos são recusados na entrada, com a saída indicada")
     void filtrosNulosSaoRecusados() {
         ContaCriada conta = criador.criar("Mercearia da Rua", SENHA_DE_TESTE);
-        criador.contratar(conta.contaId(), Plano.CAIXA_SIMPLES);
+        criador.contratar(conta.contaId(), Plano.COMPLETO);
 
         conta.comoUsuario(() -> {
             assertThatNullPointerException()
@@ -327,11 +327,11 @@ class FaturamentoServiceTest extends TesteDeIntegracao {
     @DisplayName("os filtros não atravessam contas: forma e operador de uma conta não alcançam a outra (RNF05)")
     void filtrosNaoAtravessamContas() {
         ContaCriada contaA = criador.criar("Loja A", SENHA_DE_TESTE);
-        criador.contratar(contaA.contaId(), Plano.CAIXA_SIMPLES);
+        criador.contratar(contaA.contaId(), Plano.COMPLETO);
         ContaCriada contaB = criador.criar("Loja B", SENHA_DE_TESTE);
-        criador.contratar(contaB.contaId(), Plano.CAIXA_SIMPLES);
+        criador.contratar(contaB.contaId(), Plano.COMPLETO);
         ContaCriada contaC = criador.criar("Loja C", SENHA_DE_TESTE);
-        criador.contratar(contaC.contaId(), Plano.CAIXA_SIMPLES);
+        criador.contratar(contaC.contaId(), Plano.COMPLETO);
         Cenario cenarioA = prepararCenario(contaA);
         Cenario cenarioB = prepararCenario(contaB);
 

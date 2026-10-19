@@ -18,7 +18,7 @@ public class RecursoForaDoPlanoException extends IllegalStateException {
 
     private static String mensagem(RecursoDoPlano recurso, Plano plano) {
         String doRecurso = switch (recurso) {
-            case RELATORIOS -> "os relatorios fazem parte dos planos Caixa Simples e Completo";
+            case RELATORIOS -> "os relatorios fazem parte do plano Completo";
             case ESTOQUE -> "o controle de estoque faz parte do plano Completo";
             case MULTIUSUARIO -> "mais de um usuario na conta faz parte do plano Completo";
         };

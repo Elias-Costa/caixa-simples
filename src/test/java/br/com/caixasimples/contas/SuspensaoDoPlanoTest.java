@@ -68,7 +68,7 @@ class SuspensaoDoPlanoTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("a Conta nova, no plano grátis, não tem relatório nem estoque; o operador recebe antes a recusa de perfil")
+    @DisplayName("a Conta nova, no plano grátis, não tem relatório nem estoque, e o Completo dá os dois; o operador recebe antes a recusa de perfil")
     void planoGratisSemRecursoPago() {
         ContaCriada conta = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
         ContaCriada operador = criador.criar("Cafeteria do Operador", SENHA_DE_TESTE,
@@ -76,18 +76,17 @@ class SuspensaoDoPlanoTest extends TesteDeIntegracao {
 
         assertThatExceptionOfType(RecursoForaDoPlanoException.class)
                 .isThrownBy(() -> conta.comoUsuario(() -> faturamento.doDia(hoje())))
-                .withMessageContaining("Caixa Simples");
+                .withMessageContaining("plano Completo");
         assertThatExceptionOfType(RecursoForaDoPlanoException.class)
                 .isThrownBy(() -> conta.comoUsuario(estoque::produtos))
                 .withMessageContaining("plano Completo");
         assertThatExceptionOfType(AcessoNegadoException.class)
                 .isThrownBy(() -> operador.comoUsuario(() -> faturamento.doDia(hoje())));
 
-        criador.contratar(conta.contaId(), Plano.CAIXA_SIMPLES);
+        criador.contratar(conta.contaId(), Plano.COMPLETO);
+        criador.habilitarEstoque(conta.contaId());
         conta.comoUsuario(() -> faturamento.doDia(hoje()));
-        assertThatExceptionOfType(RecursoForaDoPlanoException.class)
-                .as("o intermediário não inclui estoque")
-                .isThrownBy(() -> conta.comoUsuario(estoque::produtos));
+        conta.comoUsuario(estoque::produtos);
     }
 
     @Test

@@ -53,7 +53,7 @@ class SincronizacaoHttpTest extends TesteDeIntegracao {
     @DisplayName("um dia inteiro sem rede num lote: ids e instantes do balcão, sangria que só cabe com a Venda")
     void diaInteiroSemRedeNumLote() throws Exception {
         ContaCriada conta = criador.criar("Cafeteria Aurora", SENHA);
-        criador.contratar(conta.contaId(), Plano.CAIXA_SIMPLES);
+        criador.contratar(conta.contaId(), Plano.COMPLETO);
         RequestPostProcessor admin = autenticador.como(conta);
         DiaSemRede dia = new DiaSemRede();
 

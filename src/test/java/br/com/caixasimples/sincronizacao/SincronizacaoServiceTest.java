@@ -416,7 +416,7 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
     @DisplayName("conclusão com o instante do conteúdo um ano à frente e a operação no horário: revisão, e o faturamento conta a Venda no dia do balcão")
     void conclusaoComInstanteDoConteudoUmAnoAFrente() {
         ContaCriada conta = criador.criar("Livraria Aurora", SENHA);
-        criador.contratar(conta.contaId(), Plano.CAIXA_SIMPLES);
+        criador.contratar(conta.contaId(), Plano.COMPLETO);
         UUID produtoId = cadastrar(conta, "Caderno", "8.00");
         UUID sessaoId = conta.comoUsuario(() -> sessoes.abrir(Money.ZERO));
         Instant umAnoAFrente = Instant.now().plus(365, ChronoUnit.DAYS)

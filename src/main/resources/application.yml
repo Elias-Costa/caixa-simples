@@ -57,9 +57,8 @@ caixa-simples:
     # Assina o código que ativa cada pedido de plano. O mantenedor usa o mesmo valor no script que
     # gera o código. Sem valor padrão, como a chave do token, e com ao menos 32 bytes.
     segredo: ${CAIXA_SIMPLES_PLANO_SECRET}
-    # Mensalidades em reais, com ponto decimal. Sem valor padrão: preço não mora no repositório,
-    # e a aplicação não sobe sem elas.
-    mensalidade-caixa-simples: ${CAIXA_SIMPLES_MENSALIDADE_CAIXA_SIMPLES}
+    # Mensalidade do plano completo em reais, com ponto decimal. Sem valor padrão: preço não mora
+    # no repositório, e a aplicação não sobe sem ela.
     mensalidade-completo: ${CAIXA_SIMPLES_MENSALIDADE_COMPLETO}
 
 server:

@@ -5,7 +5,6 @@ import br.com.caixasimples.contas.RecursoDoPlano;
 import br.com.caixasimples.contas.SituacaoDoPlano;
 import br.com.caixasimples.shared.ContaId;
 import br.com.caixasimples.shared.LimiteDeTexto;
-import br.com.caixasimples.shared.Money;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -256,13 +255,6 @@ public class Conta {
         return CicloDeVencimento.periodoDaRenovacao(proximoVencimento, diaDeVencimento, hoje);
     }
 
-    /** O valor do upgrade pedido hoje, pela diferença mensal entre os planos. */
-    public Money valorDoUpgrade(Money diferencaMensal, LocalDate hoje) {
-        exigirPlanoPago();
-        return CicloDeVencimento.valorDoUpgrade(diferencaMensal, proximoVencimento, diaDeVencimento,
-                hoje);
-    }
-
     /**
      * Começa o plano pago, com o primeiro período a partir de hoje: o dia de hoje vira o dia do
      * vencimento de todos os meses.
@@ -283,20 +275,6 @@ public class Conta {
         this.diaDeVencimento = hoje.getDayOfMonth();
         this.proximoVencimento = CicloDeVencimento.seguinte(hoje, diaDeVencimento);
         return new CicloDeVencimento.Periodo(hoje, proximoVencimento);
-    }
-
-    /**
-     * Passa do plano intermediário ao completo sem mudar o vencimento: a diferença paga cobre os
-     * dias que faltavam, e o período seguinte já se renova no plano completo.
-     *
-     * @throws IllegalStateException se a Conta não está no plano intermediário
-     */
-    public void subirParaCompleto() {
-        if (plano != Plano.CAIXA_SIMPLES) {
-            throw new IllegalStateException("o upgrade vale so para o plano Caixa Simples; a conta"
-                    + " esta no plano " + plano.nomeExibido());
-        }
-        this.plano = Plano.COMPLETO;
     }
 
     /**

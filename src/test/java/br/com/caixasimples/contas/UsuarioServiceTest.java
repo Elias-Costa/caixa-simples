@@ -108,25 +108,21 @@ class UsuarioServiceTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("o plano grátis e o intermediário só admitem um usuário")
+    @DisplayName("o plano grátis só admite um usuário")
     void planoSemMultiusuarioRecusa() {
         ContaCriada gratis = criador.criar("Banca Gratis", SENHA_DE_TESTE);
-        ContaCriada intermediaria = criador.criar("Banca Intermediaria", SENHA_DE_TESTE);
-        criador.contratar(intermediaria.contaId(), Plano.CAIXA_SIMPLES);
 
-        for (ContaCriada conta : new ContaCriada[] {gratis, intermediaria}) {
-            assertThatExceptionOfType(RecursoForaDoPlanoException.class)
-                    .isThrownBy(() -> conta.comoUsuario(() ->
-                            usuarioService.criar("Atendente", Perfil.OPERADOR,
-                                    "x-" + UUID.randomUUID() + "@exemplo.test", SENHA_DO_OPERADOR)))
-                    .withMessageContaining("plano Completo");
+        assertThatExceptionOfType(RecursoForaDoPlanoException.class)
+                .isThrownBy(() -> gratis.comoUsuario(() ->
+                        usuarioService.criar("Atendente", Perfil.OPERADOR,
+                                "x-" + UUID.randomUUID() + "@exemplo.test", SENHA_DO_OPERADOR)))
+                .withMessageContaining("plano Completo");
 
-            conta.comoUsuario(() ->
-                    assertThat(usuarioService.listar())
-                            .as("nada foi gravado")
-                            .extracting(UsuarioDaConta::id)
-                            .containsExactly(conta.usuarioId()));
-        }
+        gratis.comoUsuario(() ->
+                assertThat(usuarioService.listar())
+                        .as("nada foi gravado")
+                        .extracting(UsuarioDaConta::id)
+                        .containsExactly(gratis.usuarioId()));
     }
 
     @Test

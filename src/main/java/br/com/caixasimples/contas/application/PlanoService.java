@@ -17,8 +17,6 @@ import br.com.caixasimples.shared.TenantContext;
 import br.com.caixasimples.shared.UsuarioContext;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -27,8 +25,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * A troca de plano pela própria Conta (RF31): consultar o plano, pedir adesão, upgrade ou
- * renovação, e aplicar o código que o mantenedor entrega depois de conferir o Pix no extrato.
+ * A troca de plano pela própria Conta (RF31): consultar o plano, pedir adesão ou renovação, e
+ * aplicar o código que o mantenedor entrega depois de conferir o Pix no extrato.
  *
  * <p><strong>Só o administrador chama</strong>, e cada caso de uso pergunta isso na primeira linha.
  * A Conta é a do contexto, e o pedido só é encontrado nela (RNF05).
@@ -38,14 +36,12 @@ import org.springframework.transaction.annotation.Transactional;
  * Assim o reenvio do código não ativa duas vezes, e o pedido novo sempre encontra o aberto que vai
  * substituir.
  *
- * <p>O dia de hoje é o do balcão, lido uma vez por caso de uso. As datas e o valor proporcional
- * vêm do ciclo de vencimento, pela Conta. O valor do pedido é o do dia em que foi feito: se a
- * mensalidade mudar depois, o pedido aberto continua com o valor que a Conta viu.
+ * <p>O dia de hoje é o do balcão, lido uma vez por caso de uso. As datas vêm do ciclo de
+ * vencimento, pela Conta. O valor do pedido é a mensalidade do dia em que foi feito: se ela mudar
+ * depois, o pedido aberto continua com o valor que a Conta viu.
  */
 @Service
 public class PlanoService {
-
-    private static final DateTimeFormatter DATA = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
     private final ContaRepository contas;
     private final PedidoDePlanoRepository pedidos;
@@ -61,7 +57,7 @@ public class PlanoService {
     }
 
     /**
-     * O plano da Conta, a situação no ciclo, as mensalidades, o que pode ser pedido hoje e o pedido
+     * O plano da Conta, a situação no ciclo, a mensalidade, o que pode ser pedido hoje e o pedido
      * à espera do código, para a tela do plano.
      *
      * @throws br.com.caixasimples.shared.AcessoNegadoException se quem chama não é ADMIN
@@ -74,13 +70,13 @@ public class PlanoService {
 
     /**
      * Pede o plano. Quem pede escolhe só o plano, e o tipo sai do estado da Conta: adesão a partir
-     * do gratuito, upgrade do intermediário ao completo, renovação do plano atual. Um pedido aberto
-     * é substituído, e o código dele deixa de valer.
+     * do gratuito, renovação do plano pago. Um pedido aberto é substituído, e o código dele deixa
+     * de valer.
      *
      * @throws br.com.caixasimples.shared.AcessoNegadoException se quem chama não é ADMIN
      * @throws IllegalArgumentException se o plano não foi informado
-     * @throws IllegalStateException se o plano pedido é o gratuito ou é menor que o atual, ou se é
-     *         o completo com o período do intermediário já vencido
+     * @throws IllegalStateException se o plano pedido é o gratuito, que não tem pedido nem volta
+     *         a ser contratado
      */
     @Transactional
     public PedidoNaConta pedir(Plano desejado) {
@@ -88,13 +84,11 @@ public class PlanoService {
         if (desejado == null) {
             throw new IllegalArgumentException("informe o plano");
         }
+        if (desejado == Plano.GRATIS) {
+            throw new IllegalStateException("o plano gratuito nao tem pedido");
+        }
         LocalDate hoje = hojeNoBalcao();
         Conta conta = contaTravada();
-
-        Optional<String> recusa = recusa(conta, desejado, hoje);
-        if (recusa.isPresent()) {
-            throw new IllegalStateException(recusa.get());
-        }
 
         Optional<PedidoDePlano> aberto = pedidos.findBySituacao(PedidoDePlano.Situacao.ABERTO);
         if (aberto.isPresent()) {
@@ -160,12 +154,6 @@ public class PlanoService {
                 CicloDeVencimento.Periodo primeiro = conta.ativarPlano(pedido.getPlano(), hoje);
                 pedido.aplicarAdesao(primeiro, quemAplica, agora);
             }
-            case UPGRADE -> {
-                // Vale mesmo aplicado depois do fim do período pedido: o Pix foi conferido dentro
-                // dele, e a Conta passa a renovar como completo.
-                conta.subirParaCompleto();
-                pedido.aplicar(quemAplica, agora);
-            }
             case RENOVACAO -> {
                 conta.renovar(pedido.getPlano(), pedido.getPeriodoFim());
                 pedido.aplicar(quemAplica, agora);
@@ -174,49 +162,23 @@ public class PlanoService {
     }
 
     /**
-     * Por que o plano desejado não pode ser pedido hoje, ou vazio se pode. A mesma regra decide o
-     * pedido e as opções que a tela oferece.
+     * O que o pedido do plano pago seria hoje: a adesão, a partir do gratuito, ou a renovação do
+     * período que o ciclo da Conta diz estar por pagar.
      */
-    private Optional<String> recusa(Conta conta, Plano desejado, LocalDate hoje) {
-        if (desejado == Plano.GRATIS) {
-            return Optional.of("o plano gratuito nao tem pedido");
-        }
-        if (conta.getPlano() == Plano.COMPLETO && desejado == Plano.CAIXA_SIMPLES) {
-            return Optional.of("a troca para um plano menor nao e oferecida");
-        }
-        if (conta.getPlano() == Plano.CAIXA_SIMPLES && desejado == Plano.COMPLETO
-                && !hoje.isBefore(conta.getProximoVencimento())) {
-            return Optional.of("o plano Caixa Simples venceu em "
-                    + DATA.format(conta.getProximoVencimento())
-                    + "; renove-o antes de pedir o plano Completo");
-        }
-        return Optional.empty();
-    }
-
-    /** O que o pedido do plano desejado seria hoje. Só chamado quando não há recusa. */
     private Proposta propor(Conta conta, Plano desejado, LocalDate hoje) {
+        Money mensalidade = configuracao.mensalidade(desejado);
         if (conta.getPlano() == Plano.GRATIS) {
-            return new Proposta(PedidoDePlano.Tipo.ADESAO, desejado,
-                    configuracao.mensalidade(desejado), null, null);
+            return new Proposta(PedidoDePlano.Tipo.ADESAO, desejado, mensalidade, null, null);
         }
-        if (conta.getPlano() == desejado) {
-            CicloDeVencimento.Periodo periodo = conta.periodoDaRenovacao(hoje);
-            return new Proposta(PedidoDePlano.Tipo.RENOVACAO, desejado,
-                    configuracao.mensalidade(desejado), periodo.inicio(), periodo.fim());
-        }
-        Money diferenca = configuracao.mensalidade(Plano.COMPLETO)
-                .subtrair(configuracao.mensalidade(Plano.CAIXA_SIMPLES));
-        return new Proposta(PedidoDePlano.Tipo.UPGRADE, Plano.COMPLETO,
-                conta.valorDoUpgrade(diferenca, hoje), hoje, conta.getProximoVencimento());
+        CicloDeVencimento.Periodo periodo = conta.periodoDaRenovacao(hoje);
+        return new Proposta(PedidoDePlano.Tipo.RENOVACAO, desejado, mensalidade, periodo.inicio(),
+                periodo.fim());
     }
 
     private static PedidoDePlano novoPedido(Proposta proposta, UUID quemPede) {
         Instant agora = Instant.now();
         return switch (proposta.tipo()) {
             case ADESAO -> PedidoDePlano.adesao(proposta.plano(), proposta.valor(), quemPede, agora);
-            case UPGRADE -> PedidoDePlano.upgrade(proposta.valor(),
-                    new CicloDeVencimento.Periodo(proposta.periodoInicio(), proposta.periodoFim()),
-                    quemPede, agora);
             case RENOVACAO -> PedidoDePlano.renovacao(proposta.plano(), proposta.valor(),
                     new CicloDeVencimento.Periodo(proposta.periodoInicio(), proposta.periodoFim()),
                     quemPede, agora);
@@ -224,18 +186,13 @@ public class PlanoService {
     }
 
     private EstadoDoPlano estado(Conta conta, LocalDate hoje) {
-        List<Proposta> propostas = new ArrayList<>();
-        for (Plano plano : List.of(Plano.CAIXA_SIMPLES, Plano.COMPLETO)) {
-            if (recusa(conta, plano, hoje).isEmpty()) {
-                propostas.add(propor(conta, plano, hoje));
-            }
-        }
+        // O plano pago é um só: a adesão no gratuito, a renovação nele.
+        List<Proposta> propostas = List.of(propor(conta, Plano.COMPLETO, hoje));
         PedidoNaConta aberto = pedidos.findBySituacao(PedidoDePlano.Situacao.ABERTO)
                 .map(PedidoNaConta::de)
                 .orElse(null);
         return new EstadoDoPlano(conta.getPlano(), conta.situacao(hoje),
                 conta.getProximoVencimento(), conta.inicioDaSuspensao(), conta.recursos(hoje),
-                configuracao.mensalidade(Plano.CAIXA_SIMPLES),
                 configuracao.mensalidade(Plano.COMPLETO), propostas, aberto);
     }
 
@@ -268,8 +225,8 @@ public class PlanoService {
      * @param pedidoAberto      o pedido à espera do código; nulo se não houver
      */
     public record EstadoDoPlano(Plano plano, SituacaoDoPlano situacao, LocalDate vencimento,
-            LocalDate inicioDaSuspensao, Set<RecursoDoPlano> recursos, Money mensalidadeCaixaSimples,
-            Money mensalidadeCompleto, List<Proposta> propostas, PedidoNaConta pedidoAberto) {
+            LocalDate inicioDaSuspensao, Set<RecursoDoPlano> recursos, Money mensalidadeCompleto,
+            List<Proposta> propostas, PedidoNaConta pedidoAberto) {
     }
 
     /**

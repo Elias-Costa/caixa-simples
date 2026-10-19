@@ -3,20 +3,17 @@ package br.com.caixasimples.contas;
 /**
  * Plano contratado pela conta.
  *
- * <p>Ordem crescente de abrangência: cada plano inclui o anterior. Os planos pagos têm mensalidade,
- * e o valor dela vem do ambiente, não do código.
+ * <p>Dois planos: o gratuito, sem mensalidade, e o completo, com todos os recursos pagos. O valor da
+ * mensalidade vem do ambiente, não do código.
  */
 public enum Plano {
 
     /** Um usuário: cadastro, vendas e caixa básico. Sem mensalidade. */
     GRATIS,
 
-    /** Tudo do grátis, mais relatórios completos e suporte prioritário. */
-    CAIXA_SIMPLES,
-
     /**
-     * Tudo do plano anterior, mais estoque e multiusuário. A emissão fiscal ainda não existe, e a
-     * tela avisa isso antes de a Conta pedir o plano.
+     * Tudo do grátis, mais relatórios completos, estoque, multiusuário e suporte prioritário. A
+     * emissão fiscal ainda não existe, e a tela avisa isso antes de a Conta pedir o plano.
      */
     COMPLETO;
 
@@ -30,8 +27,7 @@ public enum Plano {
      */
     public boolean inclui(RecursoDoPlano recurso) {
         return switch (recurso) {
-            case RELATORIOS -> this == CAIXA_SIMPLES || this == COMPLETO;
-            case ESTOQUE, MULTIUSUARIO -> this == COMPLETO;
+            case RELATORIOS, ESTOQUE, MULTIUSUARIO -> this == COMPLETO;
         };
     }
 
@@ -39,7 +35,6 @@ public enum Plano {
     public String nomeExibido() {
         return switch (this) {
             case GRATIS -> "Gratuito";
-            case CAIXA_SIMPLES -> "Caixa Simples";
             case COMPLETO -> "Completo";
         };
     }

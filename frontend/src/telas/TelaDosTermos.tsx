@@ -60,7 +60,7 @@ export function TelaDosTermos({ obrigatoria = false }: Props) {
       operadores continuam trabalhando.</p>
 
     <h2>Planos e pagamento</h2>
-    <p>A Conta começa no plano gratuito. Os planos pagos têm a mensalidade mostrada na tela Plano antes
+    <p>A Conta começa no plano gratuito. O plano pago tem a mensalidade mostrada na tela Plano antes
       do pedido. O administrador faz o pedido no aplicativo, manda o texto dele pelo canal de
       atendimento e paga por Pix; conferido o Pix, recebe um código que ativa o plano. O plano pago
       vence todo mês no dia da adesão, com aviso sete dias antes. Sem renovação, os recursos pagos

@@ -13,19 +13,17 @@ import { useConfirmacao } from './useConfirmacao'
 
 const NOME_DO_PLANO: Record<Plano, string> = {
   GRATIS: 'Gratuito',
-  CAIXA_SIMPLES: 'Caixa Simples',
   COMPLETO: 'Completo',
 }
 
 const O_QUE_INCLUI: Record<Plano, string> = {
   GRATIS: 'Cadastro, vendas e caixa, com um usuário.',
-  CAIXA_SIMPLES: 'Tudo do Gratuito, mais os relatórios de faturamento, mais vendidos e fluxo de caixa.',
-  COMPLETO: 'Tudo do Caixa Simples, mais o controle de estoque e mais de um usuário.',
+  COMPLETO: 'Tudo do Gratuito, mais os relatórios de faturamento, mais vendidos e fluxo de caixa,'
+    + ' o controle de estoque e mais de um usuário.',
 }
 
 const NOME_DO_TIPO: Record<TipoDePedido, string> = {
   ADESAO: 'Adesão',
-  UPGRADE: 'Upgrade',
   RENOVACAO: 'Renovação',
 }
 
@@ -139,9 +137,6 @@ export function TelaDoPlano() {
     }
   }
 
-  const upgradeEsperaRenovacao = estado?.plano === 'CAIXA_SIMPLES'
-    && (estado.situacao === 'VENCIDO' || estado.situacao === 'SUSPENSO')
-
   return <section className="cadastro">
     <h2 className="titulo">Plano</h2>
     {erro && <p className="mensagem-erro" role="alert">{erro}</p>}
@@ -167,10 +162,6 @@ export function TelaDoPlano() {
           <p>{O_QUE_INCLUI.GRATIS} Sem mensalidade.</p>
         </div></li>
         <li className="cadastro__item"><div>
-          <strong>{NOME_DO_PLANO.CAIXA_SIMPLES}</strong>
-          <p>{O_QUE_INCLUI.CAIXA_SIMPLES} {moeda.format(estado.mensalidadeCaixaSimples)} por mês.</p>
-        </div></li>
-        <li className="cadastro__item"><div>
           <strong>{NOME_DO_PLANO.COMPLETO}</strong>
           <p>{O_QUE_INCLUI.COMPLETO} {moeda.format(estado.mensalidadeCompleto)} por mês.</p>
           <p>A emissão de NFC-e ainda não está disponível.</p>
@@ -181,9 +172,6 @@ export function TelaDoPlano() {
       <p className="cadastro__apoio">O pedido não muda o plano. Mande o texto do pedido pelo canal
         de atendimento e faça o Pix do valor; depois da conferência, você recebe um código e o
         aplica aqui.</p>
-      {upgradeEsperaRenovacao &&
-        <p>Para pedir o Completo, renove antes o Caixa Simples. Depois da renovação, o upgrade
-          cobra só a diferença pelos dias que faltam.</p>}
       <div className="cadastro__acoes">
         {estado.propostas.map((proposta) =>
           <button className="botao" type="button" key={`${proposta.tipo}-${proposta.plano}`}
@@ -259,7 +247,6 @@ function rotuloDaProposta(proposta: PropostaDePlano): string {
   const nome = NOME_DO_PLANO[proposta.plano]
   if (proposta.tipo === 'ADESAO') return `Pedir o ${nome} (${valor} por mês)`
   const ate = proposta.periodoFim ? mostrarData(diaAnterior(proposta.periodoFim)) : ''
-  if (proposta.tipo === 'UPGRADE') return `Pedir o ${nome} (${valor} pela diferença até ${ate})`
   const de = proposta.periodoInicio ? mostrarData(proposta.periodoInicio) : ''
   return `Renovar o ${nome} de ${de} a ${ate} (${valor})`
 }

@@ -27,7 +27,7 @@ export type ConfiguracaoDaConta = {
 /** O cadastro de quem entrou, lido na hora e nunca guardado no aparelho. */
 export type MeusDados = { nome: string; email: string; perfil: Perfil }
 
-export type TipoDePedido = 'ADESAO' | 'UPGRADE' | 'RENOVACAO'
+export type TipoDePedido = 'ADESAO' | 'RENOVACAO'
 
 /**
  * Um pedido que a Conta pode fazer hoje, com o valor de hoje. As datas vêm como AAAA-MM-DD; o fim
@@ -54,7 +54,6 @@ export type EstadoDoPlano = {
   vencimento?: string
   inicioDaSuspensao?: string
   recursos: RecursoDoPlano[]
-  mensalidadeCaixaSimples: number
   mensalidadeCompleto: number
   propostas: PropostaDePlano[]
   pedidoAberto?: PedidoDePlano

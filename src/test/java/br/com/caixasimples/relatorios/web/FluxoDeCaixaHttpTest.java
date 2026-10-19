@@ -65,9 +65,9 @@ class FluxoDeCaixaHttpTest extends TesteDeIntegracao {
         LocalDate hoje = LocalDate.now(FusoDeReferencia.DO_BALCAO);
         Instant inicioDeHoje = FusoDeReferencia.inicioDoDia(hoje);
         ContaCriada contaA = criador.criar("Cafeteria Aurora", SENHA);
-        criador.contratar(contaA.contaId(), Plano.CAIXA_SIMPLES);
+        criador.contratar(contaA.contaId(), Plano.COMPLETO);
         ContaCriada contaB = criador.criar("Loja da Esquina", SENHA);
-        criador.contratar(contaB.contaId(), Plano.CAIXA_SIMPLES);
+        criador.contratar(contaB.contaId(), Plano.COMPLETO);
 
         UUID caixaAberto = contaA.comoUsuario(() -> caixas.abrir(Money.ZERO));
         receberFiadoEmDinheiro(contaA, caixaAberto, "7.00");
@@ -112,7 +112,7 @@ class FluxoDeCaixaHttpTest extends TesteDeIntegracao {
         ContaCriada operador = criador.criar("Loja do Operador", SENHA, Perfil.OPERADOR, true);
         ContaCriada gratis = criador.criar("Loja Gratuita", SENHA);
         ContaCriada admin = criador.criar("Loja do Fluxo", SENHA);
-        criador.contratar(admin.contaId(), Plano.CAIXA_SIMPLES);
+        criador.contratar(admin.contaId(), Plano.COMPLETO);
 
         fluxo(operador, dia, dia).andExpect(status().isForbidden());
         fluxo(gratis, dia, dia).andExpect(status().isConflict());

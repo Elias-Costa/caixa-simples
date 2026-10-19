@@ -271,7 +271,7 @@ variáveis que o compose lista para ele.
 | `CAIXA_SIMPLES_DB_SUPERUSUARIO_PASSWORD` | Gerada | A senha do superusuário `postgres`, que só o contêiner do banco recebe, no primeiro `initdb`. Nenhum serviço conecta com ela |
 | `CAIXA_SIMPLES_JWT_SECRET` | Gerada | Assinatura dos tokens, com ao menos 32 bytes. Trocá-la obriga todo mundo a entrar de novo |
 | `CAIXA_SIMPLES_PLANO_SECRET` | Gerado; guarde também fora da máquina | Confere o código de ativação de cada pedido de plano; ver [Pedido de plano](#pedido-de-plano-e-código-de-ativação). A aplicação não sobe sem ele |
-| `CAIXA_SIMPLES_MENSALIDADE_CAIXA_SIMPLES` e `CAIXA_SIMPLES_MENSALIDADE_COMPLETO` | À mão, em reais, com ponto decimal; a do completo maior | Valor dos pedidos de plano. A aplicação não sobe sem elas |
+| `CAIXA_SIMPLES_MENSALIDADE_COMPLETO` | À mão, em reais, com ponto decimal | Valor dos pedidos do plano pago. A aplicação não sobe sem ela |
 | `CAIXA_SIMPLES_REMOCOES_BUCKET` e `CAIXA_SIMPLES_REMOCOES_AWS_*` | O bucket de remoções e a credencial que só grava nele | O registro mínimo antes de uma exclusão; ver [Remoção](#remoção-de-dados-e-encerramento-da-conta) |
 | `CAIXA_SIMPLES_REMOCOES_DESTINO` | `s3:<bucket de remoções>/remocoes` | O encerramento grava ali, e a restauração lê dali |
 | `CAIXA_SIMPLES_COPIA_CHAVE_PUBLICA` | A linha `age1...` da chave pública | A cópia é cifrada para ela |
@@ -838,26 +838,23 @@ suspensão é enviado quando o mesmo usuário entrar ali.
 
 ## Pedido de plano e código de ativação
 
-Toda Conta nasce no plano gratuito. O administrador pede a adesão, o upgrade ou a renovação na tela
+Toda Conta nasce no plano gratuito. O administrador pede a adesão ao Completo ou a renovação na tela
 Plano do aplicativo, manda o texto do pedido pelo canal de atendimento, o e-mail de atendimento do
 domínio, e faz o Pix do valor. O
 pedido sozinho não muda nada: o plano só vale com o código, e o código só sai depois do Pix
 conferido no extrato.
 
-1. Conferir no extrato o Pix com o valor do pedido. O upgrade cobra a diferença das mensalidades
-   pelos dias que faltam até o vencimento, calculada com o crédito no dia do pedido: se o crédito
-   caiu em outro dia, recalcular e acertar a diferença pelo canal antes do código.
+1. Conferir no extrato o Pix com o valor do pedido, a mensalidade do dia em que ele foi feito.
 2. Gerar o código com o id, o plano e o valor do pedido:
 
    ```bash
    CAIXA_SIMPLES_PLANO_SECRET=<segredo> node operacao/plano/codigo.mjs <id do pedido> <plano> <valor>
    ```
 
-   O plano vai como no texto (`Caixa Simples`, `Completo`) ou como no sistema; o valor, como no
-   texto (`"R$ 123,45"`, entre aspas por causa do espaço, ou `123,45`) ou como no sistema
-   (`123.45`). O valor é o do pedido que o Pix cobre: no upgrade com crédito em outro dia, o do
-   pedido, depois de acertada a diferença, e não o recalculado. O script só calcula: não toca o
-   banco nem a Conta, e o mesmo pedido sempre dá o mesmo código.
+   O plano vai como no texto (`Completo`) ou como no sistema (`COMPLETO`); o valor, como no texto
+   (`"R$ 123,45"`, entre aspas por causa do espaço, ou `123,45`) ou como no sistema (`123.45`). O
+   valor é o do pedido que o Pix cobre. O script só calcula: não toca o banco nem a Conta, e o
+   mesmo pedido sempre dá o mesmo código.
 3. Mandar o código ao administrador, que o aplica na tela Plano.
 
 O código vale para um pedido só, com o plano e o valor gravados nele. Se a Conta pediu de novo
@@ -872,7 +869,7 @@ conferir o Pix do valor novo.
 
 O segredo é o `CAIXA_SIMPLES_PLANO_SECRET` da [configuração](#configuração), gerado com ela e guardado
 também fora da máquina, com o mantenedor, porque o script precisa dele. Trocá-lo invalida os códigos
-ainda não aplicados. Mudar uma mensalidade vale para os pedidos seguintes, depois de recriar a
+ainda não aplicados. Mudar a mensalidade vale para os pedidos seguintes, depois de recriar a
 aplicação, e o pedido aberto mantém o valor do dia em que foi feito.
 
 O plano pago vence todo mês no dia da adesão. O administrador vê o aviso sete dias antes; depois do
@@ -1040,7 +1037,7 @@ perda fica no que foi escrito depois dela, no máximo uma hora.
 
 1. Contratar a máquina e repetir os passos 3 a 5 da [primeira publicação](#primeira-publicação), com
    a mesma chave do CI.
-2. Preencher a configuração. O segredo dos planos e as mensalidades vêm da cópia guardada pelo
+2. Preencher a configuração. O segredo dos planos e a mensalidade vêm da cópia guardada pelo
    mantenedor; a senha do banco e a chave dos tokens podem ser as novas geradas, e os usuários
    entram de novo.
 3. Restaurar no banco desta máquina, ainda vazio, antes de qualquer deploy, que criaria o schema
@@ -1291,7 +1288,7 @@ export CAIXA_SIMPLES_CONFIGURACAO=<pasta>/configuracao CAIXA_SIMPLES_ESTADO=<pas
 export CAIXA_SIMPLES_COMPOSE_ADICIONAL="$(pwd -W 2>/dev/null || pwd)/operacao/ensaio/compose.yaml"
 sh operacao/vps/criar-configuracao.sh "$CAIXA_SIMPLES_CONFIGURACAO"
 mkdir -p "$CAIXA_SIMPLES_ESTADO" && echo CAIXA_SIMPLES_VERSAO=ensaio > "$CAIXA_SIMPLES_ESTADO/versao.env"
-# No arquivo gerado: CAIXA_SIMPLES_DOMINIO=localhost, as mensalidades (10.00 e 20.00),
+# No arquivo gerado: CAIXA_SIMPLES_DOMINIO=localhost, a mensalidade (20.00),
 # CAIXA_SIMPLES_COPIA_DESTINO=/copias/horaria, CAIXA_SIMPLES_COPIA_DESTINO_DIARIA=/copias/diaria,
 # CAIXA_SIMPLES_REMOCOES_DESTINO=/remocoes e, para a cópia agendada, endereços de um vigia local.
 

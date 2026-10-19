@@ -39,7 +39,8 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>Só lê, e a conta vem sempre do contexto (RNF05). <strong>É relatório do administrador
  * (RF30)</strong>, como os outros, e pede o plano com relatórios; a exigência do NSU, que é da
- * venda, não pede plano nenhum, e o NSU anotado antes do upgrade aparece aqui depois dele.
+ * venda, não pede plano nenhum, e o NSU anotado antes da adesão ao plano pago aparece aqui depois
+ * dela.
  */
 @Service
 public class ConferenciaDoCartaoService {
