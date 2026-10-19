@@ -13,6 +13,7 @@ import { CampoDeDinheiro } from './CampoDeDinheiro'
 import { erroDeCadastro } from './erroDeCadastro'
 import { filtrarPorNome } from './filtroPorNome'
 import { Mensagem } from './Mensagem'
+import { PixManual } from './QrDoPix'
 import { ROTULO_DA_FORMA } from './rotulos'
 
 // O recebimento continua só com rede. Ele passa pelo aparelho para que o caixa guardado, usado sem
@@ -192,6 +193,7 @@ export function TelaDeFiado() {
           <option value="DINHEIRO">Dinheiro</option><option value="PIX">Pix manual</option>
           <option value="CARTAO">Cartão manual</option>
         </select></label>
+      {forma === 'PIX' && <PixManual identidade={identidade} valor={valor ? lerDinheiro(valor) : null} />}
       {forma === 'CARTAO' && <label>
         {identidade?.nsuObrigatorio ? 'NSU do comprovante' : 'NSU do comprovante (opcional)'}
         <input value={nsu} autoComplete="off" required={identidade?.nsuObrigatorio === true}

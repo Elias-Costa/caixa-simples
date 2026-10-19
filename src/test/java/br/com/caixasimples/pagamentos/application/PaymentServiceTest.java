@@ -2,6 +2,7 @@ package br.com.caixasimples.pagamentos.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
+import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 
 import br.com.caixasimples.pagamentos.FormaPagamento;
@@ -100,5 +101,34 @@ class PaymentServiceTest {
                 List.of(new EstrategiaInventada(), new OutraEstrategiaDePix());
 
         assertThatIllegalStateException().isThrownBy(() -> new PaymentService(duplicadas));
+    }
+
+    @Test
+    @DisplayName("o Pix lançado à mão nasce confirmado sem passar pela estratégia do Pix")
+    void pixAMaoNaoPassaPelaEstrategia() {
+        // A estratégia registrada reserva o Pix pendente; o lançado à mão não pode cair nela.
+        PaymentService pagamentos = new PaymentService(List.of(new EstrategiaInventada()));
+
+        ResultadoPagamento resultado = pagamentos.registrarPixAMao(
+                SolicitacaoPagamento.de(FormaPagamento.PIX, Money.de("30.00")));
+
+        assertThat(resultado.forma()).isEqualTo(FormaPagamento.PIX);
+        assertThat(resultado.status()).isEqualTo(StatusPagamento.CONFIRMADO);
+        assertThat(resultado.troco()).isEqualTo(Money.ZERO);
+    }
+
+    @Test
+    @DisplayName("o Pix lançado à mão recusa outra forma e o valor recebido em espécie")
+    void pixAMaoRecusaOutraFormaEValorRecebido() {
+        PaymentService pagamentos = new PaymentService(List.of());
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> pagamentos.registrarPixAMao(
+                        SolicitacaoPagamento.de(FormaPagamento.CARTAO, Money.de("30.00"))))
+                .withMessageContaining("CARTAO");
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> pagamentos.registrarPixAMao(new SolicitacaoPagamento(
+                        FormaPagamento.PIX, Money.de("30.00"), Money.de("30.00"))))
+                .withMessageContaining("troco");
     }
 }

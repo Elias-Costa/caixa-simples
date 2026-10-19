@@ -65,7 +65,7 @@ describe('TelaDePrivacidade', () => {
     abrir('/privacidade')
 
     expect(screen.getByRole('heading', { level: 1, name: 'Aviso de privacidade' })).toBeInTheDocument()
-    expect(screen.getByText(/Versão de 18\/10\/2026/)).toBeInTheDocument()
+    expect(screen.getByText(/Versão de 19\/10\/2026/)).toBeInTheDocument()
     expect(screen.getAllByRole('heading', { level: 2 }).map((titulo) => titulo.textContent))
       .toEqual(SECOES)
     expect(screen.getByRole('link', { name: 'termos de uso' })).toHaveAttribute('href', '/termos')

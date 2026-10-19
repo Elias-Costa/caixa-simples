@@ -4,6 +4,13 @@ import br.com.caixasimples.shared.Money;
 
 /** Porta do provedor Pix; a Conta é sempre a do contexto autenticado. */
 public interface PixGateway {
+
+    /**
+     * Se o provedor da Conta está configurado, sem chamar o provedor: responde pela configuração,
+     * e não pela disponibilidade dele agora.
+     */
+    boolean configurada();
+
     String chaveRecebedora();
 
     /** Repetir o mesmo txid não cria outra cobrança. */

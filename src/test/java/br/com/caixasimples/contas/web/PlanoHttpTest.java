@@ -96,7 +96,8 @@ class PlanoHttpTest extends TesteDeIntegracao {
                 .andExpect(jsonPath("$.plano").value("COMPLETO"))
                 .andExpect(jsonPath("$.situacao").value("EM_DIA"))
                 .andExpect(jsonPath("$.recursos",
-                        containsInAnyOrder("RELATORIOS", "ESTOQUE", "MULTIUSUARIO")))
+                        containsInAnyOrder("RELATORIOS", "ESTOQUE", "MULTIUSUARIO",
+                                "PIX_INTEGRADO")))
                 .andExpect(jsonPath("$.vencimento").exists())
                 .andExpect(jsonPath("$.pedidoAberto").doesNotExist());
         http.perform(aplicar(admin, pedidoId, codigo))
@@ -110,7 +111,8 @@ class PlanoHttpTest extends TesteDeIntegracao {
                 .andExpect(jsonPath("$.vencimentoDoPlano").exists())
                 .andExpect(jsonPath("$.inicioDaSuspensao").exists())
                 .andExpect(jsonPath("$.recursos",
-                        containsInAnyOrder("RELATORIOS", "ESTOQUE", "MULTIUSUARIO")));
+                        containsInAnyOrder("RELATORIOS", "ESTOQUE", "MULTIUSUARIO",
+                                "PIX_INTEGRADO")));
         http.perform(get("/api/relatorios/faturamento/dia").param("dia", hoje.toString())
                         .with(admin))
                 .andExpect(status().isOk());
@@ -234,14 +236,16 @@ class PlanoHttpTest extends TesteDeIntegracao {
                 .andExpect(jsonPath("$.situacao").value("EM_DIA"))
                 .andExpect(jsonPath("$.vencimento").value(vencimentoEmDia.toString()))
                 .andExpect(jsonPath("$.recursos",
-                        containsInAnyOrder("RELATORIOS", "ESTOQUE", "MULTIUSUARIO")));
+                        containsInAnyOrder("RELATORIOS", "ESTOQUE", "MULTIUSUARIO",
+                                "PIX_INTEGRADO")));
         http.perform(get("/api/auth/eu").with(autenticador.como(emDia)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.plano").value("COMPLETO"))
                 .andExpect(jsonPath("$.situacaoDoPlano").value("EM_DIA"))
                 .andExpect(jsonPath("$.vencimentoDoPlano").value(vencimentoEmDia.toString()))
                 .andExpect(jsonPath("$.recursos",
-                        containsInAnyOrder("RELATORIOS", "ESTOQUE", "MULTIUSUARIO")));
+                        containsInAnyOrder("RELATORIOS", "ESTOQUE", "MULTIUSUARIO",
+                                "PIX_INTEGRADO")));
         http.perform(faturamentoDoDia(emDia, hoje))
                 .andExpect(status().isOk());
     }

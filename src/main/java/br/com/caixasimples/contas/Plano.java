@@ -12,8 +12,9 @@ public enum Plano {
     GRATIS,
 
     /**
-     * Tudo do grátis, mais relatórios completos, estoque, multiusuário e suporte prioritário. A
-     * emissão fiscal ainda não existe, e a tela avisa isso antes de a Conta pedir o plano.
+     * Tudo do grátis, mais relatórios completos, estoque, multiusuário, Pix integrado e suporte
+     * prioritário. A emissão fiscal ainda não existe, e a tela avisa isso antes de a Conta pedir o
+     * plano.
      */
     COMPLETO;
 
@@ -27,7 +28,7 @@ public enum Plano {
      */
     public boolean inclui(RecursoDoPlano recurso) {
         return switch (recurso) {
-            case RELATORIOS, ESTOQUE, MULTIUSUARIO -> this == COMPLETO;
+            case RELATORIOS, ESTOQUE, MULTIUSUARIO, PIX_INTEGRADO -> this == COMPLETO;
         };
     }
 

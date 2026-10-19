@@ -358,8 +358,8 @@ class SincronizacaoHttpTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("o operador não cadastra produto nem registra Pix pelo lote; o tipo desconhecido é recusado")
-    void recusasDePermissaoDePixEDeTipo() throws Exception {
+    @DisplayName("o operador não cadastra produto nem registra fiado pelo lote, e a Venda para no fiado")
+    void recusasDePermissaoDoOperador() throws Exception {
         ContaCriada operador = criador.criar("Loja do Operador", SENHA, Perfil.OPERADOR, true);
         RequestPostProcessor token = autenticador.como(operador);
         UUID sessaoId = UUID.randomUUID();
@@ -368,12 +368,12 @@ class SincronizacaoHttpTest extends TesteDeIntegracao {
                 produto("Agua", "3.00", null));
         GestoDeTeste abertura = GestoDeTeste.abertura(sessaoId, "0");
         GestoDeTeste inicio = GestoDeTeste.inicio(vendaId, sessaoId, abertura);
-        GestoDeTeste pix = GestoDeTeste.de("venda.registrarPagamento", vendaId,
-                conteudo("pagamentoId", UUID.randomUUID(), "forma", "PIX",
+        GestoDeTeste fiado = GestoDeTeste.de("venda.registrarPagamento", vendaId,
+                conteudo("pagamentoId", UUID.randomUUID(), "forma", "FIADO",
                         "valor", new BigDecimal("3.00"), "valorRecebido", null), inicio);
         GestoDeTeste cancelamento = GestoDeTeste.de("venda.cancelar", vendaId, conteudo(), inicio);
 
-        JsonNode resposta = enviar(token, List.of(produto, abertura, inicio, pix, cancelamento));
+        JsonNode resposta = enviar(token, List.of(produto, abertura, inicio, fiado, cancelamento));
 
         assertThat(resultadoDe(resposta, produto).path("resultado").asText())
                 .isEqualTo("NAO_APLICADA");
@@ -383,9 +383,10 @@ class SincronizacaoHttpTest extends TesteDeIntegracao {
                 .isEqualTo("APLICADA");
         assertThat(resultadoDe(resposta, inicio).path("resultado").asText())
                 .isEqualTo("APLICADA");
-        assertThat(resultadoDe(resposta, pix).path("resultado").asText())
+        assertThat(resultadoDe(resposta, fiado).path("resultado").asText())
                 .isEqualTo("NAO_APLICADA");
-        assertThat(resultadoDe(resposta, pix).path("detalhe").asText()).contains("Pix");
+        assertThat(resultadoDe(resposta, fiado).path("detalhe").asText())
+                .contains("administrador");
         assertThat(resultadoDe(resposta, cancelamento).path("resultado").asText())
                 .isEqualTo("NAO_APLICADA");
         http.perform(get("/api/vendas/{id}", vendaId).with(token))

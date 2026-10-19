@@ -48,6 +48,31 @@ it('operador registra recebimento parcial e vê comprovante com saldo restante',
   expect(papel).toHaveTextContent('Forma: Pix')
 })
 
+it('o Pix manual do recebimento mostra o QR do valor digitado com a chave da Conta', async () => {
+  vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue({
+    id: 'sessao-1', usuarioId: 'operador-1', valorAbertura: 0,
+    valorFechamentoEsperado: 0, valorFechamentoContado: null, diferenca: null,
+    abertaEm: '2026-09-23T12:00:00Z', fechadaEm: null, status: 'ABERTA',
+  })
+  vi.spyOn(fiado, 'dividas').mockResolvedValue([{ vendaId: 'venda-1', clienteId: 'cliente-1',
+    nomeCliente: 'Lia', concluidoEm: '2026-09-23T12:00:00Z', saldoDevedor: 20 }])
+  render(<MemoryRouter><SessaoContext.Provider value={{
+    identidade: { usuarioId: 'operador-1', nome: 'Ana', perfil: 'OPERADOR',
+      contaId: 'conta-1', nomeNegocio: 'Loja', estoqueHabilitado: false,
+      chavePix: 'loja@exemplo.com', cidadePix: 'Salvador' },
+    entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(),
+  }}><TelaDeFiado /></SessaoContext.Provider></MemoryRouter>)
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Receber' }))
+  fireEvent.change(screen.getByLabelText('Forma'), { target: { value: 'PIX' } })
+  // Sem o valor, não há QR: o cliente pagaria qualquer quantia.
+  expect(screen.queryByRole('img', { name: 'QR Pix do valor' })).not.toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText('Valor recebido'), { target: { value: '7' } })
+  expect(screen.getByRole('img', { name: 'QR Pix do valor' })).toBeInTheDocument()
+  expect(screen.getByText(/br\.gov\.bcb\.pix/)).toHaveTextContent('0116loja@exemplo.com')
+  expect(screen.getByText(/br\.gov\.bcb\.pix/)).toHaveTextContent('5404' + '7.00')
+})
+
 it('o recebimento em cartão leva o NSU, exigido quando a identidade traz a exigência', async () => {
   vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue({
     id: 'sessao-1', usuarioId: 'operador-1', valorAbertura: 0,

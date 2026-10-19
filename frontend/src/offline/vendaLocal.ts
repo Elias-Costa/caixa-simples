@@ -322,7 +322,7 @@ export function criarVendaLocal(remoto: VendasDaApi = vendas, caixa: CaixaDoDisp
     async cobrarPix(id, tentativaId, valor) {
       const alvo = await localizar(id, false)
       if (alvo === 'servidor') return remoto.cobrarPix(id, tentativaId, valor)
-      throw new Error(raiz.PIX_FORA_DA_FILA)
+      throw new Error(raiz.PIX_INTEGRADO_SEM_REDE)
     },
     async concluir(id) {
       const alvo = await localizar(id, false)

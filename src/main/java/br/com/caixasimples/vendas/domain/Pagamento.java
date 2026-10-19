@@ -34,7 +34,7 @@ import java.util.UUID;
  * coluna, para uma linha gravada por fora do código não virar uma parcela que o domínio recusaria.
  *
  * <p>O Pix integrado leva {@link CobrancaPix}: txid, chave, vencimento e código para retomar a
- * tentativa. Uma linha histórica de Pix manual continua sem esses dados.
+ * tentativa. O Pix lançado à mão pelo operador, que viu o dinheiro entrar, não tem esses dados.
  *
  * <p>O cartão pode levar o NSU do comprovante da maquininha, que deixa o dono conferir a parcela
  * contra o extrato da operadora: o cartão lançado à mão não passa pela gaveta, e o fechamento do

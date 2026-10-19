@@ -45,7 +45,8 @@ import tools.jackson.databind.ObjectMapper;
  * difere do preço vigente, o gesto é aplicado com revisão. A conclusão que deixou negativo o saldo
  * de algum produto da Venda também: é a situação de duas Vendas sem rede do último item, e o
  * administrador confere a contagem. A baixa acontece dentro da conclusão, então o saldo lido logo
- * depois já a conta. Pix não entra: a cobrança depende do provedor, com o cliente presente.
+ * depois já a conta. O Pix que entra é o lançado à mão, que o operador viu no extrato; a cobrança
+ * integrada depende do provedor, com o cliente presente, e não se registra sem rede.
  *
  * <p>A parcela em cartão que chega sem NSU numa Conta que o exige é gravada sem ele e aplicada com
  * revisão. O pagamento aconteceu, e recusá-lo deixaria de fora uma venda de fato; aceitá-lo em
@@ -147,10 +148,6 @@ class GestosDaVenda implements AplicadorDeOperacoes {
     private Aplicacao registrarPagamento(OperacaoRecebida operacao) {
         Parcela parcela = operacao.payloadComo(json, Parcela.class);
         FormaPagamento forma = operacao.exigir(parcela.forma(), "forma");
-        if (forma == FormaPagamento.PIX) {
-            throw new OperacaoRecusadaException("Pix nao entra na venda registrada sem rede: a"
-                    + " cobranca depende da confirmacao do provedor, com o cliente presente");
-        }
         Money recebido = parcela.valorRecebido() == null
                 ? null : operacao.dinheiro(parcela.valorRecebido(), "valorRecebido");
         Money valor = operacao.dinheiro(parcela.valor(), "valor");

@@ -128,13 +128,13 @@ Venda continuam.
 | `contas` | Implementado | `Conta`, `Usuario`, `Credencial`, login por JWT com contenção de tentativas repetidas, política de senha, provisionamento de conta, as perguntas que os outros módulos fazem à conta em operação, se o controle de estoque está ligado e se o plano dá direito a um recurso, e a gestão de usuários: o administrador cria operador ou administrador com login próprio, lista e inativa pela API e pelo PWA, com mais de um usuário só no plano pago e a conta nunca sem administrador. Inativar apaga a credencial e libera o e-mail; o administrador pode anonimizar o nome depois. O administrador corrige o nome de qualquer usuário da Conta, ativo ou inativo, menos o já removido, e o nome do negócio; cada um vê o próprio nome, e-mail e perfil, sem cópia no aparelho, e troca o próprio e-mail de entrada informando a senha atual, que conta na mesma contenção do login. A configuração liga o controle de estoque e só o desliga antes do primeiro movimento, e liga ou desliga, em qualquer plano, a exigência do NSU no pagamento em cartão; o menu reage imediatamente à mudança. O filtro que resolve o token lê o usuário no banco a cada requisição, então inativar vale na requisição seguinte, e o perfil que vale é o do banco, não o do token. A mesma leitura confere a versão de acesso que vai no token: cada um troca a própria senha, informando a atual, e os outros aparelhos dele saem na requisição seguinte; sair de todos os aparelhos derruba também o que pediu; o administrador redefine a senha de um operador, que sai de todos os aparelhos. A senha escolhida por outra pessoa, a do seed e a que o administrador define, é provisória, e o PWA só mostra a tela de troca até a pessoa escolher a dela. A senha tem de 15 caracteres a 72 bytes em UTF-8, e uma execução avulsa, como o seed, socorre o administrador que perdeu o acesso. Outra suspende na hora o acesso de uma Conta inteira, por uso ilegal ou ataque ao serviço, e uma terceira o devolve: suspensa, a Conta não entra, o login com a senha certa diz por quê, todo token dela recebe 401, e depois do reverso todos entram de novo. O primeiro login do administrador marca a Conta e publica o primeiro acesso na mesma transação que copia o catálogo sugerido. O administrador aceita os termos de uso em nome da Conta antes de qualquer outra tela, e de novo a cada versão; cada aceite fica gravado com a versão, o instante e quem aceitou, a versão que não é a vigente é recusada, e o operador nunca é parado por eles. A troca de plano pela própria Conta grava o pedido, confere o código de ativação recalculando a assinatura do pedido, sem guardá-lo, e mantém o ciclo mensal com aviso, tolerância e suspensão só dos recursos pagos; pedir e aplicar travam a linha da Conta, e a aplicação repetida não ativa duas vezes. Quem está autenticado pergunta em `/api/auth/eu` e recebe o próprio nome, o negócio, o tipo dele, se o estoque está ligado, se o cartão exige o NSU e o plano, com a situação e os recursos que valem hoje, além das marcas de senha provisória e de termos pendentes: é o cabeçalho de toda tela |
 | `cadastro` | Implementado, com cadastro local recebido pelo lote | `Produto` com atributos `JSONB`, busca por nome ou código para o balcão, `Cliente` como vertical slice, catálogo sugerido por tipo de negócio e copiado no primeiro login do administrador, e o agregado inteiro: `MovimentoEstoque` como membro, com a baixa por venda, o estorno por cancelamento e o ajuste manual gravando movimento e saldo na mesma transação, o estoque mínimo de cada produto e a resposta de quais estão com estoque baixo. A API expõe a revisão de Produto e Cliente; o PWA guarda listas por Conta e gestos por usuário para cadastrar, editar e inativar os dois sem rede, além de reativar Cliente, após a preparação online. Só o administrador remove Cliente: o nome vira `Cliente removido`, o contato sai e o cadastro não volta às listas; dívida ou comanda aberta impede a remoção. Os dois perfis consultam produtos e cadastram clientes no balcão. Os gestos do dispositivo chegam pelo lote de sincronização, com o id e o instante gravados sem rede |
 | `caixa` | Implementado, com gestos locais recebidos pelo lote | `SessaoCaixa`: abertura, sangria, suprimento, fechamento com conferência, histórico por operador e por dia, consulta da sessão aberta do usuário atual e extrato de uma sessão com a Venda de origem nos movimentos. A API e o PWA permitem operar e conferir o caixa, com o esperado visível antes de informar o contado. Sangria e suprimento online recebem o id do movimento do aparelho e aceitam o reenvio igual sem lançá-lo de novo. Sem rede, o PWA guarda os gestos por Conta e usuário, recompõe a sessão após recarga, conta no esperado o dinheiro das Vendas concluídas no dispositivo e mostra a diferença antes do fechamento. O dinheiro em espécie de cada venda concluída entra na gaveta pelo evento, na mesma transação da conclusão e com o instante dela, uma vez só; o cancelamento o estorna. Abertura, sangria, suprimento e fechamento feitos sem rede chegam pelo lote com o id e os instantes do balcão, e o fechamento calcula a diferença com o que o servidor conhece. O caixa é de quem o abriu: o operador só lança, fecha e consulta a própria sessão e só pede o próprio histórico; o administrador toca qualquer sessão da conta, inclusive para fechar o caixa de outro operador |
-| `pagamentos` | Implementado para cobrança, confirmação e cancelamento Pix | Strategy por forma: dinheiro com troco, cartão manual, FIADO pendente e Pix integrado. `PixGateway` usa um adapter Efí por Conta para criar, remover e reconsultar a cobrança pelo `txid`; só o Pix comprovado na consulta quita a parcela (RF25). Credenciais de homologação ainda não foram exercitadas |
-| `vendas` | Implementado, com Venda local recebida pelo lote | Agregado `Venda`, com `ItemVenda`, `Pagamento` e `Recebimento` como membros. A comanda copia o preço, permite divisão de formas e desconto pelo ADMIN. O Cliente ativo pode ser vinculado à Venda, e tirado dela enquanto não há parcela FIADO, porque a conclusão com FIADO exige Cliente; só o ADMIN registra FIADO e conclui a Venda com sua parcela pendente. Qualquer perfil recebe a dívida na própria SessaoCaixa, em lançamentos parciais; o saldo vem das parcelas e dos recebimentos. O comprovante da Venda mostra o valor pendente e cada recebimento tem comprovante próprio (RF33). Confirmação Pix reconsultada conclui uma vez quando a cobertura e a SessaoCaixa permitem; Pix tardio fica visível para conciliação do ADMIN. O cancelamento recusa o Pix pendente só após remoção comprovada no PSP e mantém o Pix pago para devolução manual. Conclusão e cancelamento publicam eventos para caixa e estoque, e recebimento publica evento para caixa; todos são ouvidos na transação de quem publica. O operador só altera suas Vendas, salvo o recebimento de fiado da Conta. A parcela e o recebimento em cartão levam o NSU do comprovante da maquininha, opcional ou exigido pela Conta, que aparece no detalhe da Venda e não no comprovante. Sem rede, o PWA monta, recebe e conclui a Venda no dispositivo com as mesmas regras da raiz e imprime o comprovante marcado como pendente; a Venda aberta com rede espera a rede voltar, e o cancelamento fica para depois da sincronização. No lote, a Venda chega com os ids da Venda, do item e da parcela gerados no dispositivo, o preço visto e os instantes do balcão |
+| `pagamentos` | Implementado para cobrança, confirmação e cancelamento Pix | Strategy por forma: dinheiro com troco, cartão manual, FIADO pendente e Pix integrado. O Pix que o operador lança à mão, depois de ver o dinheiro no banco, entra por uma porta própria do serviço e nasce confirmado, como o cartão. `PixGateway` usa um adapter Efí por Conta para criar, remover e reconsultar a cobrança pelo `txid`; só o Pix comprovado na consulta quita a parcela (RF25), e a cobrança nova é recurso do plano Completo. Credenciais de homologação ainda não foram exercitadas |
+| `vendas` | Implementado, com Venda local recebida pelo lote | Agregado `Venda`, com `ItemVenda`, `Pagamento` e `Recebimento` como membros. A comanda copia o preço, permite divisão de formas e desconto pelo ADMIN. O Cliente ativo pode ser vinculado à Venda, e tirado dela enquanto não há parcela FIADO, porque a conclusão com FIADO exige Cliente; só o ADMIN registra FIADO e conclui a Venda com sua parcela pendente. Qualquer perfil recebe a dívida na própria SessaoCaixa, em lançamentos parciais; o saldo vem das parcelas e dos recebimentos. O comprovante da Venda mostra o valor pendente e cada recebimento tem comprovante próprio (RF33). O Pix manual vale em todo plano, com e sem rede, e o PWA mostra ao cliente um QR estático do valor, montado no aparelho com a chave Pix da Conta, o nome do negócio e a cidade; sem chave cadastrada, o Pix manual é lançado sem QR. Confirmação Pix reconsultada conclui uma vez quando a cobertura e a SessaoCaixa permitem; Pix tardio fica visível para conciliação do ADMIN. O cancelamento recusa o Pix pendente só após remoção comprovada no PSP e mantém o Pix pago para devolução manual. Conclusão e cancelamento publicam eventos para caixa e estoque, e recebimento publica evento para caixa; todos são ouvidos na transação de quem publica. O operador só altera suas Vendas, salvo o recebimento de fiado da Conta. A parcela e o recebimento em cartão levam o NSU do comprovante da maquininha, opcional ou exigido pela Conta, que aparece no detalhe da Venda e não no comprovante. Sem rede, o PWA monta, recebe e conclui a Venda no dispositivo com as mesmas regras da raiz e imprime o comprovante marcado como pendente; a Venda aberta com rede espera a rede voltar, e o cancelamento fica para depois da sincronização. No lote, a Venda chega com os ids da Venda, do item e da parcela gerados no dispositivo, o preço visto e os instantes do balcão |
 | `estoque` | Implementado para o PWA online | o ouvinte da venda concluída: quando a conta ligou o controle de estoque, cada produto vendido vira uma baixa, pedida ao cadastro, dono do agregado; serviço no meio dos itens não gera nada, a baixa acontece na mesma transação da conclusão, e a mesma venda não baixa duas vezes. E os casos de uso que uma pessoa aciona: ajuste manual com motivo obrigatório, perda, quebra ou contagem, com a diferença carregando o sinal; estoque mínimo por produto; e o alerta de estoque baixo como consulta, a lista dos produtos ativos no mínimo ou abaixo. A API e o PWA listam saldos e mínimos, ajustam o saldo, definem o mínimo e mostram o alerta; a contagem na tela mostra a diferença antes de gravar. A Conta sem o estoque no plano, ou com ele suspenso, e a com controle desligado recebem 409, e o operador, 403; a baixa pela Venda não pergunta o plano. O ouvinte da venda cancelada devolve cada produto que a venda baixou, uma vez só, na mesma transação do cancelamento |
 | `relatorios` | Implementado | Faturamento do dia e de um período, produtos mais vendidos, fluxo de caixa da gaveta e a conferência do cartão de um dia. Venda concluída com FIADO conta no faturamento no dia da conclusão; recebimento em dinheiro conta no fluxo no dia da entrada, sem faturar outra vez (RF33). Filtros combináveis de faturamento por forma e operador incluem a parcela FIADO pendente. A conferência lista cada pagamento em cartão no dia e na hora em que foi lançado, parcela de venda de qualquer situação ou fiado recebido, com quem lançou, a situação da venda e o NSU ou a marca de que falta, para bater com o extrato da operadora. O módulo lê mapeamentos imutáveis de venda, item, produto, pagamento, recebimento, sessão de caixa e movimento de caixa, e os quatro relatórios são do administrador, num plano pago sem suspensão. A API e o PWA mostram os três primeiros para o mesmo período, com o faturamento repartido por forma de pagamento, e a conferência quando o período é um dia; o filtro de operador vale para o faturamento, o ranking e a conferência |
 | `sincronizacao` | Implementado, com envio automático pelo PWA | Recebe o lote de gestos que o dispositivo registrou sem rede, até 100 por envio, e aplica cada um pelos casos de uso do módulo dono, que implementa a porta deste: cadastro, caixa e vendas. Uma transação por operação, com o resultado gravado junto, por Conta e id de operação: o reenvio devolve o gravado, o mesmo id com outro conteúdo é recusado, e duas requisições simultâneas não aplicam duas vezes. Dependência que ainda não chegou pede reenvio; o gesto seguinte de um registro recusado é recusado, e o de outro registro é tentado. O item fica com o preço visto no balcão e vai para revisão quando difere do vigente; também vão a conclusão que deixou o estoque negativo, a parcela em cartão que chega sem o NSU que a Conta exige, gravada mesmo assim, e o gesto com instante adiantado mais de cinco minutos, seja o da operação ou o que ele grava no registro. O administrador lista as revisões e recusas de todos os usuários da Conta e registra quem conferiu e quando. Ao editar Cliente, o conteúdo dos gestos gravados antes da edição é esvaziado, e ao removê-lo, anonimizado; nos dois casos o reenvio antigo entra em conflito. O PWA descarta o gesto enviado quando todo retrato que o usa já contém o efeito dele |
 
-**Schema.** Vinte e sete migrations Flyway, de `V1` a `V27`: conta, usuário e credencial; produto; cliente;
+**Schema.** Vinte e oito migrations Flyway, de `V1` a `V28`: conta, usuário e credencial; produto; cliente;
 catálogo de referência; o agregado de caixa, com a regra de uma sessão aberta por operador; o
 agregado de venda, com a venda, seus itens e seus pagamentos; o outbox de eventos de domínio do
 Spring Modulith, cujo DDL foi gerado a partir da entidade do framework em vez de escrito de
@@ -161,6 +161,8 @@ credencial nasce. A `V25` cria o aceite dos termos de uso, uma linha por versão
 `V26` acrescenta à Conta o instante da suspensão imediata do acesso, nulo enquanto o acesso vale.
 A `V27` deixa dois planos, o gratuito e o completo: a Conta no plano intermediário passa ao completo
 com o mesmo vencimento, e os pedidos desse plano e do upgrade, que deixou de existir, saem do banco.
+A `V28` acrescenta à Conta a chave Pix do Pix manual e a cidade do recebedor, que o banco exige juntas
+ou nenhuma.
 
 O [aviso de privacidade](frontend/src/telas/TelaDePrivacidade.tsx) é público, inclusive antes do
 login, e o rodapé de toda tela do aplicativo aponta para ele e para os termos. Diz quem trata cada
@@ -186,7 +188,9 @@ de quem pediu, inclusive o desta requisição. `GET /api/auth/meus-dados` devolv
 entrada e o perfil de quem pede, que o aplicativo não guarda no aparelho, e `POST /api/auth/email`
 troca o e-mail de entrada com a senha atual, que passa pela mesma contenção, responde 204 e mantém os
 tokens, que não levam o e-mail; o e-mail que já entra em outra credencial, de qualquer Conta, responde
-409. O contrato
+409. A identidade traz também a chave Pix e a cidade do QR do Pix manual, para todo aparelho da
+Conta, e a marca de que a Conta pode cobrar pelo Pix integrado hoje: o plano o inclui, sem
+suspensão, e o provedor está configurado. O contrato
 de erro já está fixado para todos os endpoints que virão: toda resposta de erro é Problem Details
 (RFC 9457), produzida por um tratador transversal em `shared` que estende o do próprio Spring MVC,
 para o cliente receber uma forma só venha o erro do framework ou da aplicação. A recusa por perfil
@@ -208,11 +212,13 @@ itens, total, parcelas e recebimentos, com o NSU de cada um em cartão; `POST /a
 na Conta responde 404 ao iniciar a comanda ou lançar o item;
 `PUT /api/vendas/{id}/desconto` é só do administrador;
 `POST /api/vendas/{id}/pagamentos` exige `pagamentoId` no corpo, aceita `nsu` no cartão e devolve o
-troco para as formas sem Pix integrado; o dinheiro sem `valorRecebido` e o NSU com mais de 40
+troco; com a forma `PIX`, registra o Pix lançado à mão, confirmado e sem cobrança, em qualquer plano;
+o dinheiro sem `valorRecebido` e o NSU com mais de 40
 caracteres, fora do cartão ou ausente no cartão de uma Conta que o exige respondem 400;
 `POST /api/vendas/{id}/pagamentos/pix` recebe `tentativaId` e valor, devolve parcela PENDENTE e
 estado da cobrança, e responde 409, sem alterar nada, ao `tentativaId` que já é de uma parcela de
-outra Venda; o PWA mostra QR Code e copia e cola; `GET /api/vendas/{id}` permite retomar
+outra Venda e à tentativa nova fora do plano Completo ou com ele suspenso; a retomada de uma
+tentativa já reservada não pergunta o plano; o PWA mostra QR Code e copia e cola; `GET /api/vendas/{id}` permite retomar
 o mesmo QR e não expõe outra Conta;
 `POST /api/webhooks/pix/{identificador}/pix?hmac=...` recebe o aviso do PSP sem JWT de operador,
 sob mTLS, identifica a configuração da Conta pelo identificador opaco e segredo, e reconsulta a
@@ -261,9 +267,13 @@ o ativo e o inativo, sem pedir o plano, e o nome já removido a pedido responde 
 alcança operador ativo, e o administrador ou o inativo responde 409. A configuração usa
 `GET` e `PUT /api/conta/configuracao`, com `estoqueHabilitado` booleano,
 `PUT /api/conta/configuracao/nsu`, com `nsuObrigatorio`, que não depende do plano, e
-`PUT /api/conta/configuracao/nome-do-negocio`, com `nomeNegocio`; as mudanças devolvem a
-configuração inteira, com o nome do negócio, e depois do primeiro movimento de estoque a tentativa de
-desligar o controle responde 409. Essas rotas são só do administrador.
+`PUT /api/conta/configuracao/nome-do-negocio`, com `nomeNegocio`, e
+`PUT /api/conta/configuracao/chave-pix`, com `senhaAtual`, `tipo`, `chave` e `cidade`, sem tipo e
+com a chave em branco para tirá-la; a chave é conferida pelo tipo, pelo formato e pelos dígitos do
+CPF e do CNPJ, inclusive o alfanumérico, antes da senha, e a senha atual errada responde 400 e conta
+na contenção do login. As mudanças devolvem a
+configuração inteira, com o nome do negócio e a chave Pix, e depois do primeiro movimento de estoque
+a tentativa de desligar o controle responde 409. Essas rotas são só do administrador.
 O plano usa `GET /api/conta/plano`, com o plano, a situação, a mensalidade, o que pode ser pedido
 hoje e o pedido aberto; `POST /api/conta/plano/pedidos`, que grava o pedido, responde 201 e
 substitui o aberto; e `POST /api/conta/plano/pedidos/{id}/codigo`, que aplica o código: o errado
@@ -505,7 +515,9 @@ uso hoje:
 - **Repository apenas por raiz de agregado.** Não existe `MovimentoCaixaRepository`,
   `ItemVendaRepository` nem `PagamentoRepository`: membro de agregado entra e sai pela raiz.
 - **Strategy** por forma de pagamento, resolvido por mapa e sem `switch` em código de negócio:
-  dinheiro, Pix integrado, cartão e FIADO têm uma classe cada. A parcela Pix nasce PENDENTE.
+  dinheiro, Pix integrado, cartão e FIADO têm uma classe cada. A parcela Pix integrada nasce
+  PENDENTE; o Pix lançado à mão não passa pela estratégia, e sim por uma porta própria do serviço,
+  que o confirma na hora.
 - **Adapter** de Pix atrás de `PixGateway`: Efí usa OAuth e certificado por Conta, cria cobrança
   com `txid` derivado do UUID da parcela e compara os dados do PSP antes de mostrar o copia e cola
   ou confirmar um Pix recebido. Ao cancelar, pede a remoção da cobrança ainda pendente e reconsulta
@@ -612,7 +624,7 @@ são somas; os filtros entraram como parâmetro opcional nas consultas que já e
   concluída só cancela com a sessão em que nasceu ainda aberta, porque a gaveta de uma sessão
   fechada já foi conferida; a comanda aberta sem cobrança Pix integrada cancela sem perguntar,
   porque nunca tocou a gaveta, e é a saída para a comanda que ficou presa quando o caixa fechou
-  antes. Pix manual histórico e cartão confirmados ficam como estão: não há provedor a quem pedir
+  antes. Pix lançado à mão e cartão confirmados ficam como estão: não há provedor a quem pedir
   estorno, e a devolução ao cliente acontece no balcão. Uma Venda com Pix integrado pendente só
   cancela após o PSP comprovar que a cobrança foi removida; falha ou resposta incerta mantém a
   Venda e permite repetir. Se o Pix já foi pago, a parcela segue CONFIRMADO e o PWA avisa que a
@@ -674,7 +686,8 @@ tira a pendência da B, que não enxerga a linha, e o aceite da B grava a dela s
   tenant, é testado com uma linha em cada tabela da Conta nas duas pontas: a encerrada termina sem
   nenhuma, e a outra com as mesmas, tabela a tabela. A remoção de
   Cliente e a anonimização e a correção do nome de Usuário são recusadas com id de outra Conta, e o
-  nome do negócio corrigido numa Conta não muda o da outra. A versão de acesso do
+  nome do negócio corrigido numa Conta não muda o da outra, nem a chave Pix cadastrada numa aparece
+  na identidade ou na configuração da outra. A versão de acesso do
   usuário também tem a sua: a Conta B não a trava, não a lê nem a revoga num usuário da A, o
   administrador da B não redefine a senha de um operador da A, e a troca de senha na A não derruba o
   token da B nem o de outro usuário da própria A. O lote prova por HTTP que duas Contas com os mesmos ids de
@@ -869,13 +882,19 @@ o mesmo limite antes, para a recusa ser um 400 que diz o campo, e não uma viola
 | **Produto** | `Produto` | `MovimentoEstoque` | `estoque_atual` reflete a soma dos movimentos, atualizado na mesma transação | Implementado para os três tipos, a saída por venda, a entrada do cancelamento e o ajuste manual: o único método que escreve o saldo exige o movimento junto, o ajuste sem motivo não passa pela raiz, e não se devolve o que não saiu |
 | Entidade única | `PedidoDePlano` | nenhum | um pedido aberto por Conta, por índice único parcial; aplicar o código muda o plano e o vencimento da Conta na mesma transação, com a linha dela travada, e o reenvio não muda nada | Implementado |
 | Entidade única | `AceiteDosTermos` | nenhum | uma linha por versão aceita na Conta, por índice único, gravada com a linha da Conta travada; só nasce, porque é a prova do aceite | Implementado |
-| Entidade única | `Conta`, `Usuario`, `Cliente` | nenhum | são agregados de uma entidade só; a marca do primeiro acesso da Conta só avança uma vez; a remoção do Cliente anonimiza a linha e a inativação do Usuário apaga sua credencial | Implementado |
+| Entidade única | `Conta`, `Usuario`, `Cliente` | nenhum | são agregados de uma entidade só; a marca do primeiro acesso da Conta só avança uma vez; a chave Pix da Conta e a cidade do QR são gravadas e tiradas juntas; a remoção do Cliente anonimiza a linha e a inativação do Usuário apaga sua credencial | Implementado |
 
 Referência que cruza agregado é sempre por ID, nunca um `@ManyToOne` navegável. É o que impede
 editar um agregado através de outro.
 
 ### Detalhes de modelagem que valem nota
 
+- **Chave Pix normalizada, com o tipo lido da forma.** A Conta guarda a chave do Pix manual na
+  forma que o QR leva, conferida pelo tipo que o administrador escolhe: um CPF e um celular têm os
+  dois onze dígitos, e só o tipo diz qual foi digitado. O CPF e o CNPJ, inclusive o alfanumérico,
+  passam pelos dígitos verificadores. As formas gravadas não se confundem, então o tipo volta da
+  própria chave, sem coluna; a cidade do recebedor só existe com ela, e o banco recusa uma sem a
+  outra. O QR estático é montado no aparelho, com o CRC do BR Code, e funciona sem rede.
 - **Código de ativação sem coluna.** O pedido de plano guarda tipo, plano, valor e período, e o
   código que o ativa é a assinatura do id do pedido, do plano e do valor com um segredo do
   servidor: a aplicação a recalcula com o que gravou para conferir, então o banco não guarda código
@@ -1197,7 +1216,7 @@ src
 │   │   ├── relatorios/     application, web, internal
 │   │   └── sincronizacao/  a porta que os módulos donos implementam; application, web, internal
 │   └── resources
-│       └── db/migration/   V1 a V27, imutáveis depois de publicadas
+│       └── db/migration/   V1 a V28, imutáveis depois de publicadas
 ├── test/java/br/com/caixasimples
 │   ├── ModularityTests     fitness function das fronteiras
 │   ├── TesteDeIntegracao   base com Testcontainers, herdada pelos testes de banco

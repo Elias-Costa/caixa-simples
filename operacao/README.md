@@ -280,12 +280,17 @@ variáveis que o compose lista para ele.
 | `CAIXA_SIMPLES_COPIA_AWS_*` | A credencial do usuário do IAM da cópia | Grava objeto novo no bucket, e mais nada |
 | `CAIXA_SIMPLES_VIGIA_COPIA`, `CAIXA_SIMPLES_VIGIA_MAQUINA` e `CAIXA_SIMPLES_VIGIA_RECUSAS` | Os endereços de sinal dos três checks | O [vigia](#vigia) |
 
-`/etc/caixa-simples/efi.env` guarda, para cada Conta que recebe Pix, com o UUID da Conta em
-maiúsculas e sem hífens, `CAIXA_SIMPLES_EFI_<UUID>_AMBIENTE`, `_CLIENT_ID`, `_CLIENT_SECRET`,
+`/etc/caixa-simples/efi.env` guarda, para cada Conta que recebe pelo Pix integrado, com o UUID da
+Conta em maiúsculas e sem hífens, `CAIXA_SIMPLES_EFI_<UUID>_AMBIENTE`, `_CLIENT_ID`, `_CLIENT_SECRET`,
 `_CHAVE_PIX`, `_CERTIFICADO_P12`, `_CERTIFICADO_SENHA`, `_WEBHOOK_ID` e `_WEBHOOK_SECRET`. O
 certificado `.p12` vai em `/etc/caixa-simples/efi/<uuid da Conta>.p12`, com dono 10001, e
 `_CERTIFICADO_P12` aponta para `/segredos/efi/<uuid da Conta>.p12`, onde a pasta aparece dentro da
 aplicação, só para leitura.
+
+O Pix integrado faz parte do plano Completo: configure a Efí só para Conta nele. Fora do plano, a
+aplicação recusa cobrança nova mesmo com a Efí configurada, e o aplicativo não mostra o Pix integrado;
+a cobrança já reservada ainda é consultada e confirmada. O Pix lançado à mão não depende da Efí: o
+administrador cadastra a chave Pix e a cidade em Configuração, e o aparelho mostra o QR estático.
 
 Uma mudança na configuração vale quando o contêiner é recriado: `sh compose.sh up -d --wait` recria só
 os que mudaram, e a troca da aplicação para o serviço, então vai na janela.
@@ -1256,8 +1261,8 @@ com o endereço do check: nenhum log e nada das Contas sai da máquina por ele. 
 a máquina ou a rede fora do ar, a aplicação parada ou travada, o certificado vencido e a rajada de
 recusas. O deploy que falha aparece no CI, que fica vermelho, e o GitHub avisa por e-mail.
 
-**O alerta de recusas** conta os [eventos de segurança](#a-vps) de login recusado, troca de senha
-recusada, token recusado, acesso recusado por perfil e aviso Pix recusado. Uma origem sozinha não passa
+**O alerta de recusas** conta os [eventos de segurança](#a-vps) de login recusado, troca recusada da
+senha, do e-mail ou da chave Pix, token recusado, acesso recusado por perfil e aviso Pix recusado. Uma origem sozinha não passa
 de 30 falhas de login na janela da contenção; acima de 50 em 5 minutos é força bruta distribuída, ou
 enxurrada de token falso ou de aviso Pix, que nada limita. Uma Conta suspensa cujos aparelhos continuam
 pedindo também entra na contagem, com o motivo `conta_suspensa`. Com o aviso, a origem e a Conta atacada

@@ -15,6 +15,11 @@ public class PixCobrancaService {
         this.gateway = gateway;
     }
 
+    /** Se a Conta do contexto tem o provedor Pix configurado, sem chamar o provedor. */
+    public boolean configurada() {
+        return gateway.configurada();
+    }
+
     public String chaveRecebedora() {
         return gateway.chaveRecebedora();
     }

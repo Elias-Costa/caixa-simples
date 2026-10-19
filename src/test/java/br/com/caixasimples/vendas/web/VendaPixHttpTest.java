@@ -6,6 +6,8 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -20,6 +22,7 @@ import br.com.caixasimples.caixa.application.SessaoCaixaService;
 import br.com.caixasimples.contas.AutenticadorDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
+import br.com.caixasimples.contas.Plano;
 import br.com.caixasimples.pagamentos.domain.PixGateway;
 import br.com.caixasimples.pagamentos.domain.ConsultaPix;
 import br.com.caixasimples.pagamentos.application.PixIndisponivelException;
@@ -59,7 +62,7 @@ class VendaPixHttpTest extends TesteDeIntegracao {
     void removeCobrancaAntesDeCancelarPreservaHistoricoERepeticaoNaoRepeteChamada(
             ApplicationEvents eventos)
             throws Exception {
-        ContaCriada conta = criador.criar("Pix cancelado", "uma senha longa de teste");
+        ContaCriada conta = noCompleto("Pix cancelado");
         ContaCriada outra = criador.criar("Outra Conta Pix", "uma senha longa de teste");
         UUID vendaId = vendaComUmItem(conta);
         UUID tentativaId = UUID.randomUUID();
@@ -91,7 +94,7 @@ class VendaPixHttpTest extends TesteDeIntegracao {
 
     @Test
     void falhaOuCobrancaAindaAtivaNaoCancelamEPodeRetentar() throws Exception {
-        ContaCriada conta = criador.criar("Pix instavel", "uma senha longa de teste");
+        ContaCriada conta = noCompleto("Pix instavel");
         UUID vendaId = vendaComUmItem(conta);
         when(gateway.chaveRecebedora()).thenReturn("chave-teste");
         when(gateway.criarCobranca(any(), eq(Money.de("12.50")))).thenReturn("qr-teste");
@@ -125,7 +128,7 @@ class VendaPixHttpTest extends TesteDeIntegracao {
     @Test
     void pixPagoNaCorridaEConfirmadoAntesDoCancelamentoSemPedirDevolucao()
             throws Exception {
-        ContaCriada conta = criador.criar("Pix pago na corrida", "uma senha longa de teste");
+        ContaCriada conta = noCompleto("Pix pago na corrida");
         UUID vendaId = vendaComUmItem(conta);
         when(gateway.chaveRecebedora()).thenReturn("chave-teste");
         when(gateway.criarCobranca(any(), eq(Money.de("12.50")))).thenReturn("qr-teste");
@@ -152,7 +155,7 @@ class VendaPixHttpTest extends TesteDeIntegracao {
     void cancelarDepoisDaConfirmacaoPreservaParcelaERepeticaoNaoChamaPsp(
             ApplicationEvents eventos)
             throws Exception {
-        ContaCriada conta = criador.criar("Pix ja confirmado", "uma senha longa de teste");
+        ContaCriada conta = noCompleto("Pix ja confirmado");
         UUID vendaId = vendaComUmItem(conta);
         UUID tentativaId = UUID.randomUUID();
         when(gateway.chaveRecebedora()).thenReturn("chave-teste");
@@ -177,7 +180,7 @@ class VendaPixHttpTest extends TesteDeIntegracao {
 
     @Test
     void mesmaTentativaTresVezesGeraUmaParcelaEOutraContaNaoAVe() throws Exception {
-        ContaCriada conta = criador.criar("Pix A", "uma senha longa de teste");
+        ContaCriada conta = noCompleto("Pix A");
         ContaCriada outra = criador.criar("Pix B", "uma senha longa de teste");
         UUID vendaId = vendaComUmItem(conta);
         UUID tentativaId = UUID.randomUUID();
@@ -222,7 +225,7 @@ class VendaPixHttpTest extends TesteDeIntegracao {
 
     @Test
     void respostaIncertaMantemTentativaEReenvioUsaOMesmoTxid() throws Exception {
-        ContaCriada conta = criador.criar("Pix incerto", "uma senha longa de teste");
+        ContaCriada conta = noCompleto("Pix incerto");
         UUID vendaId = vendaComUmItem(conta);
         UUID tentativaId = UUID.randomUUID();
         String pedido = "{\"tentativaId\":\"" + tentativaId + "\",\"valor\":12.50}";
@@ -251,7 +254,68 @@ class VendaPixHttpTest extends TesteDeIntegracao {
     }
 
     @Test
-    void pixManualHistoricoContinuaLegivel() throws Exception {
+    void cobrancaNovaForaDoCompletoERecusadaSemChamarOProvedor() throws Exception {
+        ContaCriada gratuita = criador.criar("Pix no Gratuito", "uma senha longa de teste");
+        UUID vendaId = vendaComUmItem(gratuita);
+        String pedido = "{\"tentativaId\":\"" + UUID.randomUUID() + "\",\"valor\":12.50}";
+        when(gateway.chaveRecebedora()).thenReturn("chave-teste");
+
+        http.perform(post("/api/vendas/{id}/pagamentos/pix", vendaId)
+                .with(autenticador.como(gratuita)).contentType(MediaType.APPLICATION_JSON)
+                .content(pedido))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.detail")
+                        .value(containsString("Pix integrado faz parte do plano Completo")));
+
+        ContaCriada suspensa = noCompleto("Pix suspenso");
+        criador.vencerPlano(suspensa.contaId(), 8);
+        UUID vendaSuspensa = vendaComUmItem(suspensa);
+        http.perform(post("/api/vendas/{id}/pagamentos/pix", vendaSuspensa)
+                .with(autenticador.como(suspensa)).contentType(MediaType.APPLICATION_JSON)
+                .content(pedido))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.detail").value(containsString("suspensos")));
+
+        verify(gateway, never()).chaveRecebedora();
+        verify(gateway, never()).criarCobranca(any(), any());
+        http.perform(get("/api/vendas/{id}", vendaId).with(autenticador.como(gratuita)))
+                .andExpect(jsonPath("$.parcelas").isEmpty());
+    }
+
+    @Test
+    void cobrancaReservadaAntesDaSuspensaoAindaRetomaEConclui() throws Exception {
+        ContaCriada conta = noCompleto("Pix antes da suspensao");
+        UUID vendaId = vendaComUmItem(conta);
+        UUID tentativaId = UUID.randomUUID();
+        String pedido = "{\"tentativaId\":\"" + tentativaId + "\",\"valor\":12.50}";
+        when(gateway.chaveRecebedora()).thenReturn("chave-teste");
+        when(gateway.criarCobranca(any(), eq(Money.de("12.50")))).thenReturn("qr-teste");
+        http.perform(post("/api/vendas/{id}/pagamentos/pix", vendaId)
+                .with(autenticador.como(conta)).contentType(MediaType.APPLICATION_JSON)
+                .content(pedido)).andExpect(status().isOk());
+
+        criador.vencerPlano(conta.contaId(), 8);
+
+        // A mesma tentativa é a retomada da cobrança que o cliente pode estar pagando.
+        http.perform(post("/api/vendas/{id}/pagamentos/pix", vendaId)
+                .with(autenticador.como(conta)).contentType(MediaType.APPLICATION_JSON)
+                .content(pedido))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(tentativaId.toString()))
+                .andExpect(jsonPath("$.pix.estado").value("DISPONIVEL"));
+        String txid = tentativaId.toString().replace("-", "");
+        when(gateway.consultar(any())).thenReturn(
+                new ConsultaPix(txid, "chave-teste", Money.de("12.50"), true));
+        pix.receberNotificacao(conta.contaId(), txid);
+
+        http.perform(get("/api/vendas/{id}", vendaId).with(autenticador.como(conta)))
+                .andExpect(jsonPath("$.status").value("CONCLUIDA"))
+                .andExpect(jsonPath("$.parcelas[0].status").value("CONFIRMADO"));
+        verify(gateway, times(1)).criarCobranca(any(), eq(Money.de("12.50")));
+    }
+
+    @Test
+    void pixLancadoAMaoNaoTrazCobranca() throws Exception {
         ContaCriada conta = criador.criar("Pix antigo", "uma senha longa de teste");
         UUID vendaId = vendaComUmItem(conta);
         conta.comoUsuario(() -> transacoes.executeWithoutResult(estado -> {
@@ -267,6 +331,13 @@ class VendaPixHttpTest extends TesteDeIntegracao {
                 .andExpect(jsonPath("$.parcelas[0].forma").value("PIX"))
                 .andExpect(jsonPath("$.parcelas[0].status").value("CONFIRMADO"))
                 .andExpect(jsonPath("$.parcelas[0].pix").doesNotExist());
+    }
+
+    /** O Pix integrado é do plano Completo, então a Conta que cobra por ele o contrata no preparo. */
+    private ContaCriada noCompleto(String nome) {
+        ContaCriada conta = criador.criar(nome, "uma senha longa de teste");
+        criador.contratar(conta.contaId(), Plano.COMPLETO);
+        return conta;
     }
 
     private UUID vendaComUmItem(ContaCriada conta) {

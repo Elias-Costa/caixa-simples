@@ -15,11 +15,13 @@ import type { FormaPagamento } from '../api/vendas'
 import { centavos, MAIOR_VALOR_EM_CENTAVOS } from './dinheiro'
 import { gestoAplicavel, ordenarPorDependencia, type GestoNaFila } from './fila'
 
-/** Pix não entra na fila: a cobrança depende da confirmação do provedor, com o cliente presente. */
-export const PIX_FORA_DA_FILA =
-  'Pix não entra na Venda registrada sem rede: a cobrança depende da confirmação do provedor.'
-
-export type FormaSemRede = Exclude<FormaPagamento, 'PIX'>
+/**
+ * A cobrança do Pix integrado não entra na fila: ela depende da confirmação do provedor, com o
+ * cliente presente. O Pix lançado à mão entra, como o cartão.
+ */
+export const PIX_INTEGRADO_SEM_REDE =
+  'O Pix integrado precisa de rede, porque depende da confirmação do provedor. Sem rede, lance o Pix'
+  + ' manual depois de ver o dinheiro no aplicativo do banco.'
 
 export type ItemNoDispositivo = Readonly<{
   id: string
@@ -32,7 +34,7 @@ export type ItemNoDispositivo = Readonly<{
 
 export type ParcelaNoDispositivo = Readonly<{
   id: string
-  forma: FormaSemRede
+  forma: FormaPagamento
   valorCentavos: number
   status: 'CONFIRMADO' | 'PENDENTE'
   trocoCentavos: number
@@ -136,9 +138,9 @@ export function total(venda: VendaNoDispositivo): number {
 }
 
 /**
- * O que as parcelas já cobrem. Sem rede toda parcela conta para a conclusão: dinheiro e cartão
- * nascem confirmados e o FIADO pendente cobre a parte dele (RF33). Pix, a única forma que espera um
- * provedor, não entra na fila.
+ * O que as parcelas já cobrem. Sem rede toda parcela conta para a conclusão: dinheiro, cartão e Pix
+ * lançado à mão nascem confirmados e o FIADO pendente cobre a parte dele (RF33). A cobrança do Pix
+ * integrado, a única que espera um provedor, não entra na fila.
  */
 export function lancado(venda: VendaNoDispositivo): number {
   return venda.parcelas.reduce((soma, parcela) => soma + parcela.valorCentavos, 0)
@@ -153,6 +155,13 @@ export function dinheiroNaGaveta(venda: VendaNoDispositivo): number {
   return venda.parcelas
     .filter((parcela) => parcela.forma === 'DINHEIRO' && parcela.status === 'CONFIRMADO')
     .reduce((soma, parcela) => soma + parcela.valorCentavos, 0)
+}
+
+/** Como cada forma sem troco aparece na recusa do valor recebido. */
+const ROTULO_SEM_TROCO: Record<Exclude<FormaPagamento, 'DINHEIRO'>, string> = {
+  PIX: 'Pix',
+  CARTAO: 'Cartão',
+  FIADO: 'Fiado',
 }
 
 function avancar(venda: VendaNoDispositivo, mudancas: Partial<VendaNoDispositivo>): VendaNoDispositivo {
@@ -261,8 +270,7 @@ export function desvincularCliente(venda: VendaNoDispositivo): VendaNoDispositiv
  */
 export function registrarPagamento(venda: VendaNoDispositivo, dados: DadosDaParcela): VendaNoDispositivo {
   exigirAberta(venda)
-  if (dados.forma === 'PIX') throw new Error(PIX_FORA_DA_FILA)
-  const forma: FormaSemRede = dados.forma
+  const forma = dados.forma
   const valor = centavos(dados.valor, 'Valor da parcela')
   if (valor === 0) throw new Error('O valor da parcela tem de ser positivo.')
   const valorRecebido = dados.valorRecebido ?? null
@@ -283,8 +291,7 @@ export function registrarPagamento(venda: VendaNoDispositivo, dados: DadosDaParc
     }
     trocoCentavos = recebido - valor
   } else if (valorRecebido !== null) {
-    throw new Error(`${forma === 'CARTAO' ? 'Cartão' : 'Fiado'} não devolve troco e não aceita valor `
-      + 'recebido em espécie.')
+    throw new Error(`${ROTULO_SEM_TROCO[forma]} não devolve troco e não aceita valor recebido em espécie.`)
   }
 
   const falta = faltaPagar(venda)

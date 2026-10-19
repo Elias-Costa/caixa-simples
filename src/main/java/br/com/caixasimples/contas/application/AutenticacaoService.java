@@ -3,6 +3,8 @@ package br.com.caixasimples.contas.application;
 import br.com.caixasimples.contas.Plano;
 import br.com.caixasimples.contas.RecursoDoPlano;
 import br.com.caixasimples.contas.SituacaoDoPlano;
+import br.com.caixasimples.contas.application.ContaService.ConfiguracaoDaConta;
+import br.com.caixasimples.contas.internal.ChavePix;
 import br.com.caixasimples.contas.internal.Conta;
 import br.com.caixasimples.contas.internal.ContaRepository;
 import br.com.caixasimples.contas.internal.ContencaoDeLogin;
@@ -15,6 +17,7 @@ import br.com.caixasimples.contas.internal.PoliticaDeSenha;
 import br.com.caixasimples.contas.internal.SenhaRecusadaException;
 import br.com.caixasimples.contas.internal.Usuario;
 import br.com.caixasimples.contas.internal.UsuarioRepository;
+import br.com.caixasimples.pagamentos.application.PixCobrancaService;
 import br.com.caixasimples.shared.ContaId;
 import br.com.caixasimples.shared.EventoDeSeguranca;
 import br.com.caixasimples.shared.FusoDeReferencia;
@@ -34,7 +37,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Casos de uso de identidade (RNF06): o login, quem está operando agora, os próprios dados, a troca
- * da própria senha e do próprio e-mail e a saída de todos os aparelhos.
+ * da própria senha e do próprio e-mail, a troca da chave Pix da Conta e a saída de todos os
+ * aparelhos.
  *
  * <p>O login descobre a conta pela credencial, a única busca possível sem tenant, e só então lê o
  * usuário sob o filtro normal de {@code @TenantId}. No primeiro login de ADMIN, marca a Conta e
@@ -67,6 +71,7 @@ public class AutenticacaoService {
     private final ContencaoDeLogin contencao;
     private final PoliticaDeSenha politica;
     private final TermosDeUsoService termos;
+    private final PixCobrancaService pix;
     private final TransactionTemplate transacao;
 
     /**
@@ -79,7 +84,7 @@ public class AutenticacaoService {
     AutenticacaoService(CredencialRepository credenciais, UsuarioRepository usuarios,
             ContaRepository contas, PasswordEncoder encoder, EmissorDeToken emissor,
             ContaService contaService, ContencaoDeLogin contencao, PoliticaDeSenha politica,
-            TermosDeUsoService termos, TransactionTemplate transacao) {
+            TermosDeUsoService termos, PixCobrancaService pix, TransactionTemplate transacao) {
         this.credenciais = credenciais;
         this.usuarios = usuarios;
         this.contas = contas;
@@ -89,6 +94,7 @@ public class AutenticacaoService {
         this.contencao = contencao;
         this.politica = politica;
         this.termos = termos;
+        this.pix = pix;
         this.transacao = transacao;
         this.hashSintetico = encoder.encode(UUID.randomUUID().toString());
     }
@@ -302,6 +308,63 @@ public class AutenticacaoService {
     }
 
     /**
+     * Cadastra, troca ou tira a chave Pix da Conta e a cidade do recebedor, que o aparelho põe no QR
+     * estático do Pix lançado à mão. Só o administrador, confirmando a senha atual.
+     *
+     * <p>A senha atual porque a chave decide para onde vai o dinheiro do cliente: quem pegasse um
+     * aparelho destravado do administrador e trocasse a chave pela própria receberia os Pix do balcão.
+     * Passa pela mesma contenção da troca de e-mail. A chave e a cidade são conferidas antes da senha,
+     * para um erro de digitação nelas não gastar uma tentativa da contenção.
+     *
+     * <p><strong>Sem {@code @Transactional} no método</strong>, pelo mesmo motivo das outras trocas: o
+     * BCrypt roda antes, e só a escrita abre transação, com a linha da Conta travada, como nas outras
+     * chaves da configuração, porque a gravação escreve a linha inteira e não pode desfazer um código
+     * de plano aplicado ao mesmo tempo.
+     *
+     * @param tipo   nulo para tirar a chave e a cidade; então a chave vem em branco
+     * @param origem o IP de quem pede, já lido da cadeia de proxies confiáveis
+     * @return a configuração da Conta depois da troca
+     * @throws br.com.caixasimples.shared.AcessoNegadoException se quem pede não é ADMIN
+     * @throws SenhaAtualIncorretaException se a senha atual não confere
+     * @throws LoginContidoException se a origem, ou o e-mail vindo dela, errou demais na janela atual
+     * @throws IllegalArgumentException se a chave não serve ao tipo, se vem chave sem tipo, ou se a
+     *         cidade está em branco ou passa do tamanho da coluna
+     */
+    public ConfiguracaoDaConta definirChavePix(String senhaAtual, ChavePix.Tipo tipo, String chave,
+            String cidade, String origem) {
+        UsuarioContext.exigirAdmin();
+        UsuarioAutenticado atual = UsuarioContext.exigirAtual();
+        ContaId contaId = TenantContext.exigirAtual();
+        if (senhaAtual == null) {
+            throw new IllegalArgumentException("informe a senha atual");
+        }
+        if (tipo == null && chave != null && !chave.isBlank()) {
+            throw new IllegalArgumentException("chave Pix: informe o tipo da chave.");
+        }
+        ChavePix conferida = tipo == null ? null : ChavePix.conferir(tipo, chave);
+        if (conferida != null) {
+            Conta.cidadeDoPixConferida(cidade);
+        }
+
+        Credencial credencial = credencialDe(atual.usuarioId(), contaId);
+        conferirSenhaAtual(credencial, senhaAtual, origem,
+                SenhaAtualIncorretaException.Troca.CHAVE_PIX);
+
+        return transacao.execute(status -> {
+            Conta conta = contas.buscarParaAtualizar(contaId.valor())
+                    .orElseThrow(() -> new IllegalStateException(
+                            "conta do contexto nao existe: " + contaId));
+            if (conferida == null) {
+                conta.removerChavePix();
+            } else {
+                conta.definirChavePix(conferida, cidade);
+            }
+            contas.save(conta);
+            return ConfiguracaoDaConta.de(conta);
+        });
+    }
+
+    /**
      * Confere a senha atual de quem pede uma troca, contada na contenção do login pela origem e pelo
      * e-mail atual. Certa, zera o par, como o login certo; errada, a reserva fica, porque é a falha
      * que a contenção conta.
@@ -399,6 +462,12 @@ public class AutenticacaoService {
      * ela valer, logo depois do login. A pendência dos termos vem pelo mesmo motivo: o administrador
      * só vê a tela dos termos até a Conta aceitar a versão vigente.
      *
+     * <p>A chave Pix e a cidade vêm junto porque todo aparelho da Conta monta o QR do Pix manual,
+     * inclusive sem rede, e a chave é a que o cliente já vê no QR. A marca do Pix integrado diz se a
+     * Conta pode cobrar por ele hoje: o plano o inclui, os recursos pagos não estão suspensos e o
+     * provedor da Conta está configurado, o que é feito à parte do plano. Sem ela, o aplicativo
+     * mostraria um botão que só responde erro.
+     *
      * <p>Aqui a transação pode existir, ao contrário do login: o tenant já está no contexto
      * antes de ela abrir.
      *
@@ -422,12 +491,15 @@ public class AutenticacaoService {
         boolean senhaProvisoria = credencialDe(usuario.getId(), contaId).isSenhaProvisoria();
 
         LocalDate hoje = LocalDate.now(FusoDeReferencia.DO_BALCAO);
+        boolean pixIntegrado = conta.temRecurso(RecursoDoPlano.PIX_INTEGRADO, hoje)
+                && pix.configurada();
         return new Identidade(usuario.getId(), usuario.getNome(), atual.perfil(),
                 conta.getId(), conta.getNomeNegocio(), conta.getTipoNegocio(),
                 conta.isEstoqueHabilitado(), conta.isNsuObrigatorio(), conta.getPlano(),
                 conta.situacao(hoje),
                 conta.getProximoVencimento(), conta.inicioDaSuspensao(), conta.recursos(hoje),
-                senhaProvisoria, termos.pendentes());
+                senhaProvisoria, termos.pendentes(), conta.getChavePix(), conta.getCidadePix(),
+                pixIntegrado);
     }
 
     /**
@@ -444,12 +516,16 @@ public class AutenticacaoService {
      * @param senhaProvisoria   se a senha foi escolhida por outra pessoa e o aplicativo pede a troca
      * @param termosPendentes   se a Conta ainda não aceitou a versão vigente dos termos de uso; o
      *                          aplicativo pede o aceite só ao administrador
+     * @param chavePix          a chave do QR do Pix manual; nula enquanto o administrador não
+     *                          cadastra uma, e então o Pix manual é lançado sem QR
+     * @param cidadePix         a cidade do recebedor no QR; nula junto com a chave
+     * @param pixIntegrado      se a Conta pode cobrar pelo Pix integrado hoje
      */
     public record Identidade(UUID usuarioId, String nome, Perfil perfil, UUID contaId,
             String nomeNegocio, String tipoNegocio, boolean estoqueHabilitado,
             boolean nsuObrigatorio, Plano plano,
             SituacaoDoPlano situacaoDoPlano, LocalDate vencimentoDoPlano,
             LocalDate inicioDaSuspensao, Set<RecursoDoPlano> recursos, boolean senhaProvisoria,
-            boolean termosPendentes) {
+            boolean termosPendentes, String chavePix, String cidadePix, boolean pixIntegrado) {
     }
 }

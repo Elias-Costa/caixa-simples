@@ -12,6 +12,7 @@ import br.com.caixasimples.contas.internal.CredencialRepository;
 import br.com.caixasimples.contas.internal.EmissorDeToken;
 import br.com.caixasimples.contas.internal.PoliticaDeSenha;
 import br.com.caixasimples.contas.internal.UsuarioRepository;
+import br.com.caixasimples.pagamentos.application.PixCobrancaService;
 import java.time.Instant;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -43,7 +44,7 @@ class AutenticacaoServiceTest {
                 mock(UsuarioRepository.class), mock(ContaRepository.class), new BCryptPasswordEncoder(4),
                 mock(EmissorDeToken.class), mock(ContaService.class), contencao,
                 mock(PoliticaDeSenha.class), mock(TermosDeUsoService.class),
-                mock(TransactionTemplate.class));
+                mock(PixCobrancaService.class), mock(TransactionTemplate.class));
 
         // Mais que os dez do par e os trinta da origem.
         for (int i = 0; i < 31; i++) {

@@ -75,7 +75,10 @@ describe('raiz da Venda no dispositivo', () => {
       .toThrow('não aceita valor recebido')
     expect(() => registrarPagamento(venda, parcela({ forma: 'FIADO', valor: 10, valorRecebido: 10 })))
       .toThrow('não aceita valor recebido')
-    expect(() => registrarPagamento(venda, parcela({ forma: 'PIX', valor: 10 }))).toThrow('Pix não entra')
+    expect(() => registrarPagamento(venda, parcela({ forma: 'PIX', valor: 10, valorRecebido: 10 })))
+      .toThrow('Pix não devolve troco')
+    expect(() => registrarPagamento(venda, parcela({ forma: 'PIX', valor: 10, nsu: '004512' })))
+      .toThrow('só existe no pagamento em cartão')
 
     const emDinheiro = registrarPagamento(venda, parcela({ forma: 'DINHEIRO', valor: 6, valorRecebido: 20 }))
     expect(emDinheiro.parcelas[0]).toMatchObject({ status: 'CONFIRMADO', trocoCentavos: 1400 })
@@ -84,6 +87,16 @@ describe('raiz da Venda no dispositivo', () => {
     expect(fiado.parcelas[1]).toMatchObject({ status: 'PENDENTE', trocoCentavos: 0 })
     expect(() => registrarPagamento(fiado, parcela({ forma: 'FIADO', valor: 2 }))).toThrow('única parcela FIADO')
     expect(venda.parcelas).toHaveLength(0)
+  })
+
+  it('o Pix lançado à mão entra confirmado, sem troco e fora da gaveta, e cobre a conclusão', () => {
+    const venda = adicionarItem(nova(), item({ precoUnitario: 10 }))
+    const paga = registrarPagamento(venda, parcela({ forma: 'PIX', valor: 10 }))
+
+    expect(paga.parcelas[0]).toMatchObject({ forma: 'PIX', status: 'CONFIRMADO', trocoCentavos: 0, nsu: null })
+    expect(faltaPagar(paga)).toBe(0)
+    expect(dinheiroNaGaveta(paga)).toBe(0)
+    expect(concluir(paga, agora).status).toBe('CONCLUIDA')
   })
 
   it('não deixa a montagem baixar o total abaixo do que já foi lançado', () => {

@@ -21,6 +21,7 @@ import br.com.caixasimples.caixa.application.SessaoCaixaService;
 import br.com.caixasimples.contas.AutenticadorDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
+import br.com.caixasimples.contas.Plano;
 import br.com.caixasimples.pagamentos.StatusPagamento;
 import br.com.caixasimples.pagamentos.domain.CobrancaPix;
 import br.com.caixasimples.pagamentos.domain.PixGateway;
@@ -392,8 +393,10 @@ class TentativaPixDeOutraVendaTest extends TesteDeIntegracao {
             String pixCopiaECola, String pixEstado) {
     }
 
+    /** O Pix integrado é do plano Completo, então a Conta do cenário o contrata no preparo. */
     private Balcao abrirBalcao(String negocio) {
         ContaCriada conta = criador.criar(negocio, SENHA_DE_TESTE);
+        criador.contratar(conta.contaId(), Plano.COMPLETO);
         return conta.comoUsuario(() -> {
             UUID produtoId = produtos.cadastrar(TipoProduto.PRODUTO,
                     new DadosDoProduto("Item Pix", VALOR, null, null, "un", null));

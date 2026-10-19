@@ -20,6 +20,7 @@ import { CampoDeDinheiro } from './CampoDeDinheiro'
 import { erroDeCadastro } from './erroDeCadastro'
 import { filtrarPorNome } from './filtroPorNome'
 import { Mensagem } from './Mensagem'
+import { PixManual } from './QrDoPix'
 import { ROTULO_DA_COBRANCA_PIX, ROTULO_DA_FORMA, ROTULO_DA_VENDA } from './rotulos'
 import { useConfirmacao, type Pergunta } from './useConfirmacao'
 
@@ -29,6 +30,17 @@ const PENDENTE_NO_COMPROVANTE = 'Pendente de sincronização com o servidor'
 const CANCELAR_DEPOIS_DE_SINCRONIZAR = 'O cancelamento fica disponível depois da sincronização com o servidor.'
 /** As notas mais comuns na mão do cliente: um toque preenche o valor recebido sem abrir o teclado. */
 const NOTAS = [10, 20, 50, 100]
+
+/**
+ * O que o operador escolhe na forma de pagamento. O Pix aparece duas vezes porque chega por dois
+ * caminhos: o manual, lançado depois de o operador ver o dinheiro no aplicativo do banco, e o
+ * integrado, cobrado pelo provedor e confirmado por ele. Os dois viram a forma PIX na parcela.
+ */
+type OpcaoDePagamento = Exclude<FormaPagamento, 'PIX'> | 'PIX_MANUAL' | 'PIX_INTEGRADO'
+
+function formaDa(opcao: OpcaoDePagamento): FormaPagamento {
+  return opcao === 'PIX_MANUAL' || opcao === 'PIX_INTEGRADO' ? 'PIX' : opcao
+}
 
 /** O painel em que a mensagem de erro aparece: o mesmo em que a ação foi tocada. */
 type LugarDoErro = 'tela' | 'busca' | 'comanda' | 'historico' | 'comprovante'
@@ -50,7 +62,8 @@ function perguntaDoCancelamento(venda: Venda): Pergunta {
   const emDinheiro = venda.parcelas.some((parcela) => parcela.forma === 'DINHEIRO')
     || venda.recebimentos.some((recebimento) => recebimento.forma === 'DINHEIRO')
   if (venda.status === 'CONCLUIDA' && emDinheiro) partes.push('O dinheiro recebido nela sai do caixa como estorno.')
-  if (venda.parcelas.some((parcela) => parcela.pix && parcela.status === 'CONFIRMADO')) {
+  // O Pix confirmado, lançado à mão ou pelo integrado, já está na conta do negócio.
+  if (venda.parcelas.some((parcela) => parcela.forma === 'PIX' && parcela.status === 'CONFIRMADO')) {
     partes.push('O Pix recebido precisa ser devolvido fora do sistema.')
   }
   return {
@@ -128,7 +141,7 @@ export function TelaDeVenda() {
   const [descontoItem, setDescontoItem] = useState('0')
   const [descontoVenda, setDescontoVenda] = useState('0')
   const [resultados, setResultados] = useState<Produto[]>([])
-  const [forma, setForma] = useState<FormaPagamento>('DINHEIRO')
+  const [forma, setForma] = useState<OpcaoDePagamento>('DINHEIRO')
   const [valorPagamento, setValorPagamento] = useState('')
   const [valorRecebido, setValorRecebido] = useState('')
   const [nsu, setNsu] = useState('')
@@ -143,10 +156,13 @@ export function TelaDeVenda() {
   const pixPendente = atual?.parcelas.some((parcela) => parcela.pix && parcela.status === 'PENDENTE') ?? false
   const doDispositivo = atual?.pendenteSincronizacao === true
   const comFiado = atual?.parcelas.some((parcela) => parcela.forma === 'FIADO') ?? false
-  // Pix não entra na Venda registrada sem rede: a cobrança depende do provedor, com o cliente
-  // presente. A forma escolhida antes de a rede cair volta para dinheiro, sem esperar outro toque.
-  const pixPermitido = online && !doDispositivo
-  const formaEscolhida: FormaPagamento = forma === 'PIX' && !pixPermitido ? 'DINHEIRO' : forma
+  // O Pix integrado depende do provedor, com o cliente presente, e de a Conta poder cobrar por ele
+  // hoje; a Venda registrada sem rede não o recebe. A opção escolhida antes de a rede cair volta
+  // para dinheiro, sem esperar outro toque. O Pix manual vale com e sem rede, em todo plano.
+  const pixIntegradoPermitido = online && !doDispositivo && identidade?.pixIntegrado === true
+  const opcaoEscolhida: OpcaoDePagamento = forma === 'PIX_INTEGRADO' && !pixIntegradoPermitido
+    ? 'DINHEIRO' : forma
+  const formaEscolhida = formaDa(opcaoEscolhida)
   const termo = busca.trim()
   const termoCliente = buscaCliente.trim()
   // A lista de clientes já está carregada: filtrar aqui responde a cada letra, também sem rede.
@@ -155,7 +171,7 @@ export function TelaDeVenda() {
   const valorDaParcela = !atual ? null : valorPagamento ? lerDinheiro(valorPagamento) : atual.faltaPagar
   const lancando = atual !== undefined && atual.status === 'ABERTA' && atual.itens.length > 0
     && atual.faltaPagar > 0
-  const receberEConcluir = lancando && formaEscolhida !== 'PIX' && atual.parcelas.length === 0
+  const receberEConcluir = lancando && opcaoEscolhida !== 'PIX_INTEGRADO' && atual.parcelas.length === 0
     && valorDaParcela === atual.faltaPagar
   const concluirSemPagar = atual !== undefined && atual.status === 'ABERTA' && atual.itens.length > 0
     && atual.faltaPagar === 0 && !pixPendente
@@ -404,7 +420,7 @@ export function TelaDeVenda() {
     setOcupado(true); setErro(undefined)
     let intencao: IntencaoOnline | undefined
     try {
-      if (formaEscolhida === 'PIX') {
+      if (opcaoEscolhida === 'PIX_INTEGRADO') {
         const parcela = await vendas.cobrarPix(atual.id, tentativaPix(atual.id, valor), valor)
         if (parcela.pix?.estado === 'DISPONIVEL') {
           sessionStorage.removeItem(`caixa-simples-pix-${atual.id}`)
@@ -689,9 +705,11 @@ export function TelaDeVenda() {
             {lancando && <form className="pdv__pagamento" onSubmit={(evento) => void pagar(evento)}>
               <h4>Pagamento</h4>
               <label>Forma
-                <select value={formaEscolhida} onChange={(evento) => setForma(evento.target.value as FormaPagamento)}>
+                <select value={opcaoEscolhida}
+                  onChange={(evento) => setForma(evento.target.value as OpcaoDePagamento)}>
                   <option value="DINHEIRO">Dinheiro</option>
-                  {pixPermitido && <option value="PIX">Pix integrado</option>}
+                  <option value="PIX_MANUAL">Pix manual</option>
+                  {pixIntegradoPermitido && <option value="PIX_INTEGRADO">Pix integrado</option>}
                   <option value="CARTAO">Cartão manual</option>
                   {identidade?.perfil === 'ADMIN' && atual.clienteId &&
                     !atual.parcelas.some((parcela) => parcela.forma === 'FIADO') &&
@@ -700,6 +718,7 @@ export function TelaDeVenda() {
               </label>
               <CampoDeDinheiro rotulo="Valor da parcela" valor={valorPagamento} aoMudar={setValorPagamento}
                 placeholder={valorNoCampo(atual.faltaPagar)} />
+              {opcaoEscolhida === 'PIX_MANUAL' && <PixManual identidade={identidade} valor={valorDaParcela} />}
               {formaEscolhida === 'DINHEIRO' && <>
                 <CampoDeDinheiro rotulo="Valor recebido em dinheiro" valor={valorRecebido}
                   aoMudar={setValorRecebido}

@@ -37,6 +37,9 @@ public class Conta {
     /** O tamanho da coluna do nome do negócio: o texto longo é recusado aqui, e não pelo banco. */
     private static final int TAMANHO_DO_NOME_DO_NEGOCIO = 120;
 
+    /** O tamanho da coluna da cidade do recebedor do Pix, que cabe o maior nome de município. */
+    private static final int TAMANHO_DA_CIDADE_PIX = 60;
+
     @Id
     private UUID id;
 
@@ -77,6 +80,18 @@ public class Conta {
      */
     @Column(name = "suspensa_em")
     private Instant suspensaEm;
+
+    /**
+     * A chave Pix do Pix lançado à mão, na forma conferida por {@link ChavePix}; nula enquanto o
+     * administrador não cadastra uma. O aparelho a põe no QR estático, com a cidade e o nome do
+     * negócio, e o banco recusa a chave sem a cidade e a cidade sem a chave.
+     */
+    @Column(name = "chave_pix")
+    private String chavePix;
+
+    /** A cidade do recebedor no QR estático do Pix; nula junto com a chave. */
+    @Column(name = "cidade_pix")
+    private String cidadePix;
 
     protected Conta() {
         // exigido pelo JPA
@@ -306,6 +321,47 @@ public class Conta {
     /** Liga ou desliga o controle de estoque desta conta (RF17). */
     public void definirEstoqueHabilitado(boolean habilitado) {
         this.estoqueHabilitado = habilitado;
+    }
+
+    /** Nula enquanto o administrador não cadastra a chave. */
+    public String getChavePix() {
+        return chavePix;
+    }
+
+    /** Nula junto com a chave. */
+    public String getCidadePix() {
+        return cidadePix;
+    }
+
+    /**
+     * Grava a chave Pix e a cidade do recebedor juntas, porque o QR não se monta com uma só. O nome do
+     * recebedor no QR é o do negócio, que já está na Conta.
+     *
+     * @throws IllegalArgumentException se a cidade está em branco ou passa do tamanho da coluna
+     */
+    public void definirChavePix(ChavePix chave, String cidade) {
+        Objects.requireNonNull(chave, "chave Pix nao pode ser nula");
+        this.cidadePix = cidadeDoPixConferida(cidade);
+        this.chavePix = chave.valor();
+    }
+
+    /**
+     * A cidade do recebedor como fica gravada, sem os espaços das pontas. Pública para quem troca a
+     * chave conferir a cidade antes da senha, como confere a chave.
+     *
+     * @throws IllegalArgumentException se a cidade está em branco ou passa do tamanho da coluna
+     */
+    public static String cidadeDoPixConferida(String cidade) {
+        if (cidade == null || cidade.isBlank()) {
+            throw new IllegalArgumentException("chave Pix: informe a cidade do recebedor.");
+        }
+        return LimiteDeTexto.exigirAte(cidade.trim(), TAMANHO_DA_CIDADE_PIX, "cidade do Pix");
+    }
+
+    /** Tira a chave e a cidade juntas: o Pix manual continua, lançado sem QR. */
+    public void removerChavePix() {
+        this.chavePix = null;
+        this.cidadePix = null;
     }
 
     /** Liga ou desliga a exigência do NSU no pagamento em cartão. */

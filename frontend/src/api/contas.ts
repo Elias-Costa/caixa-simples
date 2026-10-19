@@ -17,11 +17,17 @@ export type NovoUsuario = {
   senha: string
 }
 
+export type TipoDeChavePix = 'CPF' | 'CNPJ' | 'TELEFONE' | 'EMAIL' | 'ALEATORIA'
+
 /** Todas as rotas de mudança respondem a configuração inteira. */
 export type ConfiguracaoDaConta = {
   nomeNegocio: string
   estoqueHabilitado: boolean
   nsuObrigatorio: boolean
+  /** Os três faltam juntos, enquanto a Conta não tem chave Pix. */
+  tipoDaChavePix?: TipoDeChavePix
+  chavePix?: string
+  cidadePix?: string
 }
 
 /** O cadastro de quem entrou, lido na hora e nunca guardado no aparelho. */
@@ -101,6 +107,19 @@ export const contas = {
   corrigirNomeDoNegocio: (nomeNegocio: string) =>
     chamarApi<ConfiguracaoDaConta>('/api/conta/configuracao/nome-do-negocio', {
       metodo: 'PUT', corpo: { nomeNegocio },
+    }),
+  /**
+   * Cadastra ou troca a chave Pix do QR do Pix manual, com a cidade do recebedor. Pede a senha atual,
+   * porque a chave decide para onde vai o dinheiro; a errada responde 400 e conta na contenção.
+   */
+  definirChavePix: (senhaAtual: string, tipo: TipoDeChavePix, chave: string, cidade: string) =>
+    chamarApi<ConfiguracaoDaConta>('/api/conta/configuracao/chave-pix', {
+      metodo: 'PUT', corpo: { senhaAtual, tipo, chave, cidade },
+    }),
+  /** Tira a chave e a cidade juntas: o Pix manual continua, sem QR. */
+  tirarChavePix: (senhaAtual: string) =>
+    chamarApi<ConfiguracaoDaConta>('/api/conta/configuracao/chave-pix', {
+      metodo: 'PUT', corpo: { senhaAtual, tipo: null, chave: '', cidade: null },
     }),
   /** Quem está operando, relido depois de uma mudança que o menu precisa refletir. */
   identidade: () => chamarApi<Identidade>('/api/auth/eu'),

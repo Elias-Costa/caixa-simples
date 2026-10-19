@@ -1,7 +1,7 @@
 package br.com.caixasimples.contas.application;
 
 /**
- * A troca da senha ou do e-mail recebeu uma senha atual que não confere.
+ * A troca da senha, do e-mail ou da chave Pix da Conta recebeu uma senha atual que não confere.
  *
  * <p>Vira 400, e não 401: quem pede a troca está autenticado, e o aplicativo trata o 401 como sessão
  * encerrada, o que o mandaria ao login por um erro de digitação. Conta na contenção do login como
@@ -14,7 +14,8 @@ public class SenhaAtualIncorretaException extends RuntimeException {
     /** O que a senha atual errada tentava trocar. */
     public enum Troca {
         SENHA,
-        EMAIL
+        EMAIL,
+        CHAVE_PIX
     }
 
     private final Troca troca;

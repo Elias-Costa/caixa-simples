@@ -193,8 +193,7 @@ describe('Venda no dispositivo', () => {
     await local.adicionarItem(id, cafe, 2, 0)
     const antes = (await listarGestos()).length
 
-    await expect(local.pagar(id, 'PIX', 12.5)).rejects.toThrow('Pix não entra')
-    await expect(local.cobrarPix(id, crypto.randomUUID(), 12.5)).rejects.toThrow('Pix não entra')
+    await expect(local.cobrarPix(id, crypto.randomUUID(), 12.5)).rejects.toThrow('O Pix integrado precisa de rede')
     await expect(local.adicionarItem(id, cafe, 1, 1)).rejects.toThrow('Só ADMIN concede desconto')
     await expect(local.descontar(id, 1)).rejects.toThrow('Só ADMIN concede desconto')
     await expect(local.pagar(id, 'FIADO', 12.5)).rejects.toThrow('Só ADMIN registra')
@@ -214,6 +213,31 @@ describe('Venda no dispositivo', () => {
       'caixa.abrir', 'caixa.fechar', 'venda.adicionarItem', 'venda.iniciar', 'venda.registrarPagamento',
     ])
     expect((await local.consultar(id)).status).toBe('ABERTA')
+  })
+
+  it('sem rede, o Pix lançado à mão vai para a fila como o cartão e conclui a Venda', async () => {
+    entrar(operadora)
+    rede(false)
+    await prepararCadastro()
+    const api = apiDeVendas()
+    const caixaLocal = criarCaixaLocal()
+    const { id: sessaoId } = await caixaLocal.abrir(0)
+    const local = criarVendaLocal(api, caixaLocal)
+    const { id } = await local.iniciar(sessaoId)
+    await local.adicionarItem(id, cafe, 2, 0)
+
+    expect(await local.pagar(id, 'PIX', 12.5)).toEqual({ troco: 0 })
+    await local.concluir(id)
+
+    const pagamento = (await listarGestos()).find((gesto) => gesto.tipo === 'venda.registrarPagamento')
+    expect(pagamento?.payload).toEqual(expect.objectContaining({
+      forma: 'PIX', valor: 12.5, valorRecebido: null, nsu: null,
+    }))
+    const consultada = await local.consultar(id)
+    expect(consultada.status).toBe('CONCLUIDA')
+    expect(consultada.parcelas).toEqual([expect.objectContaining({ forma: 'PIX', status: 'CONFIRMADO', pix: null })])
+    expect(api.pagar).not.toHaveBeenCalled()
+    expect(api.cobrarPix).not.toHaveBeenCalled()
   })
 
   it('grava o NSU do cartão no gesto e recusa o cartão sem ele quando a identidade traz a exigência', async () => {

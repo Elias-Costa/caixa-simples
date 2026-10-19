@@ -197,6 +197,66 @@ describe('administração na tela', () => {
       expect.objectContaining({ nomeNegocio: 'Loja da Ana', estoqueHabilitado: false }), expect.anything())
   })
 
+  it('cadastra a chave Pix com a senha atual, recusa sem enviar o que falta e leva a chave à identidade', async () => {
+    gravarToken('token-admin')
+    vi.spyOn(contas, 'configuracao')
+      .mockResolvedValue({ nomeNegocio: 'Loja', estoqueHabilitado: false, nsuObrigatorio: false })
+    const definir = vi.spyOn(contas, 'definirChavePix').mockResolvedValue({
+      nomeNegocio: 'Loja', estoqueHabilitado: false, nsuObrigatorio: false,
+      tipoDaChavePix: 'ALEATORIA', chavePix: '123e4567-e89b-12d3-b456-426614174000', cidadePix: 'Salvador',
+    })
+    const atualizarIdentidade = vi.fn()
+    render(<MemoryRouter>{comSessao(<TelaDeConfiguracao />, atualizarIdentidade)}</MemoryRouter>)
+
+    expect(await screen.findByText('Nenhuma chave cadastrada. O Pix manual é lançado sem QR.'))
+      .toBeInTheDocument()
+    expect(screen.getByLabelText('Tipo da chave')).toHaveValue('ALEATORIA')
+    expect(screen.getByText(/Prefira a chave aleatória/)).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Chave Pix'),
+      { target: { value: ' 123E4567-E89B-12D3-B456-426614174000 ' } })
+    fireEvent.change(screen.getByLabelText('Cidade do recebedor'), { target: { value: 'Salvador' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar a chave' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('Informe a senha atual para confirmar.')
+    expect(definir).not.toHaveBeenCalled()
+
+    fireEvent.change(screen.getByLabelText('Senha atual, para confirmar'), { target: { value: 'abc' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar a chave' }))
+    await waitFor(() => expect(definir).toHaveBeenCalledWith('abc', 'ALEATORIA',
+      '123E4567-E89B-12D3-B456-426614174000', 'Salvador'))
+    expect(await screen.findByRole('status')).toHaveTextContent('Chave Pix salva.')
+    expect(screen.getByText(/Cadastrada: Chave aleatória/)).toBeInTheDocument()
+    expect(screen.getByLabelText('Senha atual, para confirmar')).toHaveValue('')
+    expect(atualizarIdentidade).toHaveBeenCalledWith(expect.objectContaining({
+      chavePix: '123e4567-e89b-12d3-b456-426614174000', cidadePix: 'Salvador',
+    }), expect.anything())
+  })
+
+  it('a senha errada aparece junto do formulário da chave, e tirar a chave também pede a senha', async () => {
+    gravarToken('token-admin')
+    vi.spyOn(contas, 'configuracao').mockResolvedValue({
+      nomeNegocio: 'Loja', estoqueHabilitado: false, nsuObrigatorio: false,
+      tipoDaChavePix: 'CPF', chavePix: '52998224725', cidadePix: 'Salvador',
+    })
+    vi.spyOn(contas, 'definirChavePix')
+      .mockRejectedValue(new ErroDaApi(400, 'Bad Request', 'A senha atual não confere.', {}))
+    const tirar = vi.spyOn(contas, 'tirarChavePix')
+      .mockResolvedValue({ nomeNegocio: 'Loja', estoqueHabilitado: false, nsuObrigatorio: false })
+    render(<MemoryRouter>{comSessao(<TelaDeConfiguracao />)}</MemoryRouter>)
+
+    expect(await screen.findByText(/Cadastrada: CPF/)).toBeInTheDocument()
+    expect(screen.getByLabelText('Chave Pix')).toHaveValue('52998224725')
+    expect(screen.getByLabelText('Tipo da chave')).toHaveValue('CPF')
+    fireEvent.change(screen.getByLabelText('Senha atual, para confirmar'), { target: { value: 'errada' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar a chave' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('A senha atual não confere.')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tirar a chave' }))
+    await waitFor(() => expect(tirar).toHaveBeenCalledWith('errada'))
+    expect(await screen.findByText('Nenhuma chave cadastrada. O Pix manual é lançado sem QR.'))
+      .toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Tirar a chave' })).not.toBeInTheDocument()
+  })
+
   it('mostra a recusa por plano sem esconder a lista de usuários', async () => {
     vi.spyOn(contas, 'usuarios').mockResolvedValue([{
       id: 'admin', nome: 'Ana', perfil: 'ADMIN', ativo: true,

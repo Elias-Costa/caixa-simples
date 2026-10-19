@@ -1,5 +1,6 @@
 package br.com.caixasimples.contas.application;
 
+import br.com.caixasimples.contas.internal.ChavePix;
 import br.com.caixasimples.contas.internal.Conta;
 import br.com.caixasimples.contas.internal.ContaRepository;
 import br.com.caixasimples.contas.PrimeiroAcessoDaConta;
@@ -18,7 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Casos de uso da Conta em operação: consultar e configurar o estoque e a exigência do NSU no
  * cartão, corrigir o nome do negócio, marcar o primeiro acesso e conferir se o plano dá direito a um
- * recurso.
+ * recurso. A chave Pix fica com a autenticação, porque a troca dela confere a senha atual.
  *
  * <p><strong>Nenhum método recebe a conta como parâmetro, e essa ausência é a regra.</strong>
  * {@code Conta} é a única entidade de negócio sem filtro automático de tenant, porque o id dela
@@ -182,13 +183,23 @@ public class ContaService {
         return ConfiguracaoDaConta.de(conta);
     }
 
-    /** O que o administrador configura na Conta, como a tela o mostra. */
+    /**
+     * O que o administrador configura na Conta, como a tela o mostra.
+     *
+     * @param tipoDaChavePix nulo junto com a chave
+     * @param chavePix       nula enquanto o administrador não cadastra uma
+     * @param cidadePix      nula junto com a chave
+     */
     public record ConfiguracaoDaConta(String nomeNegocio, boolean estoqueHabilitado,
-            boolean nsuObrigatorio) {
+            boolean nsuObrigatorio, ChavePix.Tipo tipoDaChavePix, String chavePix,
+            String cidadePix) {
 
-        private static ConfiguracaoDaConta de(Conta conta) {
+        /** Também para a troca da chave Pix, que confere a senha antes de gravar. */
+        static ConfiguracaoDaConta de(Conta conta) {
+            ChavePix.Tipo tipo = conta.getChavePix() == null
+                    ? null : ChavePix.tipoDaGravada(conta.getChavePix());
             return new ConfiguracaoDaConta(conta.getNomeNegocio(), conta.isEstoqueHabilitado(),
-                    conta.isNsuObrigatorio());
+                    conta.isNsuObrigatorio(), tipo, conta.getChavePix(), conta.getCidadePix());
         }
     }
 

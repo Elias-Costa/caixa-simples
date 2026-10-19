@@ -21,6 +21,8 @@ public class RecursoForaDoPlanoException extends IllegalStateException {
             case RELATORIOS -> "os relatorios fazem parte do plano Completo";
             case ESTOQUE -> "o controle de estoque faz parte do plano Completo";
             case MULTIUSUARIO -> "mais de um usuario na conta faz parte do plano Completo";
+            case PIX_INTEGRADO -> "o Pix integrado faz parte do plano Completo; o Pix manual"
+                    + " vale em todo plano";
         };
         return doRecurso + ", e a conta esta no plano " + plano.nomeExibido();
     }

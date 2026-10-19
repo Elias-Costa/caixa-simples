@@ -19,6 +19,7 @@ import br.com.caixasimples.caixa.internal.SessaoCaixaRepository;
 import br.com.caixasimples.caixa.TipoMovimentoCaixa;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
+import br.com.caixasimples.contas.Plano;
 import br.com.caixasimples.contas.AutenticadorDeTeste;
 import br.com.caixasimples.pagamentos.StatusPagamento;
 import br.com.caixasimples.pagamentos.domain.SolicitacaoPagamento;
@@ -284,6 +285,7 @@ class WebhookPixHttpTest extends TesteDeIntegracao {
 
     private Cenario criar(String nome) {
         ContaCriada conta = criador.criar(nome, "uma senha longa de teste");
+        criador.contratar(conta.contaId(), Plano.COMPLETO);
         when(gateway.chaveRecebedora()).thenReturn("chave-teste");
         when(gateway.criarCobranca(any(), any())).thenReturn("codigo-pix");
         return conta.comoUsuario(() -> {

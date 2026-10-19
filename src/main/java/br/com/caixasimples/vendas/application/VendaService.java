@@ -72,7 +72,10 @@ import org.springframework.transaction.annotation.Transactional;
  * de valor recebido no Pix e no cartão) e responde o que fica registrado. É pergunta, e não efeito
  * colateral, porque o serviço de pagamentos não abre transação nem grava nada; quem grava a
  * parcela é o agregado Venda, dono dela, e grava o troco junto, para o comprovante sair igual
- * numa reimpressão. O troco também volta a quem chamou, para a tela mostrar no ato.
+ * numa reimpressão. O troco também volta a quem chamou, para a tela mostrar no ato. O Pix lançado
+ * à mão, que o operador viu entrar no extrato, vai pela porta própria do serviço e nasce
+ * confirmado, como o cartão; a estratégia do Pix é a da cobrança integrada, que tem caso de uso
+ * próprio, com a tentativa do dispositivo, e fica no plano que a inclui.
  *
  * <p><strong>A quarta pergunta é ao módulo de contas</strong>: se a Conta exige o NSU do
  * comprovante da maquininha no pagamento em cartão. A exigência é configuração da Conta, e não
@@ -392,9 +395,6 @@ public class VendaService {
             SolicitacaoPagamento solicitacao, String nsu) {
         Objects.requireNonNull(pagamentoId, "id da parcela nao pode ser nulo");
         Objects.requireNonNull(solicitacao, "solicitacao de pagamento nao pode ser nula");
-        if (solicitacao.forma() == FormaPagamento.PIX) {
-            throw new IllegalArgumentException("Pix integrado exige a rota de cobranca com tentativaId");
-        }
         if (solicitacao.forma() == FormaPagamento.FIADO) {
             UsuarioContext.exigirAdmin();
         }
@@ -402,13 +402,16 @@ public class VendaService {
         VendaEntity linha = travar(vendaId);
         Venda venda = linha.paraDominio();
         UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
-        ResultadoPagamento resultado = pagamentos.pagar(solicitacao);
+        ResultadoPagamento resultado = lancadaAMao(solicitacao);
         var anterior = vendas.findByPagamentosId(pagamentoId);
         if (anterior.isPresent()) {
             Pagamento parcela = anterior.get().paraDominio().getPagamentos().stream()
                     .filter(existente -> existente.id().equals(pagamentoId))
                     .findFirst().orElseThrow();
+            // A cobrança integrada com o mesmo id e o mesmo valor não é a repetição deste Pix: ela
+            // espera o provedor, e este foi visto no extrato.
             if (!anterior.get().getId().equals(vendaId)
+                    || parcela.cobrancaPix() != null
                     || parcela.forma() != resultado.forma()
                     || !parcela.valor().equals(resultado.valor())
                     || !parcela.troco().equals(resultado.troco())
@@ -440,9 +443,6 @@ public class VendaService {
     public Money registrarPagamento(UUID vendaId, UUID pagamentoId,
             SolicitacaoPagamento solicitacao, Instant criadoEm, String nsu) {
         Objects.requireNonNull(solicitacao, "solicitacao de pagamento nao pode ser nula");
-        if (solicitacao.forma() == FormaPagamento.PIX) {
-            throw new IllegalArgumentException("Pix integrado exige a rota de cobranca com tentativaId");
-        }
         if (solicitacao.forma() == FormaPagamento.FIADO) {
             UsuarioContext.exigirAdmin();
         }
@@ -456,13 +456,25 @@ public class VendaService {
                             + " substituida.");
         }
 
-        ResultadoPagamento resultado = pagamentos.pagar(solicitacao);
+        ResultadoPagamento resultado = lancadaAMao(solicitacao);
         venda.registrarPagamento(pagamentoId, resultado.forma(), resultado.valor(),
                 resultado.status(), resultado.troco(), criadoEm, nsu);
 
         linha.atualizarCom(venda);
         vendas.save(linha);
         return resultado.troco();
+    }
+
+    /**
+     * O que fica registrado de uma parcela lançada pelo operador. O Pix aqui é o que ele viu entrar,
+     * confirmado na hora em qualquer plano; a estratégia do Pix reserva a cobrança integrada, que só
+     * {@link #reservarPix} usa.
+     */
+    private ResultadoPagamento lancadaAMao(SolicitacaoPagamento solicitacao) {
+        if (solicitacao.forma() == FormaPagamento.PIX) {
+            return pagamentos.registrarPixAMao(solicitacao);
+        }
+        return pagamentos.pagar(solicitacao);
     }
 
     /**
@@ -503,11 +515,16 @@ public class VendaService {
         return parcela;
     }
 
-    /** Autoriza a Venda antes de buscar configuração Pix da Conta. */
+    /**
+     * Autoriza a Venda antes de buscar a configuração Pix da Conta, e diz se a tentativa já tem
+     * cobrança reservada nesta Venda, o que faz do pedido a retomada de uma cobrança existente.
+     */
     @Transactional(readOnly = true)
-    public void verificarAcesso(UUID vendaId) {
+    public boolean verificarAcessoATentativaPix(UUID vendaId, UUID tentativaId) {
         Venda venda = lerSemTrava(vendaId).paraDominio();
         UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
+        return venda.getPagamentos().stream()
+                .anyMatch(p -> p.id().equals(tentativaId) && p.cobrancaPix() != null);
     }
 
     /** Atualiza apenas os dados da cobrança; a Venda continua ABERTA e a parcela PENDENTE. */

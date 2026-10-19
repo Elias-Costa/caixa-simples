@@ -6,9 +6,7 @@ import br.com.caixasimples.contas.application.AutenticacaoService.Identidade;
 import br.com.caixasimples.contas.application.AutenticacaoService.MeusDados;
 import br.com.caixasimples.contas.application.ContaSuspensaException;
 import br.com.caixasimples.contas.application.EmailJaCadastradoException;
-import br.com.caixasimples.contas.application.SenhaAtualIncorretaException;
 import br.com.caixasimples.contas.internal.CredenciaisInvalidasException;
-import br.com.caixasimples.contas.internal.LoginContidoException;
 import br.com.caixasimples.contas.internal.SenhaRecusadaException;
 import br.com.caixasimples.shared.EventoDeSeguranca;
 import jakarta.servlet.http.HttpServletRequest;
@@ -18,7 +16,6 @@ import jakarta.validation.constraints.NotBlank;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
@@ -40,7 +37,9 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>A troca de senha e a de e-mail, a recusa delas e a saída de todos os aparelhos vão ao log como
  * evento de segurança, com a origem, que só a borda HTTP conhece. O login é registrado no caso de
- * uso, o único que sabe o motivo da recusa.
+ * uso, o único que sabe o motivo da recusa. A senha atual errada e a contenção das tentativas são
+ * traduzidas pelo tratador do módulo, porque a troca da chave Pix, em outro controller, também as
+ * lança.
  */
 @RestController
 @RequestMapping("/api/auth")
@@ -142,7 +141,10 @@ class AutenticacaoController {
                 identidade.inicioDaSuspensao(),
                 identidade.recursos().stream().map(RecursoDoPlano::name).toList(),
                 identidade.senhaProvisoria(),
-                identidade.termosPendentes());
+                identidade.termosPendentes(),
+                identidade.chavePix(),
+                identidade.cidadePix(),
+                identidade.pixIntegrado());
     }
 
     /**
@@ -156,50 +158,12 @@ class AutenticacaoController {
     }
 
     /**
-     * Tentativas demais da mesma origem, ou do mesmo e-mail vindo dela, viram 429 com a espera até a
-     * janela acabar: em segundos no Retry-After e em minutos na mensagem, que a tela de login mostra.
-     * Os dois arredondam para cima, para quem esperar o que foi dito não ser recusado de novo.
-     */
-    @ExceptionHandler(LoginContidoException.class)
-    ResponseEntity<ProblemDetail> loginContido(LoginContidoException contido) {
-        long segundos = (contido.espera().toMillis() + 999) / 1000;
-        long minutos = (segundos + 59) / 60;
-        ProblemDetail problema = ProblemDetail.forStatusAndDetail(HttpStatus.TOO_MANY_REQUESTS,
-                "Muitas tentativas de entrar. Tente de novo em " + minutos
-                        + (minutos == 1 ? " minuto." : " minutos."));
-        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
-                .header(HttpHeaders.RETRY_AFTER, Long.toString(segundos))
-                .body(problema);
-    }
-
-    /**
      * A senha certa de uma Conta com o acesso suspenso responde 403 com a mensagem, que a tela de
      * entrada mostra. A recusa já foi ao log pelo caso de uso, como as outras do login.
      */
     @ExceptionHandler(ContaSuspensaException.class)
     ProblemDetail contaSuspensa(ContaSuspensaException excecao) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, excecao.getMessage());
-    }
-
-    /**
-     * A senha atual errada responde 400, e não 401: quem pede a troca está autenticado, e o
-     * aplicativo trata o 401 como sessão encerrada.
-     *
-     * <p>A recusa vai ao log com o nome da troca que tentou, a da senha ou a do e-mail, e conta no
-     * alerta de rajada como um login recusado, porque passa pela mesma contenção dele.
-     */
-    @ExceptionHandler(SenhaAtualIncorretaException.class)
-    ProblemDetail senhaAtualIncorreta(SenhaAtualIncorretaException excecao,
-            HttpServletRequest requisicao) {
-        String evento = excecao.troca() == SenhaAtualIncorretaException.Troca.EMAIL
-                ? "email.troca_recusada"
-                : "senha.troca_recusada";
-        EventoDeSeguranca.de(evento)
-                .doContexto()
-                .com("motivo", "senha_atual")
-                .daOrigem(requisicao.getRemoteAddr())
-                .registrarRecusa();
-        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, excecao.getMessage());
     }
 
     @ExceptionHandler(SenhaRecusadaException.class)
@@ -237,11 +201,17 @@ class AutenticacaoController {
      * @param inicioDaSuspensao omitido no plano gratuito
      * @param senhaProvisoria   verdadeiro enquanto a senha for a que outra pessoa escolheu
      * @param termosPendentes   verdadeiro enquanto a Conta não aceitou a versão vigente dos termos
+     * @param chavePix          omitida enquanto a Conta não tem chave; o aparelho antigo não lê
+     * @param cidadePix         omitida junto com a chave
+     * @param pixIntegrado      verdadeiro quando a Conta pode cobrar pelo Pix integrado hoje; o
+     *                          aparelho antigo não lê e continua oferecendo a cobrança, que o
+     *                          servidor recusa fora do plano
      */
     record RespostaDeIdentidade(UUID usuarioId, String nome, String perfil, UUID contaId,
             String nomeNegocio, String tipoNegocio, boolean estoqueHabilitado,
             boolean nsuObrigatorio, String plano, String situacaoDoPlano,
             LocalDate vencimentoDoPlano, LocalDate inicioDaSuspensao, List<String> recursos,
-            boolean senhaProvisoria, boolean termosPendentes) {
+            boolean senhaProvisoria, boolean termosPendentes, String chavePix, String cidadePix,
+            boolean pixIntegrado) {
     }
 }

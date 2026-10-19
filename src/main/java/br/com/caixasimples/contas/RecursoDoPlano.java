@@ -17,5 +17,13 @@ public enum RecursoDoPlano {
     ESTOQUE,
 
     /** Criar mais usuários na Conta (RF29). Os que já existem continuam entrando. */
-    MULTIUSUARIO
+    MULTIUSUARIO,
+
+    /**
+     * Cobrar pelo Pix integrado ao provedor, confirmado sem o operador conferir o extrato (RF27). O
+     * Pix lançado à mão vale em qualquer plano; a cobrança integrada já reservada continua sendo
+     * consultada e confirmada depois que o recurso deixa de valer, porque o cliente pode estar
+     * pagando.
+     */
+    PIX_INTEGRADO
 }

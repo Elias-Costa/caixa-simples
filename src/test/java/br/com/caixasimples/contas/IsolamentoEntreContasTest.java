@@ -14,6 +14,7 @@ import br.com.caixasimples.contas.application.PlanoService.PedidoNaConta;
 import br.com.caixasimples.contas.application.TermosDeUsoService;
 import br.com.caixasimples.contas.application.UsuarioNaoEncontradoException;
 import br.com.caixasimples.contas.application.UsuarioService;
+import br.com.caixasimples.contas.internal.ChavePix;
 import br.com.caixasimples.contas.internal.AceiteDosTermos;
 import br.com.caixasimples.contas.internal.AceiteDosTermosRepository;
 import br.com.caixasimples.contas.internal.AssinaturaDePedido;
@@ -282,6 +283,25 @@ class IsolamentoEntreContasTest extends TesteDeIntegracao {
                 .isEqualTo("Cafeteria Aurora");
         assertThat(adminDeB.comoUsuario(() -> autenticacao.identidade().nomeNegocio()))
                 .isEqualTo("Salao Vizinho Renovado");
+    }
+
+    @Test
+    @DisplayName("a chave Pix de uma conta não aparece na identidade nem na configuração da outra")
+    void chavePixNaoAtravessaConta() {
+        ContaCriada adminDeA = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
+        ContaCriada adminDeB = criador.criar("Salao Vizinho", SENHA_DE_TESTE);
+
+        adminDeA.comoUsuario(() -> autenticacao.definirChavePix(SENHA_DE_TESTE, ChavePix.Tipo.CPF,
+                "529.982.247-25", "Salvador", "198.51.100.60"));
+        assertThat(adminDeB.comoUsuario(() -> autenticacao.identidade().chavePix())).isNull();
+        assertThat(adminDeB.comoUsuario(() -> contaService.configuracao().chavePix())).isNull();
+
+        adminDeB.comoUsuario(() -> autenticacao.definirChavePix(SENHA_DE_TESTE,
+                ChavePix.Tipo.EMAIL, "salao@exemplo.com", "Ilhéus", "198.51.100.60"));
+        assertThat(adminDeA.comoUsuario(() -> autenticacao.identidade().chavePix()))
+                .isEqualTo("52998224725");
+        assertThat(adminDeB.comoUsuario(() -> autenticacao.identidade().cidadePix()))
+                .isEqualTo("Ilhéus");
     }
 
     private int versaoDoAcesso(ContaCriada conta) {

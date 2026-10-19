@@ -73,10 +73,10 @@ describe('PDV no tablet', () => {
     const cobrar = vi.spyOn(vendas, 'cobrarPix').mockImplementation(async () => {
       cobrada = true; return parcela
     })
-    mostrar()
+    mostrar('OPERADOR', { pixIntegrado: true })
 
     fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
-    fireEvent.change(await screen.findByLabelText('Forma'), { target: { value: 'PIX' } })
+    fireEvent.change(await screen.findByLabelText('Forma'), { target: { value: 'PIX_INTEGRADO' } })
     expect(screen.queryByRole('button', { name: 'Receber e concluir' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Registrar parcela' }))
     await waitFor(() => expect(cobrar).toHaveBeenCalledWith('venda-1', expect.any(String), 12.5))
@@ -95,6 +95,66 @@ describe('PDV no tablet', () => {
     } finally {
       Reflect.deleteProperty(navigator, 'clipboard')
     }
+  })
+
+  it('o Pix manual mostra o QR do valor da chave da Conta e recebe e conclui como o cartão', async () => {
+    let concluida = false
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([{ id: comanda.id,
+      sessaoCaixaId: comanda.sessaoCaixaId, usuarioId: comanda.usuarioId,
+      status: 'ABERTA', total: comanda.total, criadoEm: comanda.criadoEm }])
+    vi.spyOn(vendas, 'consultar').mockImplementation(async () => concluida
+      ? { ...comanda, status: 'CONCLUIDA', pago: 12.5, faltaPagar: 0 } : comanda)
+    const pagar = vi.spyOn(vendas, 'pagar').mockResolvedValue({ troco: 0 })
+    const concluir = vi.spyOn(vendas, 'concluir').mockImplementation(async () => { concluida = true })
+    const cobrar = vi.spyOn(vendas, 'cobrarPix')
+    vi.spyOn(vendas, 'comprovante').mockResolvedValue(comprovante)
+    mostrar('OPERADOR', { chavePix: '123e4567-e89b-12d3-a456-426614174000', cidadePix: 'Ilhéus' })
+
+    fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
+    const forma = await screen.findByLabelText('Forma')
+    // Sem a marca do integrado na identidade, só o manual é oferecido.
+    expect(within(forma).queryByRole('option', { name: 'Pix integrado' })).not.toBeInTheDocument()
+    fireEvent.change(forma, { target: { value: 'PIX_MANUAL' } })
+    expect(screen.getByRole('img', { name: 'QR Pix do valor' })).toBeInTheDocument()
+    const codigo = screen.getByText(/br\.gov\.bcb\.pix/)
+    expect(codigo).toHaveTextContent('5405' + '12.50')
+    expect(codigo).toHaveTextContent('5915LOJA DA ESQUINA6006ILHEUS')
+    fireEvent.change(screen.getByLabelText('Valor da parcela'), { target: { value: '5,00' } })
+    expect(screen.getByText(/br\.gov\.bcb\.pix/)).toHaveTextContent('5404' + '5.00')
+    fireEvent.change(screen.getByLabelText('Valor da parcela'), { target: { value: '' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Receber e concluir' }))
+    await waitFor(() => expect(pagar).toHaveBeenCalledWith('venda-1', 'PIX', 12.5, undefined,
+      expect.any(String), undefined))
+    await waitFor(() => expect(concluir).toHaveBeenCalledWith('venda-1'))
+    expect(cobrar).not.toHaveBeenCalled()
+  })
+
+  it('sem chave, o Pix manual é lançado sem QR, e só o ADMIN vê o caminho para cadastrá-la', async () => {
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([{ id: comanda.id,
+      sessaoCaixaId: comanda.sessaoCaixaId, usuarioId: comanda.usuarioId,
+      status: 'ABERTA', total: comanda.total, criadoEm: comanda.criadoEm }])
+    vi.spyOn(vendas, 'consultar').mockResolvedValue(comanda)
+    const primeira = render(<MemoryRouter><SessaoContext.Provider value={{
+      identidade: { usuarioId: 'usuario-1', nome: 'Ana', perfil: 'OPERADOR',
+        contaId: 'conta-1', nomeNegocio: 'Loja da Esquina', estoqueHabilitado: false },
+      entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(),
+    }}><TelaDeVenda /></SessaoContext.Provider></MemoryRouter>)
+
+    fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
+    fireEvent.change(await screen.findByLabelText('Forma'), { target: { value: 'PIX_MANUAL' } })
+    expect(screen.queryByRole('img', { name: 'QR Pix do valor' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/Cadastre a chave Pix/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Receber e concluir' })).toBeEnabled()
+    primeira.unmount()
+
+    mostrar('ADMIN')
+    fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
+    fireEvent.change(await screen.findByLabelText('Forma'), { target: { value: 'PIX_MANUAL' } })
+    expect(screen.getByText(/Cadastre a chave Pix/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Configuração' })).toHaveAttribute('href', '/configuracao')
   })
 
   it('permite cancelar Venda concluída com Pix pago e mantém aviso de devolução manual', async () => {

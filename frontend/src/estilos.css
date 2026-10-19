@@ -757,6 +757,13 @@ html:has(.pdv__rodape) { scroll-padding-bottom: 240px; }
 .pdv__qr { display: inline-flex; max-width: 100%; padding: 12px; margin-top: 8px; background: #fff; border-radius: var(--raio); }
 .pdv__qr svg { max-width: 100%; height: auto; }
 .pdv__codigo-pix { overflow-wrap: anywhere; }
+/* O QR do Pix manual, na venda e no recebimento de fiado: o fundo branco é o que o leitor do banco
+   precisa para achar o contraste, também no tema escuro. */
+.qr-pix { margin: 8px 0 12px; }
+.qr-pix__imagem { display: inline-flex; max-width: 100%; padding: 12px; background: #fff; border-radius: var(--raio); }
+.qr-pix__imagem svg { max-width: 100%; height: auto; }
+.qr-pix__ajuda { margin: 8px 0 0; color: var(--cor-texto-secundario); font-size: 0.85rem; }
+.qr-pix__codigo { overflow-wrap: anywhere; }
 .pdv__historico { grid-column: 1 / -1; }
 .pdv__desconto { display: flex; align-items: end; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 .pdv__desconto-campo { flex: 1 1 180px; min-width: 0; }

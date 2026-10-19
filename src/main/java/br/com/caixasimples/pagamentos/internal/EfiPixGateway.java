@@ -33,6 +33,17 @@ class EfiPixGateway implements PixGateway {
     private static final String PRODUCAO = "https://pix.api.efipay.com.br";
     private static final String HOMOLOGACAO = "https://pix-h.api.efipay.com.br";
 
+    /** Lê as mesmas variáveis que a cobrança, sem abrir o certificado nem chamar a Efí. */
+    @Override
+    public boolean configurada() {
+        try {
+            configuracao();
+            return true;
+        } catch (IllegalStateException faltando) {
+            return false;
+        }
+    }
+
     @Override
     public String chaveRecebedora() {
         return configuracao().chave();

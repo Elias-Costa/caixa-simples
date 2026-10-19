@@ -96,4 +96,31 @@ describe('PDV sem rede', () => {
       .toBeInTheDocument()
     expect(buscar).not.toHaveBeenCalled()
   }, 20000)
+
+  it('sem rede, o Pix manual mostra o QR da chave guardada e conclui a Venda no dispositivo', async () => {
+    const comChave: Identidade = { ...identidade, chavePix: '+5571991234567', cidadePix: 'Salvador' }
+    gravarIdentidade(comChave)
+    await criarCaixaLocal().abrir(0)
+    render(<MemoryRouter><SessaoContext.Provider value={{
+      identidade: comChave, entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(),
+    }}><TelaDeVenda /></SessaoContext.Provider></MemoryRouter>)
+
+    const busca = await screen.findByLabelText('Produto por nome ou código')
+    fireEvent.change(busca, { target: { value: 'café' } })
+    fireEvent.click(await screen.findByRole('button', { name: /Café expresso · R\$\s*6,25/ }, espera))
+    expect(await screen.findByText(/1 × Café expresso/, undefined, espera)).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Forma'), { target: { value: 'PIX_MANUAL' } })
+    expect(screen.getByRole('img', { name: 'QR Pix do valor' })).toBeInTheDocument()
+    expect(screen.getByText(/br\.gov\.bcb\.pix/)).toHaveTextContent('0114+5571991234567')
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Receber e concluir' })).toBeEnabled(), espera)
+    fireEvent.click(screen.getByRole('button', { name: 'Receber e concluir' }))
+
+    await waitFor(async () => {
+      const pagamento = (await listarGestos()).find((gesto) => gesto.tipo === 'venda.registrarPagamento')
+      expect(pagamento?.payload).toEqual(expect.objectContaining({ forma: 'PIX', valor: 6.25, valorRecebido: null }))
+    }, espera)
+    expect(await screen.findByLabelText('Comprovante não fiscal', undefined, espera))
+      .toHaveTextContent('Pix: R$ 6,25')
+    expect(buscar).not.toHaveBeenCalled()
+  }, 20000)
 })

@@ -103,9 +103,9 @@ describe('tela do plano', () => {
 
     expect(await screen.findByText('Plano atual: Gratuito')).toBeInTheDocument()
     expect(screen.getAllByRole('listitem')).toHaveLength(2)
-    expect(screen.getByText(/Sem mensalidade\./)).toHaveTextContent('com um usuário.')
+    expect(screen.getByText(/Sem mensalidade\./)).toHaveTextContent('com um usuário e o Pix manual com QR.')
     expect(screen.getByText(/mais os relatórios de faturamento/))
-      .toHaveTextContent('o controle de estoque e mais de um usuário. R$ 70,00 por mês')
+      .toHaveTextContent('mais de um usuário e o Pix integrado, confirmado sem conferir o extrato. R$ 70,00 por mês')
     expect(screen.getByText('A emissão de NFC-e ainda não está disponível.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: pedirCompleto })).toBeInTheDocument()
   })

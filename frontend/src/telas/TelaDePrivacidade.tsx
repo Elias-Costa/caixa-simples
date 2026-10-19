@@ -12,7 +12,7 @@ import { VoltarDaPaginaPublica } from './VoltarDaPaginaPublica'
 export function TelaDePrivacidade() {
   return <main className="cadastro">
     <h1>Aviso de privacidade</h1>
-    <p className="cadastro__apoio">Versão de 18/10/2026. Diz como o Caixa Simples trata os dados
+    <p className="cadastro__apoio">Versão de 19/10/2026. Diz como o Caixa Simples trata os dados
       pessoais de quem usa o sistema e de quem aparece nele, conforme a Lei Geral de Proteção de Dados
       (LGPD).</p>
 
@@ -55,7 +55,9 @@ export function TelaDePrivacidade() {
         e-mail de acesso e senha do administrador; o aceite dos termos e os pedidos de plano, para
         executar o contrato.</li>
       <li><strong>Pix:</strong> a chave Pix da Conta, que pode ser o CPF, o telefone ou o e-mail do
-        dono, e o código copia e cola de cada cobrança, para cobrar e conferir o pagamento.</li>
+        dono, e a cidade do recebedor, que o aparelho põe, com o nome do negócio, no QR do Pix manual,
+        à vista de cada cliente que paga; e o código copia e cola de cada cobrança do Pix integrado,
+        para cobrar e conferir o pagamento. A chave aleatória do banco não identifica o dono.</li>
       <li><strong>Envio do aparelho:</strong> uma cópia do que o aparelho registrou sem rede, inclusive
         nome e contato de Cliente, para que um envio repetido não repita o efeito e para o administrador
         revisar o que foi recusado. A cópia do Cliente é esvaziada a cada edição e na remoção dele.</li>
@@ -112,7 +114,8 @@ export function TelaDePrivacidade() {
         Sair.</li>
       <li><strong>No aparelho:</strong> o aplicativo guarda no aparelho em que se entra o que precisa
         para trabalhar sem rede: o cadastro de produtos e de Clientes, com nome e contato, as vendas e o
-        caixa lidos do servidor e o que foi registrado sem rede até ser enviado. Sair não apaga esses
+        caixa lidos do servidor, a chave Pix e a cidade do QR do Pix manual e o que foi registrado sem
+        rede até ser enviado. Sair não apaga esses
         dados. Para apagá-los, use Apagar os dados deste aparelho na tela de entrada, depois de entrar
         com rede e esperar o envio do que foi registrado sem rede, que se perde se ainda não tiver
         chegado ao servidor; ou limpe os dados do site nas configurações do navegador. Faça isso antes

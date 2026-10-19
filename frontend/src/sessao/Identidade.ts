@@ -5,7 +5,7 @@ export type Plano = 'GRATIS' | 'COMPLETO'
 /** Onde a Conta está no ciclo mensal do plano pago, no dia de hoje do balcão. */
 export type SituacaoDoPlano = 'SEM_MENSALIDADE' | 'EM_DIA' | 'A_VENCER' | 'VENCIDO' | 'SUSPENSO'
 
-export type RecursoDoPlano = 'RELATORIOS' | 'ESTOQUE' | 'MULTIUSUARIO'
+export type RecursoDoPlano = 'RELATORIOS' | 'ESTOQUE' | 'MULTIUSUARIO' | 'PIX_INTEGRADO'
 
 /**
  * Quem está operando e em que negócio, como o servidor responde em /api/auth/eu.
@@ -44,6 +44,19 @@ export type Identidade = {
    * antes da marca, e então não pede: a abertura do aplicativo pergunta de novo ao servidor.
    */
   termosPendentes?: boolean
+  /**
+   * A chave Pix da Conta, que o aparelho põe no QR estático do Pix manual, inclusive sem rede. Falta
+   * enquanto o administrador não cadastra uma, e então o Pix manual é lançado sem QR.
+   */
+  chavePix?: string
+  /** A cidade do recebedor no QR; falta junto com a chave. */
+  cidadePix?: string
+  /**
+   * A Conta pode cobrar pelo Pix integrado hoje: o plano o inclui, não está suspenso e o provedor
+   * está configurado. Falta na identidade guardada antes da marca, e então não oferece: o Pix manual
+   * vale em todo caso.
+   */
+  pixIntegrado?: boolean
 }
 
 /**

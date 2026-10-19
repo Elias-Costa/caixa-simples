@@ -77,8 +77,8 @@ public record ResultadoPagamento(FormaPagamento forma, Money valor, StatusPagame
     }
 
     /**
-     * Pagamento lançado à mão pelo operador: cartão passado na maquininha (RF26) ou Pix manual
-     * histórico. A estratégia Pix integrada usa {@link #pixPendente}, não esta fábrica.
+     * Pagamento lançado à mão pelo operador: cartão passado na maquininha (RF26) ou Pix que ele viu
+     * entrar no extrato. A estratégia Pix integrada usa {@link #pixPendente}, não esta fábrica.
      *
      * <p><strong>Nasce CONFIRMADO</strong> porque quem lança já viu o dinheiro entrar. Não há
      * segundo momento a esperar, e é isso que permite a venda fechar na hora. Uma cobrança de Pix

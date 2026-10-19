@@ -21,6 +21,12 @@ import org.springframework.stereotype.Service;
  * <p>Ela também não abre transação e não escreve em banco. Quem persiste o pagamento é o agregado
  * Venda, dono da parcela; aqui só se decide o que fica registrado nela.
  *
+ * <p>O Pix tem duas portas, porque é a única forma que chega por dois caminhos. A estratégia do Pix,
+ * por {@link #pagar}, reserva a cobrança integrada ao provedor, que nasce pendente e espera a
+ * confirmação dele. O Pix que o operador lança à mão, depois de ver o dinheiro no extrato ou no
+ * aplicativo do banco, entra por {@link #registrarPixAMao} e nasce confirmado, como o cartão
+ * passado na maquininha. A forma é a mesma; muda quem confirmou, a pessoa ou o provedor.
+ *
  * <p>Duas estratégias declarando a mesma forma <strong>quebram a aplicação na subida</strong>, em
  * vez de uma sobrescrever a outra em silêncio. O caso é raro e sempre acidental, e é justamente por
  * ser raro que passaria despercebido: o balcão continuaria vendendo, com metade das regras da forma
@@ -60,5 +66,20 @@ public class PaymentService {
         }
 
         return estrategia.pagar(solicitacao);
+    }
+
+    /**
+     * Registra o Pix lançado à mão pelo operador, confirmado na hora, sem passar pela estratégia da
+     * cobrança integrada.
+     *
+     * @throws IllegalArgumentException se a forma não é PIX ou se a solicitação traz valor recebido
+     */
+    public ResultadoPagamento registrarPixAMao(SolicitacaoPagamento solicitacao) {
+        Objects.requireNonNull(solicitacao, "solicitacao de pagamento nao pode ser nula");
+        if (solicitacao.forma() != FormaPagamento.PIX) {
+            throw new IllegalArgumentException("o Pix lancado a mao exige a forma PIX, e nao "
+                    + solicitacao.forma());
+        }
+        return ResultadoPagamento.registradoAMao(solicitacao);
     }
 }
