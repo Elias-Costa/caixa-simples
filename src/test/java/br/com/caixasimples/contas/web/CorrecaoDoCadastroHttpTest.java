@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import br.com.caixasimples.TesteDeIntegracao;
+import br.com.caixasimples.contas.AutenticadorDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
 import br.com.caixasimples.contas.Plano;
@@ -38,6 +39,7 @@ class CorrecaoDoCadastroHttpTest extends TesteDeIntegracao {
     @Autowired MockMvc http;
     @Autowired ObjectMapper json;
     @Autowired CriadorDeContaDeTeste criador;
+    @Autowired AutenticadorDeTeste autenticador;
 
     @Test
     @DisplayName("cada um troca o próprio e-mail com a senha atual: o login passa a ser pelo novo, em minúsculas, e os aparelhos seguem dentro")
@@ -116,7 +118,9 @@ class CorrecaoDoCadastroHttpTest extends TesteDeIntegracao {
         criador.contratar(conta.contaId(), Plano.COMPLETO);
         String admin = entrar(conta.email(), SENHA);
         OperadorCriado operador = criarOperador(admin);
-        String doOperador = entrar(operador.email(), SENHA);
+        // O operador escolhe a própria senha antes: com a provisória, o servidor só responde à troca.
+        String doOperador = autenticador.trocarSenhaProvisoria(operador.email(), SENHA,
+                "outra frase longa escolhida pelo atendente");
         String adminDeFora = entrar(criador.criar("Loja do Cais", SENHA).email(), SENHA);
 
         corrigirNome(admin, operador.id(), "  Atendente Joana  ").andExpect(status().isNoContent());

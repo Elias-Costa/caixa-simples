@@ -105,15 +105,21 @@ function desfechoDe(gesto: GestoNaFila, resposta: ResultadoDaOperacao[]): Desfec
 
 /**
  * O que fazer com o lote que ficou sem resposta. O 401 volta à fila, porque o servidor não leu o
- * lote. Sem rede, erro do servidor e lote recusado viram falha: o pedido pode ter sido aplicado
- * antes de a resposta se perder. Com a sessão trocada no meio, nada é gravado, porque os gestos
- * são de outro usuário; eles viram falha quando esse usuário voltar.
+ * lote. O 403 também: no lote, ele só vem da senha provisória, que o servidor recusa antes de ler
+ * qualquer coisa; a fila espera a troca, sem sair da sessão. Sem rede, erro do servidor e lote
+ * recusado viram falha: o pedido pode ter sido aplicado antes de a resposta se perder. Com a sessão
+ * trocada no meio, nada é gravado, porque os gestos são de outro usuário; eles viram falha quando
+ * esse usuário voltar.
  */
 async function depoisDaFalha(lote: GestoNaFila[], falha: unknown): Promise<DesfechoDaRodada> {
   if (falha instanceof SessaoAlterada) return 'interrompida'
   if (falha instanceof ErroDaApi && falha.status === 401) {
     await registrarDesfechos(lote.map((gesto) => ({ operacaoId: gesto.operacaoId, estado: 'queued' })))
     return 'sessao-recusada'
+  }
+  if (falha instanceof ErroDaApi && falha.status === 403) {
+    await registrarDesfechos(lote.map((gesto) => ({ operacaoId: gesto.operacaoId, estado: 'queued' })))
+    return 'interrompida'
   }
   const motivo = falha instanceof SemConexao
     ? 'Sem conexão com o servidor; o envio é repetido quando a rede voltar.'

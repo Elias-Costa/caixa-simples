@@ -11,7 +11,7 @@ import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
 
 /**
- * As consultas do faturamento e da conferência do cartão sobre {@link VendaParaRelatorio}.
+ * As consultas do faturamento e das conferências do cartão e do Pix sobre {@link VendaParaRelatorio}.
  *
  * <p><strong>Herda de {@link Repository}, o marcador do Spring Data, e não de
  * {@code JpaRepository}</strong>, de propósito: assim a interface não tem {@code save},
@@ -166,6 +166,59 @@ public interface VendaParaRelatorioRepository extends Repository<VendaParaRelato
             order by r.criadoEm, r.id
             """)
     List<LancamentoEmCartao> recebimentosLancadosEntre(@Param("forma") FormaPagamento forma,
+            @Param("inicio") Instant inicio, @Param("fim") Instant fim,
+            @Param("usuarioId") UUID usuarioId);
+
+    /**
+     * As parcelas Pix lançadas no intervalo, de todos os operadores ou de um só, em ordem de
+     * lançamento, para a conferência do Pix contra o extrato do banco.
+     *
+     * <p>Mesmo intervalo, mesma ordem, mesmo operador e todas as situações da venda de
+     * {@link #parcelasLancadasEntre}, pelos mesmos motivos. A diferença é o status da parcela: o Pix
+     * lançado à mão nasce confirmado, mas a cobrança integrada passa por pendente até o aviso do
+     * provedor, e pode acabar recusada, expirada ou removida. A recusada fica fora, porque nela nunca
+     * entrou dinheiro; a pendente entra marcada, porque o banco pode já ter o crédito que o aviso não
+     * trouxe. O que diz se a parcela é integrada é a cobrança no provedor, gravada só nela.
+     */
+    @Query("""
+            select new br.com.caixasimples.relatorios.internal.LancamentoEmPix(
+                p.id, v.id, p.criadoEm, p.valor, v.usuarioId, v.status, v.clienteId,
+                case when p.pixTxid is not null then true else false end,
+                case when p.status = :pendente then true else false end)
+            from VendaParaRelatorio v
+              join PagamentoParaRelatorio p on p.vendaId = v.id
+            where p.forma = :pix
+              and p.status <> :recusado
+              and p.criadoEm >= :inicio
+              and p.criadoEm < :fim
+              and (:usuarioId is null or v.usuarioId = :usuarioId)
+            order by p.criadoEm, p.id
+            """)
+    List<LancamentoEmPix> parcelasPixLancadasEntre(@Param("pix") FormaPagamento pix,
+            @Param("pendente") StatusPagamento pendente,
+            @Param("recusado") StatusPagamento recusado,
+            @Param("inicio") Instant inicio, @Param("fim") Instant fim,
+            @Param("usuarioId") UUID usuarioId);
+
+    /**
+     * Os recebimentos de fiado em Pix lançados no intervalo, para a mesma conferência, com o mesmo
+     * operador de {@link #recebimentosLancadosEntre}: o dono da sessão em que o fiado entrou.
+     *
+     * <p>O recebimento não tem cobrança no provedor: é sempre lançado à mão, e entra confirmado.
+     */
+    @Query("""
+            select new br.com.caixasimples.relatorios.internal.LancamentoEmPix(
+                r.id, v.id, r.criadoEm, r.valor, s.usuarioId, v.status, v.clienteId, false, false)
+            from VendaParaRelatorio v
+              join RecebimentoParaRelatorio r on r.vendaId = v.id
+              join SessaoCaixaParaRelatorio s on s.id = r.sessaoCaixaId
+            where r.forma = :pix
+              and r.criadoEm >= :inicio
+              and r.criadoEm < :fim
+              and (:usuarioId is null or s.usuarioId = :usuarioId)
+            order by r.criadoEm, r.id
+            """)
+    List<LancamentoEmPix> recebimentosPixLancadosEntre(@Param("pix") FormaPagamento pix,
             @Param("inicio") Instant inicio, @Param("fim") Instant fim,
             @Param("usuarioId") UUID usuarioId);
 }

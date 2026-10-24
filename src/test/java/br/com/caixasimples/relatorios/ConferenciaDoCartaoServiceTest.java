@@ -22,7 +22,7 @@ import br.com.caixasimples.pagamentos.StatusPagamento;
 import br.com.caixasimples.relatorios.application.ConferenciaDoCartaoService;
 import br.com.caixasimples.relatorios.application.ConferenciaDoCartaoService.ConferenciaDoCartao;
 import br.com.caixasimples.relatorios.application.ConferenciaDoCartaoService.Lancamento;
-import br.com.caixasimples.relatorios.application.ConferenciaDoCartaoService.Origem;
+import br.com.caixasimples.relatorios.application.OrigemDoLancamento;
 import br.com.caixasimples.shared.AcessoNegadoException;
 import br.com.caixasimples.shared.FusoDeReferencia;
 import br.com.caixasimples.shared.Money;
@@ -106,15 +106,15 @@ class ConferenciaDoCartaoServiceTest extends TesteDeIntegracao {
                 .extracting(Lancamento::vendaId, Lancamento::origem, Lancamento::situacaoDaVenda,
                         Lancamento::valor, Lancamento::operadorId, Lancamento::nsu)
                 .containsExactly(
-                        tuple(cancelada, Origem.PARCELA, StatusVenda.CANCELADA,
+                        tuple(cancelada, OrigemDoLancamento.PARCELA, StatusVenda.CANCELADA,
                                 Money.de("15.00"), balcao.admin(), "333"),
-                        tuple(concluida, Origem.PARCELA, StatusVenda.CONCLUIDA,
+                        tuple(concluida, OrigemDoLancamento.PARCELA, StatusVenda.CONCLUIDA,
                                 Money.de("10.00"), balcao.admin(), "222"),
-                        tuple(aberta, Origem.PARCELA, StatusVenda.ABERTA,
+                        tuple(aberta, OrigemDoLancamento.PARCELA, StatusVenda.ABERTA,
                                 Money.de("7.00"), balcao.admin(), null),
-                        tuple(fiado.vendaId(), Origem.RECEBIMENTO, StatusVenda.CONCLUIDA,
+                        tuple(fiado.vendaId(), OrigemDoLancamento.RECEBIMENTO, StatusVenda.CONCLUIDA,
                                 Money.de("12.00"), balcao.atendente(), "444"),
-                        tuple(daAtendente, Origem.PARCELA, StatusVenda.CONCLUIDA,
+                        tuple(daAtendente, OrigemDoLancamento.PARCELA, StatusVenda.CONCLUIDA,
                                 Money.de("9.00"), balcao.atendente(), "555"));
         assertThat(doDia.lancamentos().get(3).id()).isEqualTo(fiado.recebimentoEmCartao());
         assertThat(doDia.lancamentos().get(3).lancadoEm())
@@ -146,8 +146,8 @@ class ConferenciaDoCartaoServiceTest extends TesteDeIntegracao {
         assertThat(balcao.conta().comoUsuario(() ->
                 conferencia.doDia(DIA, balcao.atendente())).lancamentos())
                 .extracting(Lancamento::vendaId, Lancamento::origem)
-                .containsExactly(tuple(fiado.vendaId(), Origem.RECEBIMENTO),
-                        tuple(daAtendente, Origem.PARCELA));
+                .containsExactly(tuple(fiado.vendaId(), OrigemDoLancamento.RECEBIMENTO),
+                        tuple(daAtendente, OrigemDoLancamento.PARCELA));
         assertThat(balcao.conta().comoUsuario(() ->
                 conferencia.doDia(DIA, balcao.admin())).lancamentos())
                 .extracting(Lancamento::vendaId)
@@ -182,11 +182,11 @@ class ConferenciaDoCartaoServiceTest extends TesteDeIntegracao {
         Fiado fiadoDaPrimeira = fiadoRecebidoPelaAtendente(primeira);
         Fiado fiadoDaSegunda = fiadoRecebidoPelaAtendente(segunda);
         assertThat(primeira.conta().comoUsuario(() -> conferencia.doDia(DIA)).lancamentos())
-                .filteredOn(lancamento -> lancamento.origem() == Origem.RECEBIMENTO)
+                .filteredOn(lancamento -> lancamento.origem() == OrigemDoLancamento.RECEBIMENTO)
                 .extracting(Lancamento::id)
                 .containsExactly(fiadoDaPrimeira.recebimentoEmCartao());
         assertThat(segunda.conta().comoUsuario(() -> conferencia.doDia(DIA)).lancamentos())
-                .filteredOn(lancamento -> lancamento.origem() == Origem.RECEBIMENTO)
+                .filteredOn(lancamento -> lancamento.origem() == OrigemDoLancamento.RECEBIMENTO)
                 .extracting(Lancamento::id)
                 .containsExactly(fiadoDaSegunda.recebimentoEmCartao());
         assertThat(segunda.conta().comoUsuario(() ->

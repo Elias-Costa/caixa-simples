@@ -7,6 +7,8 @@ import { erroDeCadastro } from './erroDeCadastro'
 import { Mensagem } from './Mensagem'
 import { problemaDoTamanhoDaSenha } from './regrasDaSenha'
 import { useConfirmacao } from './useConfirmacao'
+import { TituloComAjuda } from './TituloComAjuda'
+import { AJUDA } from './textosDeAjuda'
 
 const vazio: NovoUsuario = { nome: '', perfil: 'OPERADOR', email: '', senha: '' }
 
@@ -175,7 +177,7 @@ export function TelaDeUsuarios() {
   }
 
   return <section className="cadastro">
-    <h2 className="titulo">Usuários</h2>
+    <TituloComAjuda titulo="Usuários" ajuda={AJUDA.usuarios} />
     <p>Crie acessos para quem trabalha nesta Conta. O plano Completo permite mais de um usuário.</p>
     {mostrarEm('lista')}
 

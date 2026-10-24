@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.tuple;
 import br.com.caixasimples.TesteDeIntegracao;
 import br.com.caixasimples.caixa.domain.MovimentoCaixa;
 import br.com.caixasimples.caixa.domain.SessaoCaixa;
+import br.com.caixasimples.caixa.internal.LinhaDoHistorico;
 import br.com.caixasimples.caixa.internal.SessaoCaixaEntity;
 import br.com.caixasimples.caixa.internal.SessaoCaixaRepository;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste;
@@ -67,11 +68,18 @@ class IsolamentoDeSessaoCaixaTest extends TesteDeIntegracao {
                     .as("listagem da conta B")
                     .extracting(SessaoCaixaEntity::getId)
                     .doesNotContain(sessaoDaContaA);
+            assertThat(sessoes.findByStatusOrderByAbertaEm(StatusSessaoCaixa.ABERTA))
+                    .as("sessões abertas da conta B, que o administrador lista")
+                    .extracting(LinhaDoHistorico::id)
+                    .doesNotContain(sessaoDaContaA);
         });
 
         // E a conta A continua vendo o próprio dado: o filtro não pode ser esconder de todos.
         contaA.comoUsuario(() -> {
             assertThat(sessoes.findById(sessaoDaContaA)).isPresent();
+            assertThat(sessoes.findByStatusOrderByAbertaEm(StatusSessaoCaixa.ABERTA))
+                    .extracting(LinhaDoHistorico::id)
+                    .containsExactly(sessaoDaContaA);
             assertThat(sessoes.findAll())
                     .extracting(SessaoCaixaEntity::getId)
                     .containsExactly(sessaoDaContaA);

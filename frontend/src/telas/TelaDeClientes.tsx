@@ -7,6 +7,16 @@ import { erroDeCadastro, errosDosCampos } from './erroDeCadastro'
 import { filtrarPorNome } from './filtroPorNome'
 import { ErroDoCampo, Mensagem } from './Mensagem'
 import { useConfirmacao } from './useConfirmacao'
+import { TituloComAjuda } from './TituloComAjuda'
+import { AJUDA } from './textosDeAjuda'
+
+/**
+ * As listas em ordem alfabética, com e sem rede: o servidor e o aparelho devolvem na ordem em que
+ * guardam, e o cliente reativado ia para o fim, escondido de quem o procurava.
+ */
+function emOrdem(clientes: Cliente[]): Cliente[] {
+  return [...clientes].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+}
 
 export function TelaDeClientes() {
   const podeRemover = lerIdentidade()?.perfil === 'ADMIN'
@@ -33,8 +43,8 @@ export function TelaDeClientes() {
       const [listaAtiva, listaInativa] = await Promise.all([
         cadastro.clientes(), cadastro.clientesInativos(),
       ])
-      setAtivos(listaAtiva)
-      setInativos(listaInativa)
+      setAtivos(emOrdem(listaAtiva))
+      setInativos(emOrdem(listaInativa))
       setErro(null)
     } catch (falha) {
       setErro(erroDeCadastro(falha))
@@ -162,7 +172,7 @@ export function TelaDeClientes() {
 
   return <section className="cadastro">
     <div className="cadastro__topo">
-      <div><h2 className="titulo">Clientes</h2><p>Cadastre no balcão com nome e contato opcional.</p></div>
+      <div><TituloComAjuda titulo="Clientes" ajuda={AJUDA.clientes} /><p>Cadastre no balcão com nome e contato opcional.</p></div>
       <button className="botao" type="button" onClick={novo}>Novo cliente</button>
     </div>
     <Mensagem tipo="erro" texto={erro} />

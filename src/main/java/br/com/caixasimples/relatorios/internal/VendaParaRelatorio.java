@@ -58,6 +58,13 @@ public class VendaParaRelatorio {
     @Column(name = "usuario_id", nullable = false, updatable = false)
     private UUID usuarioId;
 
+    /**
+     * O cliente vinculado, quando há, para a conferência do Pix dizer de quem veio cada um. Só o id:
+     * o nome é do cadastro, e a tela o tem.
+     */
+    @Column(name = "cliente_id")
+    private UUID clienteId;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private StatusVenda status;

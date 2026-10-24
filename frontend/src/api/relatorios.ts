@@ -67,6 +67,30 @@ export type ConferenciaDoCartao = {
 }
 
 /**
+ * Um Pix do dia, para bater com o extrato do banco: a parcela de uma venda, de qualquer situação, ou o
+ * recebimento de um fiado. A cobrança integrada ainda não paga vem marcada; a recusada não vem. O
+ * cliente não vem quando a venda não tem; o nome é do cadastro do aparelho.
+ */
+export type LancamentoEmPix = {
+  id: string
+  origem: 'PARCELA' | 'RECEBIMENTO'
+  vendaId: string
+  lancadoEm: string
+  valor: number
+  operadorId: string
+  situacaoDaVenda: StatusVenda
+  clienteId?: string
+  integrado: boolean
+  aguardandoConfirmacao: boolean
+}
+
+/** Um dia só, em ordem de lançamento. */
+export type ConferenciaDoPix = {
+  dia: string
+  lancamentos: LancamentoEmPix[]
+}
+
+/**
  * Filtro ausente fica fora da consulta: escrito, ele chegaria ao servidor como o texto undefined,
  * que ele recusa.
  */
@@ -91,6 +115,10 @@ export const relatorios = {
     chamarApi<FluxoDeCaixa>(comParametros('/api/relatorios/fluxo-de-caixa', { inicio, fim })),
   conferenciaDoCartao: (dia: string, operadorId?: string) =>
     chamarApi<ConferenciaDoCartao>(comParametros('/api/relatorios/conferencia-do-cartao', {
+      dia, operadorId,
+    })),
+  conferenciaDoPix: (dia: string, operadorId?: string) =>
+    chamarApi<ConferenciaDoPix>(comParametros('/api/relatorios/conferencia-do-pix', {
       dia, operadorId,
     })),
 }

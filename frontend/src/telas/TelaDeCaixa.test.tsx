@@ -6,7 +6,7 @@ import { cadastro } from '../api/cadastro'
 import { caixa, type SessaoCaixa } from '../api/caixa'
 import { SemConexao } from '../api/cliente'
 import { contas } from '../api/contas'
-import { vendas, type Venda } from '../api/vendas'
+import { vendas, type Comprovante, type Venda } from '../api/vendas'
 import { criarCaixaLocal } from '../offline/caixaLocal'
 import { gravarIdentidade, gravarToken } from '../sessao/armazenamento'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
@@ -18,6 +18,7 @@ afterEach(() => vi.restoreAllMocks())
 beforeEach(async () => {
   await deleteDB('caixa-simples-offline')
   vi.spyOn(vendas, 'daSessao').mockResolvedValue([])
+  vi.spyOn(caixa, 'abertas').mockResolvedValue([])
 })
 
 const aberta: SessaoCaixa = {
@@ -153,9 +154,9 @@ describe('caixa na tela', () => {
     expect(detalhe).toHaveTextContent('Desconto da venda: R$ 2,00')
     expect(detalhe).toHaveTextContent('Total: R$ 20,00')
     expect(detalhe).toHaveTextContent('Fiado: R$ 20,00')
-    // Conferir não é corrigir: o único botão do detalhe o fecha.
+    // Conferir não é corrigir: nada no detalhe altera a venda, e a concluída só reimprime.
     expect(within(detalhe).getAllByRole('button').map((botao) => botao.textContent))
-      .toEqual(['Fechar detalhe'])
+      .toEqual(['Segunda via do comprovante', 'Fechar detalhe'])
     fireEvent.click(within(detalhe).getByRole('button', { name: 'Fechar detalhe' }))
     expect(screen.queryByRole('region', { name: 'Detalhe da venda' })).not.toBeInTheDocument()
   })
@@ -180,6 +181,104 @@ describe('caixa na tela', () => {
     const detalhe = await screen.findByRole('region', { name: 'Detalhe da venda' })
     expect(detalhe).toHaveTextContent('Cliente: Cliente removido')
     expect(detalhe).toHaveTextContent('Cartão: R$ 8,00 · NSU 123456')
+  })
+
+  it('o administrador vê no topo os caixas de outros abertos desde outro dia, e fecha um deles', async () => {
+    const ontem = new Date(Date.now() - 26 * 60 * 60 * 1000).toISOString()
+    const daBia: SessaoCaixa = { ...aberta, id: 's-2', usuarioId: 'u-2', abertaEm: ontem }
+    vi.spyOn(caixa, 'abertas').mockResolvedValue([
+      daBia,
+      { ...aberta, id: 's-1', usuarioId: 'u-1', abertaEm: ontem },
+      { ...aberta, id: 's-3', usuarioId: 'u-3', abertaEm: new Date().toISOString() },
+    ])
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(undefined)
+    vi.spyOn(caixa, 'historico').mockResolvedValue([])
+    vi.spyOn(caixa, 'consultar').mockResolvedValue({ ...daBia, movimentos: [] })
+    vi.spyOn(contas, 'usuarios').mockResolvedValue([
+      { id: 'u-2', nome: 'Bia', perfil: 'OPERADOR', ativo: true },
+      { id: 'u-3', nome: 'Caio', perfil: 'OPERADOR', ativo: true },
+    ])
+    const fechar = vi.spyOn(caixa, 'fechar').mockResolvedValue({ diferenca: 0 })
+    mostrar('ADMIN')
+
+    const cartao = (await screen.findByRole('heading', { name: 'Caixas abertos desde outro dia' }))
+      .closest('section') as HTMLElement
+    expect(cartao).toHaveTextContent('Sessões de outros usuários que ficaram abertas. Escolha uma para conferir e fechar.')
+    // A do próprio administrador é a faixa dele; a de hoje não é esquecida.
+    expect(within(cartao).getAllByRole('button').map((botao) => botao.textContent))
+      .toEqual([expect.stringMatching(/^Bia · aberto em /)])
+
+    fireEvent.click(within(cartao).getByRole('button', { name: /^Bia/ }))
+    fireEvent.change(await screen.findByLabelText('Valor contado'), { target: { value: '20,00' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Fechar e registrar diferença' }))
+    await responderConfirmacao('Fechar caixa')
+    await waitFor(() => expect(fechar).toHaveBeenCalledWith('s-2', 20))
+  })
+
+  it('o operador não pede as sessões abertas da Conta', async () => {
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(caixa, 'historico').mockResolvedValue([aberta])
+    vi.spyOn(caixa, 'consultar').mockResolvedValue({ ...aberta, movimentos: [] })
+    mostrar()
+
+    expect(await screen.findByRole('button', { name: 'Ver meu caixa' })).toBeInTheDocument()
+    expect(caixa.abertas).not.toHaveBeenCalled()
+    expect(screen.queryByText('Caixas abertos desde outro dia')).not.toBeInTheDocument()
+  })
+
+  it('reimprime a venda concluída como segunda via, também sem rede, e a cancelada não tem o botão', async () => {
+    const emPix: Venda = {
+      id: 'v-5', sessaoCaixaId: 's-1', usuarioId: 'u-1', status: 'CONCLUIDA', total: 9,
+      criadoEm: '2026-09-22T13:00:00Z', clienteId: null, saldoDevedor: 0, descontoDaVenda: 0,
+      pago: 9, faltaPagar: 0, recebimentos: [],
+      itens: [{ id: 'i-5', produtoId: 'p-5', nome: 'Pão de queijo', quantidade: 2, precoUnitario: 4.5,
+        desconto: 0, subtotal: 9 }],
+      parcelas: [{ id: 'pg-5', forma: 'PIX', valor: 9, status: 'CONFIRMADO', troco: 0 }],
+    }
+    const comprovante: Comprovante = {
+      vendaId: 'v-5', usuarioId: 'u-1', concluidoEm: '2026-09-22T13:01:00Z',
+      linhas: [{ produtoId: 'p-5', nome: 'Pão de queijo', unidade: 'un', quantidade: 2,
+        precoUnitario: 4.5, valorBruto: 9, desconto: 0, subtotal: 9 }],
+      somaDosItens: 9, descontoDaVenda: 0, valorTotal: 9,
+      parcelas: [{ forma: 'PIX', valor: 9, troco: 0 }], troco: 0, valorFiado: 0, saldoDevedor: 0,
+    }
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(caixa, 'historico').mockResolvedValue([aberta])
+    vi.spyOn(caixa, 'consultar').mockResolvedValue({ ...aberta, movimentos: [] })
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([
+      { id: 'v-5', sessaoCaixaId: 's-1', usuarioId: 'u-1', status: 'CONCLUIDA', total: 9,
+        criadoEm: '2026-09-22T13:00:00Z' },
+      { id: 'v-6', sessaoCaixaId: 's-1', usuarioId: 'u-1', status: 'CANCELADA', total: 4,
+        criadoEm: '2026-09-22T13:30:00Z' },
+    ])
+    vi.spyOn(vendas, 'consultar').mockImplementation(async (id) =>
+      id === 'v-5' ? emPix : { ...emPix, id: 'v-6', status: 'CANCELADA', total: 4 })
+    const doServidor = vi.spyOn(vendas, 'comprovante').mockResolvedValue(comprovante)
+    mostrar()
+
+    fireEvent.click(await screen.findByRole('button', { name: /Cancelada · R\$\s4,00/ }))
+    const cancelada = await screen.findByRole('region', { name: 'Detalhe da venda' })
+    expect(within(cancelada).queryByRole('button', { name: 'Segunda via do comprovante' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Concluída · R\$\s9,00/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Segunda via do comprovante' }))
+    const papel = await screen.findByRole('region', { name: 'Comprovante não fiscal' })
+    expect(papel).toHaveTextContent(/Segunda via, reimpressa em \d{2}\/\d{2}\/\d{4}/)
+    expect(papel).toHaveTextContent('Pix: R$ 9,00')
+    // Pix não tem troco, e a venda sem desconto não mostra a linha dele.
+    expect(papel).not.toHaveTextContent('Troco')
+    expect(papel).not.toHaveTextContent('Desconto da venda')
+    expect(within(papel).getByRole('button', { name: 'Imprimir' })).toBeInTheDocument()
+    expect(doServidor).toHaveBeenCalledWith('v-5')
+
+    // Sem rede, a segunda via sai do que o aparelho guardou da primeira leitura.
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+    doServidor.mockRejectedValue(new SemConexao())
+    fireEvent.click(screen.getByRole('button', { name: 'Fechar detalhe' }))
+    fireEvent.click(screen.getByRole('button', { name: /Concluída · R\$\s9,00/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Segunda via do comprovante' }))
+    expect(await screen.findByRole('region', { name: 'Comprovante não fiscal' }))
+      .toHaveTextContent('Segunda via, reimpressa em')
   })
 
   it('mostra esperado antes de fechar, diferença depois e Venda no extrato', async () => {

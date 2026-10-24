@@ -11,7 +11,8 @@ import java.util.UUID;
  *
  * <p><strong>Membro do agregado Produto</strong>, nunca raiz. Não tem repositório e não se altera
  * sozinho: nasce dentro de {@link Produto}, por {@link Produto#darBaixaPorVenda},
- * {@link Produto#estornarPorCancelamento} ou {@link Produto#ajustarEstoque}, e o saldo da raiz
+ * {@link Produto#estornarPorCancelamento}, {@link Produto#ajustarEstoque} ou
+ * {@link Produto#registrarEntrada}, e o saldo da raiz
  * muda no mesmo ato. É um {@code record} porque não há nada para alterar depois: movimento
  * lançado não se edita, o que se faz é lançar o oposto, e a ENTRADA do cancelamento é exatamente
  * o oposto da SAIDA da venda.
@@ -36,9 +37,9 @@ import java.util.UUID;
  *                   definitiva mesmo criado sem conexão (RNF01)
  * @param tipo       quem carrega o sinal do movimento em ENTRADA e SAIDA
  * @param quantidade positiva em ENTRADA e SAIDA; com sinal em AJUSTE; nunca zero
- * @param motivo     obrigatório em AJUSTE (RF19) e nulo quando ausente; quem <em>exige</em> o
- *                   motivo é a raiz, em {@link Produto#ajustarEstoque}, porque aqui o campo apenas
- *                   aceita o que vier
+ * @param motivo     obrigatório em AJUSTE (RF19), opcional na ENTRADA por compra e nulo quando
+ *                   ausente; quem <em>exige</em> o motivo é a raiz, em
+ *                   {@link Produto#ajustarEstoque}, porque aqui o campo apenas aceita o que vier
  * @param vendaId    preenchido quando o movimento vem de uma venda. É referência entre agregados,
  *                   então é um {@link UUID} e nunca um objeto navegável
  * @param criadoEm   momento do lançamento, em UTC
@@ -88,6 +89,16 @@ public record MovimentoEstoque(UUID id, TipoMovimentoEstoque tipo, BigDecimal qu
         Objects.requireNonNull(vendaId, "vendaId nao pode ser nulo");
         return new MovimentoEstoque(UUID.randomUUID(), TipoMovimentoEstoque.ENTRADA, quantidade,
                 null, vendaId, Instant.now());
+    }
+
+    /**
+     * A entrada de mercadoria comprada: a quantidade que chegou, positiva, e o motivo, opcional, com a
+     * nota ou o fornecedor. Sem venda, e é isso que a separa no histórico do estorno de cancelamento,
+     * a outra ENTRADA, que aponta para a venda que desfez.
+     */
+    static MovimentoEstoque entradaPorCompra(BigDecimal quantidade, String motivo) {
+        return new MovimentoEstoque(UUID.randomUUID(), TipoMovimentoEstoque.ENTRADA, quantidade,
+                motivo, null, Instant.now());
     }
 
     /**

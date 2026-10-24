@@ -76,7 +76,7 @@ class SenhaEAcessoHttpTest extends TesteDeIntegracao {
         String celular = entrar(conta.email(), SENHA);
         String operador = entrar(emailDoOperador, SENHA);
         String daOutraConta = entrar(outraConta.email(), SENHA);
-        eu(tablet).andExpect(status().isOk()).andExpect(jsonPath("$.senhaProvisoria").value(true));
+        eu(tablet).andExpect(status().isOk());
 
         MvcResult troca = trocar(celular, SENHA, NOVA, "203.0.113.70")
                 .andExpect(status().isOk())
@@ -92,7 +92,7 @@ class SenhaEAcessoHttpTest extends TesteDeIntegracao {
         // Outro Usuário da mesma Conta e a outra Conta não são afetados.
         eu(operador).andExpect(status().isOk());
         eu(daOutraConta).andExpect(status().isOk())
-                .andExpect(jsonPath("$.senhaProvisoria").value(true));
+                .andExpect(jsonPath("$.senhaProvisoria").value(false));
         login(outraConta.email(), SENHA).andExpect(status().isOk());
 
         login(conta.email(), SENHA).andExpect(status().isUnauthorized());
@@ -136,7 +136,8 @@ class SenhaEAcessoHttpTest extends TesteDeIntegracao {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("72")));
 
-        eu(token).andExpect(status().isOk()).andExpect(jsonPath("$.senhaProvisoria").value(true));
+        // A senha da fixture continua a mesma, escolhida pela própria pessoa.
+        eu(token).andExpect(status().isOk()).andExpect(jsonPath("$.senhaProvisoria").value(false));
         login(conta.email(), SENHA).andExpect(status().isOk());
     }
 
@@ -203,7 +204,10 @@ class SenhaEAcessoHttpTest extends TesteDeIntegracao {
         String admin = entrar(conta.email(), SENHA);
         OperadorCriado criado = criarOperador(admin);
         UUID operador = criado.id();
-        String aparelhoDoOperador = entrar(criado.email(), SENHA);
+        // O operador escolhe a própria senha antes, para o 403 abaixo ser o do perfil, e não o da
+        // senha provisória.
+        trocar(entrar(criado.email(), SENHA), SENHA, NOVA, "203.0.113.78").andExpect(status().isOk());
+        String aparelhoDoOperador = entrar(criado.email(), NOVA);
 
         redefinir(admin, conta.usuarioId(), PROVISORIA)
                 .andExpect(status().isConflict())

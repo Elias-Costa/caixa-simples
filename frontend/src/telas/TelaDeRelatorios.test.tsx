@@ -1,8 +1,9 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cadastro } from '../api/cadastro'
 import { ErroDaApi } from '../api/cliente'
 import { contas, type UsuarioDaConta } from '../api/contas'
-import { relatorios, type LancamentoEmCartao } from '../api/relatorios'
+import { relatorios, type LancamentoEmCartao, type LancamentoEmPix } from '../api/relatorios'
 import { hojeNoBalcao } from '../dataDoBalcao'
 import { TelaDeRelatorios } from './TelaDeRelatorios'
 
@@ -36,8 +37,33 @@ const lancamentos = (dia: string): LancamentoEmCartao[] => [
   },
 ]
 
+// Um Pix lançado à mão de uma cliente às 9h20, uma cobrança integrada ainda não paga às 11h numa venda
+// aberta, e um fiado recebido em Pix às 12h de uma venda cancelada depois.
+const pix = (dia: string): LancamentoEmPix[] => [
+  {
+    id: 'pix-1', origem: 'PARCELA', vendaId: '1a2b3c4d-0000-4000-8000-000000000011',
+    lancadoEm: `${dia}T12:20:00Z`, valor: 20, operadorId: 'usuario-ana', situacaoDaVenda: 'CONCLUIDA',
+    clienteId: 'cliente-lia', integrado: false, aguardandoConfirmacao: false,
+  },
+  {
+    id: 'pix-2', origem: 'PARCELA', vendaId: '5e6f7a8b-0000-4000-8000-000000000012',
+    lancadoEm: `${dia}T14:00:00Z`, valor: 15, operadorId: 'usuario-ana', situacaoDaVenda: 'ABERTA',
+    integrado: true, aguardandoConfirmacao: true,
+  },
+  {
+    id: 'pix-3', origem: 'RECEBIMENTO', vendaId: '9c0d1e2f-0000-4000-8000-000000000013',
+    lancadoEm: `${dia}T15:00:00Z`, valor: 5, operadorId: 'usuario-ana', situacaoDaVenda: 'CANCELADA',
+    clienteId: 'cliente-removido', integrado: false, aguardandoConfirmacao: false,
+  },
+]
+
 function prepararApi(usuarios: UsuarioDaConta[] = [titular]) {
+  vi.spyOn(cadastro, 'clientes').mockResolvedValue([{ id: 'cliente-lia', nome: 'Lia', contato: null }])
+  vi.spyOn(cadastro, 'clientesInativos').mockResolvedValue([])
   return {
+    pix: vi.spyOn(relatorios, 'conferenciaDoPix').mockImplementation(async (dia) => ({
+      dia, lancamentos: pix(dia),
+    })),
     conferencia: vi.spyOn(relatorios, 'conferenciaDoCartao').mockImplementation(async (dia) => ({
       dia, lancamentos: lancamentos(dia),
     })),
@@ -128,6 +154,23 @@ describe('relatórios na tela', () => {
       /operador f00dbabe · fiado recebido 9a8b7c6d · venda cancelada: confira o estorno na maquininha$/)
   })
 
+  it('a conferência do Pix lista à mão e integrado, a cobrança aguardando, o cliente e a situação da venda', async () => {
+    const api = prepararApi()
+    render(<TelaDeRelatorios />)
+
+    const conferencia = await waitFor(() => cartao(/^Conferência do Pix de/))
+    expect(api.pix).toHaveBeenCalledWith(hoje, undefined)
+    expect(within(conferencia).getByText(/^3 Pix/)).toHaveTextContent(', 1 aguardando confirmação')
+    const linhas = within(conferencia).getAllByRole('listitem')
+    expect(linhas).toHaveLength(3)
+    expect(linhas[0]).toHaveTextContent(/^09:20 · R\$\s20,00 · lançado à mão/)
+    expect(linhas[0]).toHaveTextContent(/Ana · Lia · venda 1a2b3c4d$/)
+    expect(linhas[1]).toHaveTextContent(/^11:00 · R\$\s15,00 · integrado · aguardando confirmação/)
+    expect(linhas[1]).toHaveTextContent(/Ana · venda 5e6f7a8b · venda ainda aberta$/)
+    expect(linhas[2]).toHaveTextContent(
+      /Ana · Cliente removido · recebimento de fiado 9c0d1e2f · venda cancelada: confira a devolução ao cliente$/)
+  })
+
   it('consulta o período escolhido nos três relatórios e volta para hoje', async () => {
     const api = prepararApi()
     render(<TelaDeRelatorios />)
@@ -175,7 +218,9 @@ describe('relatórios na tela', () => {
     expect(api.faturamento).toHaveBeenCalledWith(hoje, hoje, { forma: 'CARTAO', operadorId: 'usuario-beatriz' })
     expect(api.maisVendidos).toHaveBeenLastCalledWith(hoje, hoje, 10, 'usuario-beatriz')
     expect(api.conferencia).toHaveBeenLastCalledWith(hoje, 'usuario-beatriz')
-    expect(screen.getByText('Lançamentos de Beatriz')).toBeInTheDocument()
+    expect(api.pix).toHaveBeenLastCalledWith(hoje, 'usuario-beatriz')
+    // Uma linha em cada conferência, a do cartão e a do Pix.
+    expect(screen.getAllByText('Lançamentos de Beatriz')).toHaveLength(2)
     expect(api.fluxo).toHaveBeenLastCalledWith(hoje, hoje)
     expect(within(cartao(/^Fluxo de caixa/)).getByText(/o filtro de\s+operador não vale para ele/))
       .toBeInTheDocument()
@@ -191,11 +236,15 @@ describe('relatórios na tela', () => {
       entradas: 0, saidas: 0, saldo: 0,
     }))
     vi.spyOn(relatorios, 'conferenciaDoCartao').mockImplementation(async (dia) => ({ dia, lancamentos: [] }))
+    vi.spyOn(relatorios, 'conferenciaDoPix').mockImplementation(async (dia) => ({ dia, lancamentos: [] }))
+    vi.spyOn(cadastro, 'clientes').mockResolvedValue([])
+    vi.spyOn(cadastro, 'clientesInativos').mockResolvedValue([])
     vi.spyOn(contas, 'usuarios').mockResolvedValue([titular])
     render(<TelaDeRelatorios />)
 
     expect(await screen.findByText('Nenhuma venda concluída neste período.')).toBeInTheDocument()
     expect(screen.getByText('Nenhum pagamento em cartão neste dia.')).toBeInTheDocument()
+    expect(screen.getByText('Nenhum Pix neste dia.')).toBeInTheDocument()
     expect(screen.getByText('Nenhum produto vendido neste período.')).toBeInTheDocument()
     expect(linha(cartao(/^Fluxo de caixa/), 'Saldo')).toHaveTextContent(/0,00/)
   })

@@ -9,6 +9,8 @@ import { filtrarPorNome } from './filtroPorNome'
 import { ErroDoCampo, Mensagem } from './Mensagem'
 import { ROTULO_CURTO_DO_TIPO, ROTULO_DO_TIPO } from './rotulos'
 import { useConfirmacao } from './useConfirmacao'
+import { TituloComAjuda } from './TituloComAjuda'
+import { AJUDA } from './textosDeAjuda'
 
 type Atributo = { chave: string; valor: string; original?: unknown; textoOriginal?: string }
 type Formulario = {
@@ -196,7 +198,7 @@ export function TelaDeProdutos() {
   return (
     <section className="cadastro">
       <div className="cadastro__topo">
-        <div><h2 className="titulo">Produtos e serviços</h2><p>Itens ativos da sua Conta.</p></div>
+        <div><TituloComAjuda titulo="Produtos e serviços" ajuda={AJUDA.produtos} /><p>Itens ativos da sua Conta.</p></div>
         {admin && <button className="botao" type="button" onClick={novo}>Novo item</button>}
       </div>
 

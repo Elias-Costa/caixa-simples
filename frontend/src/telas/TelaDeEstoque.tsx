@@ -2,8 +2,13 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { estoque, type EstoqueDoProduto } from '../api/estoque'
 import { erroDeCadastro } from './erroDeCadastro'
 import { Mensagem } from './Mensagem'
+import { TituloComAjuda } from './TituloComAjuda'
+import { AJUDA } from './textosDeAjuda'
 
 const quantidade = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 3 })
+
+/** O tamanho da coluna do motivo, o mesmo do servidor. */
+const TAMANHO_DO_MOTIVO = 120
 
 function lerQuantidade(valor: string, permiteNegativo: boolean): number {
   const formato = permiteNegativo ? /^-?\d+(?:[.,]\d{1,3})?$/ : /^\d+(?:[.,]\d{1,3})?$/
@@ -18,6 +23,8 @@ export function TelaDeEstoque() {
   const [modo, setModo] = useState<'diferenca' | 'contagem'>('diferenca')
   const [valor, setValor] = useState('')
   const [motivo, setMotivo] = useState('')
+  const [comprado, setComprado] = useState('')
+  const [motivoDaEntrada, setMotivoDaEntrada] = useState('')
   const [minimo, setMinimo] = useState('')
   const [carregando, setCarregando] = useState(true)
   const [salvando, setSalvando] = useState(false)
@@ -80,6 +87,34 @@ export function TelaDeEstoque() {
     }
   }
 
+  /** Só com rede, como o ajuste: é decisão do administrador sobre o saldo, não gesto do balcão. */
+  async function registrarEntrada(evento: FormEvent<HTMLFormElement>) {
+    evento.preventDefault()
+    if (!produto) return
+    setErro(null)
+    setAviso(null)
+    let chegou: number
+    try {
+      chegou = lerQuantidade(comprado, false)
+      if (chegou === 0) throw new Error('A quantidade da entrada precisa ser maior que zero.')
+    } catch (falha) {
+      setErro(falha instanceof Error ? falha.message : 'Confira a quantidade.')
+      return
+    }
+    setSalvando(true)
+    try {
+      await estoque.registrarEntrada(produto.id, chegou, motivoDaEntrada.trim())
+      setComprado('')
+      setMotivoDaEntrada('')
+      await carregar()
+      setAviso('Entrada registrada.')
+    } catch (falha) {
+      setErro(erroDeCadastro(falha))
+    } finally {
+      setSalvando(false)
+    }
+  }
+
   async function definirMinimo(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault()
     if (!produto) return
@@ -106,7 +141,7 @@ export function TelaDeEstoque() {
   }
 
   return <section className="estoque">
-    <h2 className="titulo">Estoque</h2>
+    <TituloComAjuda titulo="Estoque" ajuda={AJUDA.estoque} />
     <Mensagem tipo="erro" texto={erro} />
     <Mensagem tipo="sucesso" texto={aviso} />
     {carregando ? <p>Carregando estoque...</p> : <>
@@ -122,15 +157,28 @@ export function TelaDeEstoque() {
         <h3>Produtos</h3>
         {produtos.length === 0 ? <p>Nenhum produto ativo. Cadastre um produto para controlar o estoque.</p> : <>
           <label className="estoque__selecao">Produto
-            <select className="campo__entrada" value={produtoId} onChange={(evento) => { setProdutoId(evento.target.value); setValor(''); setMinimo('') }}>
+            <select className="campo__entrada" value={produtoId} onChange={(evento) => { setProdutoId(evento.target.value); setValor(''); setMinimo(''); setComprado('') }}>
               {produtos.map((item) => <option key={item.id} value={item.id}>{item.nome}{item.codigo ? ` · ${item.codigo}` : ''}</option>)}
             </select>
           </label>
           {produto && <p>Saldo atual: <strong>{quantidade.format(produto.estoqueAtual)} {produto.unidade ?? ''}</strong>
             {' · '}mínimo: <strong>{quantidade.format(produto.estoqueMinimo)} {produto.unidade ?? ''}</strong></p>}
           <div className="estoque__formularios">
+            <form onSubmit={(evento) => void registrarEntrada(evento)}>
+              <h4>Entrada de mercadoria</h4>
+              <label>Quantidade comprada
+                <input className="campo__entrada" inputMode="decimal" value={comprado} required
+                  onChange={(evento) => setComprado(evento.target.value)} placeholder="Ex.: 12" />
+              </label>
+              <label>Motivo (opcional)
+                <input className="campo__entrada" value={motivoDaEntrada} maxLength={TAMANHO_DO_MOTIVO}
+                  onChange={(evento) => setMotivoDaEntrada(evento.target.value)} placeholder="Ex.: nota 123 ou fornecedor" />
+              </label>
+              <button className="botao" disabled={salvando}>Registrar entrada</button>
+            </form>
             <form onSubmit={(evento) => void ajustar(evento)}>
               <h4>Ajustar saldo</h4>
+              <p>Para perda, quebra ou contagem. A mercadoria que chegou vai na entrada de mercadoria.</p>
               <label>Modo
                 <select className="campo__entrada" value={modo} onChange={(evento) => { setModo(evento.target.value as 'diferenca' | 'contagem'); setValor('') }}>
                   <option value="diferenca">Diferença (perda ou sobra)</option>

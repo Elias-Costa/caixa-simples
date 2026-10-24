@@ -90,23 +90,18 @@ public class ConferenciaDoCartaoService {
         List<Lancamento> lancamentos = new ArrayList<>();
         for (LancamentoEmCartao parcela : vendas.parcelasLancadasEntre(FormaPagamento.CARTAO,
                 umDia.inicioInclusivo(), umDia.fimExclusivo(), operadorId)) {
-            lancamentos.add(Lancamento.de(Origem.PARCELA, parcela));
+            lancamentos.add(Lancamento.de(OrigemDoLancamento.PARCELA, parcela));
         }
         for (LancamentoEmCartao recebimento : vendas.recebimentosLancadosEntre(
                 FormaPagamento.CARTAO, umDia.inicioInclusivo(), umDia.fimExclusivo(),
                 operadorId)) {
-            lancamentos.add(Lancamento.de(Origem.RECEBIMENTO, recebimento));
+            lancamentos.add(Lancamento.de(OrigemDoLancamento.RECEBIMENTO, recebimento));
         }
         // Cada consulta já vem em ordem; juntas, as duas listas se intercalam pela hora, e o id
         // desempata como nas consultas.
         lancamentos.sort(Comparator.comparing(Lancamento::lancadoEm)
                 .thenComparing(Lancamento::id));
         return new ConferenciaDoCartao(dia, lancamentos);
-    }
-
-    /** De onde veio a linha: a parcela de uma venda ou o recebimento de um fiado. */
-    public enum Origem {
-        PARCELA, RECEBIMENTO
     }
 
     /**
@@ -131,10 +126,10 @@ public class ConferenciaDoCartaoService {
      * @param nsu             o NSU do comprovante da maquininha; nulo marca o que falta conferir à
      *                        mão
      */
-    public record Lancamento(UUID id, Origem origem, UUID vendaId, Instant lancadoEm, Money valor,
+    public record Lancamento(UUID id, OrigemDoLancamento origem, UUID vendaId, Instant lancadoEm, Money valor,
             UUID operadorId, StatusVenda situacaoDaVenda, String nsu) {
 
-        static Lancamento de(Origem origem, LancamentoEmCartao linha) {
+        static Lancamento de(OrigemDoLancamento origem, LancamentoEmCartao linha) {
             return new Lancamento(linha.id(), origem, linha.vendaId(), linha.lancadoEm(),
                     Money.de(linha.valor()), linha.usuarioId(), linha.situacaoDaVenda(),
                     linha.nsu());

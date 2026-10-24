@@ -16,7 +16,7 @@ const rotulos = (identidade: Identidade) => itensDoMenu(identidade).map((item) =
 describe('itensDoMenu', () => {
   it('operador vê venda, caixa, cadastro, cobrança do fiado, sincronização e a própria conta', () => {
     expect(rotulos(base)).toEqual(['Vender', 'Caixa', 'Produtos', 'Clientes', 'Fiado',
-      'Sincronização', 'Minha conta'])
+      'Sincronização', 'Minha conta', 'Primeiros passos'])
   })
 
   it('os itens do balcão ficam à vista, e o resto vai para o Mais', () => {
@@ -43,6 +43,7 @@ describe('itensDoMenu', () => {
       'Usuários',
       'Configuração',
       'Plano',
+      'Primeiros passos',
     ])
   })
 

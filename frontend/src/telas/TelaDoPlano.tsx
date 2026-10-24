@@ -10,6 +10,8 @@ import { useSessao } from '../sessao/useSessao'
 import { useOnline } from '../shell/useOnline'
 import { erroDeCadastro } from './erroDeCadastro'
 import { useConfirmacao } from './useConfirmacao'
+import { TituloComAjuda } from './TituloComAjuda'
+import { AJUDA } from './textosDeAjuda'
 
 const NOME_DO_PLANO: Record<Plano, string> = {
   GRATIS: 'Gratuito',
@@ -138,7 +140,7 @@ export function TelaDoPlano() {
   }
 
   return <section className="cadastro">
-    <h2 className="titulo">Plano</h2>
+    <TituloComAjuda titulo="Plano" ajuda={AJUDA.plano} />
     {erro && <p className="mensagem-erro" role="alert">{erro}</p>}
     {aviso && <p className="mensagem-info" role="status">{aviso}</p>}
     {!online && <p className="mensagem-info" role="status">Pedir plano e aplicar código precisam de conexão.</p>}

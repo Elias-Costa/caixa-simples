@@ -470,6 +470,29 @@ public class ProdutoService {
     }
 
     /**
+     * Entrada de mercadoria comprada: grava o movimento de ENTRADA, sem venda, e o saldo novo na
+     * mesma transação, pelo mesmo caminho único do ajuste. As regras, quantidade positiva com até três
+     * casas, motivo opcional no tamanho da coluna, só produto ativo, moram na raiz.
+     *
+     * @param produtoId  o produto, nesta conta
+     * @param quantidade o que chegou; positiva
+     * @param motivo     opcional
+     * @throws ProdutoNaoEncontradoException se o id não existe nesta conta
+     * @throws IllegalStateException         se o item é SERVICO ou está inativo
+     * @throws IllegalArgumentException      se a quantidade não é positiva ou tem mais de três casas
+     */
+    @Transactional
+    public void registrarEntrada(UUID produtoId, BigDecimal quantidade, String motivo) {
+        ProdutoEntity linha = buscar(produtoId);
+        Produto produto = linha.paraDominio();
+
+        MovimentoEstoque movimento = produto.registrarEntrada(quantidade, motivo);
+
+        linha.registrarMovimento(produto, movimento);
+        produtos.save(linha);
+    }
+
+    /**
      * Define o limiar do alerta de estoque baixo de um produto (RF20). É caso de uso próprio, e
      * não campo de {@link DadosDoProduto}, porque o limiar é política de estoque e não descrição
      * do item: o formulário de cadastro não carrega um campo que só faz sentido com o controle de

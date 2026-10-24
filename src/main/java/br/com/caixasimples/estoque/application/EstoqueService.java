@@ -86,6 +86,32 @@ public class EstoqueService {
     }
 
     /**
+     * Entrada de mercadoria comprada: a quantidade que chegou soma ao saldo, num movimento de ENTRADA
+     * sem venda. É o verbo da reposição; o ajuste continua para perda, quebra e contagem, com motivo
+     * obrigatório (RF19), e o histórico distingue as duas coisas pelo tipo.
+     *
+     * <p>Só com rede: como o ajuste, é decisão do administrador sobre o saldo, e não gesto de balcão
+     * que precise sobreviver sem conexão.
+     *
+     * @param produtoId  o produto, nesta conta
+     * @param quantidade o que chegou; positiva, com até três casas
+     * @param motivo     opcional, para a nota ou o fornecedor
+     * @throws br.com.caixasimples.shared.AcessoNegadoException se quem chama não é ADMIN
+     * @throws IllegalStateException               se o plano não inclui o estoque ou está
+     *                                             suspenso
+     * @throws ControleDeEstoqueDesligadoException se a conta não ligou o controle de estoque
+     * @throws ProdutoNaoEncontradoException       se o id não existe nesta conta
+     * @throws IllegalStateException               se o item é SERVICO ou está inativo
+     * @throws IllegalArgumentException            se a quantidade não é positiva ou tem mais de
+     *                                             três casas
+     */
+    public void registrarEntrada(UUID produtoId, BigDecimal quantidade, String motivo) {
+        UsuarioContext.exigirAdmin();
+        exigirControleLigado();
+        produtos.registrarEntrada(produtoId, quantidade, motivo);
+    }
+
+    /**
      * Define a partir de que saldo um produto entra na lista de estoque baixo (RF20). Zero, que é
      * o padrão de todo produto, avisa quando o item acabou; um mínimo maior avisa antes.
      *

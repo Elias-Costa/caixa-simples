@@ -77,6 +77,13 @@ public interface SessaoCaixaRepository extends JpaRepository<SessaoCaixaEntity, 
      */
     Optional<LinhaDoHistorico> findLinhaById(UUID id);
 
+    /**
+     * As sessões de um status em toda a Conta, da mais antiga para a mais nova, pela mesma projeção
+     * do histórico. Com ABERTA, é o caixa esquecido aberto de outro dia, que o histórico por dia de
+     * abertura não mostra no dia que o administrador olha.
+     */
+    List<LinhaDoHistorico> findByStatusOrderByAbertaEm(StatusSessaoCaixa status);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<SessaoCaixaEntity> findLockedById(UUID id);
 

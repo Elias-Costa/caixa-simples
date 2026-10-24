@@ -34,6 +34,8 @@ export type MovimentoCaixa = {
 
 export const caixa = {
   abertaDoOperadorAtual: () => chamarApi<SessaoCaixa | undefined>('/api/caixa/sessoes/aberta'),
+  /** Todas as sessões abertas da Conta, de todos os operadores; só do administrador e com rede. */
+  abertas: () => chamarApi<SessaoCaixa[]>('/api/caixa/sessoes/abertas'),
   consultar: (id: string) => chamarApi<SessaoCaixa>(`/api/caixa/sessoes/${id}`),
   historico: (dia: string, operadorId?: string) =>
     chamarApi<SessaoCaixa[]>(`/api/caixa/sessoes?dia=${encodeURIComponent(dia)}${operadorId ? `&operadorId=${encodeURIComponent(operadorId)}` : ''}`),

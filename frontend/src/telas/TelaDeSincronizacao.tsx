@@ -12,6 +12,8 @@ import { useOnline } from '../shell/useOnline'
 import { useSessao } from '../sessao/useSessao'
 import { erroDeCadastro } from './erroDeCadastro'
 import { ROTULO_DA_FORMA } from './rotulos'
+import { TituloComAjuda } from './TituloComAjuda'
+import { AJUDA } from './textosDeAjuda'
 
 const ROTULOS: Record<string, string> = {
   'produto.criar': 'Produto cadastrado',
@@ -209,7 +211,7 @@ export function TelaDeSincronizacao() {
 
   return (
     <section className="caixa">
-      <h2 className="titulo">Sincronização</h2>
+      <TituloComAjuda titulo="Sincronização" ajuda={AJUDA.sincronizacao} />
       {erro && <p className="mensagem-erro" role="alert">{erro}</p>}
 
       <div className="caixa__cartao">

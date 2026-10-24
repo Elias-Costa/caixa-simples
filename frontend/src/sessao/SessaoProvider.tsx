@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { chamarApi, ErroDaApi, SessaoAlterada } from '../api/cliente'
-import { cadastro } from '../api/cadastro'
 import { SessaoContext, type Sessao } from './contexto'
 import type { Identidade } from './Identidade'
+import { prepararCadastroLocal } from './prepararCadastroLocal'
 import {
   CHAVE_DA_SESSAO,
   fixarSessaoDaAba,
@@ -34,13 +34,6 @@ function identidadeInicial(): Identidade | null {
   if (!sessao || (sessaoDaAba() && sessaoDaAba() !== sessao)) return null
   fixarSessaoDaAba(sessao)
   return lerIdentidade()
-}
-
-async function prepararCadastroLocal(atual: Identidade): Promise<void> {
-  if (!('indexedDB' in globalThis) || !atual.contaId || !atual.usuarioId) return
-  // O primeiro login ADMIN já copiou o catálogo no servidor. Guardar as listas recebidas evita
-  // aplicar os modelos outra vez e permite consultar Clientes quando o balcão abre sem rede.
-  await Promise.all([cadastro.produtos(), cadastro.clientes(), cadastro.clientesInativos()])
 }
 
 export function SessaoProvider({ children }: { children: ReactNode }) {

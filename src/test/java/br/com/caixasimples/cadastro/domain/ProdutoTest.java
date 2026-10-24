@@ -388,6 +388,51 @@ class ProdutoTest {
     }
 
     @Test
+    @DisplayName("a entrada por compra soma ao saldo e devolve uma ENTRADA sem venda, com o motivo opcional")
+    void entradaSomaEDevolveOMovimento() {
+        Produto produto = valido(Money.de("6.50"));
+
+        MovimentoEstoque comNota = produto.registrarEntrada(new BigDecimal("12.500"), "  nota 123 ");
+        MovimentoEstoque semMotivo = produto.registrarEntrada(new BigDecimal("0.25"), "   ");
+
+        assertThat(produto.getEstoqueAtual()).isEqualByComparingTo("12.75");
+        assertThat(comNota.tipo()).isEqualTo(TipoMovimentoEstoque.ENTRADA);
+        assertThat(comNota.quantidade()).isEqualByComparingTo("12.5");
+        assertThat(comNota.motivo()).isEqualTo("nota 123");
+        assertThat(comNota.vendaId()).as("a entrada por compra não aponta para venda").isNull();
+        assertThat(semMotivo.motivo()).isNull();
+    }
+
+    @Test
+    @DisplayName("a entrada recusa quantidade zero, negativa ou com quatro casas, motivo acima da coluna, serviço e inativo, sem mover o saldo")
+    void entradaRecusada() {
+        Produto produto = valido(Money.de("6.50"));
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> produto.registrarEntrada(BigDecimal.ZERO, null))
+                .withMessage("A quantidade da entrada precisa ser maior que zero.");
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> produto.registrarEntrada(new BigDecimal("-1"), null));
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> produto.registrarEntrada(new BigDecimal("1.2345"), null))
+                .withMessage("A quantidade da entrada tem no máximo 3 casas decimais.");
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> produto.registrarEntrada(BigDecimal.ONE, "m".repeat(121)))
+                .withMessageContaining("o limite é 120");
+        assertThat(produto.getEstoqueAtual()).isEqualByComparingTo("0");
+
+        Produto servico = new Produto("Corte", Money.de("40.00"), TipoProduto.SERVICO, null, null,
+                null, null);
+        assertThatIllegalStateException()
+                .isThrownBy(() -> servico.registrarEntrada(BigDecimal.ONE, null))
+                .withMessage("Corte está cadastrado sem estoque e não recebe entrada de estoque.");
+        produto.inativar();
+        assertThatIllegalStateException()
+                .isThrownBy(() -> produto.registrarEntrada(BigDecimal.ONE, null))
+                .withMessage("O produto Cafe coado está inativo e não recebe entrada de estoque.");
+    }
+
+    @Test
     @DisplayName("ajuste sem motivo é recusado, e a recusa não move o saldo (RF19)")
     void ajusteExigeMotivo() {
         Produto produto = valido(Money.de("6.50"));

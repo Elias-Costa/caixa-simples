@@ -50,6 +50,12 @@ class SessaoCaixaController {
                 .orElseGet(() -> ResponseEntity.noContent().build());
     }
 
+    /** As sessões abertas da Conta inteira, só do administrador; o caminho literal vence o do id. */
+    @GetMapping("/abertas")
+    List<SessaoNaResposta> abertasDaConta() {
+        return sessoes.abertasDaConta().stream().map(SessaoNaResposta::de).toList();
+    }
+
     @GetMapping
     List<SessaoNaResposta> historico(@RequestParam LocalDate dia,
             @RequestParam(required = false) UUID operadorId) {

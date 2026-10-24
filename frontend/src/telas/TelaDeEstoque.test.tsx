@@ -55,6 +55,30 @@ describe('estoque na tela', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('Estoque ajustado')
   })
 
+  it('registra a entrada pela quantidade comprada, com o motivo opcional, e recusa zero na tela', async () => {
+    vi.spyOn(estoque, 'produtos').mockResolvedValue([arroz])
+    vi.spyOn(estoque, 'baixo').mockResolvedValue([arroz])
+    const entrada = vi.spyOn(estoque, 'registrarEntrada').mockResolvedValue(undefined)
+    render(<TelaDeEstoque />)
+
+    const quantidade = await screen.findByLabelText('Quantidade comprada')
+    expect(screen.getByLabelText('Motivo (opcional)')).toHaveAttribute('maxLength', '120')
+    fireEvent.change(quantidade, { target: { value: '0' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Registrar entrada' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('A quantidade da entrada precisa ser maior que zero.')
+    expect(entrada).not.toHaveBeenCalled()
+
+    fireEvent.change(quantidade, { target: { value: '12,5' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Registrar entrada' }))
+    await waitFor(() => expect(entrada).toHaveBeenCalledWith('arroz', 12.5, ''))
+    expect(await screen.findByRole('status')).toHaveTextContent('Entrada registrada.')
+
+    fireEvent.change(screen.getByLabelText('Quantidade comprada'), { target: { value: '3' } })
+    fireEvent.change(screen.getByLabelText('Motivo (opcional)'), { target: { value: '  nota 123 ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Registrar entrada' }))
+    await waitFor(() => expect(entrada).toHaveBeenLastCalledWith('arroz', 3, 'nota 123'))
+  })
+
   it('define o mínimo e recusa diferença zero na tela', async () => {
     vi.spyOn(estoque, 'produtos').mockResolvedValue([arroz])
     vi.spyOn(estoque, 'baixo').mockResolvedValue([arroz])

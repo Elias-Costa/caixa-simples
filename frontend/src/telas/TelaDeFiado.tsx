@@ -15,6 +15,8 @@ import { filtrarPorNome } from './filtroPorNome'
 import { Mensagem } from './Mensagem'
 import { PixManual } from './QrDoPix'
 import { ROTULO_DA_FORMA } from './rotulos'
+import { TituloComAjuda } from './TituloComAjuda'
+import { AJUDA } from './textosDeAjuda'
 
 // O recebimento continua só com rede. Ele passa pelo aparelho para que o caixa guardado, usado sem
 // rede, não fique com o saldo de antes do dinheiro recebido.
@@ -146,7 +148,7 @@ export function TelaDeFiado() {
   }
 
   return <section className="cadastro">
-    <div className="cadastro__topo"><div><h2 className="titulo">Fiado</h2>
+    <div className="cadastro__topo"><div><TituloComAjuda titulo="Fiado" ajuda={AJUDA.fiado} />
       <p>Quem deve, com o saldo de cada venda. Cada recebimento entra no caixa de quem o registra.</p>
     </div></div>
     <Mensagem tipo="erro" texto={erroEm('tela')} />

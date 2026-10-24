@@ -470,8 +470,13 @@ textarea:disabled {
   text-decoration: none;
 }
 
-.faixa {
+/* Vazio, o contêiner não ocupa altura, e a linha da faixa some junto. */
+.faixas {
   grid-area: faixa;
+  display: grid;
+}
+
+.faixa {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -799,6 +804,40 @@ html:has(.pdv__rodape) { scroll-padding-bottom: 240px; }
   margin: 0 0 var(--espaco);
   font-size: 1.4rem;
 }
+
+/* O botão de ajuda fica colado ao título; a ajuda aberta vem logo abaixo, antes do resto da tela. */
+.titulo-com-ajuda {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: var(--espaco);
+}
+
+.titulo-com-ajuda .titulo { margin: 0; }
+
+.titulo-com-ajuda__botao {
+  min-width: 36px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+.titulo-com-ajuda__texto { margin: 0 0 var(--espaco); }
+.titulo-com-ajuda__texto p { margin: 4px 0; }
+
+/* Os primeiros passos: um cartão no alto do conteúdo, não um diálogo, com a tela à mão embaixo. */
+.primeiros-passos {
+  margin-bottom: var(--espaco);
+  padding: var(--espaco);
+  border: 1px solid var(--cor-borda);
+  border-left: 4px solid var(--cor-destaque);
+  border-radius: var(--raio);
+  background: var(--cor-superficie);
+}
+
+.primeiros-passos h2 { margin: 4px 0 8px; font-size: 1.2rem; }
+.primeiros-passos__contagem { margin: 0; color: var(--cor-texto-secundario); font-size: 0.9rem; }
+.primeiros-passos__acoes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 
 /* Desktop: a navegação vira coluna ao lado do conteúdo. */
 

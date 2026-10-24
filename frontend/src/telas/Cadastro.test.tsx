@@ -134,4 +134,22 @@ describe('cadastro na tela', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reativar' }))
     await waitFor(() => expect(reativar).toHaveBeenCalledWith('cliente-1'))
   })
+
+  it('a lista continua em ordem alfabética depois de reativar, que devolve o cliente no fim', async () => {
+    const bruno = { id: 'cliente-b', nome: 'Bruno', contato: null }
+    const carla = { id: 'cliente-c', nome: 'Carla', contato: null }
+    const ana = { id: 'cliente-a', nome: 'Ana', contato: null }
+    let reativada = false
+    // O servidor devolve na ordem em que guarda: a reativada vem por último.
+    vi.spyOn(cadastro, 'clientes').mockImplementation(async () => reativada ? [bruno, carla, ana] : [bruno, carla])
+    vi.spyOn(cadastro, 'clientesInativos').mockImplementation(async () => reativada ? [] : [ana])
+    vi.spyOn(cadastro, 'reativarCliente').mockImplementation(async () => { reativada = true })
+    render(<TelaDeClientes />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Reativar' }))
+    await screen.findByText('Ana reativado.')
+    const ativos = screen.getByRole('heading', { name: 'Ativos' }).closest('section') as HTMLElement
+    expect(within(ativos).getAllByRole('listitem').map((item) => item.textContent))
+      .toEqual([expect.stringMatching(/^Ana/), expect.stringMatching(/^Bruno/), expect.stringMatching(/^Carla/)])
+  })
 })

@@ -3,7 +3,7 @@ package br.com.caixasimples.relatorios.web;
 import br.com.caixasimples.relatorios.application.ConferenciaDoCartaoService;
 import br.com.caixasimples.relatorios.application.ConferenciaDoCartaoService.ConferenciaDoCartao;
 import br.com.caixasimples.relatorios.application.ConferenciaDoCartaoService.Lancamento;
-import br.com.caixasimples.relatorios.application.ConferenciaDoCartaoService.Origem;
+import br.com.caixasimples.relatorios.application.OrigemDoLancamento;
 import br.com.caixasimples.vendas.StatusVenda;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -52,7 +52,7 @@ class ConferenciaDoCartaoController {
     }
 
     /** O NSU sai da resposta quando não foi informado, e a tela marca a falta. */
-    record LancamentoNaResposta(UUID id, Origem origem, UUID vendaId, Instant lancadoEm,
+    record LancamentoNaResposta(UUID id, OrigemDoLancamento origem, UUID vendaId, Instant lancadoEm,
             BigDecimal valor, UUID operadorId, StatusVenda situacaoDaVenda, String nsu) {
         static LancamentoNaResposta de(Lancamento lancamento) {
             return new LancamentoNaResposta(lancamento.id(), lancamento.origem(),

@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { cadastro } from '../api/cadastro'
-import type { SessaoCaixa } from '../api/caixa'
+import { caixa as caixaNoServidor, type SessaoCaixa } from '../api/caixa'
 import { SemConexao } from '../api/cliente'
 import { contas } from '../api/contas'
 import { intencaoOnline } from '../api/intencaoOnline'
-import type { ResumoDaVenda, Venda } from '../api/vendas'
-import { hojeNoBalcao } from '../dataDoBalcao'
+import type { Comprovante as DadosDoComprovante, ResumoDaVenda, Venda } from '../api/vendas'
+import { abertaAntesDeHoje, hojeNoBalcao } from '../dataDoBalcao'
 import { dataHora, lerDinheiro, moeda } from '../formatos'
 import { criarCaixaLocal } from '../offline/caixaLocal'
 import { criarVendaLocal } from '../offline/vendaLocal'
@@ -13,10 +12,14 @@ import { useSincronizacao } from '../shell/sincronizacao'
 import { useOnline } from '../shell/useOnline'
 import { useSessao } from '../sessao/useSessao'
 import { CampoDeDinheiro } from './CampoDeDinheiro'
+import { nomesDosClientesNoAparelho } from './clientesNoAparelho'
+import { Comprovante } from './Comprovante'
 import { erroDeCadastro } from './erroDeCadastro'
 import { Mensagem } from './Mensagem'
 import { ROTULO_DA_FORMA, ROTULO_DA_VENDA, ROTULO_DO_CAIXA, ROTULO_DO_MOVIMENTO } from './rotulos'
 import { useConfirmacao, type Pergunta } from './useConfirmacao'
+import { TituloComAjuda } from './TituloComAjuda'
+import { AJUDA } from './textosDeAjuda'
 
 const caixa = criarCaixaLocal()
 // A mesma leitura da tela Vender: sem rede, as vendas da sessão guardadas neste aparelho.
@@ -29,6 +32,8 @@ type MensagemNaTela = { tipo: 'erro' | 'sucesso'; texto: string; lugar: LugarDaM
 /** A lista guarda de qual sessão é: trocada a sessão, a lista anterior some antes da nova chegar. */
 type VendasDaSessao = { sessaoId: string; lista: ResumoDaVenda[] }
 type VendaEmDetalhe = { venda: Venda; cliente: string | null }
+/** A segunda via aberta no detalhe, com o instante da reimpressão, que vai no papel. */
+type SegundaVia = { comprovante: DadosDoComprovante; em: Date }
 
 /**
  * A diferença do fechamento em palavras, falta ou sobra, no lugar do sinal, que é convenção do
@@ -42,19 +47,6 @@ function diferencaEmPalavras(diferenca: number): string {
 
 function comMaiuscula(texto: string): string {
   return texto.charAt(0).toUpperCase() + texto.slice(1)
-}
-
-/**
- * O nome do cliente da venda pelo cadastro deste aparelho, que guarda ativos e inativos também sem
- * rede. O removido não volta às listas, e o nome dele já foi apagado no servidor.
- */
-async function nomeDoClienteNoAparelho(clienteId: string): Promise<string> {
-  try {
-    const [ativos, inativos] = await Promise.all([cadastro.clientes(), cadastro.clientesInativos()])
-    return [...ativos, ...inativos].find((cliente) => cliente.id === clienteId)?.nome ?? 'Cliente removido'
-  } catch {
-    return 'nome indisponível neste aparelho'
-  }
 }
 
 /**
@@ -72,8 +64,14 @@ function perguntaDoFechamento(contado: number, diferenca: number | null): Pergun
   }
 }
 
-/** Uma venda da sessão como foi: itens, descontos, pagamentos e o cliente, sem nada para tocar. */
-function DetalheDaVenda({ venda, cliente, aoFechar }: VendaEmDetalhe & { aoFechar: () => void }) {
+/**
+ * Uma venda da sessão como foi: itens, descontos, pagamentos e o cliente, sem nada para alterar. A
+ * venda concluída reimprime o comprovante, como segunda via; a cancelada não tem comprovante.
+ */
+function DetalheDaVenda({ venda, cliente, aoFechar, aoPedirSegundaVia }: VendaEmDetalhe & {
+  aoFechar: () => void
+  aoPedirSegundaVia: () => void
+}) {
   return <section className="caixa__formulario" aria-label="Detalhe da venda">
     <h4>Venda de {dataHora.format(new Date(venda.criadoEm))} · {ROTULO_DA_VENDA[venda.status]}</h4>
     {venda.pendenteSincronizacao && <p>Pendente de sincronização com o servidor.</p>}
@@ -95,7 +93,11 @@ function DetalheDaVenda({ venda, cliente, aoFechar }: VendaEmDetalhe & { aoFecha
         {parcela.status === 'RECUSADO' && ' · recusada'}
       </li>)}
     </ul>}
-    <button className="botao botao--secundario" type="button" onClick={aoFechar}>Fechar detalhe</button>
+    <div className="comprovante__acoes">
+      {venda.status === 'CONCLUIDA' && <button className="botao" type="button"
+        onClick={aoPedirSegundaVia}>Segunda via do comprovante</button>}
+      <button className="botao botao--secundario" type="button" onClick={aoFechar}>Fechar detalhe</button>
+    </div>
   </section>
 }
 
@@ -133,10 +135,16 @@ export function TelaDeCaixa() {
   const [carregando, setCarregando] = useState(true)
   const [vendasDaSessao, setVendasDaSessao] = useState<VendasDaSessao>()
   const [emDetalhe, setEmDetalhe] = useState<VendaEmDetalhe>()
+  const [segundaVia, setSegundaVia] = useState<SegundaVia>()
+  // Os caixas de outros usuários esquecidos abertos desde um dia anterior, que o histórico por dia de
+  // abertura não mostra no dia de hoje. Só do administrador, e só com rede.
+  const [deOutroDia, setDeOutroDia] = useState<SessaoCaixa[]>([])
   const [confirmar, dialogoDeConfirmacao] = useConfirmacao()
   const sessaoSelecionada = selecionada?.id
   const listaDaSessao = vendasDaSessao?.sessaoId === sessaoSelecionada ? vendasDaSessao?.lista : undefined
   const detalheDaSessao = emDetalhe?.venda.sessaoCaixaId === sessaoSelecionada ? emDetalhe : undefined
+  const segundaViaDoDetalhe = segundaVia?.comprovante.vendaId === detalheDaSessao?.venda.id
+    ? segundaVia : undefined
 
   const carregar = useCallback(async () => {
     try {
@@ -186,6 +194,17 @@ export function TelaDeCaixa() {
     return () => { ativo = false }
   }, [sessaoSelecionada, rodada])
 
+  // A sessão fechada aqui sai do cartão na releitura seguinte, que a rodada da fila e o carregar fazem.
+  useEffect(() => {
+    if (!administrador || !online) return
+    let ativo = true
+    caixaNoServidor.abertas().then((abertas) => {
+      if (ativo) setDeOutroDia(abertas.filter((sessao) => sessao.usuarioId !== identidade?.usuarioId
+        && abertaAntesDeHoje(sessao.abertaEm)))
+    }).catch(() => { /* o cartão é um atalho; o histórico continua chegando a essas sessões */ })
+    return () => { ativo = false }
+  }, [administrador, online, identidade?.usuarioId, rodada, historico])
+
   // O administrador vê os caixas de todos; o nome de quem abriu vem da lista de usuários da Conta.
   useEffect(() => {
     if (!administrador || !online) return
@@ -210,8 +229,19 @@ export function TelaDeCaixa() {
     setMensagem(undefined)
     try {
       const venda = await vendas.consultar(resumo.id)
-      const cliente = venda.clienteId ? await nomeDoClienteNoAparelho(venda.clienteId) : null
+      const cliente = venda.clienteId ? (await nomesDosClientesNoAparelho())(venda.clienteId) : null
+      setSegundaVia(undefined)
       setEmDetalhe({ venda, cliente })
+    } catch (falha) {
+      setMensagem({ tipo: 'erro', texto: erroDeCadastro(falha), lugar: 'vendas' })
+    }
+  }
+
+  /** Sem rede, o comprovante é montado com o que o aparelho guarda, como o da venda feita sem rede. */
+  async function pedirSegundaVia(venda: Venda) {
+    setMensagem(undefined)
+    try {
+      setSegundaVia({ comprovante: await vendas.comprovante(venda.id), em: new Date() })
     } catch (falha) {
       setMensagem({ tipo: 'erro', texto: erroDeCadastro(falha), lugar: 'vendas' })
     }
@@ -287,9 +317,20 @@ export function TelaDeCaixa() {
   }
 
   return <section className="caixa">
-    <h2 className="titulo">Caixa</h2>
+    <TituloComAjuda titulo="Caixa" ajuda={AJUDA.caixa} />
     {mostrarEm('tela')}
     {carregando ? <p>Carregando...</p> : <>
+      {deOutroDia.length > 0 && <section className="caixa__cartao">
+        <h3>Caixas abertos desde outro dia</h3>
+        <p>Sessões de outros usuários que ficaram abertas. Escolha uma para conferir e fechar.</p>
+        <ul className="caixa__lista">
+          {deOutroDia.map((sessao) => <li key={sessao.id}>
+            <button className="botao botao--secundario" type="button" onClick={() => setSelecionada(sessao)}>
+              {nomeDoOperador(sessao.usuarioId)} · aberto em {dataHora.format(new Date(sessao.abertaEm))}
+            </button>
+          </li>)}
+        </ul>
+      </section>}
       <section className="caixa__cartao">
         <h3>Meu caixa</h3>
         {aberta ? <>
@@ -410,7 +451,12 @@ export function TelaDeCaixa() {
                   </button>
                 </li>)}
               </ul>}
-          {detalheDaSessao && <DetalheDaVenda {...detalheDaSessao} aoFechar={() => setEmDetalhe(undefined)} />}
+          {detalheDaSessao && <DetalheDaVenda {...detalheDaSessao} aoFechar={() => setEmDetalhe(undefined)}
+            aoPedirSegundaVia={() => void pedirSegundaVia(detalheDaSessao.venda)} />}
+          {segundaViaDoDetalhe && identidade && <Comprovante comprovante={segundaViaDoDetalhe.comprovante}
+            negocio={identidade.nomeNegocio} operador={nomeDoOperador(segundaViaDoDetalhe.comprovante.usuarioId)}
+            segundaViaEm={segundaViaDoDetalhe.em}
+            aoFalhar={(texto) => setMensagem({ tipo: 'erro', texto, lugar: 'vendas' })} />}
         </details>
       </section>}
     </>}

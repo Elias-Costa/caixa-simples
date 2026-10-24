@@ -221,8 +221,9 @@ public class Produto {
 
     /**
      * Baixa de uma venda concluída (RF18): o saldo desce e o movimento correspondente é devolvido,
-     * para que quem persiste grave os dois na mesma transação. É um dos três caminhos que movem
-     * {@code estoqueAtual}, ao lado de {@link #estornarPorCancelamento} e {@link #ajustarEstoque}.
+     * para que quem persiste grave os dois na mesma transação. É um dos quatro caminhos que movem
+     * {@code estoqueAtual}, ao lado de {@link #estornarPorCancelamento}, {@link #ajustarEstoque} e
+     * {@link #registrarEntrada}.
      *
      * <p><strong>O saldo pode ficar negativo</strong>; ver o comentário do campo.
      *
@@ -297,7 +298,7 @@ public class Produto {
      * Ajuste manual do estoque (RF19): perda, quebra ou contagem. O saldo recebe a diferença e o
      * movimento de AJUSTE correspondente é devolvido, para que quem persiste grave os dois na
      * mesma transação. É o terceiro caminho, além de {@link #darBaixaPorVenda} e de
-     * {@link #estornarPorCancelamento}, que move {@code estoqueAtual}.
+     * {@link #estornarPorCancelamento}, que move {@code estoqueAtual}; a entrada por compra é o quarto.
      *
      * <p><strong>A diferença carrega o sinal.</strong> Positiva soma, negativa subtrai: uma perda
      * de duas unidades é {@code -2}, uma contagem que achou três a mais é {@code +3}. Perda e
@@ -344,6 +345,46 @@ public class Produto {
         }
         this.estoqueAtual = this.estoqueAtual.add(diferenca);
         return MovimentoEstoque.ajuste(diferenca, motivo);
+    }
+
+    /**
+     * Entrada de mercadoria comprada: o saldo sobe a quantidade que chegou e o movimento de ENTRADA
+     * correspondente é devolvido, para que quem persiste grave os dois na mesma transação. É o quarto
+     * caminho que move {@code estoqueAtual}, ao lado da baixa, do estorno e do ajuste.
+     *
+     * <p><strong>Não é ajuste.</strong> O ajuste é perda, quebra ou contagem, com motivo obrigatório
+     * (RF19); a reposição é o caso comum de todo dia, e o tipo ENTRADA já diz o que ela é. Por isso o
+     * motivo aqui é opcional, para quem quiser anotar a nota ou o fornecedor, e a quantidade é sempre
+     * positiva: o sinal está no tipo, como na baixa por venda.
+     *
+     * <p>Recusa SERVICO e produto inativo pelos mesmos motivos de {@link #ajustarEstoque}: serviço
+     * não tem saldo, e repor um item que saiu do catálogo não teria efeito nenhum na venda.
+     *
+     * @param quantidade o que chegou; positiva, com até três casas
+     * @param motivo     opcional; em branco vale como não informado
+     * @return o movimento de ENTRADA desta compra, para ser gravado junto do saldo
+     * @throws IllegalStateException    se o item é SERVICO ou está inativo
+     * @throws IllegalArgumentException se a quantidade é zero, negativa ou tem mais de três casas, ou
+     *                                  se o motivo passa do tamanho da coluna
+     */
+    public MovimentoEstoque registrarEntrada(BigDecimal quantidade, String motivo) {
+        Objects.requireNonNull(quantidade, "quantidade nao pode ser nula");
+        if (!controlaEstoque()) {
+            throw new IllegalStateException(
+                    nome + " está cadastrado sem estoque e não recebe entrada de estoque.");
+        }
+        if (!ativo) {
+            throw new IllegalStateException(
+                    "O produto " + nome + " está inativo e não recebe entrada de estoque.");
+        }
+        if (quantidade.signum() <= 0) {
+            throw new IllegalArgumentException("A quantidade da entrada precisa ser maior que zero.");
+        }
+        MovimentoEstoque.exigirCasasDaQuantidade(quantidade, "A quantidade da entrada");
+        String motivoInformado = textoOpcional(motivo, "motivo da entrada de estoque",
+                TAMANHO_DO_MOTIVO);
+        this.estoqueAtual = this.estoqueAtual.add(quantidade);
+        return MovimentoEstoque.entradaPorCompra(quantidade, motivoInformado);
     }
 
     /**

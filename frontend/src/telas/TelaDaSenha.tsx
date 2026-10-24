@@ -6,6 +6,9 @@ import { useSessao } from '../sessao/useSessao'
 import { CampoDeSenha } from './CampoDeSenha'
 import { problemaDoTamanhoDaSenha } from './regrasDaSenha'
 import { useConfirmacao } from './useConfirmacao'
+import { TituloComAjuda } from './TituloComAjuda'
+import { AJUDA } from './textosDeAjuda'
+import { prepararCadastroLocal } from '../sessao/prepararCadastroLocal'
 
 type Props = {
   /** A senha é a que outra pessoa escolheu, e esta é a única tela até a troca. */
@@ -54,7 +57,11 @@ export function TelaDaSenha({ obrigatoria = false }: Props) {
       setRepetida('')
       setAviso('Senha trocada. Os outros aparelhos saíram e entram de novo com a senha nova.')
       // A resposta já confirma a troca; a marca sai sem esperar outra pergunta ao servidor.
-      atualizarIdentidade({ ...identidade, senhaProvisoria: false }, sessao)
+      const escolhida = { ...identidade, senhaProvisoria: false }
+      atualizarIdentidade(escolhida, sessao)
+      // Com a senha provisória o servidor não entregava o cadastro; agora o aparelho o guarda para
+      // abrir sem rede. A falha não desfaz a troca, que o servidor já aceitou.
+      if (identidade.senhaProvisoria) void prepararCadastroLocal(escolhida).catch(() => undefined)
     } catch (falha) {
       setErro(mensagemDe(falha))
     } finally {
@@ -107,7 +114,7 @@ export function TelaDaSenha({ obrigatoria = false }: Props) {
   }
 
   return <section className="cadastro">
-    <h2 className="titulo">Minha conta</h2>
+    <TituloComAjuda titulo="Minha conta" ajuda={AJUDA.minhaConta} />
     <SeusDados />
     {formulario}
     <div className="cadastro__formulario">

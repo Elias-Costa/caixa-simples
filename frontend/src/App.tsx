@@ -19,6 +19,7 @@ import { TelaDeEstoque } from './telas/TelaDeEstoque'
 import { TelaDeFiado } from './telas/TelaDeFiado'
 import { TelaDeSincronizacao } from './telas/TelaDeSincronizacao'
 import { TelaDaSenha } from './telas/TelaDaSenha'
+import { TelaDePrimeirosPassos } from './telas/TelaDePrimeirosPassos'
 
 /**
  * As rotas do aplicativo. Todas, menos o login, o aviso de privacidade e os termos de uso, que se
@@ -44,6 +45,7 @@ export function App() {
           <Route path="fiado" element={<TelaDeFiado />} />
           <Route path="sincronizacao" element={<TelaDeSincronizacao />} />
           <Route path="senha" element={<TelaDaSenha />} />
+          <Route path="primeiros-passos" element={<TelaDePrimeirosPassos />} />
 
           <Route element={<ExigeAdmin />}>
             <Route path="usuarios" element={<TelaDeUsuarios />} />

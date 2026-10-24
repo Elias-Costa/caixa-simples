@@ -14,8 +14,8 @@ import org.hibernate.annotations.Immutable;
 import org.hibernate.annotations.TenantId;
 
 /**
- * A tabela {@code recebimento} vista pelos relatórios: o que a conferência do cartão lê do
- * recebimento de fiado, e nada mais.
+ * A tabela {@code recebimento} vista pelos relatórios: o que as conferências do cartão e do Pix
+ * leem do recebimento de fiado, e nada mais.
  *
  * <p>Mesmo desenho de {@link PagamentoParaRelatorio}: somente leitura, sem repositório, alvo de
  * junção numa consulta que parte da venda. O recebimento é membro do agregado Venda e nunca teve

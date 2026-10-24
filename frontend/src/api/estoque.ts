@@ -16,6 +16,11 @@ export const estoque = {
     chamarApi<void>(`/api/estoque/produtos/${id}/ajustes`, {
       metodo: 'POST', corpo: { diferenca, motivo },
     }),
+  /** A mercadoria comprada que chegou; o motivo, opcional, vai só quando foi escrito. */
+  registrarEntrada: (id: string, quantidade: number, motivo: string) =>
+    chamarApi<void>(`/api/estoque/produtos/${id}/entradas`, {
+      metodo: 'POST', corpo: motivo ? { quantidade, motivo } : { quantidade },
+    }),
   definirMinimo: (id: string, minimo: number) =>
     chamarApi<void>(`/api/estoque/produtos/${id}/minimo`, {
       metodo: 'PUT', corpo: { minimo },

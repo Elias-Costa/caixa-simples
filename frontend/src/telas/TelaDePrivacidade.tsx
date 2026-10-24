@@ -116,8 +116,8 @@ export function TelaDePrivacidade() {
         Sair.</li>
       <li><strong>No aparelho:</strong> o aplicativo guarda no aparelho em que se entra o que precisa
         para trabalhar sem rede: o cadastro de produtos e de Clientes, com nome e contato, as vendas e o
-        caixa lidos do servidor, a chave Pix e a cidade do QR do Pix manual e o que foi registrado sem
-        rede até ser enviado. Sair não apaga esses
+        caixa lidos do servidor, a chave Pix e a cidade do QR do Pix manual, o que foi registrado sem
+        rede até ser enviado e a marca de quem já viu os primeiros passos. Sair não apaga esses
         dados. Para apagá-los, use Apagar os dados deste aparelho na tela de entrada, depois de entrar
         com rede e esperar o envio do que foi registrado sem rede, que se perde se ainda não tiver
         chegado ao servidor; ou limpe os dados do site nas configurações do navegador. Faça isso antes

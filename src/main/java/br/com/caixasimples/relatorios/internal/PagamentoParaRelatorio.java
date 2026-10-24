@@ -16,7 +16,8 @@ import org.hibernate.annotations.TenantId;
 
 /**
  * A tabela {@code pagamento} vista pelos relatórios: um segundo mapeamento da mesma tabela, com as
- * colunas que o faturamento por forma de pagamento e a conferência do cartão leem e nada mais.
+ * colunas que o faturamento por forma de pagamento e as conferências do cartão e do Pix leem e nada
+ * mais.
  *
  * <p>Segue o desenho de {@link VendaParaRelatorio}, pelos mesmos motivos, e, como
  * {@link ProdutoParaRelatorio}, <strong>não tem repositório</strong>: existe para ser alvo de
@@ -70,6 +71,13 @@ public class PagamentoParaRelatorio {
     /** Só em cartão; nulo quando não foi informado. */
     @Column(length = 40)
     private String nsu;
+
+    /**
+     * Preenchido só no Pix integrado, a cobrança criada no provedor; nulo no Pix lançado à mão. É o
+     * que a conferência do Pix usa para dizer qual dos dois cada linha é.
+     */
+    @Column(name = "pix_txid", length = 35)
+    private String pixTxid;
 
     protected PagamentoParaRelatorio() {
         // exigido pelo JPA, e o unico construtor de proposito: ninguem instancia esta classe

@@ -71,7 +71,12 @@ public class CriadorDeContaDeTeste {
             return usuarios.save(usuario).getId();
         });
 
-        credenciais.save(new Credencial(email, encoder.encode(senha), usuarioId, contaId));
+        // A pessoa da fixture já escolheu a própria senha: com a provisória, o servidor só responde à
+        // identidade e à troca, e quase nenhum teste é sobre isso. Quem testa a senha provisória a
+        // produz pela redefinição ou pela criação de usuário, os caminhos reais.
+        Credencial credencial = new Credencial(email, encoder.encode(senha), usuarioId, contaId);
+        credencial.trocarSenha(credencial.getSenhaHash());
+        credenciais.save(credencial);
         return new ContaCriada(contaId, usuarioId, perfil, email, senha);
     }
 

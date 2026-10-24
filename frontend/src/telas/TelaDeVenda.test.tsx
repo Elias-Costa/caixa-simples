@@ -239,6 +239,9 @@ describe('PDV no tablet', () => {
     expect(papel).toHaveTextContent('Troco: R$ 2,50')
     expect(papel).toHaveTextContent('Dinheiro: R$ 12,50')
     expect(papel).not.toHaveTextContent('DINHEIRO')
+    // O comprovante logo depois de concluir é o original, e a venda sem desconto não mostra a linha.
+    expect(papel).not.toHaveTextContent('Segunda via')
+    expect(papel).not.toHaveTextContent('Desconto da venda')
     // A próxima venda começa sem um toque para voltar à busca.
     await waitFor(() => expect(busca).toHaveFocus())
     expect(toques).toBeLessThanOrEqual(6)
@@ -591,5 +594,39 @@ describe('PDV no tablet', () => {
     expect(papel).toHaveTextContent('Valor pendente: R$ 12,50')
     // O papel que prova a dívida diz de quem ela é.
     expect(papel).toHaveTextContent('Cliente: Lia')
+    // Fiado não devolve troco: a linha não aparece.
+    expect(papel).not.toHaveTextContent('Troco')
+  })
+
+  it('a venda concluída reaberta pelo histórico sai como segunda via, com o desconto e sem troco no Pix', async () => {
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([{ id: comanda.id, sessaoCaixaId: aberta.id,
+      usuarioId: aberta.usuarioId, status: 'CONCLUIDA', total: 11.5, criadoEm: comanda.criadoEm }])
+    vi.spyOn(vendas, 'consultar').mockResolvedValue({ ...comanda, status: 'CONCLUIDA',
+      descontoDaVenda: 1, total: 11.5, pago: 11.5, faltaPagar: 0,
+      parcelas: [{ id: 'parcela-1', forma: 'PIX', valor: 11.5, status: 'CONFIRMADO', troco: 0 }] })
+    vi.spyOn(vendas, 'comprovante').mockResolvedValue({ ...comprovante, descontoDaVenda: 1,
+      valorTotal: 11.5, parcelas: [{ forma: 'PIX', valor: 11.5, troco: 0 }], troco: 0 })
+    const compartilhar = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'share', { value: compartilhar, configurable: true })
+    try {
+      mostrar()
+
+      fireEvent.click(await screen.findByRole('button', { name: /Concluída.*R\$/ }))
+      const papel = await screen.findByLabelText('Comprovante não fiscal')
+      expect(papel).toHaveTextContent(/Segunda via, reimpressa em \d{2}\/\d{2}\/\d{4}/)
+      expect(papel).toHaveTextContent('Desconto da venda: R$ 1,00')
+      expect(papel).toHaveTextContent('Pix: R$ 11,50')
+      expect(papel).not.toHaveTextContent('Troco')
+
+      fireEvent.click(within(papel).getByRole('button', { name: 'Compartilhar' }))
+      await waitFor(() => expect(compartilhar).toHaveBeenCalled())
+      const texto = compartilhar.mock.calls[0][0].text as string
+      expect(texto).toContain('Segunda via, reimpressa em')
+      expect(texto).toMatch(/Desconto da venda: R\$\s1,00/)
+      expect(texto).not.toContain('Troco')
+    } finally {
+      Reflect.deleteProperty(navigator, 'share')
+    }
   })
 })

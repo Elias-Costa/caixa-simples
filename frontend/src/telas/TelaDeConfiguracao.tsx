@@ -7,6 +7,8 @@ import { useSessao } from '../sessao/useSessao'
 import { CampoDeSenha } from './CampoDeSenha'
 import { erroDeCadastro } from './erroDeCadastro'
 import { Mensagem } from './Mensagem'
+import { TituloComAjuda } from './TituloComAjuda'
+import { AJUDA } from './textosDeAjuda'
 
 /** A aleatória vem primeiro porque é a recomendada: as outras identificam o dono a quem lê o QR. */
 const TIPOS_DE_CHAVE: { tipo: TipoDeChavePix; rotulo: string }[] = [
@@ -199,7 +201,7 @@ export function TelaDeConfiguracao() {
     && !temRecurso(identidade, 'ESTOQUE')
 
   return <section className="relatorios">
-    <h2 className="titulo">Configuração da Conta</h2>
+    <TituloComAjuda titulo="Configuração da Conta" ajuda={AJUDA.configuracao} />
     <Mensagem tipo="erro" texto={erro} />
     <Mensagem tipo="sucesso" texto={aviso} />
     <section className="relatorios__cartao">

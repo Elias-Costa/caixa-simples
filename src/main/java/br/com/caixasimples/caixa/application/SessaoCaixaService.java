@@ -308,6 +308,23 @@ public class SessaoCaixaService {
         return resumo;
     }
 
+    /**
+     * Todas as sessões ABERTA da Conta, de todos os operadores, da mais antiga para a mais nova.
+     *
+     * <p>É a pergunta do administrador sobre o caixa esquecido: o histórico é por dia de abertura, e
+     * a sessão aberta ontem e nunca fechada fica fora do dia de hoje, que é o que ele olha. Quais delas
+     * são de um dia anterior, e quais são de outro usuário, é a tela que decide, pela mesma regra do
+     * aviso que o dono da sessão vê, calculada no aparelho.
+     *
+     * @throws br.com.caixasimples.shared.AcessoNegadoException se quem chama não é ADMIN
+     */
+    @Transactional(readOnly = true)
+    public List<ResumoDeSessao> abertasDaConta() {
+        UsuarioContext.exigirAdmin();
+        return sessoes.findByStatusOrderByAbertaEm(StatusSessaoCaixa.ABERTA).stream()
+                .map(ResumoDeSessao::de).toList();
+    }
+
     /** Consulta a sessão ABERTA de quem chama, mesmo se ela começou em outro dia. */
     @Transactional(readOnly = true)
     public Optional<ResumoDeSessao> abertaDoOperadorAtual() {

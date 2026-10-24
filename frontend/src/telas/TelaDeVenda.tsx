@@ -7,7 +7,7 @@ import { ErroDaApi, SemConexao } from '../api/cliente'
 import { contas } from '../api/contas'
 import { fiado } from '../api/fiado'
 import { intencaoOnline, type IntencaoOnline } from '../api/intencaoOnline'
-import type { Comprovante, ConciliacaoPix, FormaPagamento, ResumoDaVenda, Venda } from '../api/vendas'
+import type { Comprovante as DadosDoComprovante, ConciliacaoPix, FormaPagamento, ResumoDaVenda, Venda } from '../api/vendas'
 import { dataHora, lerDinheiro, moeda, valorNoCampo } from '../formatos'
 import { criarCaixaLocal } from '../offline/caixaLocal'
 import { normalizarNsu } from '../offline/raizDaVenda'
@@ -23,10 +23,12 @@ import { Mensagem } from './Mensagem'
 import { PixManual } from './QrDoPix'
 import { ROTULO_DA_COBRANCA_PIX, ROTULO_DA_FORMA, ROTULO_DA_VENDA } from './rotulos'
 import { useConfirmacao, type Pergunta } from './useConfirmacao'
+import { TituloComAjuda } from './TituloComAjuda'
+import { AJUDA } from './textosDeAjuda'
+import { Comprovante } from './Comprovante'
 
 const caixa = criarCaixaLocal()
 const vendas = criarVendaLocal()
-const PENDENTE_NO_COMPROVANTE = 'Pendente de sincronização com o servidor'
 const CANCELAR_DEPOIS_DE_SINCRONIZAR = 'O cancelamento fica disponível depois da sincronização com o servidor.'
 /** As notas mais comuns na mão do cliente: um toque preenche o valor recebido sem abrir o teclado. */
 const NOTAS = [10, 20, 50, 100]
@@ -101,27 +103,6 @@ function separarMultiplicador(texto: string): { termo: string; quantidade?: stri
     : { termo: texto }
 }
 
-function textoDoComprovante(comprovante: Comprovante, negocio: string, operador: string): string {
-  return [
-    negocio, `Operador: ${operador}`, 'Comprovante não fiscal',
-    ...(comprovante.pendenteSincronizacao ? [PENDENTE_NO_COMPROVANTE] : []),
-    dataHora.format(new Date(comprovante.concluidoEm)),
-    ...comprovante.linhas.map((linha) =>
-      `${linha.quantidade} × ${linha.nome}: ${moeda.format(linha.subtotal)}`),
-    `Desconto da venda: ${moeda.format(comprovante.descontoDaVenda)}`,
-    `Total: ${moeda.format(comprovante.valorTotal)}`,
-    ...comprovante.parcelas.map((parcela) =>
-      `${ROTULO_DA_FORMA[parcela.forma]}: ${moeda.format(parcela.valor)}`),
-    ...(comprovante.nomeCliente ? [`Cliente: ${comprovante.nomeCliente}`] : []),
-    ...(comprovante.valorFiado > 0 ? [
-      `Valor fiado: ${moeda.format(comprovante.valorFiado)}`,
-      `Valor pendente: ${moeda.format(comprovante.saldoDevedor)}`,
-    ] : []),
-    `Troco: ${moeda.format(comprovante.troco)}`,
-    `Venda: ${comprovante.vendaId}`,
-  ].join('\n')
-}
-
 export function TelaDeVenda() {
   const { identidade } = useSessao()
   const { definirFaixa, definirVendaAberta } = useContextoDoShell()
@@ -134,7 +115,10 @@ export function TelaDeVenda() {
   const [clientes, setClientes] = useState<Cliente[]>([])
   const [buscaCliente, setBuscaCliente] = useState('')
   const [atual, setAtual] = useState<Venda>()
-  const [comprovante, setComprovante] = useState<Comprovante>()
+  const [comprovante, setComprovante] = useState<DadosDoComprovante>()
+  // O comprovante que aparece logo depois de concluir é o original; reaberto pelo histórico, é
+  // segunda via, com o instante em que foi reaberto.
+  const [segundaViaEm, setSegundaViaEm] = useState<Date>()
   const [busca, setBusca] = useState('')
   // O termo cuja resposta está em resultados: sem ele, a busca vazia e a ainda em curso pareceriam iguais.
   const [buscado, setBuscado] = useState('')
@@ -471,6 +455,7 @@ export function TelaDeVenda() {
     await vendas.concluir(id)
     await atualizar(id)
     setComprovante(await vendas.comprovante(id))
+    setSegundaViaEm(undefined)
     // A próxima venda começa pela busca sem um toque para voltar a ela, como depois de lançar item.
     buscaRef.current?.focus()
   }
@@ -499,7 +484,10 @@ export function TelaDeVenda() {
     setErro(undefined); setTroco(undefined); setComprovante(undefined); setBuscaCliente('')
     try {
       await atualizar(resumo.id)
-      if (resumo.status === 'CONCLUIDA') setComprovante(await vendas.comprovante(resumo.id))
+      if (resumo.status === 'CONCLUIDA') {
+        setComprovante(await vendas.comprovante(resumo.id))
+        setSegundaViaEm(new Date())
+      }
     } catch (falha) { falhar('historico', erroDeCadastro(falha)) }
   }
 
@@ -509,18 +497,6 @@ export function TelaDeVenda() {
       setCopiado(parcelaId)
     } catch {
       falhar('comanda', 'Não foi possível copiar. Selecione o código e copie à mão.')
-    }
-  }
-
-  async function compartilhar() {
-    if (!comprovante || !identidade || !navigator.share) return
-    try {
-      await navigator.share({
-        title: 'Comprovante não fiscal',
-        text: textoDoComprovante(comprovante, identidade.nomeNegocio, nomeDoOperador(comprovante.usuarioId)),
-      })
-    } catch (falha) {
-      if ((falha as Error).name !== 'AbortError') falhar('comprovante', erroDeCadastro(falha))
     }
   }
 
@@ -565,7 +541,7 @@ export function TelaDeVenda() {
   }
 
   return <section className="pdv">
-    <h2 className="titulo">Venda</h2>
+    <TituloComAjuda titulo="Venda" ajuda={AJUDA.vender} />
     <Mensagem tipo="erro" texto={erroEm('tela')} />
     {identidade?.perfil === 'ADMIN' && conciliacoes.length > 0 &&
       <section className="pdv__painel" aria-label="Conciliações Pix">
@@ -798,35 +774,9 @@ export function TelaDeVenda() {
         </section>
       </div>}
 
-    {comprovante && identidade && <section className="comprovante" aria-label="Comprovante não fiscal">
-      <h3>{identidade.nomeNegocio}</h3>
-      <p>Operador: {nomeDoOperador(comprovante.usuarioId)}</p>
-      <p><strong>Comprovante não fiscal</strong></p>
-      {comprovante.pendenteSincronizacao && <p><strong>{PENDENTE_NO_COMPROVANTE}</strong></p>}
-      <p>{dataHora.format(new Date(comprovante.concluidoEm))}</p>
-      <ul>{comprovante.linhas.map((linha, indice) => <li key={`${linha.produtoId}-${indice}`}>
-        {linha.quantidade} × {linha.nome} · {moeda.format(linha.precoUnitario)} · {moeda.format(linha.subtotal)}
-        {linha.desconto > 0 && ` · desconto ${moeda.format(linha.desconto)}`}
-      </li>)}</ul>
-      <p>Soma dos itens: {moeda.format(comprovante.somaDosItens)}</p>
-      <p>Desconto da venda: {moeda.format(comprovante.descontoDaVenda)}</p>
-      <p><strong>Total: {moeda.format(comprovante.valorTotal)}</strong></p>
-      <ul>{comprovante.parcelas.map((parcela, indice) => <li key={indice}>
-        {ROTULO_DA_FORMA[parcela.forma]}: {moeda.format(parcela.valor)}</li>)}</ul>
-      {/* Só na venda fiada: o papel que prova a dívida diz de quem ela é. */}
-      {comprovante.nomeCliente && <p>Cliente: {comprovante.nomeCliente}</p>}
-      {comprovante.valorFiado > 0 && <>
-        <p>Valor fiado: {moeda.format(comprovante.valorFiado)}</p>
-        <p><strong>Valor pendente: {moeda.format(comprovante.saldoDevedor)}</strong></p>
-      </>}
-      <p>Troco: {moeda.format(comprovante.troco)}</p>
-      <p>Venda: {comprovante.vendaId}</p>
-      <div className="comprovante__acoes">
-        <button className="botao" type="button" onClick={() => window.print()}>Imprimir</button>
-        {typeof navigator.share === 'function' && <button className="botao botao--secundario" type="button"
-          onClick={() => void compartilhar()}>Compartilhar</button>}
-      </div>
-    </section>}
+    {comprovante && identidade && <Comprovante comprovante={comprovante} negocio={identidade.nomeNegocio}
+      operador={nomeDoOperador(comprovante.usuarioId)} segundaViaEm={segundaViaEm}
+      aoFalhar={(mensagem) => falhar('comprovante', mensagem)} />}
     {/* Fora do papel branco do comprovante, onde o texto claro da mensagem não se leria. */}
     <Mensagem tipo="erro" texto={erroEm('comprovante')} />
     {dialogoDeConfirmacao}

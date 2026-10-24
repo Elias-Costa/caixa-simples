@@ -50,6 +50,17 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * versão antiga que a suspensão também produz. O 401, e não o 403, leva o aplicativo ao login, que
  * explica a suspensão, e devolve à fila do aparelho o lote recusado.
  *
+ * <p><strong>Com a senha provisória, só três rotas respondem.</strong> A senha escolhida por outra
+ * pessoa, o administrador na do operador ou o mantenedor na do primeiro acesso, é conhecida por quem a
+ * escolheu. O aplicativo só mostra a troca enquanto ela vale, mas pela API quem a conhece usaria a
+ * conta da outra pessoa sem trocar nada, e o que fizesse sairia no nome dela. Por isso, lida a
+ * credencial do banco, como o perfil e o ativo, toda rota da API responde 403 enquanto a senha for
+ * provisória, menos a identidade, a troca da própria senha e a saída de todos os aparelhos, as únicas
+ * de que a tela de troca precisa. A comparação é exata, pelo método e pelo caminho: uma variante do
+ * caminho cai na recusa, que é o lado seguro. A recusa vai ao log como as outras de acesso, com o
+ * motivo, e conta no alerta de rajada. O 403, e não o 401, mantém o aparelho na sessão: ele mostra a
+ * troca, e o lote recusado volta à fila até ela acontecer.
+ *
  * <p>Roda depois da autenticação do Spring Security e sempre limpa os dois contextos no
  * {@code finally}, porque thread reaproveitada não pode herdar a identidade da requisição
  * anterior.
@@ -57,12 +68,23 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @Component
 class IdentidadeDoTokenFilter extends OncePerRequestFilter {
 
+    /**
+     * O corpo da recusa pela senha provisória, fixo e sem dado de ninguém. Escrito à mão porque o
+     * filtro responde antes de qualquer controller, e o tratador de erros não chega aqui.
+     */
+    private static final String CORPO_DA_SENHA_PROVISORIA = "{\"type\":\"about:blank\","
+            + "\"title\":\"Forbidden\",\"status\":403,"
+            + "\"detail\":\"Troque a senha provisória para continuar.\"}";
+
     private final UsuarioRepository usuarios;
     private final ContaRepository contas;
+    private final CredencialRepository credenciais;
 
-    IdentidadeDoTokenFilter(UsuarioRepository usuarios, ContaRepository contas) {
+    IdentidadeDoTokenFilter(UsuarioRepository usuarios, ContaRepository contas,
+            CredencialRepository credenciais) {
         this.usuarios = usuarios;
         this.contas = contas;
+        this.credenciais = credenciais;
     }
 
     @Override
@@ -112,12 +134,54 @@ class IdentidadeDoTokenFilter extends OncePerRequestFilter {
             }
 
             Usuario usuario = lido.get();
+            if (!liberadaComSenhaProvisoria(requisicao) && temSenhaProvisoria(usuario)) {
+                EventoDeSeguranca.de("acesso.recusado")
+                        .com("conta", conta)
+                        .com("usuario", sujeito)
+                        .com("motivo", "senha_provisoria")
+                        .com("metodo", requisicao.getMethod())
+                        .com("caminho", requisicao.getRequestURI())
+                        .daOrigem(requisicao.getRemoteAddr())
+                        .registrarRecusa();
+                resposta.setStatus(HttpStatus.FORBIDDEN.value());
+                resposta.setContentType("application/problem+json");
+                resposta.setCharacterEncoding("UTF-8");
+                resposta.getWriter().write(CORPO_DA_SENHA_PROVISORIA);
+                return;
+            }
+
             UsuarioContext.definir(new UsuarioAutenticado(usuario.getId(), usuario.getPerfil()));
             corrente.doFilter(requisicao, resposta);
         } finally {
             UsuarioContext.limpar();
             TenantContext.limpar();
         }
+    }
+
+    /**
+     * As rotas de que a tela de troca da senha precisa, e fora da API, onde só há o aplicativo, que
+     * não leva token. Fica aqui, à vista, e não numa configuração: é a regra inteira.
+     */
+    private static boolean liberadaComSenhaProvisoria(HttpServletRequest requisicao) {
+        String metodo = requisicao.getMethod();
+        String caminho = requisicao.getRequestURI();
+        if (!caminho.startsWith("/api/")) {
+            return true;
+        }
+        return ("GET".equals(metodo) && "/api/auth/eu".equals(caminho))
+                || ("POST".equals(metodo) && "/api/auth/senha".equals(caminho))
+                || ("POST".equals(metodo) && "/api/auth/sair-de-todos".equals(caminho));
+    }
+
+    /**
+     * A credencial não tem tenant, porque é ela que o descobre no login; a busca pelo Usuário, já
+     * conferido nesta Conta, alcança a linha certa pelo índice único de {@code usuario_id}. Sem
+     * credencial o Usuário não entra, e o filtro já o teria recusado como inativo.
+     */
+    private boolean temSenhaProvisoria(Usuario usuario) {
+        return credenciais.findByUsuarioId(usuario.getId())
+                .map(Credencial::isSenhaProvisoria)
+                .orElse(false);
     }
 
     /** O claim numérico chega como {@code Long} na leitura do token, daí a comparação por valor. */

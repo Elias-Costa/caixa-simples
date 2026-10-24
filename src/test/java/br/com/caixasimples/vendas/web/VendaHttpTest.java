@@ -562,10 +562,10 @@ class VendaHttpTest extends TesteDeIntegracao {
                 .content(json.writeValueAsString(Map.of("nome", "Atendente", "perfil", "OPERADOR",
                         "email", email, "senha", SENHA))))
                 .andExpect(status().isCreated());
-        String corpo = http.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
-                        .content(json.writeValueAsString(Map.of("email", email, "senha", SENHA))))
-                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        String token = json.readTree(corpo).get("token").asText();
+        // A senha que o administrador escolheu é provisória: o operador escolhe a dele, como no
+        // primeiro acesso pelo aplicativo, antes de poder vender.
+        String token = autenticador.trocarSenhaProvisoria(email, SENHA,
+                "outra frase longa escolhida pelo atendente");
         return requisicao -> {
             requisicao.addHeader("Authorization", "Bearer " + token);
             return requisicao;

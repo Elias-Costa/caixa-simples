@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { contas, type UsuarioDaConta } from '../api/contas'
 import {
-  relatorios, type ConferenciaDoCartao, type Faturamento, type FluxoDeCaixa, type MaisVendidos,
+  relatorios, type ConferenciaDoCartao, type ConferenciaDoPix, type Faturamento, type FluxoDeCaixa,
+  type MaisVendidos,
 } from '../api/relatorios'
 import type { FormaPagamento, StatusVenda } from '../api/vendas'
 import { FUSO_DO_BALCAO, hojeNoBalcao } from '../dataDoBalcao'
 import { moeda } from '../formatos'
+import { nomesDosClientesNoAparelho } from './clientesNoAparelho'
 import { erroDeCadastro } from './erroDeCadastro'
+import { TituloComAjuda } from './TituloComAjuda'
+import { AJUDA } from './textosDeAjuda'
 
 // Venda fracionada é real: até três casas, e nenhuma quando a quantidade é inteira.
 const numero = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 3 })
@@ -25,6 +29,13 @@ const FORMAS: { forma: FormaPagamento; rotulo: string }[] = [
 
 type FaturamentoDaForma = { forma: FormaPagamento; rotulo: string; faturamento: Faturamento }
 
+// O Pix de venda cancelada já entrou no banco: o dono confere se devolveu ao cliente.
+const SITUACAO_NA_CONFERENCIA_DO_PIX: Record<StatusVenda, string> = {
+  CONCLUIDA: '',
+  ABERTA: ' · venda ainda aberta',
+  CANCELADA: ' · venda cancelada: confira a devolução ao cliente',
+}
+
 // A venda cancelada lembra o estorno que deve haver na maquininha; a concluída é o caso comum.
 const SITUACAO_NA_CONFERENCIA: Record<StatusVenda, string> = {
   CONCLUIDA: '',
@@ -39,6 +50,9 @@ type Consulta = {
   fluxo: FluxoDeCaixa
   /** Só existe quando o período é um dia: a conferência lista em vez de somar. */
   conferencia: ConferenciaDoCartao | null
+  /** A do Pix, também só num dia, com o nome do cliente pelo cadastro do aparelho. */
+  conferenciaDoPix: ConferenciaDoPix | null
+  nomeDoCliente: (clienteId: string) => string
   /** Quem foi consultado, e não quem está escolhido agora no seletor. */
   operador: UsuarioDaConta | null
 }
@@ -53,8 +67,8 @@ function doPeriodo(inicio: string, fim: string): string {
 }
 
 /**
- * Faturamento, mais vendidos e fluxo de caixa de um período, numa consulta só (RF21 a RF24), e a
- * conferência do cartão quando o período é um dia.
+ * Faturamento, mais vendidos e fluxo de caixa de um período, numa consulta só (RF21 a RF24), e as
+ * conferências do cartão e do Pix quando o período é um dia.
  *
  * Os cartões falam do mesmo período, então saem juntos ou nenhum sai: o erro de uma chamada vale
  * para a tela inteira. A quebra por forma é o faturamento pedido uma vez por forma, com o filtro do
@@ -79,7 +93,7 @@ export function TelaDeRelatorios() {
     setResultado(null)
     const id = operador?.id
     try {
-      const [faturamento, porForma, maisVendidos, fluxo, conferencia] = await Promise.all([
+      const [faturamento, porForma, maisVendidos, fluxo, conferencia, conferenciaDoPix, nomeDoCliente] = await Promise.all([
         relatorios.faturamento(de, ate, { operadorId: id }),
         Promise.all(FORMAS.map(async ({ forma, rotulo }) => ({
           forma, rotulo, faturamento: await relatorios.faturamento(de, ate, { forma, operadorId: id }),
@@ -87,9 +101,13 @@ export function TelaDeRelatorios() {
         relatorios.maisVendidos(de, ate, TAMANHO_DO_RANKING, id),
         relatorios.fluxoDeCaixa(de, ate),
         de === ate ? relatorios.conferenciaDoCartao(de, id) : Promise.resolve(null),
+        de === ate ? relatorios.conferenciaDoPix(de, id) : Promise.resolve(null),
+        de === ate ? nomesDosClientesNoAparelho() : Promise.resolve(() => ''),
       ])
       if (pedido === pedidoAtual.current) {
-        setResultado({ faturamento, porForma, maisVendidos, fluxo, conferencia, operador })
+        setResultado({
+          faturamento, porForma, maisVendidos, fluxo, conferencia, conferenciaDoPix, nomeDoCliente, operador,
+        })
       }
     } catch (falha) {
       if (pedido === pedidoAtual.current) setErro(erroDeCadastro(falha))
@@ -125,7 +143,7 @@ export function TelaDeRelatorios() {
   }
 
   return <section className="relatorios">
-    <h2 className="titulo">Relatórios</h2>
+    <TituloComAjuda titulo="Relatórios" ajuda={AJUDA.relatorios} />
     <section className="relatorios__cartao">
       <form className="relatorios__formulario" onSubmit={consultarPeriodo}>
         <label>Início
@@ -157,6 +175,7 @@ export function TelaDeRelatorios() {
       <CartaoDosMaisVendidos consulta={resultado} />
       <CartaoDoFluxoDeCaixa consulta={resultado} />
       <CartaoDaConferencia consulta={resultado} usuarios={usuarios} />
+      <CartaoDaConferenciaDoPix consulta={resultado} usuarios={usuarios} />
     </div>}
   </section>
 }
@@ -230,6 +249,42 @@ function CartaoDaConferencia({ consulta, usuarios }: { consulta: Consulta; usuar
     </>}
     <p className="relatorios__nota">Cada pagamento fica no dia e na hora em que foi lançado, como no
       extrato da maquininha, mesmo de venda aberta ou cancelada depois.</p>
+  </section>
+}
+
+function CartaoDaConferenciaDoPix({ consulta, usuarios }: { consulta: Consulta; usuarios: UsuarioDaConta[] }) {
+  const { conferenciaDoPix, nomeDoCliente, operador } = consulta
+  if (!conferenciaDoPix) {
+    return <section className="relatorios__cartao">
+      <h3>Conferência do Pix</h3>
+      <p>A conferência é de um dia só, como o extrato do banco. Escolha o mesmo dia no início e no fim
+        para ver cada Pix das vendas e do fiado recebido.</p>
+    </section>
+  }
+  const { lancamentos } = conferenciaDoPix
+  const aguardando = lancamentos.filter((lancamento) => lancamento.aguardandoConfirmacao).length
+  const nomeDe = (id: string) => usuarios.find((usuario) => usuario.id === id)?.nome ?? `operador ${id.slice(0, 8)}`
+  return <section className="relatorios__cartao">
+    <h3>Conferência do Pix {doPeriodo(conferenciaDoPix.dia, conferenciaDoPix.dia)}</h3>
+    {operador && <p>Lançamentos de {operador.nome}</p>}
+    {lancamentos.length === 0 ? <p>Nenhum Pix neste dia.</p> : <>
+      <p>{lancamentos.length} Pix
+        {aguardando > 0 && `, ${aguardando} aguardando confirmação`}</p>
+      <ul className="relatorios__conferencia">
+        {lancamentos.map((lancamento) => <li key={lancamento.id}>
+          <span><strong>{hora.format(new Date(lancamento.lancadoEm))}</strong> · {moeda.format(lancamento.valor)}
+            {' · '}{lancamento.integrado ? 'integrado' : 'lançado à mão'}
+            {lancamento.aguardandoConfirmacao && <span className="relatorios__sem-nsu"> · aguardando confirmação</span>}</span>
+          <span>{nomeDe(lancamento.operadorId)}
+            {lancamento.clienteId && ` · ${nomeDoCliente(lancamento.clienteId)}`}
+            {' · '}{lancamento.origem === 'RECEBIMENTO' ? 'recebimento de fiado' : 'venda'} {lancamento.vendaId.slice(0, 8)}
+            {SITUACAO_NA_CONFERENCIA_DO_PIX[lancamento.situacaoDaVenda]}</span>
+        </li>)}
+      </ul>
+    </>}
+    <p className="relatorios__nota">O Pix lançado à mão não tem identificador: confira pelo valor e pela
+      hora. A cobrança integrada ainda não paga aparece marcada; se o banco já tem o crédito, confira a
+      conciliação na tela de venda.</p>
   </section>
 }
 

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import type { RegisterSWOptions } from 'virtual:pwa-register/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -208,3 +208,56 @@ describe('versão nova no Shell', () => {
     }
   })
 })
+
+describe('primeiros passos no Shell', () => {
+  beforeEach(() => localStorage.clear())
+
+  it('aparecem no primeiro acesso, passam pelos três cartões e não voltam depois de começar', () => {
+    const primeiro = abrir('/caixa')
+    expect(screen.getByText('Primeiros passos (1 de 3)')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Abra o caixa' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Próximo' }))
+    expect(screen.getByRole('heading', { name: 'Venda' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Anterior' }))
+    expect(screen.getByRole('heading', { name: 'Abra o caixa' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Próximo' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Próximo' }))
+    expect(screen.getByRole('heading', { name: 'Feche o caixa' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Começar a usar' }))
+    expect(screen.queryByText(/Primeiros passos \(/)).not.toBeInTheDocument()
+
+    primeiro.unmount()
+    abrir('/caixa')
+    expect(screen.queryByText(/Primeiros passos \(/)).not.toBeInTheDocument()
+    expect(localStorage.getItem('caixa-simples.tour-visto.conta-1.usuario-1')).toBe('1')
+  })
+
+  it('pular também marca, e outra pessoa no mesmo aparelho vê o tour na primeira vez', () => {
+    localStorage.setItem('caixa-simples.tour-visto.conta-1.outra-pessoa', '1')
+    abrir('/caixa')
+    fireEvent.click(screen.getByRole('button', { name: 'Pular' }))
+    expect(screen.queryByText(/Primeiros passos \(/)).not.toBeInTheDocument()
+    expect(localStorage.getItem('caixa-simples.tour-visto.conta-1.usuario-1')).toBe('1')
+  })
+})
+
+describe('caixa aberto desde outro dia no Shell', () => {
+  it('a faixa diz desde quando e leva ao caixa; com o caixa de hoje, nada', async () => {
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(
+      { ...sessaoDeCaixa, abertaEm: '2020-03-02T21:02:00Z' })
+    const comOntem = abrir('/vender')
+    expect(await screen.findByText(
+      'Seu caixa está aberto desde 02/03 às 18:02. As vendas de hoje entram nele até você fechá-lo.'))
+      .toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Ir ao caixa' })).toHaveAttribute('href', '/caixa')
+    comOntem.unmount()
+
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(
+      { ...sessaoDeCaixa, abertaEm: new Date().toISOString() })
+    abrir('/caixa')
+    await waitFor(() => expect(caixa.abertaDoOperadorAtual).toHaveBeenCalled())
+    expect(screen.queryByText(/Seu caixa está aberto desde/)).not.toBeInTheDocument()
+  })
+})
+

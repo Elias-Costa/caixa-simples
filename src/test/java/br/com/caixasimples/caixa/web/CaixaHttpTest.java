@@ -177,6 +177,26 @@ class CaixaHttpTest extends TesteDeIntegracao {
                 .andExpect(jsonPath("$.campos.valorAbertura").exists());
     }
 
+    @Test
+    void sessoesAbertasDaContaSoParaOAdministradorESemAsDeOutraConta() throws Exception {
+        ContaCriada contaA = criador.criar("Caixa Aberto A", SENHA);
+        ContaCriada operadorA = criador.criar("Ponto do Operador A", SENHA, Perfil.OPERADOR, true);
+        ContaCriada contaB = criador.criar("Caixa Aberto B", SENHA);
+        UUID daContaA = abrir(autenticador.como(contaA), "8.00");
+        UUID daContaB = abrir(autenticador.como(contaB), "3.00");
+
+        http.perform(get("/api/caixa/sessoes/abertas").with(autenticador.como(contaA)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value(daContaA.toString()))
+                .andExpect(jsonPath("$[0].status").value("ABERTA"));
+        http.perform(get("/api/caixa/sessoes/abertas").with(autenticador.como(contaB)))
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value(daContaB.toString()));
+        http.perform(get("/api/caixa/sessoes/abertas").with(autenticador.como(operadorA)))
+                .andExpect(status().isForbidden());
+    }
+
     private UUID abrir(RequestPostProcessor usuario, String valor) throws Exception {
         String corpo = http.perform(post("/api/caixa/sessoes").with(usuario)
                         .contentType(MediaType.APPLICATION_JSON)

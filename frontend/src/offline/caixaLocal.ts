@@ -10,7 +10,9 @@ import {
 import { dinheiroNaGaveta, projetarVendas, type DadosDoInicio } from './raizDaVenda'
 
 type CaixaRemoto = typeof caixa
-type CaixaNoDispositivo = Omit<CaixaRemoto, 'sangrar' | 'suprir' | 'fechar'> & {
+// As sessões abertas da Conta são pergunta do administrador com rede: o aparelho guarda só o caixa
+// de quem está nele, e a tela as pede direto à API.
+type CaixaNoDispositivo = Omit<CaixaRemoto, 'sangrar' | 'suprir' | 'fechar' | 'abertas'> & {
   sangrar(id: string, valor: number, motivo: string, movimentoId?: string): Promise<void>
   suprir(id: string, valor: number, motivo: string, movimentoId?: string): Promise<void>
   /** Sem rede e com o saldo desatualizado, a diferença fica para o servidor calcular. */

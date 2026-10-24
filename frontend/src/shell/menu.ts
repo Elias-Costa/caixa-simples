@@ -10,6 +10,9 @@ export type ItemDoMenu = {
   principal: boolean
 }
 
+/** O último item dos dois perfis: o tour do primeiro acesso, de novo. */
+const PRIMEIROS_PASSOS: ItemDoMenu = { rotulo: 'Primeiros passos', caminho: '/primeiros-passos', principal: false }
+
 /**
  * Os itens de navegação que quem opera pode ver.
  *
@@ -20,7 +23,7 @@ export type ItemDoMenu = {
  * tela Plano explica o que falta; o estoque também precisa do controle ligado, que nasce
  * desligado (RF17). A sincronização é dos dois perfis: quem operou sem rede confere ali o que o
  * servidor revisou ou recusou. Minha conta também: cada um vê os próprios dados, troca a própria
- * senha e sai dos próprios aparelhos.
+ * senha e sai dos próprios aparelhos. E os primeiros passos, que reabrem o tour do primeiro acesso.
  */
 export function itensDoMenu(identidade: Identidade): ItemDoMenu[] {
   const itens: ItemDoMenu[] = [
@@ -32,7 +35,7 @@ export function itensDoMenu(identidade: Identidade): ItemDoMenu[] {
     { rotulo: 'Sincronização', caminho: '/sincronizacao', principal: false },
     { rotulo: 'Minha conta', caminho: '/senha', principal: false },
   ]
-  if (identidade.perfil !== 'ADMIN') return itens
+  if (identidade.perfil !== 'ADMIN') return [...itens, PRIMEIROS_PASSOS]
 
   if (identidade.estoqueHabilitado && temRecurso(identidade, 'ESTOQUE')) {
     itens.push({ rotulo: 'Estoque', caminho: '/estoque', principal: false })
@@ -44,6 +47,7 @@ export function itensDoMenu(identidade: Identidade): ItemDoMenu[] {
     { rotulo: 'Usuários', caminho: '/usuarios', principal: false },
     { rotulo: 'Configuração', caminho: '/configuracao', principal: false },
     { rotulo: 'Plano', caminho: '/plano', principal: false },
+    PRIMEIROS_PASSOS,
   )
   return itens
 }

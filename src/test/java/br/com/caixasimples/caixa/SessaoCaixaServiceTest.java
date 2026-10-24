@@ -469,6 +469,33 @@ class SessaoCaixaServiceTest extends TesteDeIntegracao {
                 assertThat(sessoesDeCaixa.historicoDoDia(dia, null)).hasSize(2));
     }
 
+    @Test
+    @DisplayName("as sessões abertas da Conta trazem a de ontem e a de hoje de todos os operadores, sem as fechadas e sem as de outra Conta, e o operador não as pede")
+    void abertasDaContaParaOAdministrador() {
+        ContaCriada conta = criador.criar("Padaria das Duas Portas", SENHA_DE_TESTE);
+        UsuarioCriado atendente = criador.criarOperadorEm(conta.contaId(), "Atendente da noite");
+        LocalDate ontem = LocalDate.now(FusoDeReferencia.DO_BALCAO).minusDays(1);
+        UUID esquecida = gravarSessaoAbertaEm(conta, atendente.usuarioId(),
+                instanteLocal(ontem, LocalTime.of(18, 2)));
+        // A do administrador de ontem ele fechou antes de abrir a de hoje.
+        UUID fechada = gravarSessaoAbertaEm(conta, conta.usuarioId(),
+                instanteLocal(ontem, LocalTime.of(7, 0)));
+        conta.comoUsuario(() -> sessoesDeCaixa.fechar(fechada, Money.de("60.00")));
+        UUID deHoje = conta.comoUsuario(() -> sessoesDeCaixa.abrir(Money.de("80.00")));
+        ContaCriada outraConta = criador.criar("Loja do Outro Lado", SENHA_DE_TESTE);
+        gravarSessaoAbertaEm(outraConta, outraConta.usuarioId(),
+                instanteLocal(ontem, LocalTime.of(9, 0)));
+
+        conta.comoUsuario(() -> {
+            assertThat(sessoesDeCaixa.abertasDaConta())
+                    .extracting(ResumoDeSessao::id, ResumoDeSessao::usuarioId)
+                    .containsExactly(tuple(esquecida, atendente.usuarioId()),
+                            tuple(deHoje, conta.usuarioId()));
+        });
+        assertThatExceptionOfType(AcessoNegadoException.class).isThrownBy(() ->
+                atendente.comoUsuario(() -> sessoesDeCaixa.abertasDaConta()));
+    }
+
     private static Instant instanteLocal(LocalDate dia, LocalTime hora) {
         return dia.atTime(hora).atZone(FusoDeReferencia.DO_BALCAO).toInstant();
     }

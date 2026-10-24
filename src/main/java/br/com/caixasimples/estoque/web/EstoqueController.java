@@ -7,6 +7,7 @@ import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
@@ -46,6 +47,14 @@ class EstoqueController {
         return ResponseEntity.noContent().build();
     }
 
+    /** A mercadoria que chegou; o motivo é opcional, e a quantidade, sempre positiva. */
+    @PostMapping("/produtos/{id}/entradas")
+    ResponseEntity<Void> registrarEntrada(@PathVariable UUID id,
+            @Valid @RequestBody PedidoDeEntrada pedido) {
+        estoque.registrarEntrada(id, pedido.quantidade(), pedido.motivo());
+        return ResponseEntity.noContent().build();
+    }
+
     @PutMapping("/produtos/{id}/minimo")
     ResponseEntity<Void> definirMinimo(@PathVariable UUID id,
             @Valid @RequestBody PedidoDeMinimo pedido) {
@@ -55,6 +64,10 @@ class EstoqueController {
 
     record PedidoDeAjuste(@NotNull @Digits(integer = 9, fraction = 3) BigDecimal diferenca,
             @NotBlank String motivo) {
+    }
+
+    record PedidoDeEntrada(@NotNull @Positive @Digits(integer = 9, fraction = 3)
+            BigDecimal quantidade, String motivo) {
     }
 
     record PedidoDeMinimo(@NotNull @DecimalMin("0.000") @Digits(integer = 9, fraction = 3)

@@ -192,6 +192,20 @@ describe('envio da fila', () => {
     expect(await enviarFila(servidor.enviar)).toEqual({ desfecho: 'concluida', resolvidos: 1 })
   })
 
+  it('o 403 da senha provisória devolve o lote à fila, sem sair, e a fila sai depois da troca', async () => {
+    entrar(ana)
+    const gesto = await cliente('Gabi')
+    const recusado = vi.fn(async () => {
+      throw new ErroDaApi(403, 'Forbidden', 'Troque a senha provisória para continuar.', {})
+    })
+
+    expect(await enviarFila(recusado)).toEqual({ desfecho: 'interrompida', resolvidos: 0 })
+    expect(await estados()).toEqual({ [gesto.operacaoId]: 'queued' })
+
+    const servidor = servidorFalso()
+    expect(await enviarFila(servidor.enviar)).toEqual({ desfecho: 'concluida', resolvidos: 1 })
+  })
+
   it('com o token expirado não lê nem envia a fila, que continua para o próximo login', async () => {
     entrar(ana)
     const gesto = await cliente('Dora')

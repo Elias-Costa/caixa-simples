@@ -244,7 +244,8 @@ journalctl CONTAINER_NAME=caixa-simples-app-1 --since -1h | grep evento=
 ```
 
 Os eventos de segurança da aplicação saem uma linha cada, começando por `evento=`: o login certo e o
-recusado, o bloqueio do login, o token recusado, o acesso recusado por perfil, o aviso Pix recusado, a
+recusado, o bloqueio do login, o token recusado, o acesso recusado por perfil ou pela senha provisória
+(`motivo=senha_provisoria`), o aviso Pix recusado, a
 troca e a redefinição de senha, a saída de todos os aparelhos e as ações do administrador sobre
 usuários, plano, configuração e Cliente. Cada linha leva o IP de origem, os ids de Conta, de Usuário e
 do alvo e o motivo da recusa numa palavra fixa, nunca nome, e-mail, contato, senha ou token; a recusa
@@ -491,7 +492,8 @@ unset CAIXA_SIMPLES_SEED_NOME_NEGOCIO CAIXA_SIMPLES_SEED_EMAIL CAIXA_SIMPLES_SEE
 
 O log termina com `Conta <id> criada`. A senha passa pela mesma política de qualquer senha, inclusive
 a verificação de vazamento, e é provisória: no primeiro acesso, o aplicativo só mostra a tela de troca,
-e a senha que você escolheu deixa de valer quando o administrador escolhe a dele. Entregue-a por um
+o servidor recusa com 403 toda outra rota da API enquanto ela valer, e a senha que você escolheu deixa
+de valer quando o administrador escolhe a dele. Entregue-a por um
 canal diferente do que leva o e-mail.
 
 Depois da senha, o administrador só vê os termos de uso até aceitá-los em nome da Conta; o aceite
@@ -1308,7 +1310,7 @@ a máquina ou a rede fora do ar, a aplicação parada ou travada, o certificado 
 recusas. O deploy que falha aparece no CI, que fica vermelho, e o GitHub avisa por e-mail.
 
 **O alerta de recusas** conta os [eventos de segurança](#a-vps) de login recusado, troca recusada da
-senha, do e-mail ou da chave Pix, token recusado, acesso recusado por perfil e aviso Pix recusado. Uma origem sozinha não passa
+senha, do e-mail ou da chave Pix, token recusado, acesso recusado por perfil ou pela senha provisória e aviso Pix recusado. Uma origem sozinha não passa
 de 30 falhas de login na janela da contenção; acima de 50 em 5 minutos é força bruta distribuída, ou
 enxurrada de token falso ou de aviso Pix, que nada limita. Uma Conta suspensa cujos aparelhos continuam
 pedindo também entra na contagem, com o motivo `conta_suspensa`. Com o aviso, a origem e a Conta atacada
