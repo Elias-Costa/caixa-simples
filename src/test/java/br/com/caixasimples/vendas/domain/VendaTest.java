@@ -80,7 +80,7 @@ class VendaTest {
         assertThat(venda.getPagamentos().getFirst().status()).isEqualTo(StatusPagamento.PENDENTE);
 
         assertThatIllegalStateException().isThrownBy(venda::cancelar)
-                .withMessageContaining("cobranca Pix pendente");
+                .withMessageContaining("cobrança Pix pendente");
         venda.recusarPix(tentativa, cobranca.txid());
         assertThat(venda.getPagamentos().getFirst().status()).isEqualTo(StatusPagamento.RECUSADO);
         venda.cancelar();
@@ -257,10 +257,10 @@ class VendaTest {
 
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> venda.removerItem(itemDoCafe))
-                .withMessageContaining("nao esta na venda");
+                .withMessageContaining("não está na venda");
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> venda.removerItem(UUID.randomUUID()))
-                .withMessageContaining("nao esta na venda");
+                .withMessageContaining("não está na venda");
     }
 
     @Test
@@ -275,7 +275,7 @@ class VendaTest {
         // Sem o queijo sobram 9,00, que não cobrem os 20,00 de desconto.
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> venda.removerItem(itemDoQueijo))
-                .withMessageContaining("Reduza o desconto antes");
+                .withMessageContaining("reduza o desconto antes");
 
         assertThat(venda.getItens()).hasSize(2);
         assertThat(venda.getValorTotal()).isEqualTo(Money.de("18.93"));
@@ -320,24 +320,24 @@ class VendaTest {
                     .as("adicionar em " + status)
                     .isThrownBy(() -> venda.adicionarItem(QUEIJO, BigDecimal.ONE,
                             Money.de("10.00"), Money.ZERO))
-                    .withMessageContaining(status.name());
+                    .withMessageContaining(status == StatusVenda.CONCLUIDA ? "já está concluída" : "já está cancelada");
             assertThatIllegalStateException()
                     .as("remover em " + status)
                     .isThrownBy(() -> venda.removerItem(item.id()))
-                    .withMessageContaining(status.name());
+                    .withMessageContaining(status == StatusVenda.CONCLUIDA ? "já está concluída" : "já está cancelada");
             assertThatIllegalStateException()
                     .as("descontar em " + status)
                     .isThrownBy(() -> venda.aplicarDesconto(Money.de("1.00")))
-                    .withMessageContaining(status.name());
+                    .withMessageContaining(status == StatusVenda.CONCLUIDA ? "já está concluída" : "já está cancelada");
             assertThatIllegalStateException()
                     .as("pagar em " + status)
                     .isThrownBy(() -> venda.registrarPagamento(FormaPagamento.PIX,
                             Money.de("1.00"), StatusPagamento.CONFIRMADO, Money.ZERO))
-                    .withMessageContaining(status.name());
+                    .withMessageContaining(status == StatusVenda.CONCLUIDA ? "já está concluída" : "já está cancelada");
             assertThatIllegalStateException()
                     .as("concluir em " + status)
                     .isThrownBy(venda::concluir)
-                    .withMessageContaining(status.name());
+                    .withMessageContaining(status == StatusVenda.CONCLUIDA ? "já está concluída" : "já está cancelada");
 
             assertThat(venda.getItens()).hasSize(1);
             assertThat(venda.getPagamentos()).hasSize(1);
@@ -389,7 +389,7 @@ class VendaTest {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> venda.registrarPagamento(FormaPagamento.CARTAO,
                         Money.de("15.00"), StatusPagamento.CONFIRMADO, Money.ZERO))
-                .withMessageContaining("maior que o que falta pagar, 10.00");
+                .withMessageContaining("maior que o que falta pagar, R$ 10,00");
 
         assertThat(venda.getPagamentos()).hasSize(1);
 
@@ -402,7 +402,7 @@ class VendaTest {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> venda.registrarPagamento(FormaPagamento.DINHEIRO,
                         Money.de("0.01"), StatusPagamento.CONFIRMADO, Money.ZERO))
-                .withMessageContaining("maior que o que falta pagar, 0.00");
+                .withMessageContaining("maior que o que falta pagar, R$ 0,00");
     }
 
     @Test
@@ -417,7 +417,7 @@ class VendaTest {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> venda.registrarPagamento(FormaPagamento.DINHEIRO,
                         Money.de("30.00"), StatusPagamento.CONFIRMADO, Money.ZERO))
-                .withMessageContaining("maior que o que falta pagar, 10.00");
+                .withMessageContaining("maior que o que falta pagar, R$ 10,00");
 
         // Um cartão negado é desfecho encerrado: os 10 dele continuam a pagar.
         venda.registrarPagamento(FormaPagamento.CARTAO, Money.de("10.00"),
@@ -429,8 +429,7 @@ class VendaTest {
         // E nem PENDENTE nem RECUSADO contam para concluir: só 10 dos 30 estão confirmados.
         assertThatIllegalStateException()
                 .isThrownBy(venda::concluir)
-                .withMessageContaining("10.00 em pagamentos confirmados")
-                .withMessageContaining("faltam 20.00");
+                .withMessageContaining("Ainda falta lançar R$ 20,00");
         assertThat(venda.getStatus()).isEqualTo(StatusVenda.ABERTA);
     }
 
@@ -462,14 +461,13 @@ class VendaTest {
         assertThatIllegalStateException()
                 .as("sem parcela nenhuma")
                 .isThrownBy(venda::concluir)
-                .withMessageContaining("0.00 em pagamentos confirmados")
-                .withMessageContaining("faltam 9.00");
+                                .withMessageContaining("Ainda falta lançar R$ 9,00");
 
         venda.registrarPagamento(FormaPagamento.PIX, Money.de("5.00"), StatusPagamento.CONFIRMADO, Money.ZERO);
         assertThatIllegalStateException()
                 .as("com parte paga")
                 .isThrownBy(venda::concluir)
-                .withMessageContaining("faltam 4.00");
+                .withMessageContaining("Ainda falta lançar R$ 4,00");
 
         assertThat(venda.getStatus()).isEqualTo(StatusVenda.ABERTA);
         assertThat(venda.getPagamentos()).hasSize(1);
@@ -481,7 +479,7 @@ class VendaTest {
         Venda vazia = new Venda(SESSAO, OPERADOR);
         assertThatIllegalStateException()
                 .isThrownBy(vazia::concluir)
-                .withMessageContaining("nao tem item nenhum");
+                .withMessageContaining("não tem item");
         assertThat(vazia.getStatus()).isEqualTo(StatusVenda.ABERTA);
 
         // Algo foi vendido, por zero: a conta fecha com zero em pagamentos.
@@ -510,11 +508,11 @@ class VendaTest {
         // Remover um item de 15 deixaria 19,50, abaixo dos 20 pagos.
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> venda.removerItem(itemDeQuinze))
-                .withMessageContaining("abaixo dos 20.00 ja lancados");
+                .withMessageContaining("abaixo dos R$ 20,00 já lançados");
         // Descontar 15 deixaria 19,50 também.
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> venda.aplicarDesconto(Money.de("15.00")))
-                .withMessageContaining("abaixo dos 20.00 ja lancados");
+                .withMessageContaining("abaixo dos R$ 20,00 já lançados");
         assertThat(venda.getItens()).hasSize(3);
         assertThat(venda.getValorDesconto()).isEqualTo(Money.ZERO);
 
@@ -709,14 +707,14 @@ class VendaTest {
 
         assertThatIllegalStateException()
                 .isThrownBy(venda::cancelar)
-                .withMessageContaining("ja esta CANCELADA");
+                .withMessageContaining("já foi cancelada");
         assertThatIllegalStateException()
-                .isThrownBy(venda::concluir)
-                .withMessageContaining("CANCELADA");
+                                .isThrownBy(venda::concluir)
+                .withMessageContaining("já está cancelada");
         assertThatIllegalStateException()
                 .isThrownBy(() -> venda.registrarPagamento(FormaPagamento.PIX, Money.de("9.00"),
                         StatusPagamento.CONFIRMADO, Money.ZERO))
-                .withMessageContaining("CANCELADA");
+                .withMessageContaining("já está cancelada");
         assertThat(venda.getStatus()).isEqualTo(StatusVenda.CANCELADA);
     }
 
@@ -763,12 +761,12 @@ class VendaTest {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> venda.adicionarItem(itemId, QUEIJO, BigDecimal.ONE,
                         Money.de("7.00"), Money.ZERO, Instant.now()))
-                .withMessageContaining("ja esta na venda");
+                .withMessageContaining("já está na venda");
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> venda.registrarPagamento(parcelaId, FormaPagamento.CARTAO,
                         Money.de("1.00"), StatusPagamento.CONFIRMADO, Money.ZERO,
                         Instant.now()))
-                .withMessageContaining("ja esta na venda");
+                .withMessageContaining("já está na venda");
 
         assertThat(venda.getItens()).hasSize(1);
         assertThat(venda.getPagamentos()).hasSize(1);

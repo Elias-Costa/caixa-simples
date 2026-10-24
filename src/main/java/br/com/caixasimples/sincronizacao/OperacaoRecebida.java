@@ -47,20 +47,20 @@ public record OperacaoRecebida(UUID operacaoId, UUID registroId, String tipo, Js
      */
     public <T> T payloadComo(ObjectMapper json, Class<T> forma) {
         if (!payload.isObject()) {
-            throw new OperacaoRecusadaException("o conteudo do gesto " + tipo + " nao e um objeto");
+            throw new OperacaoRecusadaException("O conteúdo do gesto " + tipo + " não é um objeto.");
         }
         try {
             return json.treeToValue(payload, forma);
         } catch (JacksonException falha) {
             throw new OperacaoRecusadaException(
-                    "o conteudo do gesto " + tipo + " nao tem a forma esperada", falha);
+                    "O conteúdo do gesto " + tipo + " não tem a forma esperada.", falha);
         }
     }
 
     /** O campo obrigatório do conteúdo, ou a recusa dizendo qual faltou. */
     public <T> T exigir(T valor, String campo) {
         if (valor == null) {
-            throw new OperacaoRecusadaException("o gesto " + tipo + " chegou sem " + campo);
+            throw new OperacaoRecusadaException("O gesto " + tipo + " chegou sem " + campo + ".");
         }
         return valor;
     }
@@ -71,8 +71,8 @@ public record OperacaoRecebida(UUID operacaoId, UUID registroId, String tipo, Js
         try {
             return Money.de(valor);
         } catch (ArithmeticException fracaoDeCentavo) {
-            throw new OperacaoRecusadaException("o campo " + campo + " do gesto " + tipo
-                    + " tem fracao de centavo: " + valor, fracaoDeCentavo);
+            throw new OperacaoRecusadaException("O campo " + campo + " do gesto " + tipo
+                    + " tem fração de centavo.", fracaoDeCentavo);
         }
     }
 }

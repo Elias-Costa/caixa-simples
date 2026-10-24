@@ -64,8 +64,8 @@ public class TermosDeUsoService {
     public void aceitar(String versao) {
         UsuarioContext.exigirAdmin();
         if (!VERSAO_VIGENTE.equals(versao)) {
-            throw new IllegalStateException("os termos mudaram desde que o aplicativo foi aberto;"
-                    + " recarregue para ler a versao vigente");
+            throw new IllegalStateException("Os termos mudaram desde que o aplicativo foi aberto;"
+                    + " recarregue para ler a versão vigente.");
         }
         ContaId contaId = TenantContext.exigirAtual();
         contas.buscarParaAtualizar(contaId.valor())

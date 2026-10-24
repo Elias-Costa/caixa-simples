@@ -113,13 +113,13 @@ public class Conta {
     }
 
     private static String nomeDoNegocioConferido(String nome) {
-        return LimiteDeTexto.exigirAte(exigirTexto(nome, "nomeNegocio"), TAMANHO_DO_NOME_DO_NEGOCIO,
+        return LimiteDeTexto.exigirAte(exigirTexto(nome, "nome do negócio"), TAMANHO_DO_NOME_DO_NEGOCIO,
                 "nome do negócio");
     }
 
     private static String exigirTexto(String valor, String campo) {
         if (valor == null || valor.isBlank()) {
-            throw new IllegalArgumentException(campo + " nao pode ser vazio");
+            throw new IllegalArgumentException("Informe o " + campo + ".");
         }
         return valor.trim();
     }
@@ -283,8 +283,8 @@ public class Conta {
             throw new IllegalArgumentException("o plano gratuito nao se ativa");
         }
         if (plano != Plano.GRATIS) {
-            throw new IllegalStateException("a conta ja tem o plano " + plano.nomeExibido()
-                    + "; a adesao vale so para o plano gratuito");
+            throw new IllegalStateException("A Conta já está no plano " + plano.nomeExibido()
+                    + "; a adesão vale só para quem está no plano gratuito.");
         }
         this.plano = novo;
         this.diaDeVencimento = hoje.getDayOfMonth();
@@ -303,18 +303,18 @@ public class Conta {
     public void renovar(Plano renovado, LocalDate fim) {
         exigirPlanoPago();
         if (renovado != plano) {
-            throw new IllegalStateException("a renovacao e do plano " + renovado.nomeExibido()
-                    + ", e a conta esta no plano " + plano.nomeExibido());
+            throw new IllegalStateException("A renovação é do plano " + renovado.nomeExibido()
+                    + ", e a Conta está no plano " + plano.nomeExibido() + ".");
         }
         if (!fim.isAfter(proximoVencimento)) {
-            throw new IllegalStateException("o periodo desta renovacao ja esta pago");
+            throw new IllegalStateException("O período desta renovação já está pago.");
         }
         this.proximoVencimento = fim;
     }
 
     private void exigirPlanoPago() {
         if (plano == Plano.GRATIS) {
-            throw new IllegalStateException("o plano gratuito nao tem ciclo de vencimento");
+            throw new IllegalStateException("O plano gratuito não tem vencimento.");
         }
     }
 
@@ -353,7 +353,7 @@ public class Conta {
      */
     public static String cidadeDoPixConferida(String cidade) {
         if (cidade == null || cidade.isBlank()) {
-            throw new IllegalArgumentException("chave Pix: informe a cidade do recebedor.");
+            throw new IllegalArgumentException("Chave Pix: informe a cidade do recebedor.");
         }
         return LimiteDeTexto.exigirAte(cidade.trim(), TAMANHO_DA_CIDADE_PIX, "cidade do Pix");
     }

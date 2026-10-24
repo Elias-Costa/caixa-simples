@@ -80,7 +80,7 @@ public class Usuario {
 
     private static String exigirTexto(String valor, String campo) {
         if (valor == null || valor.isBlank()) {
-            throw new IllegalArgumentException(campo + " nao pode ser vazio");
+            throw new IllegalArgumentException("Informe o " + campo + ".");
         }
         return valor.trim();
     }
@@ -124,7 +124,7 @@ public class Usuario {
 
     public void anonimizarNome() {
         if (ativo) {
-            throw new IllegalStateException("inative o usuario antes de remover o nome");
+            throw new IllegalStateException("Inative o usuário antes de remover o nome.");
         }
         this.nome = NOME_REMOVIDO;
     }

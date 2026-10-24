@@ -2,6 +2,7 @@ package br.com.caixasimples.caixa.domain;
 
 import br.com.caixasimples.caixa.StatusSessaoCaixa;
 import br.com.caixasimples.caixa.TipoMovimentoCaixa;
+import br.com.caixasimples.shared.FormatoDeTela;
 import br.com.caixasimples.shared.LimiteDeTexto;
 import br.com.caixasimples.shared.Money;
 import java.time.Instant;
@@ -136,8 +137,7 @@ public class SessaoCaixa {
             // Abertura negativa envenenaria o esperado desde a primeira linha, e o erro só
             // apareceria na conferência do fechamento, um expediente inteiro depois.
             throw new IllegalArgumentException(
-                    "valor de abertura nao pode ser negativo: " + valorAbertura
-                            + ". Abrir sem troco e zero, nunca um valor negativo.");
+                    "O valor inicial não pode ser negativo; sem troco, abra com zero.");
         }
 
         this.id = Objects.requireNonNull(id, "id da sessao de caixa nao pode ser nulo");
@@ -207,8 +207,9 @@ public class SessaoCaixa {
         // rastro nenhum no agregado. Retirar exatamente o que há vale: zera a gaveta.
         if (valorFechamentoEsperado.subtrair(valor).isNegativo()) {
             throw new IllegalArgumentException(
-                    "sangria de " + valor + " e maior que os " + valorFechamentoEsperado
-                            + " que deveriam estar na gaveta. Nao se retira o que nao esta la.");
+                    "A sangria de " + FormatoDeTela.reais(valor) + " é maior que os "
+                            + FormatoDeTela.reais(valorFechamentoEsperado)
+                            + " que deveriam estar na gaveta.");
         }
 
         registrar(movimentoId, TipoMovimentoCaixa.SANGRIA, valor, motivo, null, null, criadoEm);
@@ -393,16 +394,15 @@ public class SessaoCaixa {
         // independentemente do que se tenha contado, e a mensagem que interessa é essa.
         if (status != StatusSessaoCaixa.ABERTA) {
             throw new IllegalStateException(
-                    "sessao de caixa " + id + " ja esta " + status + " e nao fecha de novo."
-                            + " Um segundo fechamento reescreveria a diferenca ja conferida.");
+                    "Este caixa já foi fechado e não fecha de novo: um segundo fechamento"
+                            + " reescreveria a diferença já conferida.");
         }
 
         if (valorContado.isNegativo()) {
             // Mesmo motivo da abertura: gaveta vazia se conta como zero, e um valor negativo só
             // poderia ser erro de digitação.
             throw new IllegalArgumentException(
-                    "valor contado nao pode ser negativo: " + valorContado
-                            + ". Gaveta vazia se conta como zero.");
+                    "O valor contado não pode ser negativo; gaveta vazia se conta como zero.");
         }
 
         this.valorFechamentoContado = valorContado;
@@ -430,15 +430,14 @@ public class SessaoCaixa {
             UUID vendaId, UUID recebimentoId, Instant criadoEm) {
         Objects.requireNonNull(movimentoId, "id do movimento nao pode ser nulo");
         if (movimentos.stream().anyMatch(existente -> existente.id().equals(movimentoId))) {
-            throw new IllegalStateException("movimento ja existe nesta sessao: " + movimentoId);
+            throw new IllegalStateException("Este movimento já foi registrado neste caixa.");
         }
         if (status != StatusSessaoCaixa.ABERTA) {
             // Depois do fechamento a diferença já está gravada; um movimento novo a tornaria
             // mentirosa sem que nada a recalculasse.
             throw new IllegalStateException(
-                    "sessao de caixa " + id + " esta " + status + " e nao aceita movimento."
-                            + " Um lancamento posterior ao fechamento invalidaria a diferenca ja"
-                            + " conferida.");
+                    "Este caixa já foi fechado e não aceita movimento: um lançamento depois"
+                            + " do fechamento mudaria a diferença já conferida.");
         }
 
         MovimentoCaixa movimento = MovimentoCaixa.novo(movimentoId, tipo, valor, motivo, vendaId,
@@ -462,7 +461,7 @@ public class SessaoCaixa {
      */
     private static void exigirMotivo(String motivo, TipoMovimentoCaixa tipo, String campo) {
         if (motivo == null || motivo.isBlank()) {
-            throw new IllegalArgumentException("motivo e obrigatorio em " + tipo + " (RF14)");
+            throw new IllegalArgumentException("Informe o " + campo + ".");
         }
         LimiteDeTexto.exigirAte(motivo.trim(), TAMANHO_DO_MOTIVO, campo);
     }

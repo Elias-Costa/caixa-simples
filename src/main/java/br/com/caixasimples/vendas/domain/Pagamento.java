@@ -70,8 +70,7 @@ public record Pagamento(UUID id, FormaPagamento forma, Money valor, StatusPagame
 
         if (valor.isNegativo()) {
             // Estorno não é parcela com sinal trocado; é o cancelamento da venda (RF12).
-            throw new IllegalArgumentException(
-                    "valor do pagamento nao pode ser negativo: " + valor);
+            throw new IllegalArgumentException("O valor da parcela não pode ser negativo.");
         }
         if (troco.isNegativo()) {
             // Troco negativo seria o cliente pagando a menos, que o módulo de pagamentos já
@@ -89,8 +88,7 @@ public record Pagamento(UUID id, FormaPagamento forma, Money valor, StatusPagame
         nsu = Nsu.normalizar(nsu);
         if (nsu != null && forma != FormaPagamento.CARTAO) {
             // Recusado, e não descartado em silêncio, como o valor recebido informado no cartão.
-            throw new IllegalArgumentException(
-                    "NSU so existe em cartao; parcela em " + forma + " veio com NSU.");
+            throw new IllegalArgumentException("O NSU só existe no pagamento em cartão.");
         }
     }
 

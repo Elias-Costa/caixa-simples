@@ -4,7 +4,7 @@ import { SemConexao } from '../api/cliente'
 import { contas } from '../api/contas'
 import { intencaoOnline } from '../api/intencaoOnline'
 import { hojeNoBalcao } from '../dataDoBalcao'
-import { dataHora, lerDinheiro, moeda, valorNoCampo } from '../formatos'
+import { dataHora, lerDinheiro, moeda } from '../formatos'
 import { criarCaixaLocal } from '../offline/caixaLocal'
 import { useSincronizacao } from '../shell/sincronizacao'
 import { useOnline } from '../shell/useOnline'
@@ -55,7 +55,10 @@ export function TelaDeCaixa() {
   const [historico, setHistorico] = useState<SessaoCaixa[]>([])
   const [nomes, setNomes] = useState<Map<string, string>>(() => new Map())
   const [dia, setDia] = useState(hojeNoBalcao)
-  const [valorAbertura, setValorAbertura] = useState(() => valorNoCampo(0))
+  // Começa vazio: com 0,00 dentro, o toque põe o cursor no fim e 150 vira 0,00150. O campo é
+  // obrigatório, e abrir sem troco é digitar 0, para o esquecimento não abrir a gaveta em zero e
+  // virar sobra no fechamento.
+  const [valorAbertura, setValorAbertura] = useState('')
   const [tipoMovimento, setTipoMovimento] = useState<'SANGRIA' | 'SUPRIMENTO'>('SANGRIA')
   const [valorMovimento, setValorMovimento] = useState('')
   const [motivo, setMotivo] = useState('')
@@ -205,7 +208,8 @@ export function TelaDeCaixa() {
             onClick={() => setSelecionada(aberta)}>Ver meu caixa</button>
         </> : <form onSubmit={(evento) => void abrir(evento)}>
           <p>Nenhum caixa aberto para você.</p>
-          <CampoDeDinheiro rotulo="Valor inicial" required valor={valorAbertura} aoMudar={setValorAbertura} />
+          <CampoDeDinheiro rotulo="Valor inicial" required placeholder="0,00" valor={valorAbertura}
+            aoMudar={setValorAbertura} />
           <button className="botao" disabled={ocupado !== null}>
             {ocupado === 'abrir' ? 'Abrindo...' : 'Abrir caixa'}
           </button>

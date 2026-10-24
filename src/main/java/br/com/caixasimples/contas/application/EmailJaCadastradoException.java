@@ -10,6 +10,6 @@ package br.com.caixasimples.contas.application;
 public class EmailJaCadastradoException extends RuntimeException {
 
     public EmailJaCadastradoException(String email) {
-        super("ja existe um usuario com o e-mail " + email);
+        super("Já existe um usuário com o e-mail " + email + ".");
     }
 }

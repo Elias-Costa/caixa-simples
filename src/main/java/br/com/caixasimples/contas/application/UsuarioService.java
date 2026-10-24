@@ -84,7 +84,7 @@ public class UsuarioService {
     public UUID criar(String nome, Perfil perfil, String email, String senha) {
         UsuarioContext.exigirAdmin();
         Objects.requireNonNull(perfil, "perfil nao pode ser nulo");
-        String emailNormalizado = exigirTexto(email, "email");
+        String emailNormalizado = exigirTexto(email, "e-mail");
 
         Conta conta = contaDoContexto();
         contaService.exigirRecurso(RecursoDoPlano.MULTIUSUARIO);
@@ -254,7 +254,7 @@ public class UsuarioService {
         Usuario usuario = usuarios.findById(usuarioId)
                 .orElseThrow(() -> new UsuarioNaoEncontradoException(usuarioId));
         if (usuario.isAtivo()) {
-            throw new IllegalStateException("inative o usuario antes de remover o nome");
+            throw new IllegalStateException("Inative o usuário antes de remover o nome.");
         }
         if (usuario.isNomeRemovido()) {
             return;
@@ -274,7 +274,7 @@ public class UsuarioService {
 
     private static String exigirTexto(String valor, String campo) {
         if (valor == null || valor.isBlank()) {
-            throw new IllegalArgumentException(campo + " nao pode ser vazio");
+            throw new IllegalArgumentException("Informe o " + campo + ".");
         }
         return valor.trim();
     }

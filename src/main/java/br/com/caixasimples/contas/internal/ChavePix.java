@@ -60,10 +60,10 @@ public final class ChavePix {
      */
     public static ChavePix conferir(Tipo tipo, String digitada) {
         if (tipo == null) {
-            throw new IllegalArgumentException("chave Pix: informe o tipo da chave.");
+            throw new IllegalArgumentException("Chave Pix: informe o tipo da chave.");
         }
         if (digitada == null || digitada.isBlank()) {
-            throw new IllegalArgumentException("chave Pix: informe a chave.");
+            throw new IllegalArgumentException("Chave Pix: informe a chave.");
         }
         String texto = digitada.trim();
         return switch (tipo) {
@@ -113,11 +113,11 @@ public final class ChavePix {
     private static String cpf(String texto) {
         String digitos = SEPARADORES.matcher(texto).replaceAll("");
         if (!ONZE_DIGITOS.matcher(digitos).matches()) {
-            throw new IllegalArgumentException("chave Pix: o CPF tem 11 dígitos.");
+            throw new IllegalArgumentException("Chave Pix: o CPF tem 11 dígitos.");
         }
         if (todosIguais(digitos) || !digitosVerificadoresConferem(digitos, 9)) {
             throw new IllegalArgumentException(
-                    "chave Pix: o CPF não confere com os dígitos verificadores.");
+                    "Chave Pix: o CPF não confere com os dígitos verificadores.");
         }
         return digitos;
     }
@@ -126,11 +126,11 @@ public final class ChavePix {
         String caracteres = SEPARADORES.matcher(texto).replaceAll("").toUpperCase(Locale.ROOT);
         if (!CNPJ.matcher(caracteres).matches()) {
             throw new IllegalArgumentException(
-                    "chave Pix: o CNPJ tem 14 caracteres, 12 letras ou números e 2 dígitos.");
+                    "Chave Pix: o CNPJ tem 14 caracteres, 12 letras ou números e 2 dígitos.");
         }
         if (todosIguais(caracteres) || !digitosVerificadoresConferem(caracteres, 12)) {
             throw new IllegalArgumentException(
-                    "chave Pix: o CNPJ não confere com os dígitos verificadores.");
+                    "Chave Pix: o CNPJ não confere com os dígitos verificadores.");
         }
         return caracteres;
     }
@@ -146,7 +146,7 @@ public final class ChavePix {
         if (limpo.startsWith("+")) {
             if (!limpo.startsWith("+55")) {
                 throw new IllegalArgumentException(
-                        "chave Pix: o celular da chave é um número do Brasil, com o código 55.");
+                        "Chave Pix: o celular da chave é um número do Brasil, com o código 55.");
             }
             nacional = limpo.substring(3);
         } else if (limpo.length() == 13 && limpo.startsWith("55")) {
@@ -155,7 +155,7 @@ public final class ChavePix {
             nacional = limpo;
         }
         if (!CELULAR.matcher(nacional).matches()) {
-            throw new IllegalArgumentException("chave Pix: o celular tem o DDD e os 9 dígitos do"
+            throw new IllegalArgumentException("Chave Pix: o celular tem o DDD e os 9 dígitos do"
                     + " número, começando por 9.");
         }
         return "+55" + nacional;
@@ -166,7 +166,7 @@ public final class ChavePix {
         LimiteDeTexto.exigirAte(minusculo, TAMANHO_MAXIMO, "chave Pix: o e-mail");
         if (!EMAIL.matcher(minusculo).matches()) {
             throw new IllegalArgumentException(
-                    "chave Pix: o e-mail tem um nome, a arroba e o domínio, sem espaços.");
+                    "Chave Pix: o e-mail tem um nome, a arroba e o domínio, sem espaços.");
         }
         return minusculo;
     }
@@ -174,7 +174,7 @@ public final class ChavePix {
     private static String aleatoria(String texto) {
         String minusculo = texto.toLowerCase(Locale.ROOT);
         if (!ALEATORIA.matcher(minusculo).matches()) {
-            throw new IllegalArgumentException("chave Pix: a chave aleatória tem 32 letras e"
+            throw new IllegalArgumentException("Chave Pix: a chave aleatória tem 32 letras e"
                     + " números, em cinco grupos separados por traço, como o banco a mostra.");
         }
         return minusculo;

@@ -32,8 +32,7 @@ public record SolicitacaoPagamento(FormaPagamento forma, Money valor, Money valo
         Objects.requireNonNull(forma, "forma de pagamento nao pode ser nula");
         Objects.requireNonNull(valor, "valor do pagamento nao pode ser nulo");
         if (valor.valor().signum() <= 0) {
-            throw new IllegalArgumentException(
-                    "valor do pagamento tem de ser positivo, e nao " + valor);
+            throw new IllegalArgumentException("O valor da parcela tem de ser positivo.");
         }
     }
 

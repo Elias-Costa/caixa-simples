@@ -123,7 +123,7 @@ class VendaServiceTest extends TesteDeIntegracao {
         assertThatIllegalStateException()
                 .isThrownBy(() -> conta.comoUsuario(() ->
                         vendaService.iniciar(sessaoId)))
-                .withMessageContaining("nao esta ABERTA");
+                .withMessageContaining("já foi fechado");
 
         conta.comoUsuario(() ->
                 assertThat(vendas.findAll()).as("nada foi gravado").isEmpty());
@@ -242,7 +242,7 @@ class VendaServiceTest extends TesteDeIntegracao {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> conta.comoUsuario(() ->
                         vendaService.removerItem(vendaId, itemDoCafe)))
-                .withMessageContaining("nao esta na venda");
+                .withMessageContaining("não está na venda");
     }
 
     @Test
@@ -293,7 +293,7 @@ class VendaServiceTest extends TesteDeIntegracao {
                 .isThrownBy(() -> conta.comoUsuario(() ->
                         vendaService.adicionarItem(vendaId, produtoId, BigDecimal.ONE,
                                 Money.ZERO)))
-                .withMessageContaining("inativo");
+                .withMessageContaining("inativado");
 
         conta.comoUsuario(() ->
                 assertThat(vendas.findById(vendaId).orElseThrow().paraDominio().getItens())
@@ -407,17 +407,17 @@ class VendaServiceTest extends TesteDeIntegracao {
         // O status atravessou o banco: a venda concluída não aceita mais montagem nem pagamento.
         assertThatIllegalStateException()
                 .isThrownBy(() -> conta.comoUsuario(() ->
-                        vendaService.adicionarItem(vendaId, cafeId, BigDecimal.ONE, Money.ZERO)))
-                .withMessageContaining("CONCLUIDA");
+                                                vendaService.adicionarItem(vendaId, cafeId, BigDecimal.ONE, Money.ZERO)))
+                .withMessageContaining("já está concluída");
         assertThatIllegalStateException()
                 .isThrownBy(() -> conta.comoUsuario(() ->
                         vendaService.registrarPagamento(vendaId,
                                 SolicitacaoPagamento.de(FormaPagamento.CARTAO, Money.de("1.00")))))
-                .withMessageContaining("CONCLUIDA");
+                .withMessageContaining("já está concluída");
         assertThatIllegalStateException()
                 .isThrownBy(() -> conta.comoUsuario(() ->
                         vendaService.concluir(vendaId)))
-                .withMessageContaining("CONCLUIDA");
+                .withMessageContaining("já está concluída");
 
         // Saiu um evento só, com o fato inteiro e a conta de quem concluiu, lida do contexto.
         assertThat(eventos.stream(VendaConcluida.class))
@@ -478,7 +478,7 @@ class VendaServiceTest extends TesteDeIntegracao {
         assertThatIllegalStateException()
                 .isThrownBy(() -> conta.comoUsuario(() ->
                         vendaService.concluir(vendaId)))
-                .withMessageContaining("nao esta ABERTA");
+                .withMessageContaining("já foi fechado");
 
         conta.comoUsuario(() ->
                 assertThat(vendas.findById(vendaId).orElseThrow().paraDominio().getStatus())
@@ -508,7 +508,7 @@ class VendaServiceTest extends TesteDeIntegracao {
                 .isThrownBy(() -> conta.comoUsuario(() ->
                         vendaService.registrarPagamento(vendaId,
                                 SolicitacaoPagamento.de(FormaPagamento.CARTAO, Money.de("15.00")))))
-                .withMessageContaining("maior que o que falta pagar, 10.00");
+                .withMessageContaining("maior que o que falta pagar, R$ 10,00");
 
         conta.comoUsuario(() ->
                 assertThat(vendas.findById(vendaId).orElseThrow().paraDominio().getPagamentos())
@@ -535,7 +535,7 @@ class VendaServiceTest extends TesteDeIntegracao {
         assertThatIllegalStateException()
                 .isThrownBy(() -> conta.comoUsuario(() ->
                         vendaService.concluir(vendaId)))
-                .withMessageContaining("faltam 4.00");
+                .withMessageContaining("Ainda falta lançar R$ 4,00");
 
         conta.comoUsuario(() ->
                 assertThat(vendas.findById(vendaId).orElseThrow().paraDominio().getStatus())
@@ -560,7 +560,7 @@ class VendaServiceTest extends TesteDeIntegracao {
                 .isThrownBy(() -> conta.comoUsuario(() ->
                         vendaService.registrarPagamento(vendaId, new SolicitacaoPagamento(
                                 FormaPagamento.CARTAO, Money.de("4.50"), Money.de("10.00")))))
-                .withMessageContaining("nao aceita valor recebido");
+                .withMessageContaining("aceita valor recebido");
 
         conta.comoUsuario(() ->
                 assertThat(vendas.findById(vendaId).orElseThrow().paraDominio().getPagamentos())
@@ -688,7 +688,7 @@ class VendaServiceTest extends TesteDeIntegracao {
         assertThatIllegalStateException()
                 .isThrownBy(() -> conta.comoUsuario(() ->
                         vendaService.cancelar(vendaId)))
-                .withMessageContaining("ja esta CANCELADA");
+                .withMessageContaining("já foi cancelada");
         assertThat(eventos.stream(VendaCancelada.class)).as("nada mais foi publicado").hasSize(1);
     }
 
@@ -717,7 +717,7 @@ class VendaServiceTest extends TesteDeIntegracao {
         assertThatIllegalStateException()
                 .isThrownBy(() -> conta.comoUsuario(() ->
                         vendaService.cancelar(vendaId)))
-                .withMessageContaining("nao esta ABERTA");
+                .withMessageContaining("já foi fechado");
 
         conta.comoUsuario(() ->
                 assertThat(vendas.findById(vendaId).orElseThrow().paraDominio().getStatus())
@@ -847,15 +847,14 @@ class VendaServiceTest extends TesteDeIntegracao {
         assertThatIllegalStateException()
                 .isThrownBy(() -> conta.comoUsuario(() ->
                         vendaService.comprovante(aberta)))
-                .withMessageContaining("ABERTA")
-                .withMessageContaining("nao tem comprovante");
+                                .withMessageContaining("Só venda concluída tem comprovante");
 
         // A comanda abandonada vira CANCELADA sem evento nenhum, e também não tem comprovante.
         conta.comoUsuario(() -> vendaService.cancelar(aberta));
         assertThatIllegalStateException()
                 .isThrownBy(() -> conta.comoUsuario(() ->
                         vendaService.comprovante(aberta)))
-                .withMessageContaining("CANCELADA");
+                .withMessageContaining("Só venda concluída tem comprovante");
     }
 
     @Test

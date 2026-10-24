@@ -34,6 +34,6 @@ class ErrosDoCaixaHttp {
     @ExceptionHandler(DataIntegrityViolationException.class)
     ProblemDetail conflitoDeCaixa(DataIntegrityViolationException excecao) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT,
-                "O caixa conflita com uma sessão existente nesta conta");
+                "Você já tem um caixa aberto; feche o anterior antes de abrir outro.");
     }
 }

@@ -51,7 +51,7 @@ class VendaController {
     @ExceptionHandler(PixIndisponivelException.class)
     ProblemDetail pixIndisponivel(PixIndisponivelException erro) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE,
-                "Nao foi possivel confirmar a remocao da cobranca Pix. Tente cancelar novamente.");
+                "Não foi possível confirmar a remoção da cobrança Pix. Tente cancelar de novo.");
     }
 
     @PostMapping

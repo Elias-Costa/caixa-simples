@@ -176,7 +176,7 @@ class FiadoServiceTest extends TesteDeIntegracao {
 
         assertThatIllegalStateException().isThrownBy(() ->
                 conta.comoUsuario(() -> clientes.remover(clienteId)))
-                .withMessageContaining("comanda aberta");
+                .withMessageContaining("numa venda aberta");
 
         conta.comoUsuario(() -> {
             vendas.registrarPagamento(vendaId,
@@ -185,7 +185,7 @@ class FiadoServiceTest extends TesteDeIntegracao {
         });
         assertThatIllegalStateException().isThrownBy(() ->
                 conta.comoUsuario(() -> clientes.remover(clienteId)))
-                .withMessageContaining("20.00");
+                .withMessageContaining("R$ 20,00");
 
         conta.comoUsuario(() -> vendas.receber(vendaId, Money.de("20.00"), FormaPagamento.DINHEIRO));
         conta.comoUsuario(() -> clientes.remover(clienteId));

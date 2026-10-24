@@ -78,13 +78,13 @@ public class Credencial {
 
     /** Contado depois das minúsculas, que é o valor que vai à coluna. */
     private static String emailNormalizado(String email) {
-        return LimiteDeTexto.exigirAte(exigirTexto(email, "email").toLowerCase(), TAMANHO_DO_EMAIL,
+        return LimiteDeTexto.exigirAte(exigirTexto(email, "e-mail").toLowerCase(), TAMANHO_DO_EMAIL,
                 "e-mail");
     }
 
     private static String exigirTexto(String valor, String campo) {
         if (valor == null || valor.isBlank()) {
-            throw new IllegalArgumentException(campo + " nao pode ser vazio");
+            throw new IllegalArgumentException("Informe o " + campo + ".");
         }
         return valor.trim();
     }

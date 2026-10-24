@@ -53,7 +53,8 @@ class EfiPixGateway implements PixGateway {
     public String criarCobranca(CobrancaPix cobranca, Money valor) {
         Configuracao config = configuracao();
         if (!config.chave().equals(cobranca.chaveRecebedora())) {
-            throw new IllegalStateException("chave Pix da Conta mudou durante a tentativa");
+            throw new IllegalStateException(
+                    "A chave Pix da Conta mudou durante a cobrança; tente de novo.");
         }
         try {
             HttpClient http = cliente(config);
@@ -213,7 +214,7 @@ class EfiPixGateway implements PixGateway {
         String prefixo = "CAIXA_SIMPLES_EFI_" + sufixo + "_";
         String ambiente = System.getenv(prefixo + "AMBIENTE");
         if (!"HOMOLOGACAO".equals(ambiente) && !"PRODUCAO".equals(ambiente)) {
-            throw new IllegalStateException("ambiente Efí nao configurado para esta Conta");
+            throw new IllegalStateException("O Pix integrado não está configurado para esta Conta.");
         }
         return new Configuracao("PRODUCAO".equals(ambiente) ? PRODUCAO : HOMOLOGACAO,
                 obrigatoria(prefixo + "CLIENT_ID"), obrigatoria(prefixo + "CLIENT_SECRET"),
@@ -224,7 +225,8 @@ class EfiPixGateway implements PixGateway {
     private static String obrigatoria(String nome) {
         String valor = System.getenv(nome);
         if (valor == null || valor.isBlank()) {
-            throw new IllegalStateException("configuracao Efí incompleta para esta Conta");
+            throw new IllegalStateException(
+                    "A configuração do Pix integrado desta Conta está incompleta.");
         }
         return valor;
     }

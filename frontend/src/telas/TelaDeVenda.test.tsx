@@ -469,6 +469,34 @@ describe('PDV no tablet', () => {
     await waitFor(() => expect(adicionar).toHaveBeenCalledTimes(2))
   })
 
+  it('o desconto do item nasce vazio, vale zero assim e volta vazio depois de lançar', async () => {
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([])
+    vi.spyOn(cadastro, 'buscarProdutos').mockResolvedValue([
+      { id: 'produto-1', tipo: 'PRODUTO', nome: 'Café', preco: 12.5, codigo: '7891',
+        categoria: null, unidade: 'un', atributos: {} },
+    ])
+    vi.spyOn(vendas, 'iniciar').mockResolvedValue({ id: 'venda-1' })
+    const adicionar = vi.spyOn(vendas, 'adicionarItem').mockResolvedValue({ id: 'item-1' })
+    vi.spyOn(vendas, 'consultar').mockResolvedValue(comanda)
+    mostrar('ADMIN')
+
+    const desconto = await screen.findByLabelText('Desconto deste item')
+    expect(desconto).toHaveValue('')
+    expect(desconto).toHaveAttribute('placeholder', '0,00')
+    const busca = screen.getByLabelText('Produto por nome ou código')
+    fireEvent.change(busca, { target: { value: '7891' } })
+    fireEvent.keyDown(busca, { key: 'Enter' })
+    await waitFor(() => expect(adicionar).toHaveBeenCalledWith('venda-1', 'produto-1', 1, 0))
+
+    await waitFor(() => expect(busca).toHaveValue(''))
+    fireEvent.change(desconto, { target: { value: '2,90' } })
+    fireEvent.change(busca, { target: { value: '7891' } })
+    fireEvent.keyDown(busca, { key: 'Enter' })
+    await waitFor(() => expect(adicionar).toHaveBeenLastCalledWith('venda-1', 'produto-1', 1, 2.9))
+    await waitFor(() => expect(desconto).toHaveValue(''))
+  })
+
   it('tira o cliente da venda aberta sem fiado, e com fiado só deixa trocar', async () => {
     let comCliente = true
     let fiada = false

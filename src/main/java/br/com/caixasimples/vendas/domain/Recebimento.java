@@ -29,15 +29,14 @@ public record Recebimento(UUID id, UUID sessaoCaixaId, Money valor, FormaPagamen
         Objects.requireNonNull(forma, "forma do recebimento nao pode ser nula");
         Objects.requireNonNull(criadoEm, "instante do recebimento nao pode ser nulo");
         if (valor.valor().signum() <= 0) {
-            throw new IllegalArgumentException("valor do recebimento deve ser positivo");
+            throw new IllegalArgumentException("O valor do recebimento tem de ser positivo.");
         }
         if (forma == FormaPagamento.FIADO) {
-            throw new IllegalArgumentException("fiado nao e forma de receber uma divida");
+            throw new IllegalArgumentException("Fiado não é forma de receber uma dívida.");
         }
         nsu = Nsu.normalizar(nsu);
         if (nsu != null && forma != FormaPagamento.CARTAO) {
-            throw new IllegalArgumentException(
-                    "NSU so existe em cartao; recebimento em " + forma + " veio com NSU.");
+            throw new IllegalArgumentException("O NSU só existe no recebimento em cartão.");
         }
     }
 

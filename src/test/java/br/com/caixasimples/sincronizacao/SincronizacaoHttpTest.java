@@ -153,7 +153,7 @@ class SincronizacaoHttpTest extends TesteDeIntegracao {
         GestoDeTeste adulterado = criacao.comOutroConteudo(produto("Pao de queijo", "0.50", null));
         JsonNode recusa = resultadoDe(enviar(admin, List.of(adulterado)), adulterado);
         assertThat(recusa.path("resultado").asText()).isEqualTo("NAO_APLICADA");
-        assertThat(recusa.path("detalhe").asText()).contains("outro conteudo");
+        assertThat(recusa.path("detalhe").asText()).contains("outro conteúdo");
 
         http.perform(get("/api/produtos").with(admin))
                 .andExpect(jsonPath("$[0].preco").value(4.5));
@@ -347,7 +347,7 @@ class SincronizacaoHttpTest extends TesteDeIntegracao {
         }
         JsonNode recusa = resultadoDe(resposta, retiradaComFiado);
         assertThat(recusa.path("resultado").asText()).isEqualTo("NAO_APLICADA");
-        assertThat(recusa.path("detalhe").asText()).contains("FIADO");
+        assertThat(recusa.path("detalhe").asText()).contains("pagamento no fiado");
         http.perform(get("/api/vendas/{id}", semFiado).with(admin))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.clienteId").doesNotExist());

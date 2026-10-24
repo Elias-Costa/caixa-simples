@@ -131,7 +131,7 @@ class SenhaEAcessoHttpTest extends TesteDeIntegracao {
 
         trocar(token, SENHA, SENHA, "203.0.113.73")
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.detail").value("A senha nova precisa ser diferente da atual"));
+                .andExpect(jsonPath("$.detail").value("A senha nova precisa ser diferente da atual."));
         trocar(token, SENHA, "a".repeat(71) + "á", "203.0.113.73")
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("72")));
@@ -229,11 +229,11 @@ class SenhaEAcessoHttpTest extends TesteDeIntegracao {
 
         redefinir(adminDeFora, operador.id(), PROVISORIA)
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.detail").value("usuario nao encontrado nesta conta: " + operador.id()));
+                .andExpect(jsonPath("$.detail").value("Usuário não encontrado nesta Conta."));
         UUID inexistente = UUID.randomUUID();
         redefinir(adminDeFora, inexistente, PROVISORIA)
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.detail").value("usuario nao encontrado nesta conta: " + inexistente));
+                .andExpect(jsonPath("$.detail").value("Usuário não encontrado nesta Conta."));
 
         // Nem a senha nem a versão de acesso do operador mudaram.
         eu(aparelhoDoOperador).andExpect(status().isOk())

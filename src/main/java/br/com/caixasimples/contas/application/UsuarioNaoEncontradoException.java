@@ -11,6 +11,6 @@ import java.util.UUID;
 public class UsuarioNaoEncontradoException extends RuntimeException {
 
     public UsuarioNaoEncontradoException(UUID id) {
-        super("usuario nao encontrado nesta conta: " + id);
+        super("Usuário não encontrado nesta Conta.");
     }
 }

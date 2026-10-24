@@ -54,18 +54,18 @@ class PedidoDePlanoTest {
         for (PedidoDePlano pedido : List.of(renovacaoAplicada, renovacaoSubstituida)) {
             assertThatIllegalStateException()
                     .isThrownBy(() -> pedido.aplicar(OUTRA_PESSOA, DEPOIS))
-                    .withMessageContaining("nao esta aberto");
+                    .withMessageContaining("não está mais aberto");
             assertThatIllegalStateException()
                     .isThrownBy(pedido::substituir)
-                    .withMessageContaining("nao esta aberto");
+                    .withMessageContaining("não está mais aberto");
         }
         for (PedidoDePlano pedido : List.of(adesaoAplicada, adesaoSubstituida)) {
             assertThatIllegalStateException()
                     .isThrownBy(() -> pedido.aplicarAdesao(ABRIL, OUTRA_PESSOA, DEPOIS))
-                    .withMessageContaining("nao esta aberto");
+                    .withMessageContaining("não está mais aberto");
             assertThatIllegalStateException()
                     .isThrownBy(pedido::substituir)
-                    .withMessageContaining("nao esta aberto");
+                    .withMessageContaining("não está mais aberto");
         }
 
         conferir(renovacaoAplicada, Situacao.APLICADO, MARCO, AGORA, QUEM_APLICA);
@@ -106,11 +106,11 @@ class PedidoDePlanoTest {
     void planoGratisNaoTemPedido() {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> PedidoDePlano.adesao(Plano.GRATIS, MENSALIDADE, QUEM_PEDE, AGORA))
-                .withMessageContaining("gratuito nao tem pedido");
+                .withMessageContaining("gratuito não tem pedido");
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> PedidoDePlano.renovacao(Plano.GRATIS, MENSALIDADE, MARCO,
                         QUEM_PEDE, AGORA))
-                .withMessageContaining("gratuito nao tem pedido");
+                .withMessageContaining("gratuito não tem pedido");
     }
 
     @Test

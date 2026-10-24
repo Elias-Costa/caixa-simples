@@ -80,7 +80,9 @@ public class VendaPixService {
                 if (!consulta.txid().equals(txid)
                         || !consulta.chaveRecebedora().equals(parcela.cobrancaPix().chaveRecebedora())
                         || !consulta.valor().equals(parcela.valor())) {
-                    throw new PixIndisponivelException("consulta Pix diverge da parcela reservada");
+                    throw new PixIndisponivelException(
+                            "A cobrança Pix no banco não confere com a parcela da venda; confira no"
+                                    + " aplicativo do banco antes de seguir.");
                 }
                 if (consulta.pago()) {
                     vendas.confirmarPix(alvo.vendaId(), parcela.id(), txid,

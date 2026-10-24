@@ -164,7 +164,7 @@ describe('Venda no dispositivo', () => {
     await local.vincularCliente(comFiado, clienteId)
     await local.pagar(comFiado, 'FIADO', 6.25)
     const antes = (await listarGestos()).length
-    await expect(local.desvincularCliente(comFiado)).rejects.toThrow('troque o Cliente')
+    await expect(local.desvincularCliente(comFiado)).rejects.toThrow('troque o cliente')
     expect(await listarGestos()).toHaveLength(antes)
     expect((await local.consultar(comFiado)).clienteId).toBe(clienteId)
     expect(api.desvincularCliente).not.toHaveBeenCalled()
@@ -207,8 +207,8 @@ describe('Venda no dispositivo', () => {
 
     await local.pagar(id, 'CARTAO', 12.5)
     await caixaLocal.fechar(sessaoId, 20)
-    await expect(local.concluir(id)).rejects.toThrow('não está ABERTA')
-    await expect(local.iniciar(sessaoId)).rejects.toThrow('não está ABERTA')
+    await expect(local.concluir(id)).rejects.toThrow('já foi fechado')
+    await expect(local.iniciar(sessaoId)).rejects.toThrow('já foi fechado')
     expect((await listarGestos()).map((gesto) => gesto.tipo).sort()).toEqual([
       'caixa.abrir', 'caixa.fechar', 'venda.adicionarItem', 'venda.iniciar', 'venda.registrarPagamento',
     ])

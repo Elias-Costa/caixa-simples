@@ -71,7 +71,7 @@ class TermosDeUsoHttpTest extends TesteDeIntegracao {
 
         http.perform(aceitar(admin, "2000-01-01"))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.detail").value(containsString("os termos mudaram")));
+                .andExpect(jsonPath("$.detail").value(containsString("Os termos mudaram")));
         http.perform(post("/api/conta/termos").with(admin)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))

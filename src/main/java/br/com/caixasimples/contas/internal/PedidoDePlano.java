@@ -97,7 +97,7 @@ public class PedidoDePlano {
         Objects.requireNonNull(plano, "plano nao pode ser nulo");
         Objects.requireNonNull(valor, "valor nao pode ser nulo");
         if (plano == Plano.GRATIS) {
-            throw new IllegalArgumentException("o plano gratuito nao tem pedido");
+            throw new IllegalArgumentException("O plano gratuito não tem pedido.");
         }
         if (valor.isNegativo()) {
             throw new IllegalArgumentException("valor do pedido nao pode ser negativo: " + valor);
@@ -160,8 +160,7 @@ public class PedidoDePlano {
 
     private void exigirAberto() {
         if (situacao != Situacao.ABERTO) {
-            throw new IllegalStateException("o pedido de plano " + id + " nao esta aberto: "
-                    + situacao);
+            throw new IllegalStateException("Este pedido de plano não está mais aberto.");
         }
     }
 

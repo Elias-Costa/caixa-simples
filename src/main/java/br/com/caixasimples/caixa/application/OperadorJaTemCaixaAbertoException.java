@@ -17,7 +17,6 @@ import java.util.UUID;
 public class OperadorJaTemCaixaAbertoException extends RuntimeException {
 
     public OperadorJaTemCaixaAbertoException(UUID usuarioId) {
-        super("o operador " + usuarioId + " ja tem uma sessao de caixa aberta;"
-                + " feche a anterior antes de abrir outra");
+        super("Você já tem um caixa aberto; feche o anterior antes de abrir outro.");
     }
 }

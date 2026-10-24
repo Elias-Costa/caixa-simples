@@ -38,7 +38,7 @@ class ContaTest {
         Conta completa = paga(Plano.COMPLETO);
         assertThatIllegalStateException()
                 .isThrownBy(() -> completa.ativarPlano(Plano.COMPLETO, ADESAO.plusDays(5)))
-                .withMessageContaining("ja tem o plano");
+                .withMessageContaining("já está no plano");
         conferirCiclo(completa, Plano.COMPLETO, 10, VENCIMENTO);
     }
 
@@ -50,13 +50,13 @@ class ContaTest {
 
         assertThatIllegalStateException()
                 .isThrownBy(() -> conta.renovar(Plano.GRATIS, maio))
-                .withMessageContaining("a renovacao e do plano");
+                .withMessageContaining("A renovação é do plano");
         assertThatIllegalStateException()
                 .isThrownBy(() -> conta.renovar(Plano.COMPLETO, VENCIMENTO))
-                .withMessageContaining("ja esta pago");
+                .withMessageContaining("já está pago");
         assertThatIllegalStateException()
                 .isThrownBy(() -> conta.renovar(Plano.COMPLETO, VENCIMENTO.minusDays(1)))
-                .withMessageContaining("ja esta pago");
+                .withMessageContaining("já está pago");
         conferirCiclo(conta, Plano.COMPLETO, 10, VENCIMENTO);
 
         // O limite: o período seguinte ao pago renova, e o dia do ciclo não muda.
@@ -71,10 +71,10 @@ class ContaTest {
 
         assertThatIllegalStateException()
                 .isThrownBy(() -> gratis.renovar(Plano.COMPLETO, VENCIMENTO))
-                .withMessageContaining("gratuito nao tem ciclo");
+                .withMessageContaining("gratuito não tem vencimento");
         assertThatIllegalStateException()
                 .isThrownBy(() -> gratis.periodoDaRenovacao(ADESAO))
-                .withMessageContaining("gratuito nao tem ciclo");
+                .withMessageContaining("gratuito não tem vencimento");
         conferirCiclo(gratis, Plano.GRATIS, null, null);
     }
 

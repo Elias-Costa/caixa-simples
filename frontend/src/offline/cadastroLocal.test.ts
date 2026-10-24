@@ -170,10 +170,13 @@ describe('cadastro local', () => {
 
     rede(false)
     expect((await cadastro.buscarProdutos('ca-1')).map((produto) => produto.nome)).toEqual(['Café expresso'])
-    expect((await cadastro.buscarProdutos('cafe')).map((produto) => produto.nome)).toEqual(['Água'])
+    // O código casa inteiro e vem primeiro; no nome, o acento não conta, nos dois sentidos.
+    expect((await cadastro.buscarProdutos('cafe')).map((produto) => produto.nome))
+      .toEqual(['Água', 'Bolo de café', 'Café expresso'])
     expect((await cadastro.buscarProdutos('café')).map((produto) => produto.nome))
       .toEqual(['Bolo de café', 'Café expresso'])
-    await expect(cadastro.buscarProdutos('  ')).rejects.toThrow('Informe nome ou código')
+    expect((await cadastro.buscarProdutos('agua')).map((produto) => produto.nome)).toEqual(['Água'])
+    await expect(cadastro.buscarProdutos('  ')).rejects.toThrow('Informe o nome ou o código')
 
     await cadastro.inativarProduto(boloDeCafe.id)
     const novo = await cadastro.criarProduto({ tipo: 'PRODUTO', nome: 'Café coado', preco: 4,

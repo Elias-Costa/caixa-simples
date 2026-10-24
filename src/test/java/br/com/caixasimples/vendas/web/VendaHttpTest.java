@@ -284,8 +284,8 @@ class VendaHttpTest extends TesteDeIntegracao {
         admin.comoUsuario(() -> vendaService.registrarPagamento(comFiado,
                 SolicitacaoPagamento.de(FormaPagamento.FIADO, Money.de("6.00"))));
         http.perform(delete("/api/vendas/{id}/cliente", comFiado).with(tokenOperador))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.detail").value(containsString("FIADO")));
+                                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.detail").value(containsString("pagamento no fiado")));
         http.perform(get("/api/vendas/{id}", comFiado).with(tokenOperador))
                 .andExpect(jsonPath("$.clienteId").value(cliente.toString()));
 
@@ -318,7 +318,7 @@ class VendaHttpTest extends TesteDeIntegracao {
 
         pagar(admin, venda, UUID.randomUUID(), "CARTAO", "10", null)
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.detail").value(containsString("exige o NSU")));
+                .andExpect(jsonPath("$.detail").value(containsString("Informe o NSU")));
         pagar(admin, venda, UUID.randomUUID(), "CARTAO", "10", "   ")
                 .andExpect(status().isBadRequest());
         pagar(admin, venda, UUID.randomUUID(), "CARTAO", "10", "A".repeat(41))
@@ -328,7 +328,7 @@ class VendaHttpTest extends TesteDeIntegracao {
                 .andExpect(status().isBadRequest());
         pagar(admin, venda, UUID.randomUUID(), "DINHEIRO", "10", "004512")
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.detail").value(containsString("NSU so existe em cartao")));
+                .andExpect(jsonPath("$.detail").value(containsString("O NSU só existe no")));
 
         UUID pagamentoId = UUID.randomUUID();
         pagar(admin, venda, pagamentoId, "CARTAO", "10", " 004512 ")
@@ -375,7 +375,7 @@ class VendaHttpTest extends TesteDeIntegracao {
                 .content("{\"recebimentoId\":\"" + recebimentoId
                         + "\",\"valor\":5,\"forma\":\"CARTAO\"}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.detail").value(containsString("exige o NSU")));
+                .andExpect(jsonPath("$.detail").value(containsString("Informe o NSU")));
         http.perform(post("/api/vendas/{id}/recebimentos", fiada).with(admin)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"recebimentoId\":\"" + recebimentoId
@@ -410,7 +410,7 @@ class VendaHttpTest extends TesteDeIntegracao {
                         + "\",\"forma\":\"DINHEIRO\",\"valor\":12.50}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.detail")
-                        .value(containsString("valor recebido em dinheiro e obrigatorio")));
+                        .value(containsString("Informe o valor recebido em dinheiro")));
         http.perform(get("/api/vendas/{id}", venda).with(admin))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.parcelas").isEmpty());
 
@@ -494,6 +494,6 @@ class VendaHttpTest extends TesteDeIntegracao {
         resposta.andExpect(status().isNotFound())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.status").value(404))
-                .andExpect(jsonPath("$.detail").value(containsString(id.toString())));
+                .andExpect(jsonPath("$.detail").value(containsString("não encontrad")));
     }
 }

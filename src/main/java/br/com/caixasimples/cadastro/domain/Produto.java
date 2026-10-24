@@ -184,7 +184,8 @@ public class Produto {
     public void alterar(String nome, Money preco, String codigo, String categoria, String unidade,
             Map<String, Object> atributos) {
         if (!ativo) {
-            throw new IllegalStateException("produto inativo nao pode ser editado: " + id);
+            throw new IllegalStateException(
+                    "O produto " + nome + " está inativo e não pode ser editado.");
         }
         this.nome = exigirTexto(nome, "nome do produto", TAMANHO_DO_NOME);
         this.preco = exigirPreco(preco);
@@ -327,19 +328,19 @@ public class Produto {
         Objects.requireNonNull(diferenca, "diferenca nao pode ser nula");
         if (!controlaEstoque()) {
             throw new IllegalStateException(
-                    "servico nao tem estoque para ajustar: " + id
-                            + ". So produto recebe movimento de estoque.");
+                    nome + " é serviço e não tem estoque para ajustar; só produto tem estoque.");
         }
         if (!ativo) {
-            throw new IllegalStateException("produto inativo nao tem estoque ajustado: " + id);
+            throw new IllegalStateException(
+                    "O produto " + nome + " está inativo e não tem estoque para ajustar.");
         }
         if (motivo == null || motivo.isBlank()) {
-            throw new IllegalArgumentException("motivo e obrigatorio em ajuste de estoque (RF19)");
+            throw new IllegalArgumentException("Informe o motivo do ajuste de estoque.");
         }
         LimiteDeTexto.exigirAte(motivo.trim(), TAMANHO_DO_MOTIVO, "motivo do ajuste de estoque");
         if (diferenca.signum() == 0) {
             throw new IllegalArgumentException(
-                    "diferenca do ajuste nao pode ser zero: nada entrou nem saiu");
+                    "A diferença do ajuste não pode ser zero: nada entrou nem saiu.");
         }
         this.estoqueAtual = this.estoqueAtual.add(diferenca);
         return MovimentoEstoque.ajuste(diferenca, motivo);
@@ -360,18 +361,18 @@ public class Produto {
         Objects.requireNonNull(minimo, "estoque minimo nao pode ser nulo");
         if (!controlaEstoque()) {
             throw new IllegalStateException(
-                    "servico nao tem estoque minimo: " + id + ". So produto tem estoque.");
+                    nome + " é serviço e não tem estoque mínimo; só produto tem estoque.");
         }
         if (!ativo) {
             throw new IllegalStateException(
-                    "produto inativo nao tem estoque minimo definido: " + id);
+                    "O produto " + nome + " está inativo e não recebe estoque mínimo.");
         }
         if (minimo.signum() < 0) {
             // Com o saldo podendo ficar negativo, um mínimo abaixo de zero esconderia justamente
             // o produto que já vendeu mais do que tinha.
-            throw new IllegalArgumentException("estoque minimo nao pode ser negativo: " + minimo);
+            throw new IllegalArgumentException("O estoque mínimo não pode ser negativo.");
         }
-        MovimentoEstoque.exigirCasasDaQuantidade(minimo, "estoque minimo");
+        MovimentoEstoque.exigirCasasDaQuantidade(minimo, "O estoque mínimo");
         this.estoqueMinimo = minimo;
     }
 
@@ -392,14 +393,14 @@ public class Produto {
         if (preco.isNegativo()) {
             // Zero passa, porque cortesia, brinde e item de acompanhamento existem. Negativo não é
             // preço: seria desconto, e desconto é da venda, não do cadastro.
-            throw new IllegalArgumentException("preco nao pode ser negativo: " + preco);
+            throw new IllegalArgumentException("O preço não pode ser negativo.");
         }
         return preco;
     }
 
     private static String exigirTexto(String valor, String campo, int limite) {
         if (valor == null || valor.isBlank()) {
-            throw new IllegalArgumentException(campo + " nao pode ser vazio");
+            throw new IllegalArgumentException("Informe o " + campo + ".");
         }
         return LimiteDeTexto.exigirAte(valor.trim(), limite, campo);
     }

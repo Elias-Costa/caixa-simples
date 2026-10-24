@@ -1,7 +1,7 @@
 package br.com.caixasimples.contas.application;
 
+import br.com.caixasimples.shared.FormatoDeTela;
 import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
 
 /**
  * O plano inclui o recurso, mas os recursos pagos estão suspensos: a tolerância depois do
@@ -12,10 +12,8 @@ import java.time.format.DateTimeFormatter;
  */
 public class PlanoSuspensoException extends IllegalStateException {
 
-    private static final DateTimeFormatter DATA = DateTimeFormatter.ofPattern("dd/MM/yyyy");
-
     public PlanoSuspensoException(LocalDate inicioDaSuspensao) {
-        super("os recursos pagos do plano estao suspensos desde " + DATA.format(inicioDaSuspensao)
-                + ", por falta de renovacao");
+        super("Os recursos pagos do plano estão suspensos desde "
+                + FormatoDeTela.data(inicioDaSuspensao) + ", por falta de renovação.");
     }
 }

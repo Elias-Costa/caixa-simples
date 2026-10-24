@@ -291,6 +291,32 @@ class ProdutoServiceTest extends TesteDeIntegracao {
     }
 
     @Test
+    @DisplayName("busca por nome ignora o acento nos dois lados, em ordem alfabética (RF06)")
+    void buscaPorNomeIgnoraOAcento() {
+        ContaCriada conta = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
+
+        conta.comoUsuario(() -> {
+            produtoService.cadastrar(TipoProduto.PRODUTO, produto("Água mineral", null));
+            produtoService.cadastrar(TipoProduto.PRODUTO, produto("Pão de queijo", null));
+            produtoService.cadastrar(TipoProduto.PRODUTO, produto("Café expresso", null));
+            produtoService.cadastrar(TipoProduto.PRODUTO, produto("Cafe coado", null));
+        });
+
+        conta.comoUsuario(() -> {
+            assertThat(produtoService.buscarPorNomeOuCodigo("agua"))
+                    .extracting(Produto::getNome)
+                    .containsExactly("Água mineral");
+            assertThat(produtoService.buscarPorNomeOuCodigo("PAO"))
+                    .extracting(Produto::getNome)
+                    .containsExactly("Pão de queijo");
+            assertThat(produtoService.buscarPorNomeOuCodigo("café"))
+                    .as("o termo com acento acha o nome sem ele, e a ordem ignora o acento")
+                    .extracting(Produto::getNome)
+                    .containsExactly("Cafe coado", "Café expresso");
+        });
+    }
+
+    @Test
     @DisplayName("busca por código casa inteiro, sem olhar caixa, e vem antes dos nomes (RF06)")
     void buscaPorCodigoCasaInteiroEVemPrimeiro() {
         ContaCriada conta = criador.criar("Loja da Esquina", SENHA_DE_TESTE);
@@ -330,7 +356,8 @@ class ProdutoServiceTest extends TesteDeIntegracao {
 
         conta.comoUsuario(() -> {
             assertThatIllegalArgumentException()
-                    .isThrownBy(() -> produtoService.buscarPorNomeOuCodigo(""));
+                    .isThrownBy(() -> produtoService.buscarPorNomeOuCodigo(""))
+                    .withMessage("Informe o nome ou o código para buscar.");
             assertThatIllegalArgumentException()
                     .isThrownBy(() -> produtoService.buscarPorNomeOuCodigo("   "));
             assertThatIllegalArgumentException()

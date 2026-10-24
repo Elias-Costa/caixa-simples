@@ -47,7 +47,7 @@ function usuarioAtual(): string {
 
 function versaoLida(sessao: SessaoCaixa): number {
   if (typeof sessao.versao !== 'number') {
-    throw new Error('A revisão desta SessaoCaixa precisa ser carregada online antes da alteração.')
+    throw new Error('Abra este caixa com internet antes de alterá-lo sem rede.')
   }
   return sessao.versao
 }
@@ -384,7 +384,7 @@ export function criarCaixaLocal(remoto: CaixaRemoto = caixa): CaixaNoDispositivo
         return remoto.abrir(valorAbertura)
       }
       if ((await locais()).some((sessao) => sessao.status === 'ABERTA')) {
-        throw new Error('Já existe uma SessaoCaixa aberta neste dispositivo.')
+        throw new Error('Você já tem um caixa aberto neste aparelho; feche o anterior antes de abrir outro.')
       }
       const id = crypto.randomUUID()
       const ultimo = ordenarPorDependencia(gestos.filter((gesto) => gesto.tipo.startsWith(prefixo))).at(-1)
@@ -414,7 +414,7 @@ export function criarCaixaLocal(remoto: CaixaRemoto = caixa): CaixaNoDispositivo
       if (navigator.onLine && (await retratos()).every((sessao) => sessao.id !== id)
         && lerIdentidade()?.perfil === 'ADMIN') return remoto.fechar(id, valorContado)
       const sessao = await local(id)
-      if (sessao.status !== 'ABERTA') throw new Error('SessaoCaixa já fechada; não pode fechar novamente.')
+      if (sessao.status !== 'ABERTA') throw new Error('Este caixa já foi fechado e não fecha de novo.')
       const gestos = gestosDaSessao(await listarGestos(), id)
       if (navigator.onLine && !pendente(gestos)) {
         const fechada = await remoto.fechar(id, valorContado)
@@ -439,8 +439,10 @@ async function movimentar(remoto: CaixaRemoto, id: string, quantia: number, moti
   tipo: 'caixa.sangrar' | 'caixa.suprir', movimentoId?: string): Promise<void> {
   const cent = centavos(quantia, 'Valor do movimento')
   const sessao = await local(id)
-  if (sessao.status !== 'ABERTA') throw new Error('SessaoCaixa fechada não aceita movimento.')
-  if (!motivo.trim()) throw new Error('Motivo é obrigatório para sangria e suprimento (RF14).')
+  if (sessao.status !== 'ABERTA') throw new Error('Este caixa já foi fechado e não aceita movimento.')
+  if (!motivo.trim()) {
+    throw new Error(tipo === 'caixa.sangrar' ? 'Informe o motivo da sangria.' : 'Informe o motivo do suprimento.')
+  }
   const gestos = await listarGestos()
   const comRede = navigator.onLine && !pendente(gestosDaSessao(gestos, id))
   if (tipo === 'caixa.sangrar') {

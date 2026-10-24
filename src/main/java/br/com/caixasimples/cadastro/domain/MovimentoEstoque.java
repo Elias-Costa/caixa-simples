@@ -65,7 +65,7 @@ public record MovimentoEstoque(UUID id, TipoMovimentoEstoque tipo, BigDecimal qu
                     "quantidade de " + tipo + " nao pode ser negativa: " + quantidade
                             + ". Quem indica entrada ou saida e o tipo, nunca o sinal.");
         }
-        exigirCasasDaQuantidade(quantidade, "quantidade de movimento de estoque");
+        exigirCasasDaQuantidade(quantidade, "A quantidade do movimento de estoque");
         motivo = textoOpcional(motivo);
     }
 
@@ -109,7 +109,7 @@ public record MovimentoEstoque(UUID id, TipoMovimentoEstoque tipo, BigDecimal qu
     static void exigirCasasDaQuantidade(BigDecimal valor, String campo) {
         if (valor.stripTrailingZeros().scale() > CASAS_DA_QUANTIDADE) {
             throw new IllegalArgumentException(
-                    campo + " tem no maximo " + CASAS_DA_QUANTIDADE + " casas decimais: " + valor);
+                    campo + " tem no máximo " + CASAS_DA_QUANTIDADE + " casas decimais.");
         }
     }
 

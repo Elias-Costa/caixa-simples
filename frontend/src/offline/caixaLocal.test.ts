@@ -215,13 +215,13 @@ describe('SessaoCaixa local', () => {
     rede(false)
     const local = criarCaixaLocal()
     const { id } = await local.abrir(10)
-    await expect(local.abrir(0)).rejects.toThrow('Já existe')
+    await expect(local.abrir(0)).rejects.toThrow('já tem um caixa aberto')
     await expect(local.sangrar(id, 11, 'Retirada')).rejects.toThrow('maior')
-    await expect(local.suprir(id, 2, ' ')).rejects.toThrow('Motivo')
+    await expect(local.suprir(id, 2, ' ')).rejects.toThrow('Informe o motivo do suprimento')
     await expect(local.fechar(id, -1)).rejects.toThrow('não negativo')
     await local.fechar(id, 9)
-    await expect(local.fechar(id, 9)).rejects.toThrow('já fechada')
-    await expect(local.suprir(id, 1, 'Troco')).rejects.toThrow('fechada')
+    await expect(local.fechar(id, 9)).rejects.toThrow('não fecha de novo')
+    await expect(local.suprir(id, 1, 'Troco')).rejects.toThrow('não aceita movimento')
     expect((await listarGestos()).map((gesto) => gesto.tipo).sort()).toEqual(['caixa.abrir', 'caixa.fechar'])
   })
 
@@ -456,9 +456,9 @@ describe('SessaoCaixa local diante do que o servidor já sabe', () => {
 
     rede(false)
     expect(await criarCaixaLocal(remoto).abertaDoOperadorAtual()).toBeUndefined()
-    await expect(local.sangrar(sessao.id, 1, 'Retirada')).rejects.toThrow('fechada')
-    await expect(local.fechar(sessao.id, 20)).rejects.toThrow('já fechada')
-    await expect(criarVendaLocal(apiDeVendas(), local).iniciar(sessao.id)).rejects.toThrow('não está ABERTA')
+    await expect(local.sangrar(sessao.id, 1, 'Retirada')).rejects.toThrow('não aceita movimento')
+    await expect(local.fechar(sessao.id, 20)).rejects.toThrow('não fecha de novo')
+    await expect(criarVendaLocal(apiDeVendas(), local).iniciar(sessao.id)).rejects.toThrow('já foi fechado')
     // Sem o fechamento lido, a sessão aparece fechada, sem hora, valor contado ou diferença inventados.
     expect(await local.consultar(sessao.id)).toMatchObject({ status: 'FECHADA', fechadaEm: null,
       valorFechamentoContado: null, diferenca: null, fechamentoSemValores: true, valorFechamentoEsperado: 20 })
@@ -526,7 +526,7 @@ describe('SessaoCaixa local diante do que o servidor já sabe', () => {
     rede(false)
     expect(await local.abertaDoOperadorAtual()).toBeUndefined()
     expect(await local.consultar(sessao.id)).toMatchObject({ status: 'FECHADA', fechamentoSemValores: true })
-    await expect(local.fechar(sessao.id, 20)).rejects.toThrow('já fechada')
+    await expect(local.fechar(sessao.id, 20)).rejects.toThrow('não fecha de novo')
     expect(remoto.fechar).toHaveBeenCalledTimes(1)
     expect(await listarGestos()).toEqual([])
   })
@@ -547,7 +547,7 @@ describe('SessaoCaixa local diante do que o servidor já sabe', () => {
     rede(false)
     expect((await local.abertaDoOperadorAtual())?.id).toBe(nova.id)
     expect(await local.consultar(antiga.id)).toMatchObject({ status: 'FECHADA', fechamentoSemValores: true })
-    await expect(local.sangrar(antiga.id, 1, 'Retirada')).rejects.toThrow('fechada')
+    await expect(local.sangrar(antiga.id, 1, 'Retirada')).rejects.toThrow('não aceita movimento')
   })
 
   it('tira de operação o caixa que o servidor fechou sem perder o gesto pendente dele', async () => {
@@ -601,7 +601,7 @@ describe('SessaoCaixa local diante do que o servidor já sabe', () => {
     expect(await local.abertaDoOperadorAtual()).toBeUndefined()
     expect(await local.consultar(id)).toMatchObject({ status: 'FECHADA', fechamentoSemValores: true,
       valorAbertura: 15 })
-    await expect(local.sangrar(id, 1, 'Retirada')).rejects.toThrow('fechada')
+    await expect(local.sangrar(id, 1, 'Retirada')).rejects.toThrow('não aceita movimento')
   })
 })
 

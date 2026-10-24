@@ -4,6 +4,6 @@ package br.com.caixasimples.shared;
 public class RegistroDeRemocoesIndisponivelException extends RuntimeException {
 
     public RegistroDeRemocoesIndisponivelException() {
-        super("o registro de remocao esta indisponivel; tente novamente");
+        super("O registro de remoções está fora do ar; tente de novo em alguns minutos.");
     }
 }

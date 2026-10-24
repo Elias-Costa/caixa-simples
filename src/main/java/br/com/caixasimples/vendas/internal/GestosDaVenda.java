@@ -8,6 +8,7 @@ import br.com.caixasimples.contas.application.ContaService;
 import br.com.caixasimples.pagamentos.FormaPagamento;
 import br.com.caixasimples.pagamentos.application.FormaDePagamentoNaoSuportadaException;
 import br.com.caixasimples.pagamentos.domain.SolicitacaoPagamento;
+import br.com.caixasimples.shared.FormatoDeTela;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.sincronizacao.Aplicacao;
 import br.com.caixasimples.sincronizacao.AplicadorDeOperacoes;
@@ -112,7 +113,7 @@ class GestosDaVenda implements AplicadorDeOperacoes {
                 case "venda.registrarPagamento" -> registrarPagamento(operacao);
                 case "venda.concluir" -> concluir(operacao);
                 default -> throw new OperacaoRecusadaException(
-                        "gesto de venda desconhecido: " + operacao.tipo());
+                        "O servidor não conhece o gesto de venda " + operacao.tipo() + ".");
             };
         } catch (VendaNaoEncontradaException | SessaoCaixaNaoEncontradaParaVendaException
                 | ProdutoNaoEncontradoException | ClienteNaoEncontradoParaVendaException
@@ -138,9 +139,9 @@ class GestosDaVenda implements AplicadorDeOperacoes {
                 operacao.exigir(item.quantidade(), "quantidade"), precoVisto,
                 operacao.dinheiro(item.desconto(), "desconto"), operacao.criadoEm());
         if (!vigente.equals(precoVisto)) {
-            return Aplicacao.comRevisao(null, "o item foi cobrado a " + precoVisto
-                    + ", e o preco vigente do produto " + item.produtoId() + " e " + vigente
-                    + "; o valor cobrado foi mantido");
+            return Aplicacao.comRevisao(null, "O item " + item.nome() + " foi cobrado a "
+                    + FormatoDeTela.reais(precoVisto) + ", e o preço atual é "
+                    + FormatoDeTela.reais(vigente) + "; o valor cobrado foi mantido.");
         }
         return Aplicacao.aplicada(null);
     }
@@ -156,9 +157,9 @@ class GestosDaVenda implements AplicadorDeOperacoes {
                 operacao.exigir(parcela.pagamentoId(), "pagamentoId"),
                 new SolicitacaoPagamento(forma, valor, recebido), operacao.criadoEm(), nsu);
         if (forma == FormaPagamento.CARTAO && nsu == null && contas.nsuObrigatorio()) {
-            return Aplicacao.comRevisao(null, "a parcela de " + valor + " em cartao chegou sem o"
-                    + " NSU que a Conta exige; confira o comprovante da maquininha e o extrato da"
-                    + " operadora");
+            return Aplicacao.comRevisao(null, "A parcela de " + FormatoDeTela.reais(valor)
+                    + " no cartão chegou sem o NSU que a Conta exige; confira o comprovante da"
+                    + " maquininha e o extrato da operadora.");
         }
         return Aplicacao.aplicada(null);
     }
@@ -173,8 +174,8 @@ class GestosDaVenda implements AplicadorDeOperacoes {
             return Aplicacao.aplicada(null, concluidoEm);
         }
         return Aplicacao.comRevisao(null, concluidoEm,
-                "a baixa desta venda deixou o estoque negativo: " + String.join(", ", negativos)
-                        + "; confira a contagem e ajuste se preciso");
+                "A baixa desta venda deixou o estoque negativo: " + String.join(", ", negativos)
+                        + "; confira a contagem e ajuste se preciso.");
     }
 
     /**
@@ -194,8 +195,7 @@ class GestosDaVenda implements AplicadorDeOperacoes {
 
     private static String descrever(EstoqueDoProduto saldo) {
         String unidade = saldo.unidade() == null ? "" : " " + saldo.unidade();
-        return saldo.nome() + " com " + saldo.estoqueAtual().stripTrailingZeros().toPlainString()
-                + unidade;
+        return saldo.nome() + " com " + FormatoDeTela.quantidade(saldo.estoqueAtual()) + unidade;
     }
 
     /** O conteúdo de {@code venda.iniciar}, como o dispositivo o grava. */

@@ -94,7 +94,7 @@ class CorrecaoDoCadastroHttpTest extends TesteDeIntegracao {
 
         trocarEmail(token, SENHA, outraConta.email(), origem)
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.detail").value(Matchers.containsString("ja existe")));
+                .andExpect(jsonPath("$.detail").value(Matchers.containsString("Já existe")));
         trocarEmail(token, SENHA, conta.email().toUpperCase(), origem)
                 .andExpect(status().isNoContent());
         trocarEmail(token, SENHA, "sem-arroba", origem).andExpect(status().isBadRequest());

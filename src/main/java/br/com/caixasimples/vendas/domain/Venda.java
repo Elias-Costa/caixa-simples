@@ -3,6 +3,7 @@ package br.com.caixasimples.vendas.domain;
 import br.com.caixasimples.pagamentos.FormaPagamento;
 import br.com.caixasimples.pagamentos.domain.CobrancaPix;
 import br.com.caixasimples.pagamentos.StatusPagamento;
+import br.com.caixasimples.shared.FormatoDeTela;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.vendas.StatusVenda;
 import java.math.BigDecimal;
@@ -329,8 +330,7 @@ public class Venda {
         exigirAberta();
         Objects.requireNonNull(itemId, "itemId nao pode ser nulo");
         if (itens.stream().anyMatch(existente -> existente.id().equals(itemId))) {
-            throw new IllegalArgumentException(
-                    "item " + itemId + " ja esta na venda " + id + " e nao entra de novo.");
+            throw new IllegalArgumentException("Este item já está na venda e não entra de novo.");
         }
 
         ItemVenda item = ItemVenda.novo(itemId, produtoId, quantidade, precoUnitario, desconto,
@@ -340,9 +340,9 @@ public class Venda {
             // A conta é feita antes de anexar, para que um item recusado não deixe rastro. Igual
             // ao bruto passa: o item vira cortesia e vale zero.
             throw new IllegalArgumentException(
-                    "desconto de " + item.desconto() + " e maior que o valor do item, "
-                            + item.valorBruto() + ". Brinde e preco zero, nao desconto acima do"
-                            + " valor.");
+                    "O desconto de " + FormatoDeTela.reais(item.desconto())
+                            + " é maior que o valor do item, " + FormatoDeTela.reais(item.valorBruto())
+                            + ".");
         }
 
         itens.add(item);
@@ -366,8 +366,7 @@ public class Venda {
         ItemVenda item = itens.stream()
                 .filter(candidato -> candidato.id().equals(itemId))
                 .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "item " + itemId + " nao esta na venda " + id));
+                .orElseThrow(() -> new IllegalArgumentException("Este item não está na venda."));
 
         // Mesma regra do desconto da venda, olhada pelo outro lado: sem este item, a soma
         // restante ainda cobre o desconto já aplicado? Conferido antes de remover, para que uma
@@ -376,11 +375,11 @@ public class Venda {
         Money totalSemOItem = somaSemOItem.subtrair(valorDesconto);
         if (totalSemOItem.isNegativo()) {
             throw new IllegalArgumentException(
-                    "remover o item deixaria o desconto da venda, " + valorDesconto
-                            + ", maior que a soma dos itens restantes, " + somaSemOItem
-                            + ". Reduza o desconto antes de remover o item.");
+                    "Tirar este item deixaria o desconto da venda, "
+                            + FormatoDeTela.reais(valorDesconto) + ", maior que a soma dos itens que ficam, "
+                            + FormatoDeTela.reais(somaSemOItem) + "; reduza o desconto antes.");
         }
-        exigirTotalNaoAbaixoDoPago(totalSemOItem, "remover o item");
+        exigirTotalNaoAbaixoDoPago(totalSemOItem, "Tirar este item");
 
         itens.remove(item);
         recalcularTotal();
@@ -404,18 +403,17 @@ public class Venda {
 
         if (desconto.isNegativo()) {
             // Desconto negativo seria acréscimo, e nenhum requisito pede acréscimo.
-            throw new IllegalArgumentException(
-                    "desconto da venda nao pode ser negativo: " + desconto);
+            throw new IllegalArgumentException("O desconto da venda não pode ser negativo.");
         }
 
         Money somaDosItens = somaDosItens();
         Money totalComODesconto = somaDosItens.subtrair(desconto);
         if (totalComODesconto.isNegativo()) {
             throw new IllegalArgumentException(
-                    "desconto de " + desconto + " e maior que a soma dos itens, " + somaDosItens
-                            + ". O total da venda nao fica negativo.");
+                    "O desconto de " + FormatoDeTela.reais(desconto)
+                            + " é maior que a soma dos itens, " + FormatoDeTela.reais(somaDosItens) + ".");
         }
-        exigirTotalNaoAbaixoDoPago(totalComODesconto, "aplicar o desconto");
+        exigirTotalNaoAbaixoDoPago(totalComODesconto, "Este desconto");
 
         this.valorDesconto = desconto;
         recalcularTotal();
@@ -468,8 +466,7 @@ public class Venda {
         exigirAberta();
         Objects.requireNonNull(pagamentoId, "id da parcela nao pode ser nulo");
         if (pagamentos.stream().anyMatch(existente -> existente.id().equals(pagamentoId))) {
-            throw new IllegalArgumentException(
-                    "parcela " + pagamentoId + " ja esta na venda " + id + " e nao entra de novo.");
+            throw new IllegalArgumentException("Esta parcela já está na venda e não entra de novo.");
         }
         Objects.requireNonNull(forma, "forma de pagamento nao pode ser nula");
         Objects.requireNonNull(valor, "valor do pagamento nao pode ser nulo");
@@ -481,13 +478,12 @@ public class Venda {
         Money saldo = saldoAPagar();
         if (saldo.subtrair(valor).isNegativo()) {
             throw new IllegalArgumentException(
-                    "parcela de " + valor + " e maior que o que falta pagar, " + saldo
-                            + ". O total da venda e " + valorTotal + " e ja ha "
-                            + somaDasParcelasLancadas() + " em parcelas lancadas.");
+                    "A parcela de " + FormatoDeTela.reais(valor)
+                            + " é maior que o que falta pagar, " + FormatoDeTela.reais(saldo) + ".");
         }
 
         if (forma == FormaPagamento.FIADO && parcelaFiado() != null) {
-            throw new IllegalStateException("a venda aceita uma unica parcela FIADO");
+            throw new IllegalStateException("A venda aceita um só pagamento no fiado.");
         }
         pagamentos.add(Pagamento.novo(pagamentoId, forma, valor, status, troco, criadoEm, nsu));
     }
@@ -502,13 +498,14 @@ public class Venda {
             if (existente.forma() != FormaPagamento.PIX || !existente.valor().equals(valor)
                     || existente.cobrancaPix() == null
                     || !existente.cobrancaPix().txid().equals(cobranca.txid())) {
-                throw new IllegalStateException("tentativa Pix reutilizada com dados diferentes");
+                throw new IllegalStateException("Esta cobrança Pix já foi pedida com outro valor.");
             }
             return existente;
         }
         exigirAberta();
         if (valor == null || valor.valor().signum() <= 0 || saldoAPagar().subtrair(valor).isNegativo()) {
-            throw new IllegalArgumentException("valor da parcela Pix deve ser positivo e caber no saldo");
+            throw new IllegalArgumentException(
+                        "O valor da parcela Pix tem de ser positivo e caber no que falta pagar.");
         }
         Pagamento pagamento = Pagamento.pixPendente(pagamentoId, valor, cobranca);
         pagamentos.add(pagamento);
@@ -531,7 +528,7 @@ public class Venda {
                 return;
             }
         }
-        throw new IllegalStateException("tentativa Pix pendente nao encontrada nesta venda");
+        throw new IllegalStateException("Esta cobrança Pix pendente não está nesta venda.");
     }
 
     /** Registra um Pix já comprovado pelo PSP, inclusive após cancelamento da comanda. */
@@ -545,7 +542,8 @@ public class Venda {
             if (cobranca == null || !cobranca.txid().equals(txid)
                     || !cobranca.chaveRecebedora().equals(chave)
                     || !atual.valor().equals(valor)) {
-                throw new IllegalStateException("consulta Pix diverge da parcela reservada");
+                throw new IllegalStateException(
+                        "A cobrança Pix no banco não confere com a parcela da venda.");
             }
             if (atual.status() == StatusPagamento.CONFIRMADO) {
                 return false;
@@ -553,12 +551,12 @@ public class Venda {
             if (atual.status() != StatusPagamento.PENDENTE
                     && !(status == StatusVenda.CANCELADA
                             && atual.status() == StatusPagamento.RECUSADO)) {
-                throw new IllegalStateException("parcela Pix nao esta pendente");
+                throw new IllegalStateException("Esta cobrança Pix não está mais pendente.");
             }
             pagamentos.set(i, atual.comStatus(StatusPagamento.CONFIRMADO));
             return true;
         }
-        throw new IllegalStateException("tentativa Pix nao encontrada nesta venda");
+        throw new IllegalStateException("Esta cobrança Pix não está nesta venda.");
     }
 
     /** A remoção comprovada libera a parcela reservada sem apagar sua tentativa. */
@@ -572,7 +570,7 @@ public class Venda {
                 return;
             }
         }
-        throw new IllegalStateException("tentativa Pix pendente nao encontrada nesta venda");
+        throw new IllegalStateException("Esta cobrança Pix pendente não está nesta venda.");
     }
 
     /** A conclusão continua explícita no caso de uso, após conferir a SessaoCaixa. */
@@ -610,28 +608,24 @@ public class Venda {
         Objects.requireNonNull(concluidoEm, "concluidoEm nao pode ser nulo");
         if (status != StatusVenda.ABERTA) {
             throw new IllegalStateException(
-                    "venda " + id + " esta " + status + " e nao conclui de novo."
-                            + " So venda ABERTA conclui.");
+                    "Esta venda já está " + situacao(status) + " e não conclui de novo.");
         }
         if (itens.isEmpty()) {
             // Venda de nada não é venda, como item de quantidade zero não é item. Sem esta guarda,
             // uma comanda aberta por engano viraria venda concluída vazia no histórico.
-            throw new IllegalStateException(
-                    "venda " + id + " nao tem item nenhum e nao conclui. Venda de nada nao e"
-                            + " venda.");
+            throw new IllegalStateException("A venda não tem item e não conclui.");
         }
 
         if (parcelaFiado() != null && clienteId == null) {
-            throw new IllegalStateException("venda FIADO exige cliente vinculado");
+            throw new IllegalStateException(
+                        "Vincule o cliente antes de concluir a venda no fiado.");
         }
         Money cobertura = somaDaCobertura();
         if (!cobertura.equals(valorTotal)) {
             throw new IllegalStateException(
-                    "venda " + id + " tem " + cobertura
-                    + " em pagamentos confirmados ou FIADO pendente para um"
-                    + " total de " + valorTotal + "; faltam "
-                    + valorTotal.subtrair(cobertura) + ". A venda so conclui quando os"
-                    + " pagamentos confirmados ou FIADO pendente cobrem o total.");
+                    "Ainda falta lançar " + FormatoDeTela.reais(valorTotal.subtrair(cobertura))
+                            + ": a venda só conclui quando os pagamentos cobrem o total de "
+                            + FormatoDeTela.reais(valorTotal) + ".");
         }
 
         this.status = StatusVenda.CONCLUIDA;
@@ -657,12 +651,12 @@ public class Venda {
      */
     public void cancelar() {
         if (status == StatusVenda.CANCELADA) {
-            throw new IllegalStateException(
-                    "venda " + id + " ja esta CANCELADA e nao cancela de novo.");
+            throw new IllegalStateException("Esta venda já foi cancelada.");
         }
         if (pagamentos.stream().anyMatch(p -> p.cobrancaPix() != null
                 && p.status() == StatusPagamento.PENDENTE)) {
-            throw new IllegalStateException("cobranca Pix pendente precisa ser removida antes do cancelamento");
+            throw new IllegalStateException(
+                    "Remova a cobrança Pix pendente antes de cancelar a venda.");
         }
         this.status = StatusVenda.CANCELADA;
     }
@@ -683,8 +677,8 @@ public class Venda {
     public void desvincularCliente() {
         exigirAberta();
         if (parcelaFiado() != null) {
-            throw new IllegalStateException("venda com parcela FIADO exige cliente vinculado;"
-                    + " troque o cliente em vez de tira-lo");
+            throw new IllegalStateException("A venda tem pagamento no fiado e precisa de cliente;"
+                    + " troque o cliente em vez de tirá-lo.");
         }
         this.clienteId = null;
     }
@@ -709,19 +703,20 @@ public class Venda {
             FormaPagamento forma, String nsu) {
         Objects.requireNonNull(recebimentoId, "id do recebimento nao pode ser nulo");
         if (recebimentos.stream().anyMatch(existente -> existente.id().equals(recebimentoId))) {
-            throw new IllegalStateException("recebimento ja existe nesta venda: " + recebimentoId);
+            throw new IllegalStateException("Este recebimento já foi registrado nesta venda.");
         }
         if (status != StatusVenda.CONCLUIDA) {
-            throw new IllegalStateException("so venda CONCLUIDA aceita recebimento");
+            throw new IllegalStateException("Só venda concluída recebe pagamento de fiado.");
         }
         Pagamento fiado = parcelaFiado();
         if (fiado == null) {
-            throw new IllegalStateException("venda nao possui parcela FIADO");
+            throw new IllegalStateException("Esta venda não tem pagamento no fiado.");
         }
         Recebimento recebimento = Recebimento.novo(recebimentoId, sessaoCaixaId, valor, forma,
                 nsu);
         if (valor.subtrair(saldoDevedor()).valor().signum() > 0) {
-            throw new IllegalArgumentException("recebimento supera o saldo devedor da venda");
+            throw new IllegalArgumentException("O recebimento passa do saldo devedor da venda, "
+                    + FormatoDeTela.reais(saldoDevedor()) + ".");
         }
         recebimentos.add(recebimento);
         if (saldoDevedor().equals(Money.ZERO)) {
@@ -805,18 +800,27 @@ public class Venda {
         Money pago = somaDasParcelasLancadas();
         if (totalResultante.subtrair(pago).isNegativo()) {
             throw new IllegalArgumentException(
-                    operacao + " deixaria o total da venda em " + totalResultante
-                            + ", abaixo dos " + pago + " ja lancados em pagamento."
-                            + " Parcela lancada nao se desfaz.");
+                    operacao + " deixaria o total da venda em " + FormatoDeTela.reais(totalResultante)
+                            + ", abaixo dos " + FormatoDeTela.reais(pago) + " já lançados em pagamento."
+                            + " Pagamento lançado não se desfaz: para corrigir, cancele a venda e faça"
+                            + " de novo.");
         }
     }
 
     private void exigirAberta() {
         if (status != StatusVenda.ABERTA) {
             throw new IllegalStateException(
-                    "venda " + id + " esta " + status + " e nao aceita montagem."
-                            + " Item e desconto so mudam enquanto a venda esta ABERTA.");
+                    "Esta venda já está " + situacao(status) + " e não aceita mais alteração.");
         }
+    }
+
+    /** A situação como a tela a diz, para a recusa não mostrar o nome do enum. */
+    private static String situacao(StatusVenda status) {
+        return switch (status) {
+            case ABERTA -> "aberta";
+            case CONCLUIDA -> "concluída";
+            case CANCELADA -> "cancelada";
+        };
     }
 
     public UUID getId() {

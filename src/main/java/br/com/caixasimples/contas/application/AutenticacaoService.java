@@ -232,14 +232,14 @@ public class AutenticacaoService {
         UsuarioAutenticado atual = UsuarioContext.exigirAtual();
         ContaId contaId = TenantContext.exigirAtual();
         if (senhaAtual == null || senhaNova == null) {
-            throw new IllegalArgumentException("informe a senha atual e a nova");
+            throw new IllegalArgumentException("Informe a senha atual e a nova.");
         }
 
         Credencial credencial = credencialDe(atual.usuarioId(), contaId);
         conferirSenhaAtual(credencial, senhaAtual, origem, SenhaAtualIncorretaException.Troca.SENHA);
 
         if (senhaNova.equals(senhaAtual)) {
-            throw new SenhaRecusadaException("A senha nova precisa ser diferente da atual");
+            throw new SenhaRecusadaException("A senha nova precisa ser diferente da atual.");
         }
         politica.exigirValidaEscolhidaPelaPropriaPessoa(senhaNova);
         String novoHash = encoder.encode(senhaNova);
@@ -283,7 +283,7 @@ public class AutenticacaoService {
         UsuarioAutenticado atual = UsuarioContext.exigirAtual();
         ContaId contaId = TenantContext.exigirAtual();
         if (senhaAtual == null || emailNovo == null) {
-            throw new IllegalArgumentException("informe a senha atual e o e-mail novo");
+            throw new IllegalArgumentException("Informe a senha atual e o e-mail novo.");
         }
 
         Credencial credencial = credencialDe(atual.usuarioId(), contaId);
@@ -336,10 +336,10 @@ public class AutenticacaoService {
         UsuarioAutenticado atual = UsuarioContext.exigirAtual();
         ContaId contaId = TenantContext.exigirAtual();
         if (senhaAtual == null) {
-            throw new IllegalArgumentException("informe a senha atual");
+            throw new IllegalArgumentException("Informe a senha atual.");
         }
         if (tipo == null && chave != null && !chave.isBlank()) {
-            throw new IllegalArgumentException("chave Pix: informe o tipo da chave.");
+            throw new IllegalArgumentException("Chave Pix: informe o tipo da chave.");
         }
         ChavePix conferida = tipo == null ? null : ChavePix.conferir(tipo, chave);
         if (conferida != null) {

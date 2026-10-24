@@ -91,7 +91,7 @@ class TermosDeUsoServiceTest extends TesteDeIntegracao {
 
         assertThatExceptionOfType(IllegalStateException.class)
                 .isThrownBy(() -> conta.comoUsuario(() -> termos.aceitar("2000-01-01")))
-                .withMessageContaining("os termos mudaram");
+                .withMessageContaining("Os termos mudaram");
 
         assertThat(conta.comoUsuario(() -> aceites.findAll())).isEmpty();
         assertThat(conta.comoUsuario(termos::pendentes)).isTrue();

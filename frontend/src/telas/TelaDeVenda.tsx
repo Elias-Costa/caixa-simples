@@ -138,8 +138,9 @@ export function TelaDeVenda() {
   // O termo cuja resposta está em resultados: sem ele, a busca vazia e a ainda em curso pareceriam iguais.
   const [buscado, setBuscado] = useState('')
   const [quantidade, setQuantidade] = useState('1')
-  const [descontoItem, setDescontoItem] = useState('0')
-  const [descontoVenda, setDescontoVenda] = useState('0')
+  // Vazio vale zero; com 0 dentro, o que se digita depois dele vira 02,90.
+  const [descontoItem, setDescontoItem] = useState('')
+  const [descontoVenda, setDescontoVenda] = useState('')
   const [resultados, setResultados] = useState<Produto[]>([])
   const [forma, setForma] = useState<OpcaoDePagamento>('DINHEIRO')
   const [valorPagamento, setValorPagamento] = useState('')
@@ -339,7 +340,7 @@ export function TelaDeVenda() {
       await atualizar(id)
       // O termo buscado sai junto com os resultados: guardado, o mesmo código passado de novo pareceria
       // já buscado e sem resultado, e o Enter do leitor não lançaria nada.
-      setBusca(''); setResultados([]); setBuscado(''); setQuantidade('1'); setDescontoItem('0')
+      setBusca(''); setResultados([]); setBuscado(''); setQuantidade('1'); setDescontoItem('')
       buscaRef.current?.focus()
     } catch (falha) {
       falhar('busca', erroDaComanda(falha))
@@ -601,7 +602,8 @@ export function TelaDeVenda() {
           </div>
           <p className="pdv__ajuda">Também aceita 3* no início da busca para lançar três unidades.</p>
           {identidade?.perfil === 'ADMIN' &&
-            <CampoDeDinheiro rotulo="Desconto deste item" valor={descontoItem} aoMudar={setDescontoItem} />}
+            <CampoDeDinheiro rotulo="Desconto deste item" placeholder="0,00" valor={descontoItem}
+              aoMudar={setDescontoItem} />}
           <Mensagem tipo="erro" texto={erroEm('busca')} />
           {termo && buscado === termo && resultados.length === 0 &&
             <p className="pdv__ajuda" role="status">Nenhum produto encontrado para {termo}.</p>}
@@ -669,7 +671,8 @@ export function TelaDeVenda() {
             </ul>}
             {identidade?.perfil === 'ADMIN' && atual.status === 'ABERTA' && <form onSubmit={(evento) => void descontar(evento)} className="pdv__desconto">
               <div className="pdv__desconto-campo">
-                <CampoDeDinheiro rotulo="Desconto da venda" valor={descontoVenda} aoMudar={setDescontoVenda} />
+                <CampoDeDinheiro rotulo="Desconto da venda" placeholder="0,00" valor={descontoVenda}
+                  aoMudar={setDescontoVenda} />
               </div>
               <button className="botao botao--secundario" disabled={ocupado}>Aplicar</button>
             </form>}

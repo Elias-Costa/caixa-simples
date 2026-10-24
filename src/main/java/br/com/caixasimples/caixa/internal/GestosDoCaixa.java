@@ -80,7 +80,7 @@ class GestosDoCaixa implements AplicadorDeOperacoes {
                     yield fechamento.fechadaEm();
                 }
                 default -> throw new OperacaoRecusadaException(
-                        "gesto de caixa desconhecido: " + operacao.tipo());
+                        "O servidor não conhece o gesto de caixa " + operacao.tipo() + ".");
             };
         } catch (SessaoCaixaNaoEncontradaException | OperadorJaTemCaixaAbertoException recusa) {
             throw new OperacaoRecusadaException(recusa.getMessage(), recusa);

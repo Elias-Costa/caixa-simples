@@ -1,5 +1,6 @@
 package br.com.caixasimples.relatorios.application;
 
+import br.com.caixasimples.shared.FormatoDeTela;
 import br.com.caixasimples.shared.FusoDeReferencia;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -27,8 +28,8 @@ record Periodo(LocalDate inicio, LocalDate fim) {
         Objects.requireNonNull(inicio, "inicio do periodo nao pode ser nulo");
         Objects.requireNonNull(fim, "fim do periodo nao pode ser nulo");
         if (fim.isBefore(inicio)) {
-            throw new IllegalArgumentException(
-                    "fim do periodo (" + fim + ") nao pode vir antes do inicio (" + inicio + ")");
+            throw new IllegalArgumentException("O fim do período, " + FormatoDeTela.data(fim)
+                    + ", não pode vir antes do início, " + FormatoDeTela.data(inicio) + ".");
         }
     }
 

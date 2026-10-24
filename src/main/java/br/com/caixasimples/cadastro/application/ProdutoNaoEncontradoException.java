@@ -18,6 +18,6 @@ import java.util.UUID;
 public class ProdutoNaoEncontradoException extends RuntimeException {
 
     public ProdutoNaoEncontradoException(UUID id) {
-        super("produto nao encontrado nesta conta: " + id);
+        super("Produto não encontrado nesta Conta.");
     }
 }

@@ -128,7 +128,7 @@ class NsuNoCartaoTest extends TesteDeIntegracao {
                         vendas.registrarPagamentoOnline(outraVenda, UUID.randomUUID(),
                                 SolicitacaoPagamento.emDinheiro(Money.de("20.00"),
                                         Money.de("20.00")), "004512")))
-                .withMessageContaining("NSU so existe em cartao");
+                .withMessageContaining("O NSU só existe no");
         assertThat(consultar(balcao.conta(), outraVenda).parcelas()).isEmpty();
     }
 
@@ -143,13 +143,13 @@ class NsuNoCartaoTest extends TesteDeIntegracao {
                 .isThrownBy(() -> balcao.conta().comoUsuario(() ->
                         vendas.registrarPagamentoOnline(vendaId, UUID.randomUUID(),
                                 cartao("8.00"), null)))
-                .withMessageContaining("exige o NSU");
+                .withMessageContaining("Informe o NSU");
         // Em branco vale como não informado, então também é recusado.
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> balcao.conta().comoUsuario(() ->
                         vendas.registrarPagamentoOnline(vendaId, UUID.randomUUID(),
                                 cartao("8.00"), "  ")))
-                .withMessageContaining("exige o NSU");
+                .withMessageContaining("Informe o NSU");
         assertThat(consultar(balcao.conta(), vendaId).parcelas()).isEmpty();
 
         balcao.conta().comoUsuario(() -> {
@@ -185,7 +185,7 @@ class NsuNoCartaoTest extends TesteDeIntegracao {
                 .isThrownBy(() -> balcao.conta().comoUsuario(() ->
                         vendas.registrarPagamentoOnline(vendaId, antiga, cartao("10.00"),
                                 "004512")))
-                .withMessageContaining("outro conteudo");
+                .withMessageContaining("outro valor ou forma");
 
         balcao.conta().comoUsuario(() -> {
             vendas.registrarPagamentoOnline(vendaId, UUID.randomUUID(), cartao("10.00"), "004512");
@@ -208,12 +208,12 @@ class NsuNoCartaoTest extends TesteDeIntegracao {
                 .isThrownBy(() -> balcao.conta().comoUsuario(() ->
                         vendas.receberOnline(vendaId, recebimentoId, Money.de("5.00"),
                                 FormaPagamento.CARTAO, null)))
-                .withMessageContaining("exige o NSU");
+                .withMessageContaining("Informe o NSU");
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> balcao.conta().comoUsuario(() ->
                         vendas.receberOnline(vendaId, UUID.randomUUID(), Money.de("5.00"),
                                 FormaPagamento.PIX, "778899")))
-                .withMessageContaining("NSU so existe em cartao");
+                .withMessageContaining("O NSU só existe no");
 
         var recebido = balcao.conta().comoUsuario(() -> vendas.receberOnline(vendaId,
                 recebimentoId, Money.de("5.00"), FormaPagamento.CARTAO, " 778899 "));
@@ -224,7 +224,7 @@ class NsuNoCartaoTest extends TesteDeIntegracao {
         assertThatIllegalStateException()
                 .isThrownBy(() -> balcao.conta().comoUsuario(() -> vendas.receberOnline(vendaId,
                         recebimentoId, Money.de("5.00"), FormaPagamento.CARTAO, "778800")))
-                .withMessageContaining("outro conteudo");
+                .withMessageContaining("outro valor ou forma");
         balcao.conta().comoUsuario(() -> vendas.receberOnline(vendaId, UUID.randomUUID(),
                 Money.de("5.00"), FormaPagamento.DINHEIRO, null));
 
@@ -280,7 +280,7 @@ class NsuNoCartaoTest extends TesteDeIntegracao {
                 .isThrownBy(() -> primeira.conta().comoUsuario(() ->
                         vendas.receberOnline(fiadaDaPrimeira, UUID.randomUUID(), Money.de("5.00"),
                                 FormaPagamento.CARTAO, null)))
-                .withMessageContaining("exige o NSU");
+                .withMessageContaining("Informe o NSU");
     }
 
     @Test

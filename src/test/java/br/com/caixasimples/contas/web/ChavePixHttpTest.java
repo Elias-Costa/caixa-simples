@@ -145,11 +145,11 @@ class ChavePixHttpTest extends TesteDeIntegracao {
             definir(admin, ERRADA, "CPF", "529.982.247-24", "Salvador", origem)
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.detail")
-                            .value("chave Pix: o CPF não confere com os dígitos verificadores."));
+                            .value("Chave Pix: o CPF não confere com os dígitos verificadores."));
             definir(admin, ERRADA, "CPF", CPF, " ", origem)
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.detail")
-                            .value("chave Pix: informe a cidade do recebedor."));
+                            .value("Chave Pix: informe a cidade do recebedor."));
         }
         definir(admin, SENHA, "TELEFONE", "(71) 99123-4567", "Salvador", origem)
                 .andExpect(status().isOk())

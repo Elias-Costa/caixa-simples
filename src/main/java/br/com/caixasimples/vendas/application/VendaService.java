@@ -212,13 +212,11 @@ public class VendaService {
 
         if (!caixa.estaAberto(sessaoCaixaId)) {
             throw new IllegalStateException(
-                    "sessao de caixa " + sessaoCaixaId + " nao esta ABERTA e nao aceita venda"
-                            + " nova. Abra um caixa antes de vender.");
+                    "Este caixa já foi fechado e não aceita venda nova; abra um caixa antes de vender.");
         }
         if (vendas.existsById(vendaId)) {
             throw new IllegalStateException(
-                    "ja existe venda com o id " + vendaId + "; a venda existente nao e"
-                            + " substituida.");
+                    "Já existe uma venda com este identificador; a existente não é substituída.");
         }
 
         Venda venda = new Venda(vendaId, sessaoCaixaId, usuarioId, criadoEm);
@@ -252,7 +250,7 @@ public class VendaService {
             // O histórico continua apontando para o produto inativado (RF05); ele só não entra em
             // venda nova. A regra é da venda, e por isso é aqui que ela mora, não no cadastro.
             throw new IllegalStateException(
-                    "produto " + produtoId + " esta inativo e nao entra em venda nova");
+                    "Este produto foi inativado e não entra em venda nova.");
         }
 
         UUID itemId = venda.adicionarItem(produtoId, quantidade, produto.preco(), desconto);
@@ -294,14 +292,14 @@ public class VendaService {
         Objects.requireNonNull(itemId, "id do item nao pode ser nulo");
         if (vendas.existsByItensId(itemId)) {
             throw new IllegalStateException(
-                    "ja existe item com o id " + itemId + "; o item existente nao e substituido.");
+                    "Este item já está registrado; o existente não é substituído.");
         }
 
         ProdutoParaVenda produto = produtos.consultarParaVenda(produtoId);
         if (!produto.ativo()) {
             throw new IllegalStateException(
-                    "produto " + produtoId + " foi inativado antes de a venda chegar ao servidor"
-                            + " e nao entra nela sem revisao do administrador");
+                    "O produto foi inativado antes de a venda chegar ao servidor e não entra nela"
+                            + " sem a conferência do administrador.");
         }
 
         venda.adicionarItem(itemId, produtoId, quantidade, precoVisto, desconto, criadoEm);
@@ -416,7 +414,8 @@ public class VendaService {
                     || !parcela.valor().equals(resultado.valor())
                     || !parcela.troco().equals(resultado.troco())
                     || !Objects.equals(parcela.nsu(), nsuNormalizado)) {
-                throw new IllegalStateException("id da parcela ja usado com outro conteudo");
+                throw new IllegalStateException("Esta parcela já foi registrada com outro valor ou forma;"
+                        + " abra a venda de novo para ver o que ficou.");
             }
             return parcela.troco();
         }
@@ -452,8 +451,7 @@ public class VendaService {
         Objects.requireNonNull(pagamentoId, "id da parcela nao pode ser nulo");
         if (vendas.existsByPagamentosId(pagamentoId)) {
             throw new IllegalStateException(
-                    "ja existe parcela com o id " + pagamentoId + "; a parcela existente nao e"
-                            + " substituida.");
+                    "Esta parcela já está registrada; a existente não é substituída.");
         }
 
         ResultadoPagamento resultado = lancadaAMao(solicitacao);
@@ -499,8 +497,8 @@ public class VendaService {
         Objects.requireNonNull(tentativaId, "id da tentativa Pix nao pode ser nulo");
         var dona = vendas.findByPagamentosId(tentativaId);
         if (dona.isPresent() && !dona.get().getId().equals(vendaId)) {
-            throw new IllegalStateException("tentativa Pix " + tentativaId
-                    + " ja pertence a outra venda; a parcela existente nao e alterada.");
+            throw new IllegalStateException("Esta cobrança Pix já pertence a outra venda; a parcela"
+                    + " existente não é alterada.");
         }
         ResultadoPagamento resultado = pagamentos.pagar(
                 SolicitacaoPagamento.de(FormaPagamento.PIX, valor));
@@ -635,9 +633,9 @@ public class VendaService {
 
         if (!caixa.estaAberto(venda.getSessaoCaixaId())) {
             throw new IllegalStateException(
-                    "sessao de caixa " + venda.getSessaoCaixaId() + " nao esta ABERTA e nao"
-                            + " recebe o dinheiro da venda " + vendaId + ". A venda so conclui"
-                            + " com o caixa em que nasceu ainda aberto.");
+                    "O caixa em que esta venda nasceu já foi fechado, e ela não conclui: o"
+                            + " dinheiro entraria numa gaveta já conferida. Cancele a venda e faça de"
+                            + " novo num caixa aberto.");
         }
 
         venda.concluir(concluidoEm);
@@ -685,9 +683,8 @@ public class VendaService {
         boolean estavaConcluida = venda.getStatus() == StatusVenda.CONCLUIDA;
         if (estavaConcluida && !caixa.estaAberto(venda.getSessaoCaixaId())) {
             throw new IllegalStateException(
-                    "sessao de caixa " + venda.getSessaoCaixaId() + " nao esta ABERTA e nao"
-                            + " devolve o dinheiro da venda " + vendaId + ". Uma venda concluida"
-                            + " so cancela com o caixa em que nasceu ainda aberto.");
+                    "O caixa em que esta venda nasceu já foi fechado, e ela não cancela: o"
+                            + " estorno sairia de uma gaveta já conferida.");
         }
 
         for (Pagamento parcela : venda.getPagamentos()) {
@@ -699,7 +696,9 @@ public class VendaService {
             if (!consulta.txid().equals(parcela.cobrancaPix().txid())
                     || !consulta.chaveRecebedora().equals(parcela.cobrancaPix().chaveRecebedora())
                     || !consulta.valor().equals(parcela.valor())) {
-                throw new PixIndisponivelException("consulta Pix diverge da parcela reservada");
+                throw new PixIndisponivelException(
+                        "A cobrança Pix no banco não confere com a parcela da venda; confira no"
+                                + " aplicativo do banco antes de seguir.");
             }
             if (consulta.pago()) {
                 venda.confirmarPix(parcela.id(), consulta.txid(), consulta.valor(),
@@ -707,7 +706,9 @@ public class VendaService {
             } else if (consulta.removida()) {
                 venda.recusarPix(parcela.id(), consulta.txid());
             } else {
-                throw new PixIndisponivelException("cobranca Pix ainda pode ser paga");
+                throw new PixIndisponivelException(
+                        "A cobrança Pix ainda pode ser paga; tente cancelar de novo depois que ela"
+                                + " vencer.");
             }
         }
 
@@ -778,13 +779,14 @@ public class VendaService {
             if (!anterior.get().getId().equals(vendaId)
                     || !recebimento.valor().equals(valor) || recebimento.forma() != forma
                     || !Objects.equals(recebimento.nsu(), nsuNormalizado)) {
-                throw new IllegalStateException("id do recebimento ja usado com outro conteudo");
+                throw new IllegalStateException("Este recebimento já foi registrado com outro valor ou"
+                        + " forma; abra o fiado de novo para ver o que ficou.");
             }
             return new RecebimentoRegistrado(recebimentoId, venda.saldoDevedor(), true);
         }
         exigirNsuSeAContaExige(forma, nsuNormalizado);
         UUID sessaoId = caixa.sessaoAbertaDoOperadorAtual().orElseThrow(() ->
-                new IllegalStateException("abra o proprio caixa antes de receber fiado"));
+                new IllegalStateException("Abra o seu caixa antes de receber fiado."));
         Recebimento recebimento = venda.receber(recebimentoId, sessaoId, valor, forma,
                 nsuNormalizado);
         linha.atualizarCom(venda);
@@ -800,8 +802,8 @@ public class VendaService {
      */
     private void exigirNsuSeAContaExige(FormaPagamento forma, String nsu) {
         if (forma == FormaPagamento.CARTAO && nsu == null && contas.nsuObrigatorio()) {
-            throw new IllegalArgumentException("a Conta exige o NSU do comprovante da maquininha"
-                    + " no pagamento em cartao");
+            throw new IllegalArgumentException("Informe o NSU do comprovante da maquininha: a Conta"
+                    + " o exige no pagamento em cartão.");
         }
     }
 
@@ -835,8 +837,7 @@ public class VendaService {
         Venda venda = lerSemTrava(vendaId).paraDominio();
         Recebimento alvo = venda.getRecebimentos().stream()
                 .filter(r -> r.id().equals(recebimentoId)).findFirst()
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "recebimento nao pertence a venda: " + recebimentoId));
+                .orElseThrow(() -> new IllegalArgumentException("Este recebimento não é desta venda."));
         Money totalRecebidoAteAqui = Money.ZERO;
         for (Recebimento recebimento : venda.getRecebimentos()) {
             totalRecebidoAteAqui = totalRecebidoAteAqui.somar(recebimento.valor());
@@ -892,9 +893,7 @@ public class VendaService {
         UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
 
         if (venda.getStatus() != StatusVenda.CONCLUIDA) {
-            throw new IllegalStateException(
-                    "venda " + vendaId + " esta " + venda.getStatus() + " e nao tem comprovante."
-                            + " So venda CONCLUIDA tem comprovante.");
+            throw new IllegalStateException("Só venda concluída tem comprovante.");
         }
 
         Set<UUID> produtoIds = venda.getItens().stream()

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { contas } from '../api/contas'
 import { sincronizacao, type RevisaoDaConta, type RevisoesDaConta } from '../api/sincronizacao'
+import type { FormaPagamento } from '../api/vendas'
 import { hojeNoBalcao } from '../dataDoBalcao'
 import { dataHora, moeda } from '../formatos'
 import {
@@ -10,6 +11,7 @@ import { useSincronizacao } from '../shell/sincronizacao'
 import { useOnline } from '../shell/useOnline'
 import { useSessao } from '../sessao/useSessao'
 import { erroDeCadastro } from './erroDeCadastro'
+import { ROTULO_DA_FORMA } from './rotulos'
 
 const ROTULOS: Record<string, string> = {
   'produto.criar': 'Produto cadastrado',
@@ -60,7 +62,7 @@ function partesDoConteudo(tipo: string, dados: Record<string, ValorJson>): (stri
       return [typeof dados.quantidade === 'number' ? `${dados.quantidade} × ${texto('nome')}` : texto('nome'),
         dinheiro('precoUnitario')]
     case 'venda.registrarPagamento':
-      return [texto('forma'), dinheiro('valor')]
+      return [ROTULO_DA_FORMA[texto('forma') as FormaPagamento] ?? texto('forma'), dinheiro('valor')]
     case 'venda.aplicarDesconto':
       return [dinheiro('valor')]
     default:

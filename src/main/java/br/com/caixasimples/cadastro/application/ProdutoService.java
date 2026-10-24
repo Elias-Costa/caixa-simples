@@ -9,14 +9,19 @@ import br.com.caixasimples.cadastro.internal.ProdutoRepository;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.UsuarioContext;
 import java.math.BigDecimal;
+import java.text.Collator;
+import java.text.Normalizer;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -68,6 +73,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class ProdutoService {
 
     private static final Logger log = LoggerFactory.getLogger(ProdutoService.class);
+
+    private static final Locale PORTUGUES_DO_BRASIL = Locale.forLanguageTag("pt-BR");
+
+    /** As marcas de acento que a decomposição do texto separa da letra. */
+    private static final Pattern SEM_ACENTO = Pattern.compile("\\p{M}+");
 
     private final ProdutoRepository produtos;
 
@@ -174,10 +184,16 @@ public class ProdutoService {
     /**
      * Busca durante a venda (RF06): o que o operador digita no balcão, seja nome ou código.
      *
-     * <p><strong>Nome contém o termo; código casa inteiro.</strong> Os dois ignoram maiúsculas.
-     * Nome parcial é tolerância com quem digita rápido: {@code leite} acha o café com leite. Código
-     * parcial não é: código é o que se lê da embalagem ou se decorou, e um prefixo devolveria mais
-     * de um produto para um valor que deveria ser único.
+     * <p><strong>Nome contém o termo; código casa inteiro.</strong> Os dois ignoram maiúsculas, e o
+     * nome ignora também o acento: no tablet quase ninguém digita acento, e {@code agua} tem de achar
+     * a água mineral. Nome parcial é tolerância com quem digita rápido: {@code leite} acha o café com
+     * leite. Código parcial não é: código é o que se lê da embalagem ou se decorou, e um prefixo
+     * devolveria mais de um produto para um valor que deveria ser único.
+     *
+     * <p>O nome é comparado aqui, sobre os produtos ativos da Conta, e não no banco: a regra é a
+     * mesma que o aparelho aplica sem rede, escrita igual nos dois lados, e o catálogo de um negócio
+     * pequeno cabe numa leitura. Uma extensão do banco para tirar acento valeria a pena com
+     * catálogos de milhares de itens.
      *
      * <p>O produto cujo código bateu vem primeiro, porque é a resposta mais certa; depois vêm os
      * nomes, em ordem alfabética. Um produto que bateu pelos dois aparece uma vez só.
@@ -199,26 +215,40 @@ public class ProdutoService {
     @Transactional(readOnly = true)
     public List<ProdutoComVersao> buscarPorNomeOuCodigoComVersao(String termo) {
         if (termo == null || termo.isBlank()) {
-            throw new IllegalArgumentException(
-                    "informe nome ou codigo para buscar; o catalogo inteiro e listarAtivos");
+            throw new IllegalArgumentException("Informe o nome ou o código para buscar.");
         }
         String termoLimpo = termo.trim();
 
         List<ProdutoEntity> encontrados = new ArrayList<>();
         produtos.findByAtivoTrueAndCodigoIgnoreCase(termoLimpo).ifPresent(encontrados::add);
 
-        for (ProdutoEntity porNome
-                : produtos.findByAtivoTrueAndNomeContainingIgnoreCaseOrderByNome(termoLimpo)) {
+        String procurado = paraBusca(termoLimpo);
+        Collator ordemAlfabetica = Collator.getInstance(PORTUGUES_DO_BRASIL);
+        List<ProdutoEntity> porNome = produtos.findByAtivoTrue().stream()
+                .filter(linha -> paraBusca(linha.getNome()).contains(procurado))
+                .sorted(Comparator.comparing(ProdutoEntity::getNome, ordemAlfabetica))
+                .toList();
+        for (ProdutoEntity candidato : porNome) {
             boolean jaEntrouPeloCodigo = encontrados.stream()
-                    .anyMatch(candidato -> candidato.getId().equals(porNome.getId()));
+                    .anyMatch(achado -> achado.getId().equals(candidato.getId()));
             if (!jaEntrouPeloCodigo) {
-                encontrados.add(porNome);
+                encontrados.add(candidato);
             }
         }
 
         return encontrados.stream()
                 .map(linha -> new ProdutoComVersao(linha.paraDominio(), linha.getVersao()))
                 .toList();
+    }
+
+    /**
+     * O texto como a busca o compara: sem acento e em minúsculas. A decomposição separa a letra do
+     * acento, e as marcas que sobram saem, então Água vira agua e Pão vira pao. O aparelho faz a
+     * mesma conta sem rede, para a mesma palavra achar os mesmos itens com e sem internet.
+     */
+    private static String paraBusca(String texto) {
+        String decomposto = Normalizer.normalize(texto, Normalizer.Form.NFD);
+        return SEM_ACENTO.matcher(decomposto).replaceAll("").toLowerCase(PORTUGUES_DO_BRASIL);
     }
 
     /**

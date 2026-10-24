@@ -170,7 +170,7 @@ class SessaoCaixaTest {
         assertThatIllegalStateException()
                 .as("nem o estorno de uma venda que entrou antes do fechamento")
                 .isThrownBy(() -> fechada.estornarVenda(vendaDoExpediente))
-                .withMessageContaining("nao aceita movimento");
+                .withMessageContaining("não aceita movimento");
 
         assertThat(fechada.getMovimentos()).hasSize(1);
         assertThat(fechada.getValorFechamentoEsperado())

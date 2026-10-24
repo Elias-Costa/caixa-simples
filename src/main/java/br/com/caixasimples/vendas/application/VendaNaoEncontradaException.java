@@ -18,6 +18,6 @@ import java.util.UUID;
 public class VendaNaoEncontradaException extends RuntimeException {
 
     public VendaNaoEncontradaException(UUID id) {
-        super("venda nao encontrada nesta conta: " + id);
+        super("Venda não encontrada nesta Conta.");
     }
 }

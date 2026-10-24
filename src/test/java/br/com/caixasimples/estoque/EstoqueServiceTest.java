@@ -71,7 +71,7 @@ class EstoqueServiceTest extends TesteDeIntegracao {
         assertThatExceptionOfType(ControleDeEstoqueDesligadoException.class)
                 .isThrownBy(() -> salao.comoUsuario(() ->
                         estoqueService.ajustar(shampooId, new BigDecimal("5"), "contagem")))
-                .withMessageContaining("nao controla estoque");
+                .withMessageContaining("controle de estoque está desligado");
         assertThatExceptionOfType(ControleDeEstoqueDesligadoException.class)
                 .isThrownBy(() -> salao.comoUsuario(() ->
                         estoqueService.definirEstoqueMinimo(shampooId, new BigDecimal("2"))));

@@ -126,8 +126,8 @@ public class SincronizacaoService {
         Objects.requireNonNull(operacoes, "operacoes nao podem ser nulas");
         UUID usuarioId = UsuarioContext.exigirAtual().usuarioId();
         if (operacoes.size() > LIMITE_DO_LOTE) {
-            throw new IllegalArgumentException("o lote aceita ate " + LIMITE_DO_LOTE
-                    + " operacoes e chegou com " + operacoes.size());
+            throw new IllegalArgumentException("O lote aceita até " + LIMITE_DO_LOTE
+                    + " operações e chegou com " + operacoes.size() + ".");
         }
 
         Map<UUID, ResultadoDaOperacao> porOperacao = new HashMap<>();
@@ -145,8 +145,7 @@ public class SincronizacaoService {
         Set<UUID> ids = new HashSet<>();
         for (OperacaoRecebida operacao : operacoes) {
             if (!ids.add(operacao.operacaoId())) {
-                throw new IllegalArgumentException(
-                        "operacao repetida no lote: " + operacao.operacaoId());
+                throw new IllegalArgumentException("A mesma operação veio duas vezes no lote.");
             }
         }
         List<OperacaoRecebida> restantes = new ArrayList<>(operacoes);
@@ -158,8 +157,7 @@ public class SincronizacaoService {
                     .filter(operacao -> operacao.dependeDe().stream()
                             .noneMatch(pendentes::contains))
                     .findFirst()
-                    .orElseThrow(() -> new IllegalArgumentException(
-                            "o lote tem dependencias em ciclo"));
+                    .orElseThrow(() -> new IllegalArgumentException("O lote tem dependências em ciclo."));
             restantes.remove(livre);
             ordenadas.add(livre);
         }
@@ -172,7 +170,7 @@ public class SincronizacaoService {
             ResultadoDaOperacao anterior = doLote.get(dependencia);
             if (anterior != null && anterior.resultado() == Resultado.ERRO_TRANSITORIO) {
                 return ResultadoDaOperacao.transitorio(operacao.operacaoId(),
-                        "depende da operacao " + dependencia + ", que ainda nao foi aplicada");
+                        "Depende de outra operação deste aparelho, que ainda não foi aplicada.");
             }
         }
         try {
@@ -183,8 +181,8 @@ public class SincronizacaoService {
             // A mensagem do banco pode conter valores recebidos no gesto.
             log.warn("operacao {} nao aplicada por falha transitoria: {}",
                     operacao.operacaoId(), falha.getClass().getSimpleName());
-            return ResultadoDaOperacao.transitorio(operacao.operacaoId(),
-                    "falha temporaria no servidor; a operacao pode ser reenviada");
+                        return ResultadoDaOperacao.transitorio(operacao.operacaoId(),
+                    "Falha temporária no servidor; o aparelho envia de novo.");
         } catch (RuntimeException recusa) {
             registrarRecusaNoLog(operacao, recusa);
             return gravarRecusa(operacao, usuarioId, mensagemDe(recusa));
@@ -202,7 +200,7 @@ public class SincronizacaoService {
                 : registros.findByOperacaoIdIn(operacao.dependeDe());
         if (dependencias.size() < operacao.dependeDe().size()) {
             return ResultadoDaOperacao.transitorio(operacao.operacaoId(),
-                    "aguardando uma operacao da qual esta depende");
+                    "Aguardando outra operação deste aparelho, da qual esta depende.");
         }
 
         Instant recebidaEm = Instant.now();
@@ -210,15 +208,14 @@ public class SincronizacaoService {
             if (dependencia.naoFoiAplicada()
                     && dependencia.getRegistroId().equals(operacao.registroId())) {
                 return gravar(operacao, usuarioId, recebidaEm, Resultado.NAO_APLICADA, null,
-                        "o gesto anterior deste registro, " + dependencia.getOperacaoId()
-                                + ", nao foi aplicado");
+                        "O gesto anterior deste mesmo registro não foi aplicado, e este também não.");
             }
         }
 
         AplicadorDeOperacoes aplicador = aplicadorPorTipo.get(operacao.tipo());
         if (aplicador == null) {
-            throw new OperacaoRecusadaException("o servidor nao aplica o gesto "
-                    + operacao.tipo() + " recebido do dispositivo");
+            throw new OperacaoRecusadaException("O servidor não aplica o gesto " + operacao.tipo()
+                    + " recebido do aparelho.");
         }
         Aplicacao aplicacao = aplicador.aplicar(operacao);
 
@@ -268,8 +265,8 @@ public class SincronizacaoService {
             return gravada.paraResultado();
         }
         return ResultadoDaOperacao.naoAplicada(operacao.operacaoId(),
-                "o id desta operacao ja foi usado com outro conteudo ou por outro usuario; o"
-                        + " resultado gravado continua valendo");
+                "Esta operação já foi registrada com outro conteúdo ou por outro usuário; vale o"
+                        + " resultado gravado.");
     }
 
     /**
@@ -311,7 +308,7 @@ public class SincronizacaoService {
         log.warn("operacao {} recusada por conflito com registro existente: {}",
                 operacao.operacaoId(), conflito.getClass().getSimpleName());
         return gravarRecusa(operacao, usuarioId,
-                "o registro conflita com outro ja existente e nao foi alterado");
+                "O registro conflita com outro que já existe e não foi alterado.");
     }
 
     /** A recusa é gravada depois do rollback do efeito, numa transação só dela. */
@@ -325,12 +322,12 @@ public class SincronizacaoService {
         } catch (DataIntegrityViolationException concorrente) {
             return lerGravada(operacao, usuarioId).orElseGet(() ->
                     ResultadoDaOperacao.transitorio(operacao.operacaoId(),
-                            "a recusa nao pode ser gravada agora; a operacao pode ser reenviada"));
+                            "A recusa não pôde ser gravada agora; o aparelho envia de novo."));
         } catch (DataAccessException | TransactionException falha) {
             log.warn("recusa da operacao {} nao gravada por falha transitoria: {}",
                     operacao.operacaoId(), falha.getClass().getSimpleName());
-            return ResultadoDaOperacao.transitorio(operacao.operacaoId(),
-                    "falha temporaria no servidor; a operacao pode ser reenviada");
+                        return ResultadoDaOperacao.transitorio(operacao.operacaoId(),
+                    "Falha temporária no servidor; o aparelho envia de novo.");
         }
     }
 
@@ -355,8 +352,9 @@ public class SincronizacaoService {
 
     private static String mensagemDe(RuntimeException recusa) {
         String mensagem = recusa.getMessage();
+                // Sem mensagem, a recusa é defeito; o nome da classe vai ao log, não à tela.
         return mensagem == null || mensagem.isBlank()
-                ? recusa.getClass().getSimpleName()
+                ? "O servidor recusou este gesto sem dizer o motivo."
                 : mensagem;
     }
 }

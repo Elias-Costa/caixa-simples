@@ -57,7 +57,7 @@ class FiadoTest {
         venda.registrarPagamento(FormaPagamento.FIADO, Money.de("20.00"),
                 StatusPagamento.PENDENTE, Money.ZERO);
         assertThatIllegalStateException().isThrownBy(venda::desvincularCliente)
-                .withMessageContaining("FIADO");
+                .withMessageContaining("pagamento no fiado");
         assertThat(venda.getClienteId()).isEqualTo(primeiro);
         UUID outro = UUID.randomUUID();
         venda.vincularCliente(outro);
@@ -73,7 +73,7 @@ class FiadoTest {
                 StatusPagamento.CONFIRMADO, Money.ZERO);
         venda.concluir();
         assertThatIllegalStateException().isThrownBy(venda::desvincularCliente)
-                .withMessageContaining("CONCLUIDA");
+                .withMessageContaining("já está concluída");
         assertThat(venda.getClienteId()).isEqualTo(cliente);
     }
 

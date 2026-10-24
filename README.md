@@ -134,7 +134,7 @@ Venda continuam.
 | `relatorios` | Implementado | Faturamento do dia e de um período, produtos mais vendidos, fluxo de caixa da gaveta e a conferência do cartão de um dia. Venda concluída com FIADO conta no faturamento no dia da conclusão; recebimento em dinheiro conta no fluxo no dia da entrada, sem faturar outra vez (RF33). Filtros combináveis de faturamento por forma e operador incluem a parcela FIADO pendente. A conferência lista cada pagamento em cartão no dia e na hora em que foi lançado, parcela de venda de qualquer situação ou fiado recebido, com quem lançou, a situação da venda e o NSU ou a marca de que falta, para bater com o extrato da operadora. O módulo lê mapeamentos imutáveis de venda, item, produto, pagamento, recebimento, sessão de caixa e movimento de caixa, e os quatro relatórios são do administrador, num plano pago sem suspensão. A API e o PWA mostram os três primeiros para o mesmo período, com o faturamento repartido por forma de pagamento, e a conferência quando o período é um dia; o filtro de operador vale para o faturamento, o ranking e a conferência |
 | `sincronizacao` | Implementado, com envio automático pelo PWA | Recebe o lote de gestos que o dispositivo registrou sem rede, até 100 por envio, e aplica cada um pelos casos de uso do módulo dono, que implementa a porta deste: cadastro, caixa e vendas. Uma transação por operação, com o resultado gravado junto, por Conta e id de operação: o reenvio devolve o gravado, o mesmo id com outro conteúdo é recusado, e duas requisições simultâneas não aplicam duas vezes. Dependência que ainda não chegou pede reenvio; o gesto seguinte de um registro recusado é recusado, e o de outro registro é tentado. O item fica com o preço visto no balcão e vai para revisão quando difere do vigente; também vão a conclusão que deixou o estoque negativo, a parcela em cartão que chega sem o NSU que a Conta exige, gravada mesmo assim, e o gesto com instante adiantado mais de cinco minutos, seja o da operação ou o que ele grava no registro. O administrador lista as revisões e recusas de todos os usuários da Conta e registra quem conferiu e quando. Ao editar Cliente, o conteúdo dos gestos gravados antes da edição é esvaziado, e ao removê-lo, anonimizado; nos dois casos o reenvio antigo entra em conflito. O PWA descarta o gesto enviado quando todo retrato que o usa já contém o efeito dele |
 
-**Schema.** Vinte e oito migrations Flyway, de `V1` a `V28`: conta, usuário e credencial; produto; cliente;
+**Schema.** Vinte e nove migrations Flyway, de `V1` a `V29`: conta, usuário e credencial; produto; cliente;
 catálogo de referência; o agregado de caixa, com a regra de uma sessão aberta por operador; o
 agregado de venda, com a venda, seus itens e seus pagamentos; o outbox de eventos de domínio do
 Spring Modulith, cujo DDL foi gerado a partir da entidade do framework em vez de escrito de
@@ -162,7 +162,8 @@ credencial nasce. A `V25` cria o aceite dos termos de uso, uma linha por versão
 A `V27` deixa dois planos, o gratuito e o completo: a Conta no plano intermediário passa ao completo
 com o mesmo vencimento, e os pedidos desse plano e do upgrade, que deixou de existir, saem do banco.
 A `V28` acrescenta à Conta a chave Pix do Pix manual e a cidade do recebedor, que o banco exige juntas
-ou nenhuma.
+ou nenhuma. A `V29` acentua os nomes do catálogo inicial da cafeteria, pelos ids fixos que a quarta
+deu às linhas para uma correção futura; o produto já copiado para uma Conta fica como está.
 
 O [aviso de privacidade](frontend/src/telas/TelaDePrivacidade.tsx) é público, inclusive antes do
 login, e o rodapé de toda tela do aplicativo aponta para ele e para os termos. Diz quem trata cada
@@ -198,7 +199,10 @@ vira 403; argumento que o domínio rejeita, como o texto acima do tamanho da col
 validação de corpo, que ainda lista a mensagem por campo; estado que o agregado rejeita, 409;
 tentativas demais no login, 429 com
 `Retry-After`; corpo acima do limite da rota, 413; erro inesperado, 500 sem a mensagem interna; e o não encontrado de cada módulo é
-traduzido em 404 no pacote `web` do próprio módulo.
+traduzido em 404 no pacote `web` do próprio módulo. O detalhe de toda recusa é texto de tela, em
+português, com dinheiro, quantidade e data como o aplicativo os mostra e o nome no lugar do id; o
+detalhe que o Spring escreve em inglês para o que recusa antes do controller é trocado por uma frase
+em português.
 Valor monetário viaja como número, e a conversão para `Money` é escrita no controller. O cadastro
 oferece `GET` e `POST /api/produtos`, `PUT /api/produtos/{id}` e
 `POST /api/produtos/{id}/inativar`; para clientes, `GET` e `POST /api/clientes`,
@@ -327,11 +331,12 @@ que não existe nunca recebe a página, e sim 401 sem token e 404 com token. Tod
 `/api`, com token. O aplicativo tem hoje o login, a sessão guardada no dispositivo, o shell com o
 nome do negócio e de quem opera, a navegação por perfil e as telas de produtos, clientes, caixa,
 Venda, fiado e relatórios. A entrada leva ao PDV com o caixa aberto, e ao caixa sem ele; no tablet e
-no celular, os itens do balcão ficam à vista e o resto num botão Mais. Nelas se listam, se filtram pelo nome e se alteram os cadastros, com pares livres de chave e valor para os atributos do
+no celular, os itens do balcão ficam à vista e o resto num botão Mais. Nelas se listam, se filtram pelo nome, sem diferença de acento, e se alteram os cadastros, com pares livres de chave e valor para os atributos do
 produto. Os valores em dinheiro vão em campos de texto com o teclado decimal do aparelho, que aceitam
 vírgula e até duas casas. No caixa, quem opera abre a sessão, lança sangria e suprimento, vê o extrato e o histórico
-do dia e fecha com o saldo esperado à vista e a diferença apurada. No PDV, a busca aceita nome,
-código e multiplicador de quantidade, e o Enter do leitor de código de barras lança o produto do
+do dia e fecha com o saldo esperado à vista e a diferença apurada. O valor inicial nasce vazio e é
+obrigatório, mesmo quando é zero. No PDV, a busca aceita nome, sem diferença de acento nem de
+maiúscula, código e multiplicador de quantidade, e o Enter do leitor de código de barras lança o produto do
 código exato ou o resultado único; a comanda admite pagamento dividido, e o total, o que falta
 lançar e o botão de concluir ficam num rodapé preso ao fim da tela. O troco aparece em destaque, com
 uma prévia enquanto se digita o valor recebido e botões das notas mais comuns que o preenchem. Uma
@@ -1216,7 +1221,7 @@ src
 │   │   ├── relatorios/     application, web, internal
 │   │   └── sincronizacao/  a porta que os módulos donos implementam; application, web, internal
 │   └── resources
-│       └── db/migration/   V1 a V28, imutáveis depois de publicadas
+│       └── db/migration/   V1 a V29, imutáveis depois de publicadas
 ├── test/java/br/com/caixasimples
 │   ├── ModularityTests     fitness function das fronteiras
 │   ├── TesteDeIntegracao   base com Testcontainers, herdada pelos testes de banco

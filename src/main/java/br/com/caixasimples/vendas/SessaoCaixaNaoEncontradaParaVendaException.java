@@ -17,6 +17,6 @@ import java.util.UUID;
 public class SessaoCaixaNaoEncontradaParaVendaException extends RuntimeException {
 
     public SessaoCaixaNaoEncontradaParaVendaException(UUID sessaoCaixaId) {
-        super("sessao de caixa nao encontrada nesta conta: " + sessaoCaixaId);
+        super("Caixa não encontrado nesta Conta.");
     }
 }

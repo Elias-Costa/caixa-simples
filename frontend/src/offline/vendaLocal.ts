@@ -184,7 +184,7 @@ export function criarVendaLocal(remoto: VendasDaApi = vendas, caixa: CaixaDoDisp
       }
       const sessao = await caixa.consultar(sessaoCaixaId)
       if (sessao.status !== 'ABERTA') {
-        throw new Error('A SessaoCaixa não está ABERTA e não aceita Venda nova. Abra um caixa antes de vender.')
+        throw new Error('Este caixa já foi fechado e não aceita venda nova; abra um caixa antes de vender.')
       }
       const id = crypto.randomUUID()
       const abertura = gestos.find((gesto) => gesto.tipo === 'caixa.abrir' && gesto.registroId === sessaoCaixaId)
@@ -336,8 +336,8 @@ export function criarVendaLocal(remoto: VendasDaApi = vendas, caixa: CaixaDoDisp
       }
       const sessao = await caixa.consultar(alvo.venda.sessaoCaixaId)
       if (sessao.status !== 'ABERTA') {
-        throw new Error('A SessaoCaixa desta Venda não está ABERTA. A Venda só conclui com o caixa em '
-          + 'que nasceu ainda aberto.')
+        throw new Error('O caixa em que esta venda nasceu já foi fechado, e ela não conclui: o dinheiro '
+          + 'entraria numa gaveta já conferida. Cancele a venda e faça de novo num caixa aberto.')
       }
       const dados: raiz.DadosDaConclusao = { concluidoEm: new Date().toISOString() }
       raiz.concluir(alvo.venda, dados.concluidoEm)

@@ -76,7 +76,7 @@ class GestosDoCadastro implements AplicadorDeOperacoes {
                 case "cliente.inativar" -> clientes.inativar(id);
                 case "cliente.reativar" -> clientes.reativar(id);
                 default -> throw new OperacaoRecusadaException(
-                        "gesto de cadastro desconhecido: " + operacao.tipo());
+                        "O servidor não conhece o gesto de cadastro " + operacao.tipo() + ".");
             }
         } catch (ProdutoNaoEncontradoException | ClienteNaoEncontradoException naoEncontrado) {
             throw new OperacaoRecusadaException(naoEncontrado.getMessage(), naoEncontrado);

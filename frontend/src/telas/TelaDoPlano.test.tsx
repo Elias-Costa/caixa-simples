@@ -202,14 +202,14 @@ describe('tela do plano', () => {
   it('mostra a recusa do código sem perder o pedido aberto', async () => {
     vi.spyOn(contas, 'plano').mockResolvedValue({ ...gratis, pedidoAberto: pedido })
     vi.spyOn(contas, 'aplicarCodigo').mockRejectedValue(
-      new ErroDaApi(400, 'Bad Request', 'o codigo nao e o deste pedido', {}))
+      new ErroDaApi(400, 'Bad Request', 'Este código não é o deste pedido; confira o código que você recebeu.', {}))
     render(<ComSessao />)
 
     fireEvent.change(await screen.findByLabelText('Código de ativação'),
       { target: { value: '0000-0000-0000-0000' } })
     fireEvent.click(screen.getByRole('button', { name: 'Aplicar código' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('o codigo nao e o deste pedido')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Este código não é o deste pedido; confira o código que você recebeu.')
     expect(screen.getByLabelText('Texto do pedido')).toBeInTheDocument()
   })
 

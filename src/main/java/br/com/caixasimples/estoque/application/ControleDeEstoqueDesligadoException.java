@@ -15,7 +15,7 @@ import br.com.caixasimples.shared.ContaId;
 public class ControleDeEstoqueDesligadoException extends RuntimeException {
 
     public ControleDeEstoqueDesligadoException(ContaId contaId) {
-        super("a conta " + contaId + " nao controla estoque;"
-                + " ligue o controle de estoque antes de ajustar saldo ou consultar alerta");
+        super("O controle de estoque está desligado nesta Conta; ligue-o em Configuração antes de"
+                + " ajustar o saldo ou ver o alerta.");
     }
 }

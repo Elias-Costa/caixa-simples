@@ -79,7 +79,7 @@ class MembrosDaVendaTest {
     void itemRecusaValoresNegativos() {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> item(BigDecimal.ONE, Money.de("-0.01"), Money.ZERO))
-                .withMessageContaining("preco unitario");
+                .withMessageContaining("preço unitário");
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> item(BigDecimal.ONE, Money.de("10.00"), Money.de("-0.01")))
                 .withMessageContaining("desconto");

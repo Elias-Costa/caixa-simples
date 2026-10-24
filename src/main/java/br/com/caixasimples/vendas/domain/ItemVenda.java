@@ -64,25 +64,21 @@ public record ItemVenda(UUID id, UUID produtoId, BigDecimal quantidade, Money pr
         if (quantidade.signum() <= 0) {
             // Item com quantidade zero não é item: nada foi vendido. Negativa seria devolução, e
             // devolução não é um item de venda com sinal trocado.
-            throw new IllegalArgumentException(
-                    "quantidade do item tem de ser positiva: " + quantidade);
+            throw new IllegalArgumentException("A quantidade do item tem de ser positiva.");
         }
         if (quantidade.stripTrailingZeros().scale() > CASAS_DA_QUANTIDADE) {
             // O banco arredondaria a quarta casa em silêncio, e o total calculado aqui deixaria de
             // bater com a quantidade gravada. Mesma postura de Money, que recusa fração de centavo
             // em vez de arredondar escondido. Zeros à direita não contam: 2,0000 é 2.
             throw new IllegalArgumentException(
-                    "quantidade do item tem no maximo " + CASAS_DA_QUANTIDADE
-                            + " casas decimais: " + quantidade);
+                    "A quantidade do item tem no máximo " + CASAS_DA_QUANTIDADE + " casas decimais.");
         }
         if (precoUnitario.isNegativo()) {
-            throw new IllegalArgumentException(
-                    "preco unitario nao pode ser negativo: " + precoUnitario);
+            throw new IllegalArgumentException("O preço unitário não pode ser negativo.");
         }
         if (desconto.isNegativo()) {
             // Desconto negativo seria acréscimo, e nenhum requisito pede acréscimo.
-            throw new IllegalArgumentException(
-                    "desconto do item nao pode ser negativo: " + desconto);
+            throw new IllegalArgumentException("O desconto do item não pode ser negativo.");
         }
     }
 

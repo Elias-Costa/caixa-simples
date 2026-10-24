@@ -4,6 +4,7 @@ import br.com.caixasimples.cadastro.PendenciasDoCliente;
 import br.com.caixasimples.shared.ClienteEditado;
 import br.com.caixasimples.shared.ClienteRemovido;
 import br.com.caixasimples.shared.ContaId;
+import br.com.caixasimples.shared.FormatoDeTela;
 import br.com.caixasimples.shared.LimiteDeTexto;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.RegistroDeRemocoes;
@@ -147,11 +148,11 @@ public class ClienteService {
         }
         Money saldo = pendencias.saldoDevedor(id);
         if (!saldo.equals(Money.ZERO)) {
-            throw new IllegalStateException("cliente com saldo devedor de " + saldo
-                    + " nao pode ser removido");
+            throw new IllegalStateException("O cliente deve " + FormatoDeTela.reais(saldo)
+                    + " no fiado, e os dados dele só são removidos depois de quitado.");
         }
         if (pendencias.temComandaAberta(id)) {
-            throw new IllegalStateException("cliente vinculado a comanda aberta nao pode ser removido");
+            throw new IllegalStateException("O cliente está numa venda aberta; conclua ou cancele a venda antes de remover os dados dele.");
         }
         Instant instante = Instant.now();
         registroDeRemocoes.registrar(Tipo.CLIENTE, id, instante,
@@ -238,7 +239,7 @@ public class ClienteService {
     public static class ClienteNaoEncontradoException extends RuntimeException {
 
         public ClienteNaoEncontradoException(UUID id) {
-            super("cliente nao encontrado nesta conta: " + id);
+            super("Cliente não encontrado nesta Conta.");
         }
     }
 }
@@ -311,7 +312,7 @@ class ClienteEntity {
         exigirNaoRemovido();
         if (!ativo) {
             throw new IllegalStateException(
-                    "cliente inativo nao pode ser editado; reative antes: " + id);
+                    "Este cliente está inativo; reative-o antes de editar.");
         }
         this.nome = exigirNome(nome);
         this.contato = normalizarContato(contato);
@@ -341,13 +342,13 @@ class ClienteEntity {
 
     private void exigirNaoRemovido() {
         if (isRemovido()) {
-            throw new IllegalStateException("cliente removido nao pode ser alterado");
+            throw new IllegalStateException("Os dados deste cliente foram removidos, e ele não pode ser alterado.");
         }
     }
 
     private static String exigirNome(String nome) {
         if (nome == null || nome.isBlank()) {
-            throw new IllegalArgumentException("nome do cliente nao pode ser vazio");
+            throw new IllegalArgumentException("Informe o nome do cliente.");
         }
         return LimiteDeTexto.exigirAte(nome.trim(), TAMANHO_DO_NOME, "nome do cliente");
     }

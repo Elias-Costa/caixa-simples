@@ -17,6 +17,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -123,8 +124,40 @@ class TratamentoDeErrosHttp extends ResponseEntityExceptionHandler {
     @ExceptionHandler(OptimisticLockingFailureException.class)
     ProblemDetail alteradoAoMesmoTempo() {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT,
-                "O registro foi alterado por outra operacao ao mesmo tempo; recarregue e tente"
+                "O registro foi alterado por outra operação ao mesmo tempo; recarregue e tente"
                         + " de novo.");
+    }
+
+    /**
+     * O que o próprio Spring recusa antes do controller chega com o detalhe dele, em inglês, como
+     * Failed to read request, e a tela mostra o detalhe como veio. Aqui ele vira uma frase em
+     * português, escolhida pelo tipo da recusa e pelo status; o título e o status são os do Spring.
+     */
+    @Override
+    protected ResponseEntity<Object> handleExceptionInternal(Exception excecao, Object corpo,
+            HttpHeaders cabecalhos, HttpStatusCode status, WebRequest requisicao) {
+        ResponseEntity<Object> resposta =
+                super.handleExceptionInternal(excecao, corpo, cabecalhos, status, requisicao);
+        if (resposta != null && resposta.getBody() instanceof ProblemDetail problema) {
+            problema.setDetail(detalheDoFramework(excecao, status));
+        }
+        return resposta;
+    }
+
+    private static String detalheDoFramework(Exception excecao, HttpStatusCode status) {
+        if (excecao instanceof MethodArgumentNotValidException) {
+            return "Confira os campos destacados.";
+        }
+        if (excecao instanceof HttpMessageNotReadableException) {
+            return "Não foi possível ler o pedido; confira o que foi enviado.";
+        }
+        return switch (status.value()) {
+            case 400 -> "Falta um dado no pedido, ou ele veio num formato que o sistema não entende.";
+            case 404 -> "Endereço não encontrado.";
+            case 405 -> "Esta operação não existe neste endereço.";
+            case 406, 415 -> "O pedido veio num formato que o sistema não aceita.";
+            default -> "O pedido não pôde ser atendido.";
+        };
     }
 
     /**

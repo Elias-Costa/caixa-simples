@@ -12,6 +12,6 @@ import java.util.UUID;
 public class RevisaoNaoEncontradaException extends RuntimeException {
 
     public RevisaoNaoEncontradaException(UUID operacaoId) {
-        super("operacao sincronizada nao encontrada nesta conta: " + operacaoId);
+        super("Revisão não encontrada nesta Conta.");
     }
 }

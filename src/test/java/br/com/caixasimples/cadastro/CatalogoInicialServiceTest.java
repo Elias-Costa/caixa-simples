@@ -77,7 +77,7 @@ class CatalogoInicialServiceTest extends TesteDeIntegracao {
             assertThat(produtos.listarAtivos())
                     .hasSize(copiados)
                     .extracting(Produto::getNome)
-                    .contains("Cafe expresso", "Pao de queijo");
+                    .contains("Café expresso", "Pão de queijo");
 
             // O preço nasce zero e o dono precifica; um valor sugerido pela plataforma seria chute
             // sobre o mercado daquele negócio.
@@ -131,7 +131,7 @@ class CatalogoInicialServiceTest extends TesteDeIntegracao {
 
         contaA.comoUsuario(() -> {
             Produto expresso = produtos.listarAtivos().stream()
-                    .filter(item -> item.getNome().equals("Cafe expresso"))
+                    .filter(item -> item.getNome().equals("Café expresso"))
                     .findFirst()
                     .orElseThrow();
 
@@ -145,7 +145,7 @@ class CatalogoInicialServiceTest extends TesteDeIntegracao {
         contaB.comoUsuario(() ->
                 assertThat(produtos.listarAtivos())
                         .extracting(Produto::getNome)
-                        .contains("Cafe expresso")
+                        .contains("Café expresso")
                         .doesNotContain("Expresso curto da casa"));
     }
 }

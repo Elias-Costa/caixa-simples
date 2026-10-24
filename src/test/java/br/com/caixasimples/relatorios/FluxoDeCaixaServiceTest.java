@@ -157,7 +157,7 @@ class FluxoDeCaixaServiceTest extends TesteDeIntegracao {
         conta.comoUsuario(() ->
                 assertThatIllegalArgumentException()
                         .isThrownBy(() -> fluxo.doPeriodo(DIA, DIA.minusDays(1)))
-                        .withMessageContaining("nao pode vir antes do inicio"));
+                        .withMessageContaining("não pode vir antes do início"));
     }
 
     @Test

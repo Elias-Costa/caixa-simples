@@ -60,7 +60,7 @@ class ChavePixTest {
     void recusa(Tipo tipo, String digitada, String motivo) {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> ChavePix.conferir(tipo, digitada))
-                .withMessageStartingWith("chave Pix:")
+                .withMessageStartingWith("Chave Pix:")
                 .withMessageContaining(motivo)
                 .withMessageNotContaining(digitada.replaceAll("[^0-9A-Za-z]", "").substring(0, 8));
     }
@@ -93,10 +93,10 @@ class ChavePixTest {
     void faltaChaveOuTipo(String vazia) {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> ChavePix.conferir(Tipo.EMAIL, vazia))
-                .withMessage("chave Pix: informe a chave.");
+                .withMessage("Chave Pix: informe a chave.");
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> ChavePix.conferir(null, "fulano@exemplo.com"))
-                .withMessage("chave Pix: informe o tipo da chave.");
+                .withMessage("Chave Pix: informe o tipo da chave.");
     }
 
     @Test

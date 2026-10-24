@@ -168,9 +168,14 @@ function avancar(venda: VendaNoDispositivo, mudancas: Partial<VendaNoDispositivo
   return { ...venda, ...mudancas, versao: venda.versao + 1 }
 }
 
+/** A situação como a tela a diz, para a recusa não mostrar o valor da API. */
+const SITUACAO: Record<VendaNoDispositivo['status'], string> = {
+  ABERTA: 'aberta', CONCLUIDA: 'concluída',
+}
+
 function exigirAberta(venda: VendaNoDispositivo): void {
   if (venda.status !== 'ABERTA') {
-    throw new Error(`A Venda está ${venda.status} e não aceita montagem nem pagamento.`)
+    throw new Error(`Esta venda já está ${SITUACAO[venda.status]} e não aceita mais alteração.`)
   }
 }
 
@@ -255,7 +260,7 @@ export function vincularCliente(venda: VendaNoDispositivo, clienteId: string): V
 export function desvincularCliente(venda: VendaNoDispositivo): VendaNoDispositivo {
   exigirAberta(venda)
   if (venda.parcelas.some((parcela) => parcela.forma === 'FIADO')) {
-    throw new Error('Venda com parcela FIADO exige Cliente vinculado; troque o Cliente em vez de tirá-lo.')
+    throw new Error('A venda tem pagamento no fiado e precisa de cliente; troque o cliente em vez de tirá-lo.')
   }
   return avancar(venda, { clienteId: null })
 }
@@ -299,7 +304,7 @@ export function registrarPagamento(venda: VendaNoDispositivo, dados: DadosDaParc
     throw new Error(`A parcela de ${emReais(valor)} é maior que o que falta pagar, ${emReais(falta)}.`)
   }
   if (forma === 'FIADO' && venda.parcelas.some((parcela) => parcela.forma === 'FIADO')) {
-    throw new Error('A Venda aceita uma única parcela FIADO.')
+    throw new Error('A venda aceita um só pagamento no fiado.')
   }
   const parcela: ParcelaNoDispositivo = {
     id: dados.pagamentoId, forma, valorCentavos: valor,
@@ -309,12 +314,12 @@ export function registrarPagamento(venda: VendaNoDispositivo, dados: DadosDaParc
 }
 
 export function concluir(venda: VendaNoDispositivo, concluidoEm: string): VendaNoDispositivo {
-  if (venda.status !== 'ABERTA') throw new Error(`A Venda está ${venda.status} e não conclui de novo.`)
+  if (venda.status !== 'ABERTA') throw new Error(`Esta venda já está ${SITUACAO[venda.status]} e não conclui de novo.`)
   if (venda.itens.length === 0) {
     throw new Error('A Venda não tem item e não conclui: venda de nada não é venda.')
   }
   if (venda.parcelas.some((parcela) => parcela.forma === 'FIADO') && !venda.clienteId) {
-    throw new Error('Venda com FIADO exige Cliente vinculado.')
+    throw new Error('Vincule o cliente antes de concluir a venda no fiado.')
   }
   const falta = faltaPagar(venda)
   if (falta !== 0) {

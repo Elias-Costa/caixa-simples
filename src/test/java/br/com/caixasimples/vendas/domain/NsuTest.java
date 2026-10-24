@@ -54,7 +54,7 @@ class NsuTest {
             assertThatIllegalArgumentException()
                     .as("NSU em " + forma)
                     .isThrownBy(() -> parcela(forma, "004512", agora))
-                    .withMessageContaining("NSU so existe em cartao");
+                    .withMessageContaining("O NSU só existe no");
             // Em branco é não informado, e não um NSU fora do lugar.
             assertThat(parcela(forma, " ", agora).nsu()).as("branco em " + forma).isNull();
         }
@@ -77,7 +77,7 @@ class NsuTest {
             assertThatIllegalArgumentException()
                     .as("NSU em " + forma)
                     .isThrownBy(() -> recebimento(forma, "778899"))
-                    .withMessageContaining("NSU so existe em cartao");
+                    .withMessageContaining("O NSU só existe no");
         }
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> recebimento(FormaPagamento.CARTAO, QUARENTA + "B"))

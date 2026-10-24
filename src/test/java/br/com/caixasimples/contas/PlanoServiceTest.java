@@ -159,7 +159,7 @@ class PlanoServiceTest extends TesteDeIntegracao {
                 assinatura.codigo(UUID.randomUUID(), Plano.COMPLETO, COMPLETO))) {
             assertThatIllegalArgumentException()
                     .isThrownBy(() -> conta.comoUsuario(() -> planos.aplicarCodigo(pedido, errado)))
-                    .withMessageContaining("codigo");
+                    .withMessageContaining("código");
         }
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> conta.comoUsuario(() -> planos.aplicarCodigo(pedido, "  ")));
@@ -180,7 +180,7 @@ class PlanoServiceTest extends TesteDeIntegracao {
         assertThatIllegalStateException()
                 .isThrownBy(() -> conta.comoUsuario(() -> planos.aplicarCodigo(primeiro.id(),
                         assinatura.codigo(primeiro.id(), Plano.COMPLETO, primeiro.valor()))))
-                .withMessageContaining("substituido");
+                .withMessageContaining("substituído");
 
         EstadoDoPlano estado = conta.comoUsuario(() -> planos.aplicarCodigo(segundo.id(),
                 assinatura.codigo(segundo.id(), Plano.COMPLETO, segundo.valor())));
@@ -232,7 +232,7 @@ class PlanoServiceTest extends TesteDeIntegracao {
             assertThatIllegalArgumentException()
                     .isThrownBy(() -> conta.comoUsuario(
                             () -> planos.aplicarCodigo(pedido.id(), codigo)))
-                    .withMessageContaining("codigo");
+                    .withMessageContaining("código");
         }
 
         EstadoDoPlano recusado = conta.comoUsuario(planos::consultar);
@@ -261,7 +261,7 @@ class PlanoServiceTest extends TesteDeIntegracao {
         for (ContaCriada conta : List.of(gratis, completa)) {
             assertThatIllegalStateException()
                     .isThrownBy(() -> conta.comoUsuario(() -> planos.pedir(Plano.GRATIS)))
-                    .withMessageContaining("gratuito nao tem pedido");
+                    .withMessageContaining("gratuito não tem pedido");
             assertThatIllegalArgumentException()
                     .isThrownBy(() -> conta.comoUsuario(() -> planos.pedir(null)));
             conta.comoUsuario(() -> assertThat(pedidos.findAll()).isEmpty());

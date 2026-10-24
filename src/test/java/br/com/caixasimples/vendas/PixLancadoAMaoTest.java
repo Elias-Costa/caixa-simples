@@ -143,7 +143,7 @@ class PixLancadoAMaoTest extends TesteDeIntegracao {
         assertThatIllegalStateException()
                 .isThrownBy(() -> balcao.conta().comoUsuario(() ->
                         vendas.registrarPagamentoOnline(vendaId, parcelaPix, pix("9.00"), null)))
-                .withMessageContaining("outro conteudo");
+                .withMessageContaining("outro valor ou forma");
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> balcao.conta().comoUsuario(() ->
                         vendas.registrarPagamentoOnline(vendaId, UUID.randomUUID(),
@@ -154,7 +154,7 @@ class PixLancadoAMaoTest extends TesteDeIntegracao {
                 .isThrownBy(() -> balcao.conta().comoUsuario(() ->
                         vendas.registrarPagamentoOnline(vendaId, UUID.randomUUID(),
                                 pix("1.00"), "004512")))
-                .withMessageContaining("NSU so existe em cartao");
+                .withMessageContaining("O NSU só existe no");
 
         assertThat(consultar(balcao, vendaId).parcelas())
                 .extracting(ParcelaParaTela::id).containsExactly(parcelaPix);
@@ -177,12 +177,12 @@ class PixLancadoAMaoTest extends TesteDeIntegracao {
         assertThatIllegalStateException()
                 .isThrownBy(() -> balcao.conta().comoUsuario(() ->
                         vendas.reservarPix(vendaId, aMao, Money.de("5.00"), "chave-teste")))
-                .withMessageContaining("dados diferentes");
+                .withMessageContaining("já foi pedida com outro valor");
         // E a cobrança reservada não vira, pelo mesmo id e valor, um Pix visto no extrato.
         assertThatIllegalStateException()
                 .isThrownBy(() -> balcao.conta().comoUsuario(() ->
                         vendas.registrarPagamentoOnline(vendaId, reservada, pix("5.00"), null)))
-                .withMessageContaining("outro conteudo");
+                .withMessageContaining("outro valor ou forma");
 
         assertThat(consultar(balcao, vendaId).parcelas())
                 .extracting(ParcelaParaTela::id, ParcelaParaTela::status)

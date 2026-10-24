@@ -197,6 +197,11 @@ public class ProdutoEntity {
         return versao;
     }
 
+    /** Existe para a busca do balcão comparar o nome sem reconstituir cada produto. */
+    public String getNome() {
+        return nome;
+    }
+
     /** Existe para o teste de isolamento poder afirmar de que conta a linha é. */
     public ContaId getContaId() {
         return ContaId.de(contaId);

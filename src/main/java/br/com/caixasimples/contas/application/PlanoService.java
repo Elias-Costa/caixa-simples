@@ -82,10 +82,10 @@ public class PlanoService {
     public PedidoNaConta pedir(Plano desejado) {
         UsuarioContext.exigirAdmin();
         if (desejado == null) {
-            throw new IllegalArgumentException("informe o plano");
+            throw new IllegalArgumentException("Informe o plano.");
         }
         if (desejado == Plano.GRATIS) {
-            throw new IllegalStateException("o plano gratuito nao tem pedido");
+            throw new IllegalStateException("O plano gratuito não tem pedido.");
         }
         LocalDate hoje = hojeNoBalcao();
         Conta conta = contaTravada();
@@ -124,7 +124,7 @@ public class PlanoService {
     public EstadoDoPlano aplicarCodigo(UUID pedidoId, String codigo) {
         UsuarioContext.exigirAdmin();
         if (codigo == null || codigo.isBlank()) {
-            throw new IllegalArgumentException("informe o codigo");
+            throw new IllegalArgumentException("Informe o código.");
         }
         LocalDate hoje = hojeNoBalcao();
         Conta conta = contaTravada();
@@ -140,7 +140,7 @@ public class PlanoService {
                 // Reenvio do mesmo código: o efeito já está gravado.
             }
             case SUBSTITUIDO -> throw new IllegalStateException(
-                    "este pedido foi substituido por outro; o codigo dele nao vale mais");
+                    "Este pedido foi substituído por outro; o código dele não vale mais.");
             case ABERTO -> aplicar(conta, pedido, hoje);
         }
         return estado(conta, hoje);

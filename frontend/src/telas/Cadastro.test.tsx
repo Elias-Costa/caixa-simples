@@ -86,7 +86,7 @@ describe('cadastro na tela', () => {
     await waitFor(() => expect(nome).toHaveFocus())
   })
 
-  it('a busca filtra a lista de produtos já carregada pelo nome, sem diferença de maiúsculas', async () => {
+  it('a busca filtra a lista de produtos já carregada pelo nome, sem diferença de maiúsculas nem de acento', async () => {
     const buscar = vi.spyOn(cadastro, 'buscarProdutos')
     vi.spyOn(cadastro, 'produtos').mockResolvedValue([
       produto, { ...produto, id: 'item-2', nome: 'Pão de queijo', preco: 4 },
@@ -96,6 +96,8 @@ describe('cadastro na tela', () => {
     fireEvent.change(await screen.findByLabelText('Buscar por nome'), { target: { value: 'PÃO' } })
     expect(screen.getByText('Pão de queijo')).toBeInTheDocument()
     expect(screen.queryByText('Café')).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Buscar por nome'), { target: { value: 'pao' } })
+    expect(screen.getByText('Pão de queijo')).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Buscar por nome'), { target: { value: 'chá' } })
     expect(screen.getByRole('status')).toHaveTextContent('Nenhum item encontrado para chá.')
     expect(buscar).not.toHaveBeenCalled()

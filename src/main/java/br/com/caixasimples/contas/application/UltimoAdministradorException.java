@@ -11,7 +11,6 @@ import java.util.UUID;
 public class UltimoAdministradorException extends RuntimeException {
 
     public UltimoAdministradorException(UUID id) {
-        super("o usuario " + id + " e o ultimo administrador ativo da conta e nao pode ser "
-                + "inativado");
+        super("Este é o último administrador ativo da Conta e não pode ser inativado.");
     }
 }

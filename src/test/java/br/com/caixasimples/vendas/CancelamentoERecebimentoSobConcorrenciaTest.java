@@ -166,7 +166,7 @@ class CancelamentoERecebimentoSobConcorrenciaTest extends TesteDeIntegracao {
         // quem opera, em vez de um estorno perdido depois do commit.
         assertThatIllegalStateException()
                 .isThrownBy(() -> conta.comoUsuario(() -> vendas.cancelar(vendaId)))
-                .withMessageContaining("nao esta ABERTA");
+                .withMessageContaining("já foi fechado");
     }
 
     @Test

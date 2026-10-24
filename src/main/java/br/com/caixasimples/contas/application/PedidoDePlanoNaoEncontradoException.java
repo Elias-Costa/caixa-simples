@@ -11,6 +11,6 @@ import java.util.UUID;
 public class PedidoDePlanoNaoEncontradoException extends RuntimeException {
 
     public PedidoDePlanoNaoEncontradoException(UUID id) {
-        super("pedido de plano nao encontrado nesta conta: " + id);
+        super("Pedido de plano não encontrado nesta Conta.");
     }
 }

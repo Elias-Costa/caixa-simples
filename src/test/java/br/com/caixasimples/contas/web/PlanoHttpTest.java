@@ -84,12 +84,12 @@ class PlanoHttpTest extends TesteDeIntegracao {
 
         http.perform(aplicar(admin, pedidoId, "0000-0000-0000-0000"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.detail").value(containsString("codigo")));
+                .andExpect(jsonPath("$.detail").value(containsString("código")));
         // O código que o mantenedor geraria com o valor de um texto alterado.
         http.perform(aplicar(admin, pedidoId,
                         assinatura.codigo(pedidoId, Plano.COMPLETO, Money.de("0.01"))))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.detail").value(containsString("codigo")));
+                .andExpect(jsonPath("$.detail").value(containsString("código")));
         // Do jeito que alguém digita: minúsculo e sem os hífens.
         http.perform(aplicar(admin, pedidoId, codigo.replace("-", "").toLowerCase()))
                 .andExpect(status().isOk())
@@ -133,7 +133,7 @@ class PlanoHttpTest extends TesteDeIntegracao {
                 Money.de(MENSALIDADE_COMPLETO));
         http.perform(aplicar(admin, primeiro, codigoDoPrimeiro))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.detail").value(containsString("substituido")));
+                .andExpect(jsonPath("$.detail").value(containsString("substituído")));
         http.perform(aplicar(autenticador.como(outra), primeiro, codigoDoPrimeiro))
                 .andExpect(status().isNotFound());
         http.perform(get("/api/conta/plano").with(autenticador.como(operador)))

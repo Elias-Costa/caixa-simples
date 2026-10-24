@@ -2,6 +2,7 @@ package br.com.caixasimples.pagamentos.domain;
 
 import br.com.caixasimples.pagamentos.FormaPagamento;
 import br.com.caixasimples.pagamentos.StatusPagamento;
+import br.com.caixasimples.shared.FormatoDeTela;
 import br.com.caixasimples.shared.Money;
 import java.util.Objects;
 
@@ -62,14 +63,15 @@ public record ResultadoPagamento(FormaPagamento forma, Money valor, StatusPagame
         // A falta do valor recebido é pedido incompleto de quem registra, como o valor recebido
         // numa forma sem troco, e por isso é recusa de argumento, não defeito do programa.
         if (valorRecebido == null) {
-            throw new IllegalArgumentException("valor recebido em dinheiro e obrigatorio; "
-                    + "informe o proprio valor da parcela quando o cliente pagar o valor exato");
+            throw new IllegalArgumentException("Informe o valor recebido em dinheiro; quando o cliente"
+                    + " paga o valor exato, repita o valor da parcela.");
         }
 
         Money troco = valorRecebido.subtrair(valor);
         if (troco.isNegativo()) {
-            throw new IllegalArgumentException("valor recebido em dinheiro e menor que o valor a "
-                    + "pagar: recebido " + valorRecebido + ", a pagar " + valor);
+            throw new IllegalArgumentException("O valor recebido em dinheiro, "
+                    + FormatoDeTela.reais(valorRecebido) + ", é menor que o valor a pagar, "
+                    + FormatoDeTela.reais(valor) + ".");
         }
 
         return new ResultadoPagamento(FormaPagamento.DINHEIRO, valor, StatusPagamento.CONFIRMADO,
@@ -108,9 +110,8 @@ public record ResultadoPagamento(FormaPagamento forma, Money valor, StatusPagame
                     + "DINHEIRO e FIADO tem regras proprias");
         }
         if (solicitacao.valorRecebido() != null) {
-            throw new IllegalArgumentException("a forma " + solicitacao.forma() + " nao devolve "
-                    + "troco e por isso nao aceita valor recebido em especie: "
-                    + solicitacao.valorRecebido());
+            throw new IllegalArgumentException(
+                    "Só o pagamento em dinheiro aceita valor recebido e devolve troco.");
         }
 
         return new ResultadoPagamento(solicitacao.forma(), solicitacao.valor(),
@@ -124,7 +125,7 @@ public record ResultadoPagamento(FormaPagamento forma, Money valor, StatusPagame
             throw new IllegalArgumentException("a fabrica de fiado exige a forma FIADO");
         }
         if (solicitacao.valorRecebido() != null) {
-            throw new IllegalArgumentException("fiado nao aceita valor recebido em especie");
+            throw new IllegalArgumentException("O fiado não aceita valor recebido em dinheiro.");
         }
         return new ResultadoPagamento(FormaPagamento.FIADO, solicitacao.valor(),
                 StatusPagamento.PENDENTE, Money.ZERO);
@@ -133,7 +134,8 @@ public record ResultadoPagamento(FormaPagamento forma, Money valor, StatusPagame
     public static ResultadoPagamento pixPendente(SolicitacaoPagamento solicitacao) {
         Objects.requireNonNull(solicitacao);
         if (solicitacao.forma() != FormaPagamento.PIX || solicitacao.valorRecebido() != null) {
-            throw new IllegalArgumentException("Pix integrado exige PIX sem valor recebido em especie");
+            throw new IllegalArgumentException(
+                    "O Pix integrado não aceita valor recebido em dinheiro.");
         }
         return new ResultadoPagamento(FormaPagamento.PIX, solicitacao.valor(),
                 StatusPagamento.PENDENTE, Money.ZERO);

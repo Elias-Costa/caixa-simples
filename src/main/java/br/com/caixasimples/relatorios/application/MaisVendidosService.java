@@ -107,8 +107,7 @@ public class MaisVendidosService {
         contas.exigirRecurso(RecursoDoPlano.RELATORIOS);
         Periodo periodo = new Periodo(inicio, fim);
         if (limite < 1) {
-            throw new IllegalArgumentException(
-                    "limite do ranking tem de ser pelo menos 1: " + limite);
+            throw new IllegalArgumentException("O limite do ranking tem de ser pelo menos 1.");
         }
 
         List<ProdutoVendido> linhas = itens.maisVendidosEntre(StatusVenda.CONCLUIDA,

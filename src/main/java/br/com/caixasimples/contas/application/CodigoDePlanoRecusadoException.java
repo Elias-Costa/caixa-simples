@@ -14,7 +14,7 @@ public class CodigoDePlanoRecusadoException extends IllegalArgumentException {
     private final UUID pedidoId;
 
     public CodigoDePlanoRecusadoException(UUID pedidoId) {
-        super("o codigo nao e o deste pedido");
+        super("Este código não é o deste pedido; confira o código que você recebeu.");
         this.pedidoId = pedidoId;
     }
 

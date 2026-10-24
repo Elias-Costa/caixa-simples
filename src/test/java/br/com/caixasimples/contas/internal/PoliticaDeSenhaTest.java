@@ -58,7 +58,7 @@ class PoliticaDeSenhaTest {
 
         assertThatThrownBy(() -> politica.exigirValida("uma senha longa o suficiente"))
                 .isInstanceOf(SenhaRecusadaException.class)
-                .hasMessageContaining("Nao foi possivel verificar");
+                .hasMessageContaining("Não foi possível conferir");
     }
 
     @Test

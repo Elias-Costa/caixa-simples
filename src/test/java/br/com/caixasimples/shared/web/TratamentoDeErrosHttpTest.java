@@ -143,6 +143,7 @@ class TratamentoDeErrosHttpTest extends TesteDeIntegracao {
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(PROBLEM_JSON))
                 .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.detail").value("Confira os campos destacados."))
                 .andExpect(jsonPath("$.campos.nome").isNotEmpty())
                 .andExpect(jsonPath("$.campos.valor").isNotEmpty());
     }
@@ -159,7 +160,7 @@ class TratamentoDeErrosHttpTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("JSON ilegível, recusado pelo próprio Spring MVC, sai no mesmo formato")
+    @DisplayName("JSON ilegível, recusado pelo próprio Spring MVC, sai no mesmo formato e em português")
     void corpoIlegivelSaiNoMesmoFormato() throws Exception {
         http.perform(post("/api/teste/erros/validacao").with(autenticado)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -167,7 +168,17 @@ class TratamentoDeErrosHttpTest extends TesteDeIntegracao {
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(PROBLEM_JSON))
                 .andExpect(jsonPath("$.status").value(400))
-                .andExpect(jsonPath("$.title").isNotEmpty());
+                .andExpect(jsonPath("$.title").isNotEmpty())
+                .andExpect(jsonPath("$.detail")
+                        .value("Não foi possível ler o pedido; confira o que foi enviado."));
+    }
+
+    @Test
+    @DisplayName("método que a rota não aceita sai com o detalhe em português")
+    void metodoNaoAceitoSaiEmPortugues() throws Exception {
+        http.perform(get("/api/teste/erros/validacao").with(autenticado))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(jsonPath("$.detail").value("Esta operação não existe neste endereço."));
     }
 
     @Test

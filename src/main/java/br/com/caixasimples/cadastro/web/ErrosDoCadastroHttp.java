@@ -28,6 +28,6 @@ class ErrosDoCadastroHttp {
     @ExceptionHandler(DataIntegrityViolationException.class)
     ProblemDetail conflitoDeCadastro(DataIntegrityViolationException excecao) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT,
-                "O cadastro conflita com um registro existente nesta conta");
+                "Já existe um registro igual nesta Conta, como outro produto ativo com o mesmo código.");
     }
 }

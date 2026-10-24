@@ -67,11 +67,11 @@ public class PoliticaDeSenha {
     private static void exigirTamanho(String senha) {
         if (senha == null || senha.length() < TAMANHO_MINIMO) {
             throw new SenhaRecusadaException(
-                    "A senha precisa ter ao menos " + TAMANHO_MINIMO + " caracteres");
+                    "A senha precisa ter ao menos " + TAMANHO_MINIMO + " caracteres.");
         }
         if (senha.getBytes(StandardCharsets.UTF_8).length > MAXIMO_DE_BYTES) {
             throw new SenhaRecusadaException("A senha pode ter no máximo " + MAXIMO_DE_BYTES
-                    + " letras sem acento; cada letra com acento ou cedilha conta como duas");
+                    + " letras sem acento; cada letra com acento ou cedilha conta como duas.");
         }
     }
 }

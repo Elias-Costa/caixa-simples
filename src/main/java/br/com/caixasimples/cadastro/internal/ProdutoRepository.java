@@ -70,15 +70,4 @@ public interface ProdutoRepository extends JpaRepository<ProdutoEntity, UUID> {
      * devolveria mais de um produto para um valor que deveria ser único.
      */
     Optional<ProdutoEntity> findByAtivoTrueAndCodigoIgnoreCase(String codigo);
-
-    /**
-     * Os produtos ativos cujo nome contém o termo, ignorando maiúsculas, em ordem alfabética
-     * (RF06).
-     *
-     * <p>{@code Containing} derivado escapa {@code %} e {@code _} do termo por conta própria, o que
-     * é um motivo a mais para não escrever o {@code LIKE} à mão. Sem índice para sustentar a
-     * busca: o catálogo de uma conta é pequeno, e o índice de tenant já reduz a varredura ao que é
-     * dela.
-     */
-    List<ProdutoEntity> findByAtivoTrueAndNomeContainingIgnoreCaseOrderByNome(String termo);
 }

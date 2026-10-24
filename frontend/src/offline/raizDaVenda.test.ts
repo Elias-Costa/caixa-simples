@@ -85,7 +85,7 @@ describe('raiz da Venda no dispositivo', () => {
     expect(faltaPagar(emDinheiro)).toBe(400)
     const fiado = registrarPagamento(emDinheiro, parcela({ forma: 'FIADO', valor: 2 }))
     expect(fiado.parcelas[1]).toMatchObject({ status: 'PENDENTE', trocoCentavos: 0 })
-    expect(() => registrarPagamento(fiado, parcela({ forma: 'FIADO', valor: 2 }))).toThrow('única parcela FIADO')
+    expect(() => registrarPagamento(fiado, parcela({ forma: 'FIADO', valor: 2 }))).toThrow('um só pagamento no fiado')
     expect(venda.parcelas).toHaveLength(0)
   })
 
@@ -116,15 +116,15 @@ describe('raiz da Venda no dispositivo', () => {
     const venda = adicionarItem(nova(), item({ precoUnitario: 10 }))
     expect(() => concluir(venda, agora)).toThrow('faltam')
     const fiado = registrarPagamento(venda, parcela({ forma: 'FIADO', valor: 10 }))
-    expect(() => concluir(fiado, agora)).toThrow('Cliente vinculado')
+    expect(() => concluir(fiado, agora)).toThrow('Vincule o cliente')
 
     const concluida = concluir(vincularCliente(fiado, 'cliente-1'), agora)
     expect(concluida).toMatchObject({ status: 'CONCLUIDA', concluidoEm: agora, clienteId: 'cliente-1' })
     expect(() => concluir(concluida, agora)).toThrow('não conclui de novo')
-    expect(() => adicionarItem(concluida, item())).toThrow('não aceita montagem')
+    expect(() => adicionarItem(concluida, item())).toThrow('não aceita mais alteração')
     expect(() => registrarPagamento(concluida, parcela({ forma: 'CARTAO', valor: 1 })))
-      .toThrow('não aceita montagem')
-    expect(() => vincularCliente(concluida, 'cliente-2')).toThrow('não aceita montagem')
+      .toThrow('não aceita mais alteração')
+    expect(() => vincularCliente(concluida, 'cliente-2')).toThrow('não aceita mais alteração')
 
     const brinde = concluir(adicionarItem(nova(), item({ precoUnitario: 0 })), agora)
     expect(brinde.status).toBe('CONCLUIDA')
@@ -139,11 +139,11 @@ describe('raiz da Venda no dispositivo', () => {
       .toBe('CONCLUIDA')
 
     const fiado = registrarPagamento(comCliente, parcela({ forma: 'FIADO', valor: 10 }))
-    expect(() => desvincularCliente(fiado)).toThrow('troque o Cliente')
+    expect(() => desvincularCliente(fiado)).toThrow('troque o cliente')
     expect(vincularCliente(fiado, 'cliente-2').clienteId).toBe('cliente-2')
 
     const concluida = concluir(fiado, agora)
-    expect(() => desvincularCliente(concluida)).toThrow('não aceita montagem')
+    expect(() => desvincularCliente(concluida)).toThrow('não aceita mais alteração')
   })
 
   it('remonta a retirada do Cliente gravada na fila', () => {

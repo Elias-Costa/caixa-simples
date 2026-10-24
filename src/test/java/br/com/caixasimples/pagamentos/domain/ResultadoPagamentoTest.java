@@ -68,7 +68,7 @@ class ResultadoPagamentoTest {
         // HTTP responder 400 com o motivo.
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> ResultadoPagamento.emDinheiro(Money.de("50.00"), null))
-                .withMessageContaining("valor recebido em dinheiro e obrigatorio");
+                .withMessageContaining("Informe o valor recebido em dinheiro");
     }
 
     @Test

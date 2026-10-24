@@ -262,8 +262,8 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
 
         assertThat(resultados).extracting(ResultadoDaOperacao::resultado)
                 .containsOnly(Resultado.NAO_APLICADA);
-        assertThat(resultados.get(0).detalhe()).contains("nao esta ABERTA");
-        assertThat(resultados.get(1).detalhe()).contains("gesto anterior deste registro");
+        assertThat(resultados.get(0).detalhe()).contains("já foi fechado");
+        assertThat(resultados.get(1).detalhe()).contains("gesto anterior deste mesmo registro");
         conta.comoUsuario(() -> assertThat(linhasDeVenda.findById(vendaId)).isEmpty());
     }
 
@@ -282,7 +282,7 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
         assertThat(resultados).extracting(ResultadoDaOperacao::resultado)
                 .containsExactly(Resultado.NAO_APLICADA);
         assertThat(resultados.get(0).detalhe())
-                .contains("sessao de caixa nao encontrada nesta conta: " + sessaoDaContaA);
+                .contains("Caixa não encontrado nesta Conta.");
         contaB.comoUsuario(() -> assertThat(linhasDeVenda.findById(vendaId)).isEmpty());
     }
 
@@ -313,7 +313,7 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
                 Resultado.APLICADA, Resultado.APLICADA, Resultado.NAO_APLICADA,
                 Resultado.NAO_APLICADA, Resultado.NAO_APLICADA, Resultado.APLICADA,
                 Resultado.APLICADA);
-        assertThat(resultados.get(2).detalhe()).contains("produto nao encontrado");
+        assertThat(resultados.get(2).detalhe()).contains("Produto não encontrado");
         conta.comoUsuario(() -> {
             var sessao = linhasDeSessao.findById(sessaoId).orElseThrow().paraDominio();
             assertThat(sessao.getValorFechamentoEsperado()).isEqualTo(Money.de("40.00"));
@@ -359,7 +359,7 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
                 sincronizacao.sincronizar(recebidas(List.of(inicio, item))));
 
         assertThat(resultados.get(1).resultado()).isEqualTo(Resultado.APLICADA_COM_REVISAO);
-        assertThat(resultados.get(1).detalhe()).contains("8.50").contains("10.00");
+        assertThat(resultados.get(1).detalhe()).contains("R$ 8,50").contains("R$ 10,00");
         conta.comoUsuario(() -> {
             Venda venda = linhasDeVenda.findById(vendaId).orElseThrow().paraDominio();
             assertThat(venda.getItens()).extracting(ItemVenda::precoUnitario)
@@ -613,8 +613,8 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
 
         assertThat(resultados).extracting(ResultadoDaOperacao::resultado).containsExactly(
                 Resultado.NAO_APLICADA, Resultado.APLICADA, Resultado.NAO_APLICADA);
-        assertThat(resultados.get(0).detalhe()).contains("ja existe venda");
-        assertThat(resultados.get(2).detalhe()).contains("ja existe item");
+        assertThat(resultados.get(0).detalhe()).contains("Já existe uma venda");
+        assertThat(resultados.get(2).detalhe()).contains("Este item já está registrado");
         conta.comoUsuario(() -> {
             Venda original = linhasDeVenda.findById(vendaComRede).map(VendaEntity::paraDominio)
                     .orElseThrow();

@@ -75,7 +75,7 @@ class NsuNoLoteTest extends TesteDeIntegracao {
         assertThat(resultadoDe(resultados, semNsu).resultado())
                 .isEqualTo(Resultado.APLICADA_COM_REVISAO);
         assertThat(resultadoDe(resultados, semNsu).detalhe())
-                .contains("10.00", "sem o NSU que a Conta exige");
+                .contains("R$ 10,00", "sem o NSU que a Conta exige");
         assertThat(resultadoDe(resultados, emBranco).resultado())
                 .isEqualTo(Resultado.APLICADA_COM_REVISAO);
         assertThat(resultadoDe(resultados, comNsu).resultado()).isEqualTo(Resultado.APLICADA);
@@ -131,7 +131,7 @@ class NsuNoLoteTest extends TesteDeIntegracao {
         assertThat(resultadoDe(resultados, emDinheiro).resultado())
                 .isEqualTo(Resultado.NAO_APLICADA);
         assertThat(resultadoDe(resultados, emDinheiro).detalhe())
-                .contains("NSU so existe em cartao");
+                .contains("O NSU só existe no");
         assertThat(conta.comoUsuario(() -> vendas.consultar(dia.vendaId())).parcelas()).isEmpty();
     }
 

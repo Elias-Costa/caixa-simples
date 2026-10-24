@@ -25,11 +25,11 @@ public class VerificadorDeSenhaVazadaFalso implements VerificadorDeSenhaVazada {
     public void exigirNaoVazada(String senha) {
         if (indisponivel) {
             throw new ListaDeVazadasIndisponivelException(
-                    "Nao foi possivel verificar a senha contra a lista de vazamentos");
+                    "Não foi possível conferir a senha na lista de vazamentos; tente de novo.");
         }
         if (vazadas.contains(senha)) {
             throw new SenhaRecusadaException(
-                    "Esta senha aparece em vazamentos publicos conhecidos. Escolha outra.");
+                    "Esta senha aparece em vazamentos públicos conhecidos. Escolha outra.");
         }
     }
 

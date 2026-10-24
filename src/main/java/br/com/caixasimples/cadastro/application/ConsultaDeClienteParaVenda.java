@@ -23,7 +23,7 @@ public class ConsultaDeClienteParaVenda {
             throw new ClienteNaoEncontradoParaVendaException(clienteId);
         }
         if (!ativo) {
-            throw new IllegalStateException("cliente inativo; reative antes de vincular a venda");
+            throw new IllegalStateException("Este cliente está inativo; reative-o em Clientes antes de vinculá-lo à venda.");
         }
     }
 
@@ -37,7 +37,7 @@ public class ConsultaDeClienteParaVenda {
 
     public static class ClienteNaoEncontradoParaVendaException extends RuntimeException {
         public ClienteNaoEncontradoParaVendaException(UUID id) {
-            super("cliente nao encontrado nesta conta: " + id);
+            super("Cliente não encontrado nesta Conta.");
         }
     }
 }

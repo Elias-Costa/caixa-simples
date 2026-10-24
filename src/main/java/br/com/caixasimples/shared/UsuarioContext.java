@@ -58,7 +58,7 @@ public final class UsuarioContext {
     public static void exigirAdmin() {
         UsuarioAutenticado usuario = exigirAtual();
         if (!usuario.ehAdmin()) {
-            throw new AcessoNegadoException("Esta operacao e do administrador da conta");
+            throw new AcessoNegadoException("Esta operação é do administrador da Conta.");
         }
     }
 
@@ -80,7 +80,7 @@ public final class UsuarioContext {
         }
         if (dono == null || !dono.equals(usuario.usuarioId())) {
             throw new AcessoNegadoException(
-                    "O operador so alcanca o proprio caixa e as proprias vendas");
+                    "O operador só alcança o próprio caixa e as próprias vendas.");
         }
     }
 

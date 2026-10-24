@@ -340,8 +340,8 @@ class EscritasConcorrentesNaVendaTest extends TesteDeIntegracao {
         assertThat(disputa.get(0)).succeedsWithin(ESPERA);
         assertThat(disputa.get(1)).failsWithin(ESPERA)
                 .withThrowableOfType(ExecutionException.class)
-                .withCauseInstanceOf(IllegalStateException.class)
-                .withMessageContaining("faltam");
+                                .withCauseInstanceOf(IllegalStateException.class)
+                .withMessageContaining("Ainda falta lançar");
     }
 
     @Test
@@ -409,7 +409,7 @@ class EscritasConcorrentesNaVendaTest extends TesteDeIntegracao {
                 .singleElement()
                 .satisfies(recusa -> {
                     assertThat(recusa.resultado()).isEqualTo(Resultado.NAO_APLICADA);
-                    assertThat(recusa.detalhe()).contains("nao aceita montagem");
+                    assertThat(recusa.detalhe()).contains("não aceita mais alteração");
                 });
     }
 
@@ -650,7 +650,7 @@ class EscritasConcorrentesNaVendaTest extends TesteDeIntegracao {
         assertThat(edicao).failsWithin(ESPERA)
                 .withThrowableOfType(ExecutionException.class)
                 .withCauseInstanceOf(IllegalStateException.class)
-                .withMessageContaining("nao aceita montagem");
+                .withMessageContaining("não aceita mais alteração");
     }
 
     private List<TipoMovimentoCaixa> tiposNoExtrato(UUID sessaoId) {

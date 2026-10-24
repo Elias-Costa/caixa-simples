@@ -57,7 +57,7 @@ class UsuarioContextTest {
                     .isThrownBy(() -> UsuarioContext.exigirDonoOuAdmin(OPERADOR.usuarioId()));
             assertThatExceptionOfType(AcessoNegadoException.class)
                     .isThrownBy(() -> UsuarioContext.exigirDonoOuAdmin(ADMIN.usuarioId()))
-                    .withMessageContaining("proprio caixa");
+                    .withMessageContaining("próprio caixa");
             assertThatExceptionOfType(AcessoNegadoException.class)
                     .as("sem dono é a conta inteira, e isso é pergunta do administrador")
                     .isThrownBy(() -> UsuarioContext.exigirDonoOuAdmin(null));

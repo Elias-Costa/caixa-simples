@@ -175,7 +175,7 @@ public class SessaoCaixaService {
             if (!anterior.get().getId().equals(sessaoId) || movimento.tipo() != tipo
                     || !movimento.valor().equals(valor)
                     || !Objects.equals(movimento.motivo(), motivo == null ? null : motivo.trim())) {
-                throw new IllegalStateException("id do movimento ja usado com outro conteudo");
+                throw new IllegalStateException("Este movimento já foi registrado com outro valor ou motivo; abra o caixa de novo para ver o que ficou.");
             }
             return;
         }

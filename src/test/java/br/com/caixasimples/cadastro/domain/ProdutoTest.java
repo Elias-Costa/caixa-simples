@@ -38,7 +38,7 @@ class ProdutoTest {
     void precoNegativoERecusado() {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> valido(Money.de("-0.01")))
-                .withMessageContaining("preco");
+                .withMessageContaining("preço");
     }
 
     @Test
@@ -167,7 +167,7 @@ class ProdutoTest {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> produto.alterar("Cafe", Money.de("-0.01"), null, null, null,
                         null))
-                .withMessageContaining("preco");
+                .withMessageContaining("preço");
 
         assertThatNullPointerException()
                 .isThrownBy(() -> produto.alterar("Cafe", null, null, null, null, null));
@@ -426,7 +426,7 @@ class ProdutoTest {
 
         assertThatIllegalStateException()
                 .isThrownBy(() -> servico.ajustarEstoque(BigDecimal.ONE, "contagem"))
-                .withMessageContaining("servico");
+                .withMessageContaining("é serviço");
         assertThatIllegalStateException()
                 .isThrownBy(() -> inativo.ajustarEstoque(BigDecimal.ONE, "contagem"))
                 .withMessageContaining("inativo");
@@ -465,7 +465,7 @@ class ProdutoTest {
                 .isThrownBy(() -> produto.definirEstoqueMinimo(null));
         assertThatIllegalStateException()
                 .isThrownBy(() -> servico.definirEstoqueMinimo(BigDecimal.ONE))
-                .withMessageContaining("servico");
+                .withMessageContaining("é serviço");
         assertThatIllegalStateException()
                 .isThrownBy(() -> inativo.definirEstoqueMinimo(BigDecimal.ONE))
                 .withMessageContaining("inativo");

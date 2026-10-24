@@ -50,14 +50,21 @@ describe('caixa na tela', () => {
     expect(await screen.findByRole('button', { name: 'Ver meu caixa' })).toBeInTheDocument()
   })
 
-  it('abre com o valor digitado com vírgula e recusa o ponto de milhar no cartão da abertura', async () => {
+  it('abre com o valor digitado com vírgula e recusa o campo vazio e o ponto de milhar no cartão da abertura', async () => {
     vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(undefined)
     vi.spyOn(caixa, 'historico').mockResolvedValue([])
     const abrir = vi.spyOn(caixa, 'abrir').mockResolvedValue({ id: 's-1' })
     mostrar()
 
     const campo = await screen.findByLabelText('Valor inicial')
-    expect(campo).toHaveValue('0,00')
+    expect(campo).toHaveValue('')
+    expect(campo).toHaveAttribute('placeholder', '0,00')
+    // Vazio, o próprio formulário segura o envio: abrir sem troco é digitar 0.
+    expect(campo).toBeRequired()
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir caixa' }))
+    expect((campo as HTMLInputElement).validity.valueMissing).toBe(true)
+    expect(abrir).not.toHaveBeenCalled()
+
     fireEvent.change(campo, { target: { value: '1.500,00' } })
     fireEvent.click(screen.getByRole('button', { name: 'Abrir caixa' }))
     const cartao = screen.getByRole('heading', { name: 'Meu caixa' }).closest('section')!

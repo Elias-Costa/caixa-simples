@@ -53,12 +53,12 @@ class PwnedPasswordsClient implements VerificadorDeSenhaVazada {
         } catch (RestClientException erroDeRede) {
             // Quem decide se a senha entra mesmo assim é a política, por quem a escolheu.
             throw new ListaDeVazadasIndisponivelException(
-                    "Nao foi possivel verificar a senha contra a lista de vazamentos", erroDeRede);
+                    "Não foi possível conferir a senha na lista de vazamentos; tente de novo.", erroDeRede);
         }
 
         if (faixa == null) {
             throw new ListaDeVazadasIndisponivelException(
-                    "Nao foi possivel verificar a senha contra a lista de vazamentos");
+                    "Não foi possível conferir a senha na lista de vazamentos; tente de novo.");
         }
 
         // Cada linha vem no formato sufixo, dois-pontos, quantidade. Só interessa se o sufixo
@@ -68,7 +68,7 @@ class PwnedPasswordsClient implements VerificadorDeSenhaVazada {
             String sufixo = separador < 0 ? linha.trim() : linha.substring(0, separador).trim();
             if (sufixo.equalsIgnoreCase(sufixoProcurado)) {
                 throw new SenhaRecusadaException(
-                        "Esta senha aparece em vazamentos publicos conhecidos. Escolha outra.");
+                        "Esta senha aparece em vazamentos públicos conhecidos. Escolha outra.");
             }
         }
     }

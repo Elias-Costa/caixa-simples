@@ -1,6 +1,7 @@
 import type { Cliente, DadosDoCliente, DadosDoProduto, Produto } from '../api/cadastro'
 import { SemConexao } from '../api/cliente'
 import { lerIdentidade } from '../sessao/armazenamento'
+import { paraBusca } from '../textoDeBusca'
 import {
   enfileirarGesto, gestoAplicavel, gestoPendente, guardarClienteRemovido, guardarRetrato,
   guardarRetratos, jaEstaNoRetrato,
@@ -81,15 +82,17 @@ function gestosAplicaveis(gestos: GestoNaFila[], prefixo: string): GestoNaFila[]
 /**
  * A mesma regra da busca do servidor no balcão (RF06): o termo é aparado e em branco é recusado; o
  * item cujo código é igual ao termo vem primeiro, depois os que têm o termo no nome, em ordem
- * alfabética, sem repetir. Maiúsculas não contam. Código parcial não entra, porque o código é único
- * e um prefixo devolveria mais de um item para um valor que se lê inteiro da embalagem.
+ * alfabética, sem repetir. Maiúsculas não contam, e no nome o acento também não. Código parcial não
+ * entra, porque o código é único e um prefixo devolveria mais de um item para um valor que se lê
+ * inteiro da embalagem.
  */
 function buscarNoCatalogo(produtos: Produto[], termo: string): Produto[] {
   const alvo = termo.trim().toLocaleLowerCase('pt-BR')
-  if (!alvo) throw new Error('Informe nome ou código para buscar.')
+  if (!alvo) throw new Error('Informe o nome ou o código para buscar.')
   const porCodigo = produtos.filter((item) => item.codigo?.trim().toLocaleLowerCase('pt-BR') === alvo)
+  const nomeProcurado = paraBusca(termo)
   const porNome = produtos
-    .filter((item) => !porCodigo.includes(item) && item.nome.toLocaleLowerCase('pt-BR').includes(alvo))
+    .filter((item) => !porCodigo.includes(item) && paraBusca(item.nome).includes(nomeProcurado))
     .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
   return [...porCodigo, ...porNome]
 }

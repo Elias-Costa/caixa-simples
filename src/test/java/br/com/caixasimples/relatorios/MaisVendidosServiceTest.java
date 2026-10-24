@@ -232,7 +232,7 @@ class MaisVendidosServiceTest extends TesteDeIntegracao {
         conta.comoUsuario(() -> {
             assertThatIllegalArgumentException()
                     .isThrownBy(() -> maisVendidos.doPeriodo(DIA, DIA.minusDays(1), DEZ))
-                    .withMessageContaining("nao pode vir antes do inicio");
+                    .withMessageContaining("não pode vir antes do início");
             assertThatIllegalArgumentException()
                     .isThrownBy(() -> maisVendidos.doPeriodo(DIA, DIA, 0))
                     .withMessageContaining("pelo menos 1");
