@@ -137,7 +137,7 @@ class CorrecaoDoCadastroHttpTest extends TesteDeIntegracao {
                 .andExpect(jsonPath("$.nome").value("Atendente Joana"));
 
         http.perform(post("/api/usuarios/{id}/inativar", operador.id()).with(comToken(admin)))
-                .andExpect(status().isNoContent());
+                .andExpect(status().isOk());
         http.perform(post("/api/usuarios/{id}/anonimizar", operador.id()).with(comToken(admin)))
                 .andExpect(status().isNoContent());
         corrigirNome(admin, operador.id(), "Atendente Joana").andExpect(status().isConflict());

@@ -924,13 +924,17 @@ public class VendaService {
         Money troco = parcelas.stream()
                 .map(Comprovante.Parcela::troco)
                 .reduce(Money.ZERO, Money::somar);
+        boolean comFiado = venda.getPagamentos().stream()
+                .anyMatch(parcela -> parcela.forma() == FormaPagamento.FIADO);
         Money valorFiado = venda.getPagamentos().stream()
                 .filter(parcela -> parcela.forma() == FormaPagamento.FIADO)
                 .map(Pagamento::valor).reduce(Money.ZERO, Money::somar);
+        // A conclusão com fiado exige cliente, então a venda fiada concluída sempre tem um.
+        String nomeCliente = comFiado ? clientes.nomeDe(venda.getClienteId()) : null;
 
         return new Comprovante(venda.getId(), venda.getUsuarioId(), venda.getConcluidoEm(),
                 linhas, somaDosItens, venda.getValorDesconto(), venda.getValorTotal(), parcelas,
-                troco, valorFiado, venda.saldoDevedor());
+                troco, valorFiado, venda.saldoDevedor(), nomeCliente);
     }
 
     /** Devolve a comanda inteira após recarga da tela, incluindo parcelas já lançadas. */

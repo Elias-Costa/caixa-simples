@@ -69,6 +69,11 @@ export type Comprovante = {
   troco: number
   valorFiado: number
   saldoDevedor: number
+  /**
+   * De quem é a dívida, só na venda com parcela fiado; não vem na venda sem fiado, mesmo com
+   * cliente vinculado.
+   */
+  nomeCliente?: string
   /** Montado no dispositivo, de uma Venda que o servidor ainda não recebeu. */
   pendenteSincronizacao?: boolean
 }

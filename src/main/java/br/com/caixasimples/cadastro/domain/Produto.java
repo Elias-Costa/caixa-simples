@@ -328,7 +328,7 @@ public class Produto {
         Objects.requireNonNull(diferenca, "diferenca nao pode ser nula");
         if (!controlaEstoque()) {
             throw new IllegalStateException(
-                    nome + " é serviço e não tem estoque para ajustar; só produto tem estoque.");
+                    nome + " está cadastrado sem estoque e não tem saldo para ajustar.");
         }
         if (!ativo) {
             throw new IllegalStateException(
@@ -361,7 +361,7 @@ public class Produto {
         Objects.requireNonNull(minimo, "estoque minimo nao pode ser nulo");
         if (!controlaEstoque()) {
             throw new IllegalStateException(
-                    nome + " é serviço e não tem estoque mínimo; só produto tem estoque.");
+                    nome + " está cadastrado sem estoque e não tem estoque mínimo.");
         }
         if (!ativo) {
             throw new IllegalStateException(

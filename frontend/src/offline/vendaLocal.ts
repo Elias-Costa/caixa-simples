@@ -12,7 +12,7 @@ import * as raiz from './raizDaVenda'
 
 type VendasDaApi = typeof vendas
 type CaixaDoDispositivo = Pick<ReturnType<typeof criarCaixaLocal>, 'consultar' | 'escreverNaGavetaComRede'>
-type ClientesDoDispositivo = Pick<typeof cadastro, 'clientes'>
+type ClientesDoDispositivo = Pick<typeof cadastro, 'clientes' | 'clientesInativos'>
 
 /** O contrato da API de vendas, com o item levando o Produto como o operador o viu na busca. */
 export type VendasDoPdv = Omit<VendasDaApi, 'adicionarItem' | 'pagar' | 'receber'> & {
@@ -164,6 +164,23 @@ function comprovanteDoDispositivo(venda: raiz.VendaNoDispositivo, pendente: bool
     valorFiado: reais(fiado),
     saldoDevedor: reais(fiado),
     pendenteSincronizacao: pendente,
+  }
+}
+
+/**
+ * O nome do Cliente da Venda fiada, pelo cadastro do dispositivo, com os ativos e os inativos, como o
+ * servidor pergunta ao cadastro dele. Sem o nome à mão, o comprovante sai sem a linha do cliente, em
+ * vez de mostrar um id.
+ */
+async function nomeDoClienteDoFiado(venda: raiz.VendaNoDispositivo,
+  clientes: ClientesDoDispositivo): Promise<string | undefined> {
+  const clienteId = venda.clienteId
+  if (!clienteId || !venda.parcelas.some((parcela) => parcela.forma === 'FIADO')) return undefined
+  try {
+    const [ativos, inativos] = await Promise.all([clientes.clientes(), clientes.clientesInativos()])
+    return [...ativos, ...inativos].find((cliente) => cliente.id === clienteId)?.nome
+  } catch {
+    return undefined
   }
 }
 
@@ -364,7 +381,9 @@ export function criarVendaLocal(remoto: VendasDaApi = vendas, caixa: CaixaDoDisp
         if (temBanco()) await guardarRetrato(`comprovante:${id}`, recebido, 0)
         return recebido
       }
-      return comprovanteDoDispositivo(alvo.venda, alvo.pendente)
+      const comprovante = comprovanteDoDispositivo(alvo.venda, alvo.pendente)
+      const nomeCliente = await nomeDoClienteDoFiado(alvo.venda, clientes)
+      return nomeCliente ? { ...comprovante, nomeCliente } : comprovante
     },
     async receber(id, valor, forma, recebimentoId?: string, nsu?: string) {
       // O recebimento só acontece com rede, e quem confere a exigência do NSU é o servidor.

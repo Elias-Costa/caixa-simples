@@ -1035,6 +1035,38 @@ sh compose.sh -p caixa-simples-restauracao --profile restauracao down -v
 
 Depois, apague a chave privada da máquina.
 
+**Bloqueios feitos sem o registro.** A inativação feita com o registro de remoções fora do ar bloqueia
+o Usuário sem gravar registro externo ([Remoção](#remoção-de-dados-e-encerramento-da-conta)), e uma
+cópia anterior a ela traz o Usuário ativo. Antes de liberar o acesso ao banco restaurado, antes do
+deploy na recriação, reaplique esses bloqueios pelo log da aplicação, que guarda 7 dias. Na VPS, como
+root, com o instante da cópia restaurada em UTC:
+
+```bash
+journalctl CONTAINER_NAME=caixa-simples-app-1 --since '<AAAA-MM-DD HH:MM:SS da cópia> UTC' -o cat \
+  | grep 'evento=usuario.bloqueado ' \
+  | sed -nE "s/.* conta=([0-9a-f-]{36}) .* alvo=([0-9a-f-]{36}) .*/UPDATE usuario SET ativo = false WHERE conta_id = '\1' AND id = '\2';/p" \
+  > bloqueios.sql
+cat bloqueios.sql
+sh compose.sh exec -T banco psql -U postgres -d caixa_simples -v ON_ERROR_STOP=1 < bloqueios.sql
+rm bloqueios.sql
+```
+
+Confira que o arquivo tem uma linha por bloqueio do período antes de aplicar; um bloqueio concluído
+depois já está nos registros externos, e repetir o `UPDATE` não muda nada. O `psql` vai ao banco em que
+a cópia foi restaurada: no projeto à parte, com `-p caixa-simples-restauracao` depois de `compose.sh`.
+A credencial fica, como no bloqueio original, e o ADMIN conclui a inativação na tela Usuários.
+
+**Quando o log não alcança a cópia**, porque ela é de mais de 7 dias atrás ou a máquina se perdeu com o
+journald, nada garante que algum Usuário bloqueado depois dela não voltou ativo. Antes de liberar o
+acesso, avise o ADMIN de cada Conta restaurada, no mesmo dia, pelo e-mail de atendimento:
+
+> Assunto: confira os usuários da sua Conta
+>
+> Restauramos os dados da sua Conta a partir da cópia de segurança de <data e hora da cópia>. Se você
+> inativou algum usuário depois disso, ele pode ter voltado ativo. Entre no aplicativo, abra Usuários e
+> inative de novo quem não deve ter acesso. Vendas e caixas registrados depois da cópia também não estão
+> no sistema.
+
 ## Recriação da VPS
 
 Para uma máquina nova, quando a atual se perde ou é trocada. O banco volta da cópia mais recente, e a
@@ -1059,7 +1091,10 @@ perda fica no que foi escrito depois dela, no máximo uma hora.
 
    O banco sobe pela primeira vez com a restauração e cria, no `initdb`, o papel `caixa_simples` com
    a senha da configuração nova; a cópia entra nele como esse papel, sem superusuário. O deploy sobe a
-   aplicação sobre o banco restaurado e aplica as migrations que a cópia ainda não tem.
+   aplicação sobre o banco restaurado e aplica as migrations que a cópia ainda não tem. Entre a
+   restauração e o deploy, trate os bloqueios feitos sem o registro de remoções, como em
+   [Restauração](#restauração): a máquina perdida leva o journald junto, e então vale o aviso a cada
+   ADMIN, a menos que o trecho do log tenha sido preservado fora dela.
 4. Apontar o registro A do domínio para o IP novo; o proxy obtém o certificado assim que o domínio
    chegar à máquina.
 5. No GitHub, atualizar `VPS_ENDERECO` e `VPS_CHAVE_DO_HOST`.
@@ -1076,7 +1111,18 @@ após quitar ou cancelar a Venda elegível, o pedido pode ser repetido. A inativ
 a credencial, e o ADMIN pode anonimizar o nome depois. Essas ações gravam antes um registro mínimo
 em objetos `remocoes/<conta>/<tipo>/<id>/<instante>.json` num bucket S3 separado do backup, na
 região `sa-east-1`. A aplicação recebe `CAIXA_SIMPLES_REMOCOES_BUCKET` e uma credencial limitada a
-gravar nesse bucket. Sem acesso ao registro, a API responde 503 e não remove o dado do banco.
+gravar nesse bucket. Sem acesso ao registro, a remoção do Cliente e a do nome do Usuário respondem
+503 e não removem o dado do banco.
+
+A inativação de Usuário não espera o registro, porque tirar o acesso de quem saiu não pode depender do
+S3. Com o registro fora do ar, a linha fica inativa, o token e o login do Usuário são recusados na
+requisição seguinte, e a credencial, com o e-mail e o hash da senha, fica até o registro gravar. A
+resposta diz que o login ficou, o log registra `evento=usuario.bloqueado` no lugar de
+`usuario.inativado`, e a tela Usuários mostra o inativo com o login guardado e o botão Concluir a
+inativação, que repete o pedido: com o registro de volta, ele grava o registro, apaga a credencial e
+registra `usuario.inativado`; ainda fora, responde 503 sem mudar nada. Sem
+`CAIXA_SIMPLES_REMOCOES_BUCKET`, como numa execução local, toda inativação termina no bloqueio. O
+bloqueio não tem registro externo; a [restauração](#restauração) o reaplica pelo log.
 
 O servidor não alcança o aparelho. O que um aparelho guardou, inclusive o cadastro de Clientes, só sai
 dele por Apagar os dados deste aparelho, na tela de entrada, ou pela limpeza dos dados do site no
@@ -1087,7 +1133,7 @@ O registro serve para a restauração reaplicar as remoções feitas depois da c
 antiga vive até 31 dias. Por isso cada registro fica 45 dias, com folga para uma restauração ou uma
 recriação começada no fim da vida da cópia, e depois o próprio bucket o apaga. Enquanto a Conta existe,
 a remoção continua visível no banco: o Cliente fica marcado como removido, e o Usuário, inativo, sem
-credencial e, se pedido, sem o nome. Ao criar o bucket, com o bloqueio de acesso público e a
+credencial, salvo o bloqueado que ainda espera a conclusão, e, se pedido, sem o nome. Ao criar o bucket, com o bloqueio de acesso público e a
 criptografia padrão, como o das cópias, aplique a regra:
 
 ```json

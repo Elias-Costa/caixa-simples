@@ -212,7 +212,7 @@ class SenhaEAcessoHttpTest extends TesteDeIntegracao {
         redefinir(aparelhoDoOperador, conta.usuarioId(), PROVISORIA).andExpect(status().isForbidden());
 
         http.perform(post("/api/usuarios/{id}/inativar", operador).with(comToken(admin)))
-                .andExpect(status().isNoContent());
+                .andExpect(status().isOk());
         redefinir(admin, operador, PROVISORIA).andExpect(status().isConflict());
         login(conta.email(), SENHA).andExpect(status().isOk());
     }

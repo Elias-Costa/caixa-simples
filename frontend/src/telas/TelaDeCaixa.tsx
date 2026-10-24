@@ -1,41 +1,102 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { cadastro } from '../api/cadastro'
 import type { SessaoCaixa } from '../api/caixa'
 import { SemConexao } from '../api/cliente'
 import { contas } from '../api/contas'
 import { intencaoOnline } from '../api/intencaoOnline'
+import type { ResumoDaVenda, Venda } from '../api/vendas'
 import { hojeNoBalcao } from '../dataDoBalcao'
 import { dataHora, lerDinheiro, moeda } from '../formatos'
 import { criarCaixaLocal } from '../offline/caixaLocal'
+import { criarVendaLocal } from '../offline/vendaLocal'
 import { useSincronizacao } from '../shell/sincronizacao'
 import { useOnline } from '../shell/useOnline'
 import { useSessao } from '../sessao/useSessao'
 import { CampoDeDinheiro } from './CampoDeDinheiro'
 import { erroDeCadastro } from './erroDeCadastro'
 import { Mensagem } from './Mensagem'
-import { ROTULO_DO_CAIXA, ROTULO_DO_MOVIMENTO } from './rotulos'
+import { ROTULO_DA_FORMA, ROTULO_DA_VENDA, ROTULO_DO_CAIXA, ROTULO_DO_MOVIMENTO } from './rotulos'
 import { useConfirmacao, type Pergunta } from './useConfirmacao'
 
 const caixa = criarCaixaLocal()
+// A mesma leitura da tela Vender: sem rede, as vendas da sessão guardadas neste aparelho.
+const vendas = criarVendaLocal()
 
 /** O cartão em que a resposta de uma ação aparece: o mesmo em que ela foi tocada. */
-type LugarDaMensagem = 'tela' | 'abertura' | 'sessao' | 'movimento' | 'fechamento'
+type LugarDaMensagem = 'tela' | 'abertura' | 'sessao' | 'movimento' | 'fechamento' | 'vendas'
 type MensagemNaTela = { tipo: 'erro' | 'sucesso'; texto: string; lugar: LugarDaMensagem }
 
+/** A lista guarda de qual sessão é: trocada a sessão, a lista anterior some antes da nova chegar. */
+type VendasDaSessao = { sessaoId: string; lista: ResumoDaVenda[] }
+type VendaEmDetalhe = { venda: Venda; cliente: string | null }
+
 /**
- * A pergunta antes de fechar diz a diferença em palavras, falta ou sobra, no lugar do sinal: o
- * fechamento não se refaz, e é a última chance de recontar a gaveta. Sem o saldo esperado lido, diz
- * o valor contado.
+ * A diferença do fechamento em palavras, falta ou sobra, no lugar do sinal, que é convenção do
+ * sistema e não do balcão. A mesma frase serve à pergunta antes de fechar, à prévia e à sessão fechada.
+ */
+function diferencaEmPalavras(diferenca: number): string {
+  return diferenca > 0 ? `falta de ${moeda.format(diferenca)}`
+    : diferenca < 0 ? `sobra de ${moeda.format(-diferenca)}`
+      : 'sem diferença'
+}
+
+function comMaiuscula(texto: string): string {
+  return texto.charAt(0).toUpperCase() + texto.slice(1)
+}
+
+/**
+ * O nome do cliente da venda pelo cadastro deste aparelho, que guarda ativos e inativos também sem
+ * rede. O removido não volta às listas, e o nome dele já foi apagado no servidor.
+ */
+async function nomeDoClienteNoAparelho(clienteId: string): Promise<string> {
+  try {
+    const [ativos, inativos] = await Promise.all([cadastro.clientes(), cadastro.clientesInativos()])
+    return [...ativos, ...inativos].find((cliente) => cliente.id === clienteId)?.nome ?? 'Cliente removido'
+  } catch {
+    return 'nome indisponível neste aparelho'
+  }
+}
+
+/**
+ * A pergunta antes de fechar diz a diferença em palavras: o fechamento não se refaz, e é a última
+ * chance de recontar a gaveta. Sem o saldo esperado lido, diz o valor contado.
  */
 function perguntaDoFechamento(contado: number, diferenca: number | null): Pergunta {
   const como = diferenca === null ? `com ${moeda.format(contado)} contados`
-    : diferenca > 0 ? `com falta de ${moeda.format(diferenca)}`
-      : diferenca < 0 ? `com sobra de ${moeda.format(-diferenca)}`
-        : 'sem diferença'
+    : diferenca === 0 ? 'sem diferença'
+      : `com ${diferencaEmPalavras(diferenca)}`
   return {
     titulo: `Fechar o caixa ${como}?`,
     texto: 'O fechamento não pode ser refeito. Se o valor não parece certo, volte e conte a gaveta de novo.',
     acao: 'Fechar caixa',
   }
+}
+
+/** Uma venda da sessão como foi: itens, descontos, pagamentos e o cliente, sem nada para tocar. */
+function DetalheDaVenda({ venda, cliente, aoFechar }: VendaEmDetalhe & { aoFechar: () => void }) {
+  return <section className="caixa__formulario" aria-label="Detalhe da venda">
+    <h4>Venda de {dataHora.format(new Date(venda.criadoEm))} · {ROTULO_DA_VENDA[venda.status]}</h4>
+    {venda.pendenteSincronizacao && <p>Pendente de sincronização com o servidor.</p>}
+    {cliente && <p>Cliente: {cliente}</p>}
+    {venda.itens.length === 0 ? <p>Nenhum item lançado.</p> : <ul className="caixa__movimentos">
+      {venda.itens.map((item) => <li key={item.id}>
+        {item.quantidade} × {item.nome} · {moeda.format(item.subtotal)}
+        {item.desconto > 0 && ` (desconto ${moeda.format(item.desconto)})`}
+      </li>)}
+    </ul>}
+    {venda.descontoDaVenda > 0 && <p>Desconto da venda: {moeda.format(venda.descontoDaVenda)}</p>}
+    <p><strong>Total: {moeda.format(venda.total)}</strong></p>
+    {venda.parcelas.length === 0 ? <p>Nenhum pagamento lançado.</p> : <ul className="caixa__movimentos">
+      {venda.parcelas.map((parcela) => <li key={parcela.id}>
+        {ROTULO_DA_FORMA[parcela.forma]}: {moeda.format(parcela.valor)}
+        {parcela.troco > 0 && ` · troco ${moeda.format(parcela.troco)}`}
+        {parcela.nsu && ` · NSU ${parcela.nsu}`}
+        {parcela.pix && parcela.status === 'PENDENTE' && ' · aguardando confirmação'}
+        {parcela.status === 'RECUSADO' && ' · recusada'}
+      </li>)}
+    </ul>}
+    <button className="botao botao--secundario" type="button" onClick={aoFechar}>Fechar detalhe</button>
+  </section>
 }
 
 /** O valor do campo, ou o erro que diz qual campo corrigir, perto do botão que foi tocado. */
@@ -70,7 +131,12 @@ export function TelaDeCaixa() {
   // Qual ação está em curso: só o botão dela diz que está trabalhando.
   const [ocupado, setOcupado] = useState<'abrir' | 'lancar' | 'fechar' | null>(null)
   const [carregando, setCarregando] = useState(true)
+  const [vendasDaSessao, setVendasDaSessao] = useState<VendasDaSessao>()
+  const [emDetalhe, setEmDetalhe] = useState<VendaEmDetalhe>()
   const [confirmar, dialogoDeConfirmacao] = useConfirmacao()
+  const sessaoSelecionada = selecionada?.id
+  const listaDaSessao = vendasDaSessao?.sessaoId === sessaoSelecionada ? vendasDaSessao?.lista : undefined
+  const detalheDaSessao = emDetalhe?.venda.sessaoCaixaId === sessaoSelecionada ? emDetalhe : undefined
 
   const carregar = useCallback(async () => {
     try {
@@ -106,6 +172,20 @@ export function TelaDeCaixa() {
     return () => { ativo = false }
   }, [selecionada])
 
+  // As vendas da sessão, abertas, concluídas e canceladas: o administrador vê as de qualquer operador,
+  // e o operador, as das próprias sessões. A rodada de envio relê, porque a venda feita sem rede deixa
+  // de estar pendente.
+  useEffect(() => {
+    if (!sessaoSelecionada) return
+    let ativo = true
+    vendas.daSessao(sessaoSelecionada).then((lista) => {
+      if (ativo) setVendasDaSessao({ sessaoId: sessaoSelecionada, lista })
+    }).catch((falha) => {
+      if (ativo) setMensagem({ tipo: 'erro', texto: erroDeCadastro(falha), lugar: 'vendas' })
+    })
+    return () => { ativo = false }
+  }, [sessaoSelecionada, rodada])
+
   // O administrador vê os caixas de todos; o nome de quem abriu vem da lista de usuários da Conta.
   useEffect(() => {
     if (!administrador || !online) return
@@ -123,6 +203,18 @@ export function TelaDeCaixa() {
 
   function mostrarEm(lugar: LugarDaMensagem) {
     return mensagem?.lugar === lugar ? <Mensagem tipo={mensagem.tipo} texto={mensagem.texto} /> : null
+  }
+
+  /** Só leitura: corrigir ou cancelar uma venda continua na tela Vender, de quem a fez. */
+  async function verVenda(resumo: ResumoDaVenda) {
+    setMensagem(undefined)
+    try {
+      const venda = await vendas.consultar(resumo.id)
+      const cliente = venda.clienteId ? await nomeDoClienteNoAparelho(venda.clienteId) : null
+      setEmDetalhe({ venda, cliente })
+    } catch (falha) {
+      setMensagem({ tipo: 'erro', texto: erroDeCadastro(falha), lugar: 'vendas' })
+    }
   }
 
   async function abrir(evento: FormEvent<HTMLFormElement>) {
@@ -252,8 +344,7 @@ export function TelaDeCaixa() {
           : <>
             <p>Valor contado: {moeda.format(selecionada.valorFechamentoContado ?? 0)}</p>
             {selecionada.saldoDesatualizado ? <p>Diferença: aparece quando o caixa for lido de novo.</p>
-              : <p>Diferença: {moeda.format(selecionada.diferenca ?? 0)}
-                {' '}(positivo = falta, negativo = sobra)</p>}
+              : <p><strong>{comMaiuscula(diferencaEmPalavras(selecionada.diferenca ?? 0))}</strong></p>}
           </>)}
 
         {/* As ações vêm antes do extrato: cada venda acrescenta uma linha a ele, e o fechamento, no
@@ -282,8 +373,7 @@ export function TelaDeCaixa() {
           <h4>Fechar caixa</h4>
           <p>Confira o dinheiro da gaveta contra o saldo esperado acima.</p>
           <CampoDeDinheiro rotulo="Valor contado" required valor={valorContado} aoMudar={setValorContado} />
-          {diferencaPrevista !== null && <p>Diferença prevista: {moeda.format(diferencaPrevista)}
-            {' '}(positivo = falta, negativo = sobra)</p>}
+          {diferencaPrevista !== null && <p>Se fechar agora: {diferencaEmPalavras(diferencaPrevista)}</p>}
           <button className="botao" disabled={ocupado !== null}>
             {ocupado === 'fechar' ? 'Fechando...' : 'Fechar e registrar diferença'}
           </button>
@@ -302,6 +392,25 @@ export function TelaDeCaixa() {
                   {movimento.vendaId && <span> · Venda {movimento.vendaId.slice(0, 8)}</span>}
                 </li>)}
               </ul>}
+        </details>
+
+        {/* O extrato só mostra o dinheiro; aqui ficam todas as vendas, inclusive as canceladas e as
+            pagas em Pix, cartão ou fiado. Nenhuma ação de escrita: a lista é para conferir. */}
+        <details className="caixa__extrato" open>
+          <summary>Vendas{listaDaSessao ? ` (${listaDaSessao.length})` : ''}</summary>
+          {mostrarEm('vendas')}
+          {!online && <p>Sem conexão, a lista mostra as vendas guardadas neste aparelho.</p>}
+          {!listaDaSessao ? <p>Carregando vendas...</p>
+            : listaDaSessao.length === 0 ? <p>Nenhuma venda nesta sessão.</p>
+              : <ul className="caixa__lista">
+                {listaDaSessao.map((resumo) => <li key={resumo.id}>
+                  <button className="botao botao--secundario" type="button" onClick={() => void verVenda(resumo)}>
+                    {dataHora.format(new Date(resumo.criadoEm))} · {ROTULO_DA_VENDA[resumo.status]} · {moeda.format(resumo.total)}
+                    {resumo.pendenteSincronizacao && ' · pendente de sincronização'}
+                  </button>
+                </li>)}
+              </ul>}
+          {detalheDaSessao && <DetalheDaVenda {...detalheDaSessao} aoFechar={() => setEmDetalhe(undefined)} />}
         </details>
       </section>}
     </>}

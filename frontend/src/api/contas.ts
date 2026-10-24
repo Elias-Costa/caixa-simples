@@ -8,6 +8,11 @@ export type UsuarioDaConta = {
   nome: string
   perfil: Perfil
   ativo: boolean
+  /**
+   * Só no inativo: o login ficou porque o registro de remoções estava fora do ar na inativação, e
+   * o administrador a conclui.
+   */
+  loginGuardado?: boolean
 }
 
 export type NovoUsuario = {
@@ -69,8 +74,9 @@ export const contas = {
   usuarios: () => chamarApi<UsuarioDaConta[]>('/api/usuarios'),
   criarUsuario: (dados: NovoUsuario) =>
     chamarApi<{ id: string }>('/api/usuarios', { metodo: 'POST', corpo: dados }),
+  /** Com o registro de remoções fora do ar, o acesso termina e o login fica: `loginRemovido` falso. */
   inativarUsuario: (id: string) =>
-    chamarApi<void>(`/api/usuarios/${id}/inativar`, { metodo: 'POST' }),
+    chamarApi<{ loginRemovido: boolean }>(`/api/usuarios/${id}/inativar`, { metodo: 'POST' }),
   anonimizarUsuario: (id: string) =>
     chamarApi<void>(`/api/usuarios/${id}/anonimizar`, { metodo: 'POST' }),
   /** O histórico de vendas e de caixas do Usuário passa a mostrar o nome corrigido. */

@@ -292,11 +292,12 @@ class VendaController {
         }
     }
 
+    /** Sem fiado, o nome do cliente não vem: a resposta omite o campo nulo. */
     record ComprovanteNaResposta(UUID vendaId, UUID usuarioId, Instant concluidoEm,
             List<LinhaDoComprovante> linhas, BigDecimal somaDosItens,
             BigDecimal descontoDaVenda, BigDecimal valorTotal,
             List<ParcelaDoComprovante> parcelas, BigDecimal troco,
-            BigDecimal valorFiado, BigDecimal saldoDevedor) {
+            BigDecimal valorFiado, BigDecimal saldoDevedor, String nomeCliente) {
         static ComprovanteNaResposta de(Comprovante comprovante) {
             return new ComprovanteNaResposta(comprovante.vendaId(), comprovante.usuarioId(),
                     comprovante.concluidoEm(), comprovante.linhas().stream()
@@ -304,7 +305,8 @@ class VendaController {
                     comprovante.somaDosItens().valor(), comprovante.descontoDaVenda().valor(),
                     comprovante.valorTotal().valor(), comprovante.parcelas().stream()
                             .map(ParcelaDoComprovante::de).toList(), comprovante.troco().valor(),
-                    comprovante.valorFiado().valor(), comprovante.saldoDevedor().valor());
+                    comprovante.valorFiado().valor(), comprovante.saldoDevedor().valor(),
+                    comprovante.nomeCliente());
         }
     }
 

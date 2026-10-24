@@ -112,6 +112,7 @@ function textoDoComprovante(comprovante: Comprovante, negocio: string, operador:
     `Total: ${moeda.format(comprovante.valorTotal)}`,
     ...comprovante.parcelas.map((parcela) =>
       `${ROTULO_DA_FORMA[parcela.forma]}: ${moeda.format(parcela.valor)}`),
+    ...(comprovante.nomeCliente ? [`Cliente: ${comprovante.nomeCliente}`] : []),
     ...(comprovante.valorFiado > 0 ? [
       `Valor fiado: ${moeda.format(comprovante.valorFiado)}`,
       `Valor pendente: ${moeda.format(comprovante.saldoDevedor)}`,
@@ -648,7 +649,9 @@ export function TelaDeVenda() {
             {atual.clienteId && atual.status === 'ABERTA' && comFiado &&
               <p className="pdv__ajuda">Com parcela fiado, o cliente só pode ser trocado.</p>}
             {atual.status === 'ABERTA' && <>
-              <label>{atual.clienteId ? 'Trocar o cliente' : 'Cliente (para fiado)'}
+              {/* Opcional para os dois perfis: o operador não vende fiado, e o cliente se vincula
+                  também sem ele. A conclusão no fiado sem cliente já é recusada com mensagem. */}
+              <label>{atual.clienteId ? 'Trocar o cliente' : 'Cliente (opcional)'}
                 <input type="search" value={buscaCliente} placeholder="Digite o nome" autoComplete="off"
                   onChange={(evento) => setBuscaCliente(evento.target.value)} />
               </label>
@@ -810,6 +813,8 @@ export function TelaDeVenda() {
       <p><strong>Total: {moeda.format(comprovante.valorTotal)}</strong></p>
       <ul>{comprovante.parcelas.map((parcela, indice) => <li key={indice}>
         {ROTULO_DA_FORMA[parcela.forma]}: {moeda.format(parcela.valor)}</li>)}</ul>
+      {/* Só na venda fiada: o papel que prova a dívida diz de quem ela é. */}
+      {comprovante.nomeCliente && <p>Cliente: {comprovante.nomeCliente}</p>}
       {comprovante.valorFiado > 0 && <>
         <p>Valor fiado: {moeda.format(comprovante.valorFiado)}</p>
         <p><strong>Valor pendente: {moeda.format(comprovante.saldoDevedor)}</strong></p>

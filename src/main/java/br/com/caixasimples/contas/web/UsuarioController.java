@@ -73,11 +73,15 @@ class UsuarioController {
         return ResponseEntity.noContent().build();
     }
 
+    /**
+     * Com o registro de remoções fora do ar, o usuário fica bloqueado e o login guardado; a resposta
+     * diz isso, e o evento é outro, para o log mostrar que a inativação ainda não terminou.
+     */
     @PostMapping("/{id}/inativar")
-    ResponseEntity<Void> inativar(@PathVariable UUID id, HttpServletRequest requisicao) {
-        usuarios.inativar(id);
-        registrar("usuario.inativado", id, requisicao);
-        return ResponseEntity.noContent().build();
+    Inativacao inativar(@PathVariable UUID id, HttpServletRequest requisicao) {
+        boolean loginRemovido = usuarios.inativar(id);
+        registrar(loginRemovido ? "usuario.inativado" : "usuario.bloqueado", id, requisicao);
+        return new Inativacao(loginRemovido);
     }
 
     /** A senha nova é provisória: o operador a troca na próxima entrada. */
@@ -125,6 +129,9 @@ class UsuarioController {
     }
 
     record Criado(UUID id) {
+    }
+
+    record Inativacao(boolean loginRemovido) {
     }
 
     record PedidoDeRedefinicao(@NotBlank String senha) {

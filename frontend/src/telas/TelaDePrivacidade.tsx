@@ -12,7 +12,7 @@ import { VoltarDaPaginaPublica } from './VoltarDaPaginaPublica'
 export function TelaDePrivacidade() {
   return <main className="cadastro">
     <h1>Aviso de privacidade</h1>
-    <p className="cadastro__apoio">Versão de 19/10/2026. Diz como o Caixa Simples trata os dados
+    <p className="cadastro__apoio">Versão de 24/10/2026. Diz como o Caixa Simples trata os dados
       pessoais de quem usa o sistema e de quem aparece nele, conforme a Lei Geral de Proteção de Dados
       (LGPD).</p>
 
@@ -101,7 +101,9 @@ export function TelaDePrivacidade() {
       <li><strong>Cadastro e histórico:</strong> enquanto a Conta existir. O Cliente removido passa a
         “Cliente removido”, sem contato, e as vendas antigas continuam válidas. O usuário inativado
         continua no histórico, com o nome, que a pedido também é removido; a credencial dele, com o
-        e-mail e a senha, é apagada na inativação.</li>
+        e-mail e a senha, é apagada na inativação. Se o registro das remoções estiver fora do ar, o
+        acesso termina mesmo assim, e a credencial fica até o administrador concluir a inativação,
+        quando o registro voltar.</li>
       <li><strong>Cópias de segurança:</strong> as de hora em hora expiram em três dias e as diárias em
         trinta, mais até um dia para o armazenamento apagar o que expirou. Não são editadas: depois de
         uma restauração, as remoções feitas depois da cópia são reaplicadas antes de liberar o

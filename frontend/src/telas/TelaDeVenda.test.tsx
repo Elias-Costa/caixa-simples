@@ -332,7 +332,7 @@ describe('PDV no tablet', () => {
     mostrar()
 
     fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
-    const campo = await screen.findByLabelText('Cliente (para fiado)')
+    const campo = await screen.findByLabelText('Cliente (opcional)')
     expect(screen.queryByRole('button', { name: 'Lia' })).not.toBeInTheDocument()
     fireEvent.change(campo, { target: { value: 'xyz' } })
     expect(screen.getByText('Nenhum cliente encontrado para xyz.')).toBeInTheDocument()
@@ -518,7 +518,7 @@ describe('PDV no tablet', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Tirar o cliente' }))
     await waitFor(() => expect(tirar).toHaveBeenCalledWith('venda-1'))
     await waitFor(() => expect(screen.queryByText('Cliente: Lia')).not.toBeInTheDocument())
-    expect(screen.getByLabelText('Cliente (para fiado)')).toBeInTheDocument()
+    expect(screen.getByLabelText('Cliente (opcional)')).toBeInTheDocument()
 
     // Com a parcela fiado lançada, o botão some e a tela diz por quê.
     comCliente = true
@@ -573,12 +573,12 @@ describe('PDV no tablet', () => {
     vi.spyOn(vendas, 'concluir').mockImplementation(async () => { concluida = true })
     vi.spyOn(vendas, 'comprovante').mockResolvedValue({ ...comprovante,
       parcelas: [{ forma: 'FIADO', valor: 12.5, troco: 0 }], troco: 0,
-      valorFiado: 12.5, saldoDevedor: 12.5,
+      valorFiado: 12.5, saldoDevedor: 12.5, nomeCliente: 'Lia',
     })
     mostrar('ADMIN')
 
     fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
-    fireEvent.change(await screen.findByLabelText('Cliente (para fiado)'), { target: { value: 'li' } })
+    fireEvent.change(await screen.findByLabelText('Cliente (opcional)'), { target: { value: 'li' } })
     fireEvent.click(screen.getByRole('button', { name: 'Lia' }))
     await waitFor(() => expect(vincular).toHaveBeenCalledWith('venda-1', 'cliente-1'))
     expect(await screen.findByText('Cliente: Lia')).toBeInTheDocument()
@@ -587,7 +587,9 @@ describe('PDV no tablet', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Registrar fiado e concluir' }))
     await waitFor(() => expect(pagar).toHaveBeenCalledWith('venda-1', 'FIADO', 12.5, undefined,
       expect.any(String), undefined))
-    expect(await screen.findByLabelText('Comprovante não fiscal'))
-      .toHaveTextContent('Valor pendente: R$ 12,50')
+    const papel = await screen.findByLabelText('Comprovante não fiscal')
+    expect(papel).toHaveTextContent('Valor pendente: R$ 12,50')
+    // O papel que prova a dívida diz de quem ela é.
+    expect(papel).toHaveTextContent('Cliente: Lia')
   })
 })

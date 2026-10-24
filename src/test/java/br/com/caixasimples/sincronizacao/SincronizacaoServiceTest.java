@@ -12,6 +12,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import br.com.caixasimples.TesteDeIntegracao;
 import br.com.caixasimples.cadastro.TipoProduto;
 import br.com.caixasimples.cadastro.internal.ClienteService;
+import br.com.caixasimples.cadastro.application.CatalogoInicialService;
 import br.com.caixasimples.cadastro.application.ProdutoService;
 import br.com.caixasimples.cadastro.application.ProdutoService.DadosDoProduto;
 import br.com.caixasimples.cadastro.internal.ProdutoRepository;
@@ -73,6 +74,7 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
     @Autowired ObjectMapper json;
     @Autowired CriadorDeContaDeTeste criador;
     @Autowired ProdutoService produtos;
+    @Autowired CatalogoInicialService catalogoInicial;
     @Autowired ClienteService clientes;
     @Autowired ProdutoRepository linhasDeProduto;
     @Autowired SessaoCaixaService sessoes;
@@ -590,6 +592,32 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
         assertThat(conta.comoUsuario(() -> sincronizacao.sincronizar(recebidas(doAdmin))))
                 .isEqualTo(segunda);
         conta.comoUsuario(() -> assertThat(saldoDe(produtoId)).isEqualByComparingTo("-1"));
+    }
+
+    @Test
+    @DisplayName("o café do catálogo da cafeteria é sem estoque: vendido sem rede com o estoque ligado, não baixa, não alerta e não vira revisão")
+    void cafeDoCatalogoSemEstoque() {
+        ContaCriada conta = criador.criar("Cafeteria Aurora", SENHA);
+        criador.habilitarEstoque(conta.contaId());
+        conta.comoUsuario(() -> catalogoInicial.aplicarPara("cafeteria"));
+        UUID cafe = conta.comoUsuario(() -> produtos.listarAtivos().stream()
+                .filter(produto -> produto.getNome().equals("Café expresso"))
+                .findFirst().orElseThrow().getId());
+        // O catálogo nasce com preço zero; com o preço do balcão, a Venda não vira revisão de preço.
+        conta.comoUsuario(() -> produtos.editar(cafe, new DadosDoProduto("Café expresso",
+                Money.de("30.00"), null, "Bebidas", "un", Map.of())));
+
+        List<ResultadoDaOperacao> resultado = conta.comoUsuario(() ->
+                sincronizacao.sincronizar(recebidas(vendaDeUmItem(cafe))));
+
+        assertThat(resultado).extracting(ResultadoDaOperacao::resultado)
+                .containsOnly(Resultado.APLICADA);
+        conta.comoUsuario(() -> {
+            assertThat(saldoDe(cafe)).isEqualByComparingTo("0");
+            assertThat(produtos.listarComEstoqueBaixo())
+                    .extracting(ProdutoService.EstoqueDoProduto::id)
+                    .doesNotContain(cafe);
+        });
     }
 
     @Test

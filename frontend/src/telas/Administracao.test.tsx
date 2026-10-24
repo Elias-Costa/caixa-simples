@@ -124,7 +124,7 @@ describe('administração na tela', () => {
     vi.spyOn(contas, 'usuarios').mockResolvedValue([
       { id: 'bia', nome: 'Bia', perfil: 'OPERADOR', ativo: true },
     ])
-    const inativar = vi.spyOn(contas, 'inativarUsuario').mockResolvedValue(undefined)
+    const inativar = vi.spyOn(contas, 'inativarUsuario').mockResolvedValue({ loginRemovido: true })
     render(comSessao(<TelaDeUsuarios />))
     expect(await screen.findByText('Bia')).toBeInTheDocument()
 
@@ -135,6 +135,35 @@ describe('administração na tela', () => {
     await waitFor(() => expect(inativar).toHaveBeenCalledWith('bia'))
     expect(await screen.findByRole('status')).toHaveTextContent('Bia foi inativado. No aparelho que só essa '
       + 'pessoa usava, apague os dados pelo link Apagar os dados deste aparelho, na tela de entrada.')
+  })
+
+  it('com o registro de remoções fora do ar, diz que o login ficou e oferece concluir a inativação', async () => {
+    const usuarios = vi.spyOn(contas, 'usuarios').mockResolvedValueOnce([
+      { id: 'bia', nome: 'Bia', perfil: 'OPERADOR', ativo: true },
+    ]).mockResolvedValueOnce([
+      { id: 'bia', nome: 'Bia', perfil: 'OPERADOR', ativo: false, loginGuardado: true },
+    ]).mockResolvedValue([
+      { id: 'bia', nome: 'Bia', perfil: 'OPERADOR', ativo: false, loginGuardado: false },
+    ])
+    const inativar = vi.spyOn(contas, 'inativarUsuario')
+      .mockResolvedValueOnce({ loginRemovido: false })
+      .mockResolvedValueOnce({ loginRemovido: true })
+    render(comSessao(<TelaDeUsuarios />))
+    expect(await screen.findByText('Bia')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Inativar' }))
+    await responderConfirmacao('Inativar')
+
+    expect(await screen.findByRole('status')).toHaveTextContent('O acesso de Bia foi bloqueado, mas o login '
+      + 'ainda não saiu: o registro de remoções está fora do ar. Toque em Concluir a inativação mais tarde.')
+    expect(screen.getByText(/Inativo, com o login guardado até concluir a inativação/)).toBeInTheDocument()
+
+    // O acesso já terminou: concluir não pergunta de novo.
+    fireEvent.click(screen.getByRole('button', { name: 'Concluir a inativação' }))
+    await waitFor(() => expect(inativar).toHaveBeenCalledTimes(2))
+    expect(await screen.findByRole('status')).toHaveTextContent('Bia foi inativado.')
+    expect(screen.queryByRole('button', { name: 'Concluir a inativação' })).not.toBeInTheDocument()
+    expect(usuarios).toHaveBeenCalledTimes(3)
   })
 
   it('corrige o nome do operador e o do próprio administrador, que vai também para a identidade', async () => {

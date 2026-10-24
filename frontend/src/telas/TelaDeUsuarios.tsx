@@ -80,14 +80,25 @@ export function TelaDeUsuarios() {
       acao: 'Inativar',
     })
     if (!sim) return
+    await pedirInativacao(usuario)
+  }
+
+  /**
+   * Com o registro de remoções fora do ar, o servidor bloqueia o acesso e guarda o login, com o
+   * e-mail e a senha, até a inativação ser concluída: o mesmo pedido, repetido depois.
+   */
+  async function pedirInativacao(usuario: UsuarioDaConta) {
     setMensagem(null)
     try {
-      await contas.inativarUsuario(usuario.id)
+      const { loginRemovido } = await contas.inativarUsuario(usuario.id)
       await carregar()
       // O aparelho guarda o que a pessoa viu e registrou, e o servidor não o alcança.
-      setMensagem({ tipo: 'sucesso', onde: usuario.id,
-        texto: `${usuario.nome} foi inativado. No aparelho que só essa pessoa usava, apague os dados `
-          + 'pelo link Apagar os dados deste aparelho, na tela de entrada.' })
+      const aparelho = 'No aparelho que só essa pessoa usava, apague os dados pelo link Apagar os '
+        + 'dados deste aparelho, na tela de entrada.'
+      setMensagem({ tipo: 'sucesso', onde: usuario.id, texto: loginRemovido
+        ? `${usuario.nome} foi inativado. ${aparelho}`
+        : `O acesso de ${usuario.nome} foi bloqueado, mas o login ainda não saiu: o registro de `
+          + `remoções está fora do ar. Toque em Concluir a inativação mais tarde. ${aparelho}` })
     } catch (falha) {
       setMensagem({ tipo: 'erro', texto: erroDeCadastro(falha), onde: usuario.id })
     }
@@ -197,7 +208,8 @@ export function TelaDeUsuarios() {
     <h3>Usuários da Conta</h3>
     {carregando ? <p>Carregando...</p> : usuarios.length === 0 ? <p>Nenhum usuário encontrado.</p> :
       <ul className="cadastro__lista">{usuarios.map((usuario) => <li className="cadastro__item" key={usuario.id}>
-        <div><strong>{usuario.nome}</strong><p>{usuario.perfil === 'ADMIN' ? 'Administrador' : 'Operador'} · {usuario.ativo ? 'Ativo' : 'Inativo'}</p></div>
+        <div><strong>{usuario.nome}</strong><p>{usuario.perfil === 'ADMIN' ? 'Administrador' : 'Operador'} · {usuario.ativo ? 'Ativo'
+          : usuario.loginGuardado ? 'Inativo, com o login guardado até concluir a inativação' : 'Inativo'}</p></div>
         {usuario.nome !== NOME_REMOVIDO && corrigindo !== usuario.id &&
           <button className="botao botao--secundario" type="button"
             onClick={() => { setCorrigindo(usuario.id); setNomeCorrigido(usuario.nome); setRedefinindo(null) }}>Corrigir nome</button>}
@@ -224,6 +236,9 @@ export function TelaDeUsuarios() {
           </form>}
         {usuario.ativo && <button className="botao botao--perigo" type="button"
           onClick={() => void inativar(usuario)}>Inativar</button>}
+        {/* O acesso já terminou; concluir só apaga o login, sem outra confirmação. */}
+        {!usuario.ativo && usuario.loginGuardado && <button className="botao botao--perigo" type="button"
+          onClick={() => void pedirInativacao(usuario)}>Concluir a inativação</button>}
         {!usuario.ativo && usuario.nome !== NOME_REMOVIDO &&
           <button className="botao botao--perigo" type="button"
             onClick={() => void anonimizar(usuario)}>Remover nome</button>}

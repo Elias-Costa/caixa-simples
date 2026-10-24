@@ -7,6 +7,7 @@ import { listarGestos } from '../offline/fila'
 import { erroDeCadastro, errosDosCampos } from './erroDeCadastro'
 import { filtrarPorNome } from './filtroPorNome'
 import { ErroDoCampo, Mensagem } from './Mensagem'
+import { ROTULO_CURTO_DO_TIPO, ROTULO_DO_TIPO } from './rotulos'
 import { useConfirmacao } from './useConfirmacao'
 
 type Atributo = { chave: string; valor: string; original?: unknown; textoOriginal?: string }
@@ -211,7 +212,7 @@ export function TelaDeProdutos() {
           {encontrados.map((produto) => (
             <li className="cadastro__item" key={produto.id}>
               <div className="cadastro__dados">
-                <strong>{produto.nome}</strong> <span className="cadastro__apoio">{produto.tipo === 'SERVICO' ? 'Serviço' : 'Produto'}</span>
+                <strong>{produto.nome}</strong> <span className="cadastro__apoio">{ROTULO_CURTO_DO_TIPO[produto.tipo]}</span>
                 <p>{produto.codigo ? `Código ${produto.codigo} · ` : ''}{produto.categoria ?? 'Sem categoria'} · {produto.unidade ?? 'Sem unidade'}</p>
               </div>
               {/* O catálogo sugerido nasce com preço zero; a marca lembra o que falta precificar. */}
@@ -233,10 +234,10 @@ export function TelaDeProdutos() {
         {/* A mensagem de cada campo fica fora do rótulo, que continua sendo só o nome do campo. */}
         {!editando ? <div className="campo"><label className="campo__rotulo" htmlFor="produto-tipo">Tipo</label>
           <select id="produto-tipo" className="campo__entrada" value={formulario.tipo} onChange={(evento) => campo('tipo', evento.target.value)} {...marcaDoCampo('tipo')}>
-            <option value="PRODUTO">Produto</option><option value="SERVICO">Serviço</option>
+            <option value="PRODUTO">{ROTULO_DO_TIPO.PRODUTO}</option><option value="SERVICO">{ROTULO_DO_TIPO.SERVICO}</option>
           </select>
           <ErroDoCampo id="produto-erro-tipo" texto={camposComErro.tipo} />
-        </div> : <p>Tipo: {formulario.tipo === 'SERVICO' ? 'Serviço' : 'Produto'}</p>}
+        </div> : <p>Tipo: {ROTULO_DO_TIPO[formulario.tipo]}</p>}
         <div className="cadastro__grade">
           <div className="campo"><label className="campo__rotulo" htmlFor="produto-nome">Nome</label><input id="produto-nome" className="campo__entrada" value={formulario.nome} onChange={(evento) => campo('nome', evento.target.value)} required maxLength={120} {...marcaDoCampo('nome')} /><ErroDoCampo id="produto-erro-nome" texto={camposComErro.nome} /></div>
           <div className="campo"><label className="campo__rotulo" htmlFor="produto-preco">Preço (R$)</label><input id="produto-preco" className="campo__entrada" value={formulario.preco} onChange={(evento) => campo('preco', evento.target.value)} inputMode="decimal" required {...marcaDoCampo('preco')} /><ErroDoCampo id="produto-erro-preco" texto={camposComErro.preco} /></div>

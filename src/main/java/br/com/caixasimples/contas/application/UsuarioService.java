@@ -12,6 +12,7 @@ import br.com.caixasimples.shared.ContaId;
 import br.com.caixasimples.shared.Perfil;
 import br.com.caixasimples.shared.RegistroDeRemocoes;
 import br.com.caixasimples.shared.RegistroDeRemocoes.Tipo;
+import br.com.caixasimples.shared.RegistroDeRemocoesIndisponivelException;
 import br.com.caixasimples.shared.TenantContext;
 import br.com.caixasimples.shared.UsuarioContext;
 import java.util.List;
@@ -109,21 +110,42 @@ public class UsuarioService {
      * tenant, e listá-lo aqui exigiria uma segunda consulta sem filtro de tenant naquela tabela.
      * O nome e o perfil bastam para administrar; o e-mail é dado de login.
      *
+     * <p>Do inativo, a lista diz só se a credencial ainda existe, sem ler nada dela: é o bloqueado
+     * enquanto o registro de remoções estava fora do ar, cuja inativação o administrador ainda
+     * conclui. A pergunta parte do id que a consulta filtrada da Conta devolveu e confere a Conta
+     * da credencial, como a inativação.
+     *
      * @throws br.com.caixasimples.shared.AcessoNegadoException se quem chama não é ADMIN
      */
     @Transactional(readOnly = true)
     public List<UsuarioDaConta> listar() {
         UsuarioContext.exigirAdmin();
+        ContaId contaId = TenantContext.exigirAtual();
         return usuarios.findAll().stream()
                 .map(usuario -> new UsuarioDaConta(usuario.getId(), usuario.getNome(),
-                        usuario.getPerfil(), usuario.isAtivo()))
+                        usuario.getPerfil(), usuario.isAtivo(),
+                        !usuario.isAtivo() && temCredencialNaConta(usuario.getId(), contaId)))
                 .toList();
+    }
+
+    private boolean temCredencialNaConta(UUID usuarioId, ContaId contaId) {
+        return credenciais.findByUsuarioId(usuarioId)
+                .filter(credencial -> credencial.getContaId().equals(contaId))
+                .isPresent();
     }
 
     /**
      * A linha do usuário fica inativa e a credencial é apagada. O histórico de vendas e de
      * caixas dele fica intacto. Um administrador pode inativar a si mesmo, desde que não seja o
      * último; a conta não pode ficar sem ninguém que a administre.
+     *
+     * <p><strong>Com o registro de remoções fora do ar, o acesso termina mesmo assim.</strong> Quem
+     * tira o acesso de um funcionário que saiu não pode esperar o armazenamento externo voltar. A
+     * linha fica inativa, e o filtro do token e o login recusam o usuário na requisição seguinte,
+     * mas a credencial, com o e-mail e o hash da senha, fica até o registro gravar: ela é o dado
+     * cuja remoção a restauração de uma cópia precisa reaplicar. O retorno diz a quem chamou que o
+     * login ficou, e o pedido repetido sobre o inativo com credencial conclui a inativação, ou
+     * responde de novo que o registro está fora, sem mudar nada.
      *
      * <p><strong>A linha da Conta é travada antes de ler o usuário e contar os
      * administradores</strong>, e a trava vale até o commit. Sem ela, duas inativações simultâneas
@@ -133,12 +155,15 @@ public class UsuarioService {
      * efeito se a primeira já inativou o mesmo usuário. A trava não barra quem só insere linhas da
      * conta, como vendas e movimentos de caixa.
      *
+     * @return se o login saiu; falso quando o usuário ficou bloqueado com a credencial guardada
      * @throws br.com.caixasimples.shared.AcessoNegadoException se quem chama não é ADMIN
      * @throws UsuarioNaoEncontradoException se o id não existe nesta conta
      * @throws UltimoAdministradorException se é o último administrador ativo
+     * @throws RegistroDeRemocoesIndisponivelException se o usuário já estava bloqueado e o registro
+     *         continua fora do ar
      */
     @Transactional
-    public void inativar(UUID usuarioId) {
+    public boolean inativar(UUID usuarioId) {
         UsuarioContext.exigirAdmin();
         Objects.requireNonNull(usuarioId, "usuarioId nao pode ser nulo");
 
@@ -161,15 +186,26 @@ public class UsuarioService {
             throw new IllegalStateException("credencial pertence a outra conta");
         }
         if (!usuario.isAtivo() && credencial == null) {
-            return;
+            return true;
         }
-        registroDeRemocoes.registrar(Tipo.USUARIO, usuarioId, Instant.now(),
-                UsuarioContext.exigirAtual().usuarioId());
+        try {
+            registroDeRemocoes.registrar(Tipo.USUARIO, usuarioId, Instant.now(),
+                    UsuarioContext.exigirAtual().usuarioId());
+        } catch (RegistroDeRemocoesIndisponivelException foraDoAr) {
+            // O bloqueado não tem mais o que bloquear: repetir sem o registro não muda nada.
+            if (!usuario.isAtivo()) {
+                throw foraDoAr;
+            }
+            usuario.inativar();
+            usuarios.save(usuario);
+            return false;
+        }
         usuario.inativar();
         usuarios.save(usuario);
         if (credencial != null) {
             credenciais.delete(credencial);
         }
+        return true;
     }
 
     /**
@@ -282,7 +318,11 @@ public class UsuarioService {
     /**
      * Uma linha da lista de usuários. Aninhado no serviço porque é o formato de resposta deste
      * caso de uso e de mais nenhum; não é a entidade, que fica dentro do módulo.
+     *
+     * @param loginGuardado só no inativo: a credencial ainda existe, porque o registro de remoções
+     *                      estava fora do ar na inativação, e o administrador a conclui
      */
-    public record UsuarioDaConta(UUID id, String nome, Perfil perfil, boolean ativo) {
+    public record UsuarioDaConta(UUID id, String nome, Perfil perfil, boolean ativo,
+            boolean loginGuardado) {
     }
 }

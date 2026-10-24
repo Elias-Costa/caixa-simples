@@ -21,6 +21,7 @@ import br.com.caixasimples.contas.AutenticadorDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.UsuarioCriado;
+import br.com.caixasimples.contas.Plano;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.Perfil;
 import java.util.Map;
@@ -301,6 +302,100 @@ class VendaHttpTest extends TesteDeIntegracao {
     }
 
     @Test
+    void administradorVeAsVendasDaSessaoDoOperadorEOperadorNaoVeAsDoAdministrador() throws Exception {
+        ContaCriada conta = criador.criar("PDV Dona", SENHA);
+        criador.contratar(conta.contaId(), Plano.COMPLETO);
+        RequestPostProcessor admin = autenticador.como(conta);
+        RequestPostProcessor operador = operadorNovo(admin);
+        UUID produto = produto(conta);
+        UUID sessaoDoAdmin = conta.comoUsuario(() -> caixas.abrir(Money.ZERO));
+        conta.comoUsuario(() -> vendaService.iniciar(sessaoDoAdmin));
+        UUID sessaoDoOperador = uuidDaResposta(http.perform(post("/api/caixa/sessoes").with(operador)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"valorAbertura\":0}"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString());
+        String item = "{\"produtoId\":\"" + produto + "\",\"quantidade\":1,\"desconto\":0}";
+
+        UUID aberta = criarVenda(operador, sessaoDoOperador);
+        UUID concluida = criarVenda(operador, sessaoDoOperador);
+        UUID cancelada = criarVenda(operador, sessaoDoOperador);
+        for (UUID venda : new UUID[] {aberta, concluida, cancelada}) {
+            http.perform(post("/api/vendas/{id}/itens", venda).with(operador)
+                    .contentType(MediaType.APPLICATION_JSON).content(item))
+                    .andExpect(status().isCreated());
+        }
+        pagar(operador, concluida, UUID.randomUUID(), "CARTAO", "12.50", null)
+                .andExpect(status().isOk());
+        http.perform(post("/api/vendas/{id}/conclusao", concluida).with(operador))
+                .andExpect(status().isNoContent());
+        http.perform(post("/api/vendas/{id}/cancelamento", cancelada).with(operador))
+                .andExpect(status().isNoContent());
+
+        http.perform(get("/api/vendas").param("sessaoCaixaId", sessaoDoOperador.toString())
+                        .with(admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(3))
+                .andExpect(jsonPath("$[?(@.id == '" + aberta + "')].status").value("ABERTA"))
+                .andExpect(jsonPath("$[?(@.id == '" + concluida + "')].status").value("CONCLUIDA"))
+                .andExpect(jsonPath("$[?(@.id == '" + cancelada + "')].status").value("CANCELADA"))
+                .andExpect(jsonPath("$[?(@.id == '" + cancelada + "')].total").value(12.5));
+        http.perform(get("/api/vendas/{id}", concluida).with(admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.itens[0].nome").value("Café"))
+                .andExpect(jsonPath("$.parcelas[0].forma").value("CARTAO"))
+                .andExpect(jsonPath("$.total").value(12.5));
+
+        http.perform(get("/api/vendas").param("sessaoCaixaId", sessaoDoAdmin.toString())
+                .with(operador)).andExpect(status().isForbidden());
+    }
+
+    @Test
+    void comprovanteDaVendaFiadaTrazOClienteEODaVendaSemFiadoNao() throws Exception {
+        ContaCriada conta = criador.criar("PDV Caderneta", SENHA);
+        RequestPostProcessor admin = autenticador.como(conta);
+        UUID produto = produto(conta);
+        UUID sessao = conta.comoUsuario(() -> caixas.abrir(Money.ZERO));
+        UUID cliente = uuidDaResposta(http.perform(post("/api/clientes").with(admin)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"nome\":\"Marta\",\"contato\":null}"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString());
+        String item = "{\"produtoId\":\"" + produto + "\",\"quantidade\":1,\"desconto\":0}";
+
+        UUID semFiado = criarVenda(admin, sessao);
+        http.perform(post("/api/vendas/{id}/itens", semFiado).with(admin)
+                .contentType(MediaType.APPLICATION_JSON).content(item)).andExpect(status().isCreated());
+        vincular(admin, semFiado, cliente).andExpect(status().isNoContent());
+        pagar(admin, semFiado, UUID.randomUUID(), "CARTAO", "12.50", null).andExpect(status().isOk());
+        http.perform(post("/api/vendas/{id}/conclusao", semFiado).with(admin))
+                .andExpect(status().isNoContent());
+        http.perform(get("/api/vendas/{id}/comprovante", semFiado).with(admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nomeCliente").doesNotExist());
+
+        UUID fiada = criarVenda(admin, sessao);
+        http.perform(post("/api/vendas/{id}/itens", fiada).with(admin)
+                .contentType(MediaType.APPLICATION_JSON).content(item)).andExpect(status().isCreated());
+        vincular(admin, fiada, cliente).andExpect(status().isNoContent());
+        pagar(admin, fiada, UUID.randomUUID(), "FIADO", "12.50", null).andExpect(status().isOk());
+        http.perform(post("/api/vendas/{id}/conclusao", fiada).with(admin))
+                .andExpect(status().isNoContent());
+        http.perform(get("/api/vendas/{id}/comprovante", fiada).with(admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nomeCliente").value("Marta"));
+
+        // Quitada a dívida, o Cliente pode ser removido, e o comprovante antigo sai sem o nome.
+        http.perform(post("/api/vendas/{id}/recebimentos", fiada).with(admin)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"recebimentoId\":\"" + UUID.randomUUID()
+                        + "\",\"valor\":12.50,\"forma\":\"PIX\"}"))
+                .andExpect(status().isCreated());
+        http.perform(post("/api/clientes/{id}/remover", cliente).with(admin))
+                .andExpect(status().isNoContent());
+        http.perform(get("/api/vendas/{id}/comprovante", fiada).with(admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nomeCliente").value("Cliente removido"));
+    }
+
+    @Test
     void nsuDoCartaoExigidoPelaContaVoltaNoDetalheENaoNoComprovante() throws Exception {
         ContaCriada conta = criador.criar("PDV NSU", SENHA);
         UUID produto = produto(conta);
@@ -458,6 +553,23 @@ class VendaHttpTest extends TesteDeIntegracao {
     private UUID produto(ContaCriada conta) {
         return conta.comoUsuario(() -> produtos.cadastrar(TipoProduto.PRODUTO,
                 new DadosDoProduto("Café", Money.de("12.50"), "CA-1", null, "un", Map.of())));
+    }
+
+    /** Um operador com login de verdade, criado pelo administrador como na tela Usuários. */
+    private RequestPostProcessor operadorNovo(RequestPostProcessor admin) throws Exception {
+        String email = "operador-" + UUID.randomUUID() + "@exemplo.test";
+        http.perform(post("/api/usuarios").with(admin).contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(Map.of("nome", "Atendente", "perfil", "OPERADOR",
+                        "email", email, "senha", SENHA))))
+                .andExpect(status().isCreated());
+        String corpo = http.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of("email", email, "senha", SENHA))))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String token = json.readTree(corpo).get("token").asText();
+        return requisicao -> {
+            requisicao.addHeader("Authorization", "Bearer " + token);
+            return requisicao;
+        };
     }
 
     private UUID criarVenda(RequestPostProcessor usuario, UUID sessao) throws Exception {

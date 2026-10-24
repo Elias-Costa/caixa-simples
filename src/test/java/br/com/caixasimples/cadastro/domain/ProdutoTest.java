@@ -426,7 +426,7 @@ class ProdutoTest {
 
         assertThatIllegalStateException()
                 .isThrownBy(() -> servico.ajustarEstoque(BigDecimal.ONE, "contagem"))
-                .withMessageContaining("é serviço");
+                .withMessage("Corte está cadastrado sem estoque e não tem saldo para ajustar.");
         assertThatIllegalStateException()
                 .isThrownBy(() -> inativo.ajustarEstoque(BigDecimal.ONE, "contagem"))
                 .withMessageContaining("inativo");
@@ -465,7 +465,7 @@ class ProdutoTest {
                 .isThrownBy(() -> produto.definirEstoqueMinimo(null));
         assertThatIllegalStateException()
                 .isThrownBy(() -> servico.definirEstoqueMinimo(BigDecimal.ONE))
-                .withMessageContaining("é serviço");
+                .withMessage("Corte está cadastrado sem estoque e não tem estoque mínimo.");
         assertThatIllegalStateException()
                 .isThrownBy(() -> inativo.definirEstoqueMinimo(BigDecimal.ONE))
                 .withMessageContaining("inativo");

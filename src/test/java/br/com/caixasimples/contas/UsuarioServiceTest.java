@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import br.com.caixasimples.RegistroDeRemocoesDeTeste;
 import br.com.caixasimples.TesteDeIntegracao;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.UsuarioCriado;
@@ -22,6 +23,8 @@ import br.com.caixasimples.contas.application.UsuarioService.UsuarioDaConta;
 import br.com.caixasimples.contas.internal.SenhaRecusadaException;
 import br.com.caixasimples.shared.AcessoNegadoException;
 import br.com.caixasimples.shared.Perfil;
+import br.com.caixasimples.shared.RegistroDeRemocoes.Tipo;
+import br.com.caixasimples.shared.RegistroDeRemocoesIndisponivelException;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
@@ -53,6 +56,9 @@ class UsuarioServiceTest extends TesteDeIntegracao {
 
     @Autowired
     private ObjectMapper json;
+
+    @Autowired
+    private RegistroDeRemocoesDeTeste registroDeRemocoes;
 
     @Test
     @DisplayName("o administrador cria um operador no plano completo, e o operador entra")
@@ -283,6 +289,61 @@ class UsuarioServiceTest extends TesteDeIntegracao {
                 "Novo usuário", Perfil.OPERADOR, email, SENHA_DO_OPERADOR));
         assertThat(segundo).isNotEqualTo(primeiro);
         assertThat(entrar(email, SENHA_DO_OPERADOR)).isNotBlank();
+    }
+
+    @Test
+    @DisplayName("com o registro de remoções fora do ar, inativar bloqueia na hora e guarda o login até o pedido repetido com o registro de volta")
+    void inativacaoSemORegistro() throws Exception {
+        ContaCriada conta = criador.criar("Padaria do Largo", SENHA_DE_TESTE);
+        criador.contratar(conta.contaId(), Plano.COMPLETO);
+        String email = "demitido-" + UUID.randomUUID() + "@exemplo.test";
+        UUID operadorId = conta.comoUsuario(() ->
+                usuarioService.criar("Atendente", Perfil.OPERADOR, email, SENHA_DO_OPERADOR));
+        String tokenAntesDeInativar = entrar(email, SENHA_DO_OPERADOR);
+
+        registroDeRemocoes.ficarForaDoAr();
+        try {
+            boolean loginRemovido = conta.comoUsuario(() -> usuarioService.inativar(operadorId));
+
+            assertThat(loginRemovido).isFalse();
+            http.perform(get("/api/auth/eu").header("Authorization", "Bearer " + tokenAntesDeInativar))
+                    .andExpect(status().isUnauthorized());
+            http.perform(login(email, SENHA_DO_OPERADOR)).andExpect(status().isUnauthorized());
+            conta.comoUsuario(() -> assertThat(usuarioService.listar())
+                    .filteredOn(usuario -> usuario.id().equals(operadorId))
+                    .singleElement()
+                    .extracting(UsuarioDaConta::ativo, UsuarioDaConta::loginGuardado)
+                    .containsExactly(false, true));
+            assertThatExceptionOfType(EmailJaCadastradoException.class)
+                    .as("a credencial guardada ainda reserva o e-mail")
+                    .isThrownBy(() -> conta.comoUsuario(() -> usuarioService.criar("Outra pessoa",
+                            Perfil.OPERADOR, email, SENHA_DO_OPERADOR)));
+
+            assertThatExceptionOfType(RegistroDeRemocoesIndisponivelException.class)
+                    .as("repetir sem o registro não tem o que bloquear")
+                    .isThrownBy(() -> conta.comoUsuario(() -> usuarioService.inativar(operadorId)));
+            assertThat(registroDeRemocoes.registros())
+                    .noneMatch(remocao -> remocao.registroId().equals(operadorId));
+        } finally {
+            registroDeRemocoes.voltar();
+        }
+
+        boolean concluida = conta.comoUsuario(() -> usuarioService.inativar(operadorId));
+
+        assertThat(concluida).isTrue();
+        assertThat(registroDeRemocoes.registros())
+                .filteredOn(remocao -> remocao.registroId().equals(operadorId))
+                .singleElement()
+                .extracting(RegistroDeRemocoesDeTeste.Remocao::tipo)
+                .isEqualTo(Tipo.USUARIO);
+        conta.comoUsuario(() -> assertThat(usuarioService.listar())
+                .filteredOn(usuario -> usuario.id().equals(operadorId))
+                .singleElement()
+                .extracting(UsuarioDaConta::loginGuardado)
+                .isEqualTo(false));
+        UUID novo = conta.comoUsuario(() -> usuarioService.criar("Outra pessoa", Perfil.OPERADOR,
+                email, SENHA_DO_OPERADOR));
+        assertThat(novo).isNotEqualTo(operadorId);
     }
 
     @Test

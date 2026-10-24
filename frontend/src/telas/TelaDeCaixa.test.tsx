@@ -2,9 +2,11 @@ import 'fake-indexeddb/auto'
 import { deleteDB } from 'idb'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { cadastro } from '../api/cadastro'
 import { caixa, type SessaoCaixa } from '../api/caixa'
 import { SemConexao } from '../api/cliente'
 import { contas } from '../api/contas'
+import { vendas, type Venda } from '../api/vendas'
 import { criarCaixaLocal } from '../offline/caixaLocal'
 import { gravarIdentidade, gravarToken } from '../sessao/armazenamento'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
@@ -13,7 +15,10 @@ import { confirmacaoAberta, responderConfirmacao } from './confirmacaoDeTeste'
 import { TelaDeCaixa } from './TelaDeCaixa'
 
 afterEach(() => vi.restoreAllMocks())
-beforeEach(async () => { await deleteDB('caixa-simples-offline') })
+beforeEach(async () => {
+  await deleteDB('caixa-simples-offline')
+  vi.spyOn(vendas, 'daSessao').mockResolvedValue([])
+})
 
 const aberta: SessaoCaixa = {
   id: 's-1', usuarioId: 'u-1', valorAbertura: 20,
@@ -106,6 +111,77 @@ describe('caixa na tela', () => {
     expect(screen.queryByText(/u-2/)).not.toBeInTheDocument()
   })
 
+  it('o administrador abre a sessão da operadora e confere as vendas, canceladas inclusive, e o detalhe só de leitura', async () => {
+    const daBia: SessaoCaixa = { ...aberta, id: 's-2', usuarioId: 'u-2' }
+    const fiada: Venda = {
+      id: 'v-2', sessaoCaixaId: 's-2', usuarioId: 'u-2', status: 'CONCLUIDA', total: 20,
+      criadoEm: '2026-09-22T13:00:00Z', clienteId: 'cl-1', saldoDevedor: 20, descontoDaVenda: 2,
+      pago: 20, faltaPagar: 0, recebimentos: [],
+      itens: [{ id: 'i-1', produtoId: 'p-1', nome: 'Café', quantidade: 2, precoUnitario: 11,
+        desconto: 0, subtotal: 22 }],
+      parcelas: [{ id: 'pg-1', forma: 'FIADO', valor: 20, status: 'PENDENTE', troco: 0 }],
+    }
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(undefined)
+    vi.spyOn(caixa, 'historico').mockResolvedValue([daBia])
+    vi.spyOn(caixa, 'consultar').mockResolvedValue({ ...daBia, movimentos: [] })
+    vi.spyOn(contas, 'usuarios').mockResolvedValue([
+      { id: 'u-2', nome: 'Bia', perfil: 'OPERADOR', ativo: true },
+    ])
+    const daSessao = vi.spyOn(vendas, 'daSessao').mockResolvedValue([
+      { id: 'v-3', sessaoCaixaId: 's-2', usuarioId: 'u-2', status: 'CANCELADA', total: 12.5,
+        criadoEm: '2026-09-22T14:00:00Z' },
+      { id: 'v-2', sessaoCaixaId: 's-2', usuarioId: 'u-2', status: 'CONCLUIDA', total: 20,
+        criadoEm: '2026-09-22T13:00:00Z' },
+      { id: 'v-1', sessaoCaixaId: 's-2', usuarioId: 'u-2', status: 'ABERTA', total: 5,
+        criadoEm: '2026-09-22T12:30:00Z' },
+    ])
+    vi.spyOn(vendas, 'consultar').mockResolvedValue(fiada)
+    vi.spyOn(cadastro, 'clientes').mockResolvedValue([{ id: 'cl-1', nome: 'Marta', contato: null }])
+    vi.spyOn(cadastro, 'clientesInativos').mockResolvedValue([])
+    mostrar('ADMIN')
+
+    fireEvent.click(await screen.findByRole('button', { name: /Aberto.*Bia$/ }))
+    expect(await screen.findByText('Vendas (3)')).toBeInTheDocument()
+    expect(daSessao).toHaveBeenCalledWith('s-2')
+    expect(screen.getByRole('button', { name: /Cancelada · R\$\s12,50/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Aberta · R\$\s5,00/ })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Concluída · R\$\s20,00/ }))
+    const detalhe = await screen.findByRole('region', { name: 'Detalhe da venda' })
+    expect(detalhe).toHaveTextContent('Cliente: Marta')
+    expect(detalhe).toHaveTextContent('2 × Café · R$ 22,00')
+    expect(detalhe).toHaveTextContent('Desconto da venda: R$ 2,00')
+    expect(detalhe).toHaveTextContent('Total: R$ 20,00')
+    expect(detalhe).toHaveTextContent('Fiado: R$ 20,00')
+    // Conferir não é corrigir: o único botão do detalhe o fecha.
+    expect(within(detalhe).getAllByRole('button').map((botao) => botao.textContent))
+      .toEqual(['Fechar detalhe'])
+    fireEvent.click(within(detalhe).getByRole('button', { name: 'Fechar detalhe' }))
+    expect(screen.queryByRole('region', { name: 'Detalhe da venda' })).not.toBeInTheDocument()
+  })
+
+  it('o cliente que não está mais no cadastro do aparelho aparece como removido no detalhe', async () => {
+    const minha: Venda = {
+      id: 'v-9', sessaoCaixaId: 's-1', usuarioId: 'u-1', status: 'CONCLUIDA', total: 8,
+      criadoEm: '2026-09-22T13:00:00Z', clienteId: 'cl-x', saldoDevedor: 0, descontoDaVenda: 0,
+      pago: 8, faltaPagar: 0, recebimentos: [], itens: [],
+      parcelas: [{ id: 'pg-9', forma: 'CARTAO', valor: 8, status: 'CONFIRMADO', troco: 0, nsu: '123456' }],
+    }
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(caixa, 'historico').mockResolvedValue([aberta])
+    vi.spyOn(caixa, 'consultar').mockResolvedValue({ ...aberta, movimentos: [] })
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([minha])
+    vi.spyOn(vendas, 'consultar').mockResolvedValue(minha)
+    vi.spyOn(cadastro, 'clientes').mockResolvedValue([])
+    vi.spyOn(cadastro, 'clientesInativos').mockResolvedValue([])
+    mostrar()
+
+    fireEvent.click(await screen.findByRole('button', { name: /Concluída · R\$\s8,00/ }))
+    const detalhe = await screen.findByRole('region', { name: 'Detalhe da venda' })
+    expect(detalhe).toHaveTextContent('Cliente: Cliente removido')
+    expect(detalhe).toHaveTextContent('Cartão: R$ 8,00 · NSU 123456')
+  })
+
   it('mostra esperado antes de fechar, diferença depois e Venda no extrato', async () => {
     let fechada = false
     const sessaoFechada: SessaoCaixa = {
@@ -146,7 +222,9 @@ describe('caixa na tela', () => {
     await responderConfirmacao('Fechar caixa')
 
     await waitFor(() => expect(fechar).toHaveBeenCalledWith('s-1', 18))
-    expect(await screen.findByText(/Diferença:/)).toHaveTextContent('R$')
+    // A sessão fechada diz a diferença com as palavras da pergunta, sem sinal nem legenda.
+    expect(await screen.findByText('Falta de R$ 2,00')).toBeInTheDocument()
+    expect(screen.queryByText(/positivo = falta/)).not.toBeInTheDocument()
   })
 
   it('mostra a conferência e fecha a SessaoCaixa sem chamar a API quando está offline', async () => {
@@ -159,11 +237,15 @@ describe('caixa na tela', () => {
     fireEvent.change(screen.getByLabelText('Valor inicial'), { target: { value: '10.00' } })
     fireEvent.click(screen.getByRole('button', { name: 'Abrir caixa' }))
     expect((await screen.findAllByText('Pendente de sincronização com o servidor.')).length).toBeGreaterThan(0)
+    fireEvent.change(screen.getByLabelText('Valor contado'), { target: { value: '12.00' } })
+    expect(screen.getByText(/Se fechar agora:/)).toHaveTextContent('Se fechar agora: sobra de R$ 2,00')
+    fireEvent.change(screen.getByLabelText('Valor contado'), { target: { value: '10.00' } })
+    expect(screen.getByText(/Se fechar agora:/)).toHaveTextContent('Se fechar agora: sem diferença')
     fireEvent.change(screen.getByLabelText('Valor contado'), { target: { value: '8.00' } })
-    expect(screen.getByText(/Diferença prevista:/)).toHaveTextContent('R$ 2,00')
+    expect(screen.getByText(/Se fechar agora:/)).toHaveTextContent('Se fechar agora: falta de R$ 2,00')
     fireEvent.click(screen.getByRole('button', { name: 'Fechar e registrar diferença' }))
     await responderConfirmacao('Fechar caixa')
-    expect(await screen.findByText(/Diferença:/)).toHaveTextContent('R$ 2,00')
+    expect(await screen.findByText('Falta de R$ 2,00')).toBeInTheDocument()
     expect(remoto).not.toHaveBeenCalled()
     expect(fecharRemoto).not.toHaveBeenCalled()
   })
@@ -208,7 +290,7 @@ describe('caixa na tela', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Ver meu caixa' }))
     expect(await screen.findByText(/indisponível até a próxima leitura do caixa/)).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Valor contado'), { target: { value: '20.00' } })
-    expect(screen.queryByText(/Diferença prevista:/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Se fechar agora:/)).not.toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Valor'), { target: { value: '1' } })
     fireEvent.change(screen.getByLabelText('Motivo'), { target: { value: 'Depósito' } })
     fireEvent.click(screen.getByRole('button', { name: 'Registrar sangria' }))

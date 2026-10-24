@@ -4,8 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import br.com.caixasimples.RegistroDeRemocoesDeTeste;
 import br.com.caixasimples.TesteDeIntegracao;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
@@ -58,6 +60,7 @@ class EventosDeSegurancaHttpTest extends TesteDeIntegracao {
     @Autowired CriadorDeContaDeTeste criador;
     @Autowired JwtEncoder codificadorDeToken;
     @Autowired AssinaturaDePedido assinatura;
+    @Autowired RegistroDeRemocoesDeTeste registroDeRemocoes;
 
     @Test
     @DisplayName("o login certo e os três motivos da recusa, com a Conta e o Usuário quando o e-mail existe")
@@ -191,7 +194,8 @@ class EventosDeSegurancaHttpTest extends TesteDeIntegracao {
         String doOperador = entrar(emailDoOperador, PROVISORIA, origem);
         http.perform(post("/api/usuarios/{id}/inativar", operador).with(comToken(admin))
                         .with(deOrigem(origem)))
-                .andExpect(status().isNoContent());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.loginRemovido").value(true));
         http.perform(eu(doOperador, origem)).andExpect(status().isUnauthorized());
         http.perform(post("/api/usuarios/{id}/anonimizar", operador).with(comToken(admin))
                         .with(deOrigem(origem)))
@@ -210,6 +214,55 @@ class EventosDeSegurancaHttpTest extends TesteDeIntegracao {
                 .contains("evento=usuario.nome_removido " + quem + " alvo=" + operador
                         + " origem=" + origem);
         semDadoPessoal(saida, conta.email(), emailDoOperador, "Atendente", "Joana");
+    }
+
+    @Test
+    @DisplayName("sem o registro de remoções, a inativação responde que o login ficou e vai ao log como bloqueio; repetida com o registro, conclui")
+    void bloqueioSemORegistro(CapturedOutput saida) throws Exception {
+        String origem = "192.0.2.26";
+        ContaCriada conta = criador.criar("Mercearia Aurora", SENHA);
+        criador.contratar(conta.contaId(), Plano.COMPLETO);
+        String admin = entrar(conta.email(), SENHA, origem);
+        String emailDoOperador = "operador-" + UUID.randomUUID() + "@exemplo.test";
+        String corpo = http.perform(post("/api/usuarios").with(comToken(admin)).with(deOrigem(origem))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of("nome", "Atendente Bruna",
+                                "perfil", "OPERADOR", "email", emailDoOperador, "senha", SENHA))))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        UUID operador = UUID.fromString(json.readTree(corpo).get("id").asText());
+        String doOperador = entrar(emailDoOperador, SENHA, origem);
+
+        registroDeRemocoes.ficarForaDoAr();
+        try {
+            http.perform(post("/api/usuarios/{id}/inativar", operador).with(comToken(admin))
+                            .with(deOrigem(origem)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.loginRemovido").value(false));
+            http.perform(eu(doOperador, origem)).andExpect(status().isUnauthorized());
+            http.perform(get("/api/usuarios").with(comToken(admin)).with(deOrigem(origem)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$[?(@.id == '" + operador + "')].loginGuardado")
+                            .value(true));
+            http.perform(post("/api/usuarios/{id}/inativar", operador).with(comToken(admin))
+                            .with(deOrigem(origem)))
+                    .andExpect(status().isServiceUnavailable());
+        } finally {
+            registroDeRemocoes.voltar();
+        }
+        http.perform(post("/api/usuarios/{id}/inativar", operador).with(comToken(admin))
+                        .with(deOrigem(origem)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.loginRemovido").value(true));
+        http.perform(get("/api/usuarios").with(comToken(admin)).with(deOrigem(origem)))
+                .andExpect(jsonPath("$[?(@.id == '" + operador + "')].loginGuardado").value(false));
+
+        String evento = "conta=" + conta.contaId() + " usuario=" + conta.usuarioId() + " alvo="
+                + operador + " origem=" + origem;
+        assertThat(saida.getAll())
+                .contains("evento=usuario.bloqueado " + evento)
+                .contains("evento=usuario.inativado " + evento);
+        semDadoPessoal(saida, conta.email(), emailDoOperador, "Atendente", "Bruna");
     }
 
     @Test

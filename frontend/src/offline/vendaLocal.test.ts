@@ -76,10 +76,12 @@ describe('Venda no dispositivo', () => {
       itens: [{ nome: 'Café expresso', quantidade: 2, precoUnitario: 6.25, subtotal: 12.5 }],
       parcelas: [{ forma: 'DINHEIRO', valor: 12.5, troco: 7.5, status: 'CONFIRMADO' }],
     })
-    expect(await recarregada.comprovante(id)).toMatchObject({
+    const comprovante = await recarregada.comprovante(id)
+    expect(comprovante).toMatchObject({
       vendaId: id, valorTotal: 12.5, troco: 7.5, pendenteSincronizacao: true,
       linhas: [{ nome: 'Café expresso', quantidade: 2, subtotal: 12.5 }],
     })
+    expect(comprovante).not.toHaveProperty('nomeCliente')
     expect(await recarregada.daSessao(sessaoId)).toEqual([expect.objectContaining({
       id, status: 'CONCLUIDA', total: 12.5, pendenteSincronizacao: true,
     })])
@@ -126,8 +128,9 @@ describe('Venda no dispositivo', () => {
     await local.pagar(id, 'FIADO', 8)
     await local.concluir(id)
 
+    // O comprovante da dívida diz de quem ela é, pelo cadastro do aparelho, como o do servidor.
     expect(await local.comprovante(id)).toMatchObject({ valorFiado: 8, saldoDevedor: 8, troco: 0,
-      parcelas: [{ forma: 'FIADO', valor: 8 }] })
+      parcelas: [{ forma: 'FIADO', valor: 8 }], nomeCliente: 'Dona Marta' })
     expect(await local.consultar(id)).toMatchObject({ clienteId, saldoDevedor: 8, status: 'CONCLUIDA' })
     expect(await caixaLocal.consultar(sessaoId)).toMatchObject({ valorFechamentoEsperado: 20, versao: 0,
       movimentos: [] })

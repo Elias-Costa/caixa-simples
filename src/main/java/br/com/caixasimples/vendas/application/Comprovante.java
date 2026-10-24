@@ -41,10 +41,14 @@ import java.util.UUID;
  * @param parcelas        como a venda foi paga (RF09): só as parcelas confirmadas
  * @param troco           o que voltou para o cliente, somando todas as parcelas; zero quando
  *                        não houve dinheiro ou o cliente pagou exato
+ * @param nomeCliente     de quem é a dívida, só na venda com parcela fiado: o papel que prova a
+ *                        dívida diz de quem ela é. Na venda sem fiado fica nulo mesmo com cliente
+ *                        vinculado, porque ali o nome não serve a nada. É o nome de hoje, perguntado
+ *                        ao cadastro, então o do Cliente removido sai anonimizado
  */
 public record Comprovante(UUID vendaId, UUID usuarioId, Instant concluidoEm, List<Linha> linhas,
         Money somaDosItens, Money descontoDaVenda, Money valorTotal, List<Parcela> parcelas,
-        Money troco, Money valorFiado, Money saldoDevedor) {
+        Money troco, Money valorFiado, Money saldoDevedor, String nomeCliente) {
 
     /**
      * Uma linha do comprovante: um item da venda com o nome que o produto tem hoje.

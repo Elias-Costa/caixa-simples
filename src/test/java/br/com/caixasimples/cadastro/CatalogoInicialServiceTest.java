@@ -92,6 +92,26 @@ class CatalogoInicialServiceTest extends TesteDeIntegracao {
     }
 
     @Test
+    @DisplayName("o que a cafeteria prepara na hora chega sem estoque; água e pão de queijo, com estoque")
+    void preparadoNaHoraChegaSemEstoque() {
+        ContaCriada conta = criador.criar("Cafeteria da Praça", SENHA_DE_TESTE);
+
+        conta.comoUsuario(() -> catalogoInicial.aplicarPara("cafeteria"));
+
+        conta.comoUsuario(() -> assertThat(produtos.listarAtivos())
+                .extracting(Produto::getNome, Produto::getTipo)
+                .containsExactlyInAnyOrder(
+                        tuple("Café expresso", TipoProduto.SERVICO),
+                        tuple("Café coado", TipoProduto.SERVICO),
+                        tuple("Cappuccino", TipoProduto.SERVICO),
+                        tuple("Suco natural", TipoProduto.SERVICO),
+                        tuple("Sanduíche natural", TipoProduto.SERVICO),
+                        tuple("Bolo em fatia", TipoProduto.SERVICO),
+                        tuple("Água mineral", TipoProduto.PRODUTO),
+                        tuple("Pão de queijo", TipoProduto.PRODUTO)));
+    }
+
+    @Test
     @DisplayName("tipo de negócio casa ignorando maiúscula e espaço nas pontas")
     void tipoDeNegocioCasaIgnorandoCaixa() {
         ContaCriada conta = criador.criar("Cafeteria em Caixa Alta", SENHA_DE_TESTE);
