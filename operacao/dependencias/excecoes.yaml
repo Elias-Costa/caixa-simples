@@ -16,9 +16,10 @@
 # O purl, com o tipo, o nome e a versão do pacote, sai no relatório da ferramenta em JSON. Sem
 # purls, a exceção valeria para o mesmo aviso em qualquer pacote, e por isso ele é obrigatório aqui.
 vulnerabilities:
-  # O proxy da VPS, o Caddy 2.11.7, compilado com o Go 1.26.8. A correção está no Go 1.26.9, de
-  # 2026-10-08, e ainda não saiu build do proxy com ela. Saindo, troca-se o digest no compose da VPS,
-  # o HTTP/2 volta ao Caddyfile e estas quatro exceções saem.
+  # O proxy da VPS, o Caddy 2.11.7, compilado com o Go 1.26.8. As correções estão no Go 1.26.9, de
+  # 2026-10-08, e no Go 1.26.10, de 2026-10-21, e ainda não saiu build do proxy com elas. Saindo um
+  # build com o Go 1.26.10 ou mais novo, troca-se o digest no compose da VPS, o HTTP/2 volta ao
+  # Caddyfile e estas exceções da versão do Go saem.
   - id: CVE-2026-78669
     purls:
       - pkg:golang/golang.org/x/net@v0.59.0
@@ -41,10 +42,37 @@ vulnerabilities:
       Consumo de memória ao processar o ECH, a extensão que cifra o início do TLS. O proxy da VPS não
       tem ECH configurado, e sem as chaves dele o servidor não processa essa extensão.
     expired_at: 2026-11-09
+  - id: CVE-2026-111943
+    purls:
+      - pkg:golang/stdlib@v1.26.8
+    statement: >-
+      Certificados intermediários comprometidos que a verificação de cadeia em crypto/x509 ainda
+      aceita. O proxy da VPS só verifica certificado como cliente, ao pedir e renovar o certificado do
+      domínio no emissor; fala com a aplicação por HTTP, na rede interna, e não pede certificado a
+      quem se conecta. Quem se passasse pelo emissor com uma dessas intermediárias poderia, no máximo,
+      impedir a renovação ou fazer o proxy servir um certificado recusado pelo navegador: a chave do
+      certificado e a da conta no emissor nascem e ficam na máquina, e nenhum dado de quem acessa passa
+      por essa verificação.
+    expired_at: 2026-11-24
 
-  # A base da imagem da aplicação, o eclipse-temurin 21 sobre o Alpine 3.24.2, traz a libexpat 2.8.5.
-  # A correção está na 2.9.0, e ainda não saiu base nova da mesma tag com ela. Saindo, troca-se o
-  # digest no Dockerfile e esta exceção sai.
+  # A base Alpine do mesmo proxy traz a brotli 1.2.0. A correção está na 1.2.1, que o Alpine já
+  # publicou, e ainda não saiu imagem do proxy com ela. Saindo, troca-se o digest no compose da VPS e
+  # esta exceção sai.
+  - id: CVE-2026-111497
+    purls:
+      - pkg:apk/alpine/brotli-libs@1.2.0-r0?arch=x86_64&distro=3.23.6
+    statement: >-
+      Escrita além do buffer ao descomprimir um fluxo brotli. Na imagem do proxy, só o libcurl usa a
+      biblioteca, e o curl nunca é chamado: o proxy não tem verificação de saúde, e a implantação só
+      recarrega a configuração dele. O proxy é um binário estático, que não carrega a biblioteca, e o
+      que chega pela rede não passa por ela.
+    expired_at: 2026-11-24
+
+  # A base da imagem da aplicação, o eclipse-temurin 21 sobre o Alpine 3.24.2, traz a libexpat 2.8.5 e
+  # a brotli 1.2.0. As correções estão na libexpat 2.9.0 e na brotli 1.2.1. A base nova da mesma tag, de
+  # 2026-10-22, traz só a libexpat corrigida e entra depois de 7 dias publicada, como toda troca de
+  # base. Trocado o digest no Dockerfile, sai a exceção de cada correção que a base nova trouxer, e a
+  # que ficar passa ao purl da base nova, que leva a versão do Alpine.
   - id: CVE-2026-77214
     purls:
       - pkg:apk/alpine/libexpat@2.8.5-r0?arch=x86_64&distro=3.24.2
@@ -54,3 +82,13 @@ vulnerabilities:
       desenha texto nem imagem, que é o que levaria a JVM ao fontconfig, e a JVM lê XML com o próprio
       leitor, sem a libexpat; nenhum dado vindo de fora chega a ela.
     expired_at: 2026-11-17
+  - id: CVE-2026-111497
+    purls:
+      - pkg:apk/alpine/brotli-libs@1.2.0-r1?arch=x86_64&distro=3.24.2
+    statement: >-
+      Escrita além do buffer ao descomprimir um fluxo brotli. Na imagem, usam a biblioteca o freetype e
+      o fontconfig do sistema, que leem só os arquivos de fontes da própria imagem, e o dirmngr do
+      gnupg, que nunca é executado. A JVM traz o próprio freetype, sem a brotli, e a aplicação não
+      desenha texto nem imagem, que é o que a levaria ao fontconfig; nenhum dado vindo de fora chega à
+      biblioteca.
+    expired_at: 2026-11-24
