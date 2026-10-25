@@ -28,11 +28,11 @@ class JwtConfiguration {
 
     private final SecretKey chave;
 
-    JwtConfiguration(@Value("${caixa-simples.jwt.secret}") String segredo) {
+    JwtConfiguration(@Value("${fechadia.jwt.secret}") String segredo) {
         byte[] bytes = segredo.getBytes(StandardCharsets.UTF_8);
         if (bytes.length < MINIMO_DE_BYTES) {
             throw new IllegalStateException(
-                    "CAIXA_SIMPLES_JWT_SECRET precisa de ao menos " + MINIMO_DE_BYTES
+                    "FECHADIA_JWT_SECRET precisa de ao menos " + MINIMO_DE_BYTES
                             + " bytes para HMAC-SHA256; recebeu " + bytes.length);
         }
         this.chave = new SecretKeySpec(bytes, "HmacSHA256");

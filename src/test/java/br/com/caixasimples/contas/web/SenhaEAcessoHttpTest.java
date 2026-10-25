@@ -50,7 +50,7 @@ class SenhaEAcessoHttpTest extends TesteDeIntegracao {
     private static final String SENHA = "uma senha longa de teste";
     private static final String NOVA = "outra frase longa escolhida por mim";
     private static final String PROVISORIA = "senha provisoria dada pelo dono";
-    private static final String CABECALHO_DO_TOKEN = "X-Caixa-Simples-Token";
+    private static final String CABECALHO_DO_TOKEN = "X-Fechadia-Token";
 
     @Autowired MockMvc http;
     @Autowired ObjectMapper json;

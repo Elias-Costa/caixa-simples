@@ -34,7 +34,11 @@ export function TelaDeLogin() {
       <form className="login__cartao" onSubmit={enviar} noValidate>
         <div className="login__marca">
           <img className="login__icone" src="/icone.svg" alt="" width="48" height="48" />
-          <h1 className="login__titulo">Caixa Simples</h1>
+          {/* O nome sozinho não diz para que o aplicativo serve; a categoria vem logo abaixo dele. */}
+          <div>
+            <h1 className="login__titulo">Fechadia</h1>
+            <p className="login__descritor">Sistema de caixa e vendas</p>
+          </div>
         </div>
 
         {sessaoFoiEncerrada() && (

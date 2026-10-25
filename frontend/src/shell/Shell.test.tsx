@@ -230,15 +230,15 @@ describe('primeiros passos no Shell', () => {
     primeiro.unmount()
     abrir('/caixa')
     expect(screen.queryByText(/Primeiros passos \(/)).not.toBeInTheDocument()
-    expect(localStorage.getItem('caixa-simples.tour-visto.conta-1.usuario-1')).toBe('1')
+    expect(localStorage.getItem('fechadia.tour-visto.conta-1.usuario-1')).toBe('1')
   })
 
   it('pular também marca, e outra pessoa no mesmo aparelho vê o tour na primeira vez', () => {
-    localStorage.setItem('caixa-simples.tour-visto.conta-1.outra-pessoa', '1')
+    localStorage.setItem('fechadia.tour-visto.conta-1.outra-pessoa', '1')
     abrir('/caixa')
     fireEvent.click(screen.getByRole('button', { name: 'Pular' }))
     expect(screen.queryByText(/Primeiros passos \(/)).not.toBeInTheDocument()
-    expect(localStorage.getItem('caixa-simples.tour-visto.conta-1.usuario-1')).toBe('1')
+    expect(localStorage.getItem('fechadia.tour-visto.conta-1.usuario-1')).toBe('1')
   })
 })
 

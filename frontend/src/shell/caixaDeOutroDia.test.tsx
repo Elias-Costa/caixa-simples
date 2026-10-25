@@ -28,7 +28,7 @@ function rede(online: boolean) {
 }
 
 beforeEach(async () => {
-  await deleteDB('caixa-simples-offline')
+  await deleteDB('fechadia-offline')
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(AGORA)
   gravarToken(tokenComExpiracao(new Date(AGORA.getTime() + 60 * 60 * 1000)))

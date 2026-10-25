@@ -379,6 +379,12 @@ textarea:disabled {
   margin: 0;
 }
 
+.login__descritor {
+  margin: 2px 0 0;
+  color: var(--cor-texto-secundario);
+  font-size: 0.95rem;
+}
+
 .login__erro {
   margin: 0 0 var(--espaco);
 }

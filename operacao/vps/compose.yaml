@@ -10,7 +10,7 @@
 # Os limites de memória são os da medição sob carga, sem swap: a JVM com o heap em disco travaria,
 # e o swap da máquina fica para o sistema. A CPU não tem limite por serviço: a própria máquina é o
 # teto, e quem estiver ocioso cede a vez.
-name: caixa-simples
+name: fechadia
 
 services:
   # Termina o HTTPS, com o certificado obtido e renovado por ele, e encaminha à aplicação pela rede
@@ -30,7 +30,7 @@ services:
       - "0.0.0.0:80:80"
       - "0.0.0.0:443:443"
     environment:
-      CAIXA_SIMPLES_DOMINIO: ${CAIXA_SIMPLES_DOMINIO:-}
+      FECHADIA_DOMINIO: ${FECHADIA_DOMINIO:-}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       # Os certificados e a conta no emissor: perdidos, seriam pedidos de novo, e o emissor limita
@@ -39,7 +39,7 @@ services:
       - proxy-config:/config
 
   app:
-    image: ghcr.io/elias-costa/caixa-simples:${CAIXA_SIMPLES_VERSAO:-}
+    image: ghcr.io/elias-costa/fechadia:${FECHADIA_VERSAO:-}
     restart: unless-stopped
     depends_on:
       banco:
@@ -51,21 +51,21 @@ services:
     # As credenciais Pix são por Conta, com o id dela no nome da variável, e por isso ficam num
     # arquivo à parte, sem lista fixa aqui. O certificado de cada Conta fica na pasta montada abaixo.
     env_file:
-      - ${CAIXA_SIMPLES_CONFIGURACAO:-/etc/caixa-simples}/efi.env
+      - ${FECHADIA_CONFIGURACAO:-/etc/fechadia}/efi.env
     environment: &ambiente-da-aplicacao
       # Mesma máquina, rede interna e porta do banco não publicada: nada passa por fora dela, e a
       # conexão dispensa TLS.
-      CAIXA_SIMPLES_DB_URL: jdbc:postgresql://banco:5432/caixa_simples
-      CAIXA_SIMPLES_DB_USER: caixa_simples
-      CAIXA_SIMPLES_DB_PASSWORD: ${CAIXA_SIMPLES_DB_PASSWORD:-}
-      CAIXA_SIMPLES_JWT_SECRET: ${CAIXA_SIMPLES_JWT_SECRET:-}
-      CAIXA_SIMPLES_PLANO_SECRET: ${CAIXA_SIMPLES_PLANO_SECRET:-}
-      CAIXA_SIMPLES_MENSALIDADE_COMPLETO: ${CAIXA_SIMPLES_MENSALIDADE_COMPLETO:-}
-      CAIXA_SIMPLES_REMOCOES_BUCKET: ${CAIXA_SIMPLES_REMOCOES_BUCKET:-}
-      AWS_ACCESS_KEY_ID: ${CAIXA_SIMPLES_REMOCOES_AWS_ACCESS_KEY_ID:-}
-      AWS_SECRET_ACCESS_KEY: ${CAIXA_SIMPLES_REMOCOES_AWS_SECRET_ACCESS_KEY:-}
+      FECHADIA_DB_URL: jdbc:postgresql://banco:5432/fechadia
+      FECHADIA_DB_USER: fechadia
+      FECHADIA_DB_PASSWORD: ${FECHADIA_DB_PASSWORD:-}
+      FECHADIA_JWT_SECRET: ${FECHADIA_JWT_SECRET:-}
+      FECHADIA_PLANO_SECRET: ${FECHADIA_PLANO_SECRET:-}
+      FECHADIA_MENSALIDADE_COMPLETO: ${FECHADIA_MENSALIDADE_COMPLETO:-}
+      FECHADIA_REMOCOES_BUCKET: ${FECHADIA_REMOCOES_BUCKET:-}
+      AWS_ACCESS_KEY_ID: ${FECHADIA_REMOCOES_AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${FECHADIA_REMOCOES_AWS_SECRET_ACCESS_KEY:-}
     volumes:
-      - ${CAIXA_SIMPLES_CONFIGURACAO:-/etc/caixa-simples}/efi:/segredos/efi:ro
+      - ${FECHADIA_CONFIGURACAO:-/etc/fechadia}/efi:/segredos/efi:ro
     # Decide quando o deploy terminou. O Docker não reinicia um contêiner que fica doente, só o que
     # termina; uma aplicação travada aparece no vigia, que confere esta mesma rota pelo domínio.
     healthcheck:
@@ -80,7 +80,7 @@ services:
   # cache, e só uma mudança naquele arquivo gera imagem nova e recria o banco.
   banco:
     build: ./banco
-    image: caixa-simples-banco:local
+    image: fechadia-banco:local
     pull_policy: build
     restart: unless-stopped
     mem_limit: 512m
@@ -89,19 +89,19 @@ services:
     # passaria pela recuperação do log.
     stop_grace_period: 60s
     # O superusuário é o postgres da imagem, e nenhum serviço conecta com ele: a aplicação e as
-    # execuções avulsas usam o papel caixa_simples, dono do banco e sem superusuário, criado no
+    # execuções avulsas usam o papel fechadia, dono do banco e sem superusuário, criado no
     # primeiro initdb por banco/criar-papel.sh, que é quem lê a senha do papel daqui. A manutenção
     # entra como superusuário pelo socket local, por compose.sh exec, que só o root da máquina alcança.
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${CAIXA_SIMPLES_DB_SUPERUSUARIO_PASSWORD:-}
-      CAIXA_SIMPLES_DB_PASSWORD: ${CAIXA_SIMPLES_DB_PASSWORD:-}
+      POSTGRES_PASSWORD: ${FECHADIA_DB_SUPERUSUARIO_PASSWORD:-}
+      FECHADIA_DB_PASSWORD: ${FECHADIA_DB_PASSWORD:-}
     volumes:
       - banco-dados:/var/lib/postgresql/data
     # Pela rede, e não pelo socket: no primeiro initdb, o servidor temporário que cria o papel escuta
     # só no socket, e pelo socket o banco pareceria pronto antes de o papel existir.
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U caixa_simples -d caixa_simples"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U fechadia -d fechadia"]
       interval: 2s
       timeout: 3s
       retries: 30
@@ -110,7 +110,7 @@ services:
   # do ambiente de quem roda o comando, nunca do arquivo de configuração.
   seed:
     profiles: [seed]
-    image: ghcr.io/elias-costa/caixa-simples:${CAIXA_SIMPLES_VERSAO:-}
+    image: ghcr.io/elias-costa/fechadia:${FECHADIA_VERSAO:-}
     depends_on:
       banco:
         condition: service_healthy
@@ -120,15 +120,15 @@ services:
       <<: *ambiente-da-aplicacao
       SPRING_PROFILES_ACTIVE: seed
       SPRING_MAIN_WEB_APPLICATION_TYPE: none
-      CAIXA_SIMPLES_SEED_NOME_NEGOCIO: ${CAIXA_SIMPLES_SEED_NOME_NEGOCIO:-}
-      CAIXA_SIMPLES_SEED_EMAIL: ${CAIXA_SIMPLES_SEED_EMAIL:-}
-      CAIXA_SIMPLES_SEED_SENHA: ${CAIXA_SIMPLES_SEED_SENHA:-}
+      FECHADIA_SEED_NOME_NEGOCIO: ${FECHADIA_SEED_NOME_NEGOCIO:-}
+      FECHADIA_SEED_EMAIL: ${FECHADIA_SEED_EMAIL:-}
+      FECHADIA_SEED_SENHA: ${FECHADIA_SEED_SENHA:-}
 
   # Socorre o administrador sem acesso: senha provisória para ele e os aparelhos de todos os usuários
   # da Conta derrubados. Execução avulsa, como o seed.
   redefinir-senha:
     profiles: [redefinir-senha]
-    image: ghcr.io/elias-costa/caixa-simples:${CAIXA_SIMPLES_VERSAO:-}
+    image: ghcr.io/elias-costa/fechadia:${FECHADIA_VERSAO:-}
     depends_on:
       banco:
         condition: service_healthy
@@ -138,14 +138,14 @@ services:
       <<: *ambiente-da-aplicacao
       SPRING_PROFILES_ACTIVE: redefinir-senha
       SPRING_MAIN_WEB_APPLICATION_TYPE: none
-      CAIXA_SIMPLES_REDEFINICAO_EMAIL: ${CAIXA_SIMPLES_REDEFINICAO_EMAIL:-}
-      CAIXA_SIMPLES_REDEFINICAO_SENHA: ${CAIXA_SIMPLES_REDEFINICAO_SENHA:-}
+      FECHADIA_REDEFINICAO_EMAIL: ${FECHADIA_REDEFINICAO_EMAIL:-}
+      FECHADIA_REDEFINICAO_SENHA: ${FECHADIA_REDEFINICAO_SENHA:-}
 
   # Suspende na hora o acesso de uma Conta, por uso ilegal ou ataque ao serviço, e derruba os aparelhos
   # de todos os usuários dela. Execução avulsa, como o seed; o reverso é o serviço seguinte.
   suspender-conta:
     profiles: [suspender-conta]
-    image: ghcr.io/elias-costa/caixa-simples:${CAIXA_SIMPLES_VERSAO:-}
+    image: ghcr.io/elias-costa/fechadia:${FECHADIA_VERSAO:-}
     depends_on:
       banco:
         condition: service_healthy
@@ -155,12 +155,12 @@ services:
       <<: *ambiente-da-aplicacao
       SPRING_PROFILES_ACTIVE: suspender-conta
       SPRING_MAIN_WEB_APPLICATION_TYPE: none
-      CAIXA_SIMPLES_SUSPENSAO_CONTA: ${CAIXA_SIMPLES_SUSPENSAO_CONTA:-}
+      FECHADIA_SUSPENSAO_CONTA: ${FECHADIA_SUSPENSAO_CONTA:-}
 
   # Devolve o acesso à Conta suspensa; todos os usuários entram de novo.
   reativar-conta:
     profiles: [reativar-conta]
-    image: ghcr.io/elias-costa/caixa-simples:${CAIXA_SIMPLES_VERSAO:-}
+    image: ghcr.io/elias-costa/fechadia:${FECHADIA_VERSAO:-}
     depends_on:
       banco:
         condition: service_healthy
@@ -170,71 +170,71 @@ services:
       <<: *ambiente-da-aplicacao
       SPRING_PROFILES_ACTIVE: reativar-conta
       SPRING_MAIN_WEB_APPLICATION_TYPE: none
-      CAIXA_SIMPLES_SUSPENSAO_CONTA: ${CAIXA_SIMPLES_SUSPENSAO_CONTA:-}
+      FECHADIA_SUSPENSAO_CONTA: ${FECHADIA_SUSPENSAO_CONTA:-}
 
   # A cópia cifrada, de hora em hora, pelo agendador da máquina. A credencial só grava objeto novo
   # no bucket: não lê, não lista e não apaga.
   copia:
     profiles: [copia]
-    image: ghcr.io/elias-costa/caixa-simples-copia:${CAIXA_SIMPLES_VERSAO:-}
+    image: ghcr.io/elias-costa/fechadia-copia:${FECHADIA_VERSAO:-}
     depends_on:
       banco:
         condition: service_healthy
     mem_limit: 256m
     memswap_limit: 256m
     environment:
-      CAIXA_SIMPLES_COPIA_BANCO: postgresql://caixa_simples@banco:5432/caixa_simples
-      PGPASSWORD: ${CAIXA_SIMPLES_DB_PASSWORD:-}
-      CAIXA_SIMPLES_COPIA_CHAVE_PUBLICA: ${CAIXA_SIMPLES_COPIA_CHAVE_PUBLICA:-}
-      CAIXA_SIMPLES_COPIA_DESTINO: ${CAIXA_SIMPLES_COPIA_DESTINO:-}
-      CAIXA_SIMPLES_COPIA_DESTINO_DIARIA: ${CAIXA_SIMPLES_COPIA_DESTINO_DIARIA:-}
-      CAIXA_SIMPLES_COPIA_HORA_DIARIA: ${CAIXA_SIMPLES_COPIA_HORA_DIARIA:-6}
+      FECHADIA_COPIA_BANCO: postgresql://fechadia@banco:5432/fechadia
+      PGPASSWORD: ${FECHADIA_DB_PASSWORD:-}
+      FECHADIA_COPIA_CHAVE_PUBLICA: ${FECHADIA_COPIA_CHAVE_PUBLICA:-}
+      FECHADIA_COPIA_DESTINO: ${FECHADIA_COPIA_DESTINO:-}
+      FECHADIA_COPIA_DESTINO_DIARIA: ${FECHADIA_COPIA_DESTINO_DIARIA:-}
+      FECHADIA_COPIA_HORA_DIARIA: ${FECHADIA_COPIA_HORA_DIARIA:-6}
       RCLONE_CONFIG_S3_TYPE: s3
       RCLONE_CONFIG_S3_PROVIDER: AWS
       RCLONE_CONFIG_S3_REGION: sa-east-1
-      RCLONE_CONFIG_S3_ACCESS_KEY_ID: ${CAIXA_SIMPLES_COPIA_AWS_ACCESS_KEY_ID:-}
-      RCLONE_CONFIG_S3_SECRET_ACCESS_KEY: ${CAIXA_SIMPLES_COPIA_AWS_SECRET_ACCESS_KEY:-}
+      RCLONE_CONFIG_S3_ACCESS_KEY_ID: ${FECHADIA_COPIA_AWS_ACCESS_KEY_ID:-}
+      RCLONE_CONFIG_S3_SECRET_ACCESS_KEY: ${FECHADIA_COPIA_AWS_SECRET_ACCESS_KEY:-}
 
   # Restaura uma cópia num banco vazio, por padrão o desta máquina, que é o caso da recriação. A
   # credencial de leitura do bucket e a chave privada são do mantenedor: entram só no comando, pelo
   # ambiente e por -v, e nunca ficam na máquina.
   restaurar:
     profiles: [restauracao]
-    image: ghcr.io/elias-costa/caixa-simples-copia:${CAIXA_SIMPLES_VERSAO:-}
+    image: ghcr.io/elias-costa/fechadia-copia:${FECHADIA_VERSAO:-}
     depends_on:
       banco:
         condition: service_healthy
     entrypoint: ["sh", "/copia/restaurar.sh"]
     environment:
-      CAIXA_SIMPLES_RESTAURAR_BANCO: ${CAIXA_SIMPLES_RESTAURAR_BANCO:-postgresql://caixa_simples@banco:5432/caixa_simples}
-      PGPASSWORD: ${CAIXA_SIMPLES_DB_PASSWORD:-}
-      CAIXA_SIMPLES_COPIA_CHAVE_PRIVADA: /chave/chave-privada.txt
-      CAIXA_SIMPLES_REMOCOES_DESTINO: ${CAIXA_SIMPLES_REMOCOES_DESTINO:-}
+      FECHADIA_RESTAURAR_BANCO: ${FECHADIA_RESTAURAR_BANCO:-postgresql://fechadia@banco:5432/fechadia}
+      PGPASSWORD: ${FECHADIA_DB_PASSWORD:-}
+      FECHADIA_COPIA_CHAVE_PRIVADA: /chave/chave-privada.txt
+      FECHADIA_REMOCOES_DESTINO: ${FECHADIA_REMOCOES_DESTINO:-}
       RCLONE_CONFIG_S3_TYPE: s3
       RCLONE_CONFIG_S3_PROVIDER: AWS
       RCLONE_CONFIG_S3_REGION: sa-east-1
-      RCLONE_CONFIG_S3_ACCESS_KEY_ID: ${CAIXA_SIMPLES_LEITURA_AWS_ACCESS_KEY_ID:-}
-      RCLONE_CONFIG_S3_SECRET_ACCESS_KEY: ${CAIXA_SIMPLES_LEITURA_AWS_SECRET_ACCESS_KEY:-}
+      RCLONE_CONFIG_S3_ACCESS_KEY_ID: ${FECHADIA_LEITURA_AWS_ACCESS_KEY_ID:-}
+      RCLONE_CONFIG_S3_SECRET_ACCESS_KEY: ${FECHADIA_LEITURA_AWS_SECRET_ACCESS_KEY:-}
 
   # Encerra uma Conta a pedido, com a aplicação parada. A confirmação de que os segredos Pix da Conta
   # saíram da configuração entra no comando, nunca no arquivo.
   encerrar:
     profiles: [exclusao]
-    image: ghcr.io/elias-costa/caixa-simples-copia:${CAIXA_SIMPLES_VERSAO:-}
+    image: ghcr.io/elias-costa/fechadia-copia:${FECHADIA_VERSAO:-}
     depends_on:
       banco:
         condition: service_healthy
     entrypoint: ["sh", "/exclusao/encerrar-conta.sh"]
     environment:
-      CAIXA_SIMPLES_ENCERRAR_BANCO: postgresql://caixa_simples@banco:5432/caixa_simples
-      PGPASSWORD: ${CAIXA_SIMPLES_DB_PASSWORD:-}
-      CAIXA_SIMPLES_REMOCOES_DESTINO: ${CAIXA_SIMPLES_REMOCOES_DESTINO:-}
-      CAIXA_SIMPLES_SEGREDOS_REMOVIDOS: ${CAIXA_SIMPLES_SEGREDOS_REMOVIDOS:-}
+      FECHADIA_ENCERRAR_BANCO: postgresql://fechadia@banco:5432/fechadia
+      PGPASSWORD: ${FECHADIA_DB_PASSWORD:-}
+      FECHADIA_REMOCOES_DESTINO: ${FECHADIA_REMOCOES_DESTINO:-}
+      FECHADIA_SEGREDOS_REMOVIDOS: ${FECHADIA_SEGREDOS_REMOVIDOS:-}
       RCLONE_CONFIG_S3_TYPE: s3
       RCLONE_CONFIG_S3_PROVIDER: AWS
       RCLONE_CONFIG_S3_REGION: sa-east-1
-      RCLONE_CONFIG_S3_ACCESS_KEY_ID: ${CAIXA_SIMPLES_REMOCOES_AWS_ACCESS_KEY_ID:-}
-      RCLONE_CONFIG_S3_SECRET_ACCESS_KEY: ${CAIXA_SIMPLES_REMOCOES_AWS_SECRET_ACCESS_KEY:-}
+      RCLONE_CONFIG_S3_ACCESS_KEY_ID: ${FECHADIA_REMOCOES_AWS_ACCESS_KEY_ID:-}
+      RCLONE_CONFIG_S3_SECRET_ACCESS_KEY: ${FECHADIA_REMOCOES_AWS_SECRET_ACCESS_KEY:-}
 
 volumes:
   banco-dados:

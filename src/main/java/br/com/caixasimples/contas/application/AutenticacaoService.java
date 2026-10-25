@@ -389,7 +389,7 @@ public class AutenticacaoService {
 
     /**
      * O nome, o e-mail de entrada e o perfil de quem está autenticado, para a própria pessoa ver o que
-     * o Caixa Simples guarda do cadastro dela (LGPD, art. 18, I e II).
+     * o Fechadia guarda do cadastro dela (LGPD, art. 18, I e II).
      *
      * <p>Fica fora da identidade de toda tela de propósito: o aplicativo guarda a identidade no
      * aparelho, e o e-mail só aparece quando a pessoa abre a tela dos próprios dados.

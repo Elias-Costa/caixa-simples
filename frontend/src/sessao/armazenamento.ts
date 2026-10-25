@@ -3,15 +3,15 @@ import type { Identidade } from './Identidade'
 // O token fica no dispositivo para o aplicativo abrir sem rede enquanto ele não expirar. A
 // identidade fica ao lado porque o cabeçalho mostra o nome do negócio e de quem opera também
 // sem rede, e sem rede não há como perguntar ao servidor.
-const CHAVE_DO_TOKEN_LEGADO = 'caixa-simples.token'
-const CHAVE_DA_IDENTIDADE_LEGADA = 'caixa-simples.identidade'
-export const CHAVE_DA_SESSAO = 'caixa-simples.sessao'
-const CHAVE_DA_SESSAO_NA_ABA = 'caixa-simples.sessao-na-aba'
-const CHAVE_DA_SESSAO_ENCERRADA = 'caixa-simples.sessao-encerrada'
+const CHAVE_DO_TOKEN_LEGADO = 'fechadia.token'
+const CHAVE_DA_IDENTIDADE_LEGADA = 'fechadia.identidade'
+export const CHAVE_DA_SESSAO = 'fechadia.sessao'
+const CHAVE_DA_SESSAO_NA_ABA = 'fechadia.sessao-na-aba'
+const CHAVE_DA_SESSAO_ENCERRADA = 'fechadia.sessao-encerrada'
 const SESSAO_LEGADA = 'legada'
 
-function chaveDoToken(sessao: string): string { return `caixa-simples.token.${sessao}` }
-function chaveDaIdentidade(sessao: string): string { return `caixa-simples.identidade.${sessao}` }
+function chaveDoToken(sessao: string): string { return `fechadia.token.${sessao}` }
+function chaveDaIdentidade(sessao: string): string { return `fechadia.identidade.${sessao}` }
 
 export function lerToken(): string | null {
   const sessao = localStorage.getItem(CHAVE_DA_SESSAO) ?? SESSAO_LEGADA
@@ -103,7 +103,7 @@ export function apagarChavesDoAparelho(): void {
     const chaves: string[] = []
     for (let indice = 0; indice < armazenamento.length; indice++) {
       const chave = armazenamento.key(indice)
-      if (chave?.startsWith('caixa-simples.')) chaves.push(chave)
+      if (chave?.startsWith('fechadia.')) chaves.push(chave)
     }
     for (const chave of chaves) armazenamento.removeItem(chave)
   }

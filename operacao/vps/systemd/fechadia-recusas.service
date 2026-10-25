@@ -1,10 +1,10 @@
 # O alerta de rajada: conta as recusas no log da aplicação e manda o sinal ao vigia.
 [Unit]
-Description=Alerta de recusas do Caixa Simples
+Description=Alerta de recusas do Fechadia
 Requires=docker.service
 After=docker.service
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh /opt/caixa-simples/repositorio/operacao/vps/vigia-de-recusas.sh
+ExecStart=/bin/sh /opt/fechadia/repositorio/operacao/vps/vigia-de-recusas.sh
 TimeoutStartSec=2min

@@ -19,7 +19,7 @@ const identidade: Identidade = {
 }
 
 beforeEach(async () => {
-  await deleteDB('caixa-simples-offline')
+  await deleteDB('fechadia-offline')
   gravarToken(tokenComExpiracao(new Date(Date.now() + 60 * 60 * 1000)))
   gravarIdentidade(identidade)
   vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)

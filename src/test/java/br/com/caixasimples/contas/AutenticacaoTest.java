@@ -135,7 +135,7 @@ class AutenticacaoTest extends TesteDeIntegracao {
 
         http.perform(get("/api/auth/eu").header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
-                .andExpect(header().exists("X-Caixa-Simples-Token"));
+                .andExpect(header().exists("X-Fechadia-Token"));
     }
 
     @Test

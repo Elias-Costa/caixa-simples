@@ -1,6 +1,6 @@
 spring:
   application:
-    name: caixa-simples
+    name: fechadia
 
   # Arquitetura §8: carga I/O-bound (banco, chamadas a PSP), nao CPU-bound.
   threads:
@@ -8,9 +8,9 @@ spring:
       enabled: true
 
   datasource:
-    url: ${CAIXA_SIMPLES_DB_URL:jdbc:postgresql://localhost:5432/caixa_simples}
-    username: ${CAIXA_SIMPLES_DB_USER:caixa_simples}
-    password: ${CAIXA_SIMPLES_DB_PASSWORD:caixa_simples}
+    url: ${FECHADIA_DB_URL:jdbc:postgresql://localhost:5432/fechadia}
+    username: ${FECHADIA_DB_USER:fechadia}
+    password: ${FECHADIA_DB_PASSWORD:fechadia}
 
   jpa:
     # O schema pertence ao Flyway. O Hibernate so confere se bate.
@@ -44,25 +44,25 @@ spring:
     moments:
       enabled: false
 
-caixa-simples:
+fechadia:
   jwt:
     # Sem valor padrão: uma chave fixa no código seria compartilhada por todas as instalações.
     # A aplicação não sobe sem esta variável.
     # Precisa de ao menos 32 bytes (HMAC-SHA256).
-    secret: ${CAIXA_SIMPLES_JWT_SECRET}
+    secret: ${FECHADIA_JWT_SECRET}
     # 24h contadas do último contato com o servidor: toda resposta autenticada devolve um token novo.
     # Essa é a janela de resistência offline exigida pelo RNF01.
     validade: 24h
   planos:
     # Assina o código que ativa cada pedido de plano. O mantenedor usa o mesmo valor no script que
     # gera o código. Sem valor padrão, como a chave do token, e com ao menos 32 bytes.
-    segredo: ${CAIXA_SIMPLES_PLANO_SECRET}
+    segredo: ${FECHADIA_PLANO_SECRET}
     # Mensalidade do plano completo em reais, com ponto decimal. Sem valor padrão: preço não mora
     # no repositório, e a aplicação não sobe sem ela.
-    mensalidade-completo: ${CAIXA_SIMPLES_MENSALIDADE_COMPLETO}
+    mensalidade-completo: ${FECHADIA_MENSALIDADE_COMPLETO}
 
 server:
-  port: ${CAIXA_SIMPLES_PORT:8080}
+  port: ${FECHADIA_PORT:8080}
   error:
     include-message: never
     include-stacktrace: never
@@ -82,7 +82,7 @@ server:
       # público entre os dois, a variável o declara sem novo build, em CIDR separado por vírgula
       # e com a barra mesmo para um endereço só, porque sem nenhuma barra o Tomcat lê o valor como
       # expressão regular.
-      trusted-proxies: ${CAIXA_SIMPLES_PROXIES_CONFIAVEIS:}
+      trusted-proxies: ${FECHADIA_PROXIES_CONFIAVEIS:}
 
 management:
   # Só o health sai por HTTP, e a lista é explícita para que nenhum outro endpoint do Actuator

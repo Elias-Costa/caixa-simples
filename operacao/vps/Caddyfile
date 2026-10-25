@@ -17,7 +17,7 @@
 	}
 }
 
-{$CAIXA_SIMPLES_DOMINIO} {
+{$FECHADIA_DOMINIO} {
 	# Teto único para o corpo de toda requisição, o dobro do maior limite por rota da aplicação. Quem
 	# recusa o pedido grande demais é a aplicação, com o 413 e a explicação em português, ao ler o
 	# cabeçalho ou ao passar do limite da rota. Este teto só age quando ela ainda não respondeu: corta

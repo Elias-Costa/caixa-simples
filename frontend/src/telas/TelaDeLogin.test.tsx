@@ -32,6 +32,14 @@ function respostaJson(status: number, corpo: unknown) {
 }
 
 describe('TelaDeLogin', () => {
+  it('mostra o nome do produto com a categoria logo abaixo', () => {
+    vi.stubGlobal('fetch', vi.fn())
+    renderizarLogin()
+
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Fechadia')
+    expect(screen.getByText('Sistema de caixa e vendas')).toBeInTheDocument()
+  })
+
   it('mostra a senha digitada a quem toca em Mostrar, e a esconde de novo', () => {
     renderizarLogin()
     const senha = screen.getByLabelText('Senha')

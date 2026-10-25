@@ -11,7 +11,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param tipoNegocio opcional; casa com {@code modelo_produto.tipo_negocio} para sugerir o
  *                    catálogo inicial (RF32), e nulo significa cadastro começando em branco
  */
-@ConfigurationProperties(prefix = "caixa-simples.seed")
+@ConfigurationProperties(prefix = "fechadia.seed")
 record PropriedadesDoSeed(
         String nomeNegocio,
         String tipoNegocio,

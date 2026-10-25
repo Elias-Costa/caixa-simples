@@ -1,7 +1,7 @@
 import { lerTokenDaSessao, renovarTokenDaSessao, sessaoAtual, sessaoDaAba } from '../sessao/armazenamento'
 
 /** Cabeçalho pelo qual toda resposta autenticada devolve um token novo. */
-export const CABECALHO_DO_TOKEN_RENOVADO = 'X-Caixa-Simples-Token'
+export const CABECALHO_DO_TOKEN_RENOVADO = 'X-Fechadia-Token'
 
 /**
  * Resposta de erro da API, já lida.

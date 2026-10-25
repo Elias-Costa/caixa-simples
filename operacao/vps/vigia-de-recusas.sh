@@ -9,16 +9,16 @@
 # Sem conseguir ler o log, o script não manda sinal nenhum, e o check só cai depois da tolerância:
 # assim a troca da aplicação no deploy não vira alerta.
 #
-# Uso: sh vigia-de-recusas.sh, pelo timer caixa-simples-recusas.
+# Uso: sh vigia-de-recusas.sh, pelo timer fechadia-recusas.
 set -u
 
-CONFIGURACAO=${CAIXA_SIMPLES_CONFIGURACAO:-/etc/caixa-simples}
+CONFIGURACAO=${FECHADIA_CONFIGURACAO:-/etc/fechadia}
 LIMITE=50
 AQUI=$(cd "$(dirname "$0")" && pwd)
-vigia=$(sed -n 's/^CAIXA_SIMPLES_VIGIA_RECUSAS=//p' "$CONFIGURACAO/caixa-simples.env")
+vigia=$(sed -n 's/^FECHADIA_VIGIA_RECUSAS=//p' "$CONFIGURACAO/fechadia.env")
 
 if [ -z "$vigia" ]; then
-    echo "Falta CAIXA_SIMPLES_VIGIA_RECUSAS na configuração." >&2
+    echo "Falta FECHADIA_VIGIA_RECUSAS na configuração." >&2
     exit 1
 fi
 

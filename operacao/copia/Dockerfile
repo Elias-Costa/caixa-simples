@@ -6,7 +6,7 @@
 FROM postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
 # Liga a imagem publicada a este repositório no registro, e é por ele que o deploy acha as versões
 # antigas para apagar.
-LABEL org.opencontainers.image.source=https://github.com/Elias-Costa/caixa-simples
+LABEL org.opencontainers.image.source=https://github.com/Elias-Costa/fechadia
 
 # O gosu vem da imagem base só para o ponto de entrada dela, que esta imagem desliga, e nenhum
 # script daqui o chama. Apagado, ele não traz para cá os avisos de segurança da versão do Go com que

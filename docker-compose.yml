@@ -1,21 +1,21 @@
 services:
   postgres:
     image: postgres:17-alpine
-    container_name: caixa-simples-db
+    container_name: fechadia-db
     environment:
-      POSTGRES_DB: ${CAIXA_SIMPLES_DB_NAME:-caixa_simples}
-      POSTGRES_USER: ${CAIXA_SIMPLES_DB_USER:-caixa_simples}
-      POSTGRES_PASSWORD: ${CAIXA_SIMPLES_DB_PASSWORD:-caixa_simples}
+      POSTGRES_DB: ${FECHADIA_DB_NAME:-fechadia}
+      POSTGRES_USER: ${FECHADIA_DB_USER:-fechadia}
+      POSTGRES_PASSWORD: ${FECHADIA_DB_PASSWORD:-fechadia}
     ports:
-      - "${CAIXA_SIMPLES_DB_PORT:-5432}:5432"
+      - "${FECHADIA_DB_PORT:-5432}:5432"
     volumes:
-      - caixa-simples-pgdata:/var/lib/postgresql/data
+      - fechadia-pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${CAIXA_SIMPLES_DB_USER:-caixa_simples}"]
+      test: ["CMD-SHELL", "pg_isready -U ${FECHADIA_DB_USER:-fechadia}"]
       interval: 5s
       timeout: 3s
       retries: 10
     restart: unless-stopped
 
 volumes:
-  caixa-simples-pgdata:
+  fechadia-pgdata:

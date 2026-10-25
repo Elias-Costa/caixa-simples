@@ -64,7 +64,7 @@ async function estados(): Promise<Record<string, string>> {
 }
 
 beforeEach(async () => {
-  await deleteDB('caixa-simples-offline')
+  await deleteDB('fechadia-offline')
 })
 
 describe('envio da fila', () => {

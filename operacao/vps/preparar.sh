@@ -12,11 +12,11 @@ set -eu
 
 ADMIN=${1:?informe o usuário administrador, que entra por SSH com chave}
 CHAVE_DO_CI=${2:?informe o arquivo com a chave pública do CI}
-FONTE=https://github.com/Elias-Costa/caixa-simples.git
-REPOSITORIO=/opt/caixa-simples/repositorio
-ESTADO=/var/lib/caixa-simples
-CONFIGURACAO=/etc/caixa-simples
-IMPLANTAR=/usr/local/sbin/caixa-simples-implantar
+FONTE=https://github.com/Elias-Costa/fechadia.git
+REPOSITORIO=/opt/fechadia/repositorio
+ESTADO=/var/lib/fechadia
+CONFIGURACAO=/etc/fechadia
+IMPLANTAR=/usr/local/sbin/fechadia-implantar
 # O usuário da imagem da aplicação, fixo no Dockerfile: é ele que lê os certificados Pix montados.
 UID_DA_APLICACAO=10001
 
@@ -70,7 +70,7 @@ firewall-cmd --reload
 passo "SSH só por chave e sem root"
 # O sshd fica com o primeiro valor que lê, e os arquivos desta pasta são lidos em ordem alfabética:
 # o prefixo 00 vem antes de qualquer arquivo de fábrica que libere senha ou root.
-cat > /etc/ssh/sshd_config.d/00-caixa-simples.conf <<'FIM'
+cat > /etc/ssh/sshd_config.d/00-fechadia.conf <<'FIM'
 PermitRootLogin no
 PasswordAuthentication no
 KbdInteractiveAuthentication no
@@ -89,14 +89,14 @@ else
     echo "A máquina já tem swap, mantido:"
     swapon --show
 fi
-echo 'vm.swappiness = 10' > /etc/sysctl.d/90-caixa-simples.conf
+echo 'vm.swappiness = 10' > /etc/sysctl.d/90-fechadia.conf
 sysctl --quiet --system
 
 passo "Logs do sistema e dos contêineres por 7 dias, no journald"
 # Os logs podem levar o endereço de quem acessa: um arquivo por dia, apagado depois de 7, com teto
 # de espaço.
 mkdir -p /etc/systemd/journald.conf.d
-cat > /etc/systemd/journald.conf.d/caixa-simples.conf <<'FIM'
+cat > /etc/systemd/journald.conf.d/fechadia.conf <<'FIM'
 [Journal]
 Storage=persistent
 MaxRetentionSec=7day
@@ -120,7 +120,7 @@ systemctl enable docker
 systemctl restart docker
 
 passo "Repositório público, de onde o deploy lê o compose do commit"
-mkdir -p /opt/caixa-simples
+mkdir -p /opt/fechadia
 if [ ! -d "$REPOSITORIO/.git" ]; then
     git clone --quiet "$FONTE" "$REPOSITORIO"
 fi
@@ -130,11 +130,11 @@ passo "Limite de conexões simultâneas por origem às portas do proxy"
 # Copiado para fora do repositório, como o script de deploy: um commit não muda o firewall sozinho, e
 # rodar o preparo de novo aplica o limite mudado. Na volta da máquina, a unidade o carrega antes do
 # Docker.
-install -D -m 600 "$REPOSITORIO/operacao/vps/limite-de-conexoes.nft" /etc/nftables/caixa-simples-limite.nft
-install -m 644 "$REPOSITORIO/operacao/vps/systemd/caixa-simples-limite.service" /etc/systemd/system/
+install -D -m 600 "$REPOSITORIO/operacao/vps/limite-de-conexoes.nft" /etc/nftables/fechadia-limite.nft
+install -m 644 "$REPOSITORIO/operacao/vps/systemd/fechadia-limite.service" /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable caixa-simples-limite.service
-systemctl restart caixa-simples-limite.service
+systemctl enable fechadia-limite.service
+systemctl restart fechadia-limite.service
 
 passo "Usuário do deploy, cuja chave só roda o script de deploy"
 id implantacao >/dev/null 2>&1 || useradd --system --create-home --shell /bin/sh implantacao
@@ -147,15 +147,15 @@ chown implantacao:implantacao "$casa_implantacao/.ssh/authorized_keys"
 chmod 600 "$casa_implantacao/.ssh/authorized_keys"
 # O sudo apaga o ambiente, e é nele que o SHA pedido chega: só este script o recebe, e sem
 # argumento nenhum, que é o que as aspas vazias exigem.
-cat > /etc/sudoers.d/caixa-simples-implantacao <<FIM
+cat > /etc/sudoers.d/fechadia-implantacao <<FIM
 Defaults!$IMPLANTAR env_keep += "SSH_ORIGINAL_COMMAND"
 implantacao ALL=(root) NOPASSWD: $IMPLANTAR ""
 FIM
-chmod 440 /etc/sudoers.d/caixa-simples-implantacao
-visudo -cf /etc/sudoers.d/caixa-simples-implantacao >/dev/null
+chmod 440 /etc/sudoers.d/fechadia-implantacao
+visudo -cf /etc/sudoers.d/fechadia-implantacao >/dev/null
 
 passo "Configuração, gerada uma vez"
-if [ ! -f "$CONFIGURACAO/caixa-simples.env" ]; then
+if [ ! -f "$CONFIGURACAO/fechadia.env" ]; then
     sh "$REPOSITORIO/operacao/vps/criar-configuracao.sh" "$CONFIGURACAO"
 fi
 chown "$UID_DA_APLICACAO:$UID_DA_APLICACAO" "$CONFIGURACAO/efi"
@@ -164,12 +164,12 @@ chmod 700 "$CONFIGURACAO/efi"
 passo "Tarefas agendadas: a atualização agora; a cópia, o vigia e o alerta de recusas a partir do boot"
 install -m 644 "$REPOSITORIO/operacao/vps/systemd/dnf-automatic.timer.d/janela.conf" \
     /etc/systemd/system/dnf-automatic.timer.d/janela.conf
-install -m 644 "$REPOSITORIO"/operacao/vps/systemd/caixa-simples-*.service \
-    "$REPOSITORIO"/operacao/vps/systemd/caixa-simples-*.timer /etc/systemd/system/
+install -m 644 "$REPOSITORIO"/operacao/vps/systemd/fechadia-*.service \
+    "$REPOSITORIO"/operacao/vps/systemd/fechadia-*.timer /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now dnf-automatic.timer
 # Parados até o primeiro deploy, que é quando há versão para copiar, aplicação para conferir e log
 # para ler.
-systemctl enable caixa-simples-copia.timer caixa-simples-vigia.timer caixa-simples-recusas.timer
+systemctl enable fechadia-copia.timer fechadia-vigia.timer fechadia-recusas.timer
 
-echo "Pronto. Preencha $CONFIGURACAO/caixa-simples.env e siga a primeira publicação."
+echo "Pronto. Preencha $CONFIGURACAO/fechadia.env e siga a primeira publicação."

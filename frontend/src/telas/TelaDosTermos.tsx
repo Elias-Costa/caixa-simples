@@ -13,7 +13,7 @@ type Props = {
 }
 
 /**
- * Os termos de uso, com o anexo de tratamento de dados: o que o Caixa Simples faz com os dados que a
+ * Os termos de uso, com o anexo de tratamento de dados: o que o Fechadia faz com os dados que a
  * Conta registra, e o que não faz.
  *
  * Pública, a tela pode ser lida antes de contratar. Obrigatória, aparece ao administrador logo
@@ -46,10 +46,10 @@ export function TelaDosTermos({ obrigatoria = false }: Props) {
   return <main className="cadastro">
     <h1>Termos de uso</h1>
     <p className="cadastro__apoio">Versão de {mostrarData(VERSAO_DOS_TERMOS)}. Valem para a Conta, o
-      negócio que usa o Caixa Simples, e são aceitos pelo administrador dela.</p>
+      negócio que usa o Fechadia, e são aceitos pelo administrador dela.</p>
 
     <h2>O serviço</h2>
-    <p>O Caixa Simples é um sistema de caixa e vendas para pequenos negócios, oferecido por pessoa
+    <p>O Fechadia é um sistema de caixa e vendas para pequenos negócios, oferecido por pessoa
       natural. Cada negócio que o usa é uma Conta, com um administrador, que cadastra os outros
       usuários, e com operadores, que vendem e cuidam do caixa.</p>
 
@@ -68,7 +68,7 @@ export function TelaDosTermos({ obrigatoria = false }: Props) {
       cadastro nunca param. O sistema ainda não emite documento fiscal.</p>
 
     <h2>Disponibilidade</h2>
-    <p>O Caixa Simples roda numa única máquina, sem redundância, e não garante funcionamento
+    <p>O Fechadia roda numa única máquina, sem redundância, e não garante funcionamento
       contínuo. As atualizações de rotina saem de madrugada, entre 0h e 5h no horário de Brasília; uma
       correção urgente pode sair em outro horário. Sem conexão com o servidor, o aplicativo continua
       vendendo no aparelho em que já se entrou e envia o que registrou quando a conexão volta.</p>
@@ -80,7 +80,7 @@ export function TelaDosTermos({ obrigatoria = false }: Props) {
       antes os relatórios e comprovantes que quiser. As cópias de segurança não são editadas e expiram
       sozinhas, as de hora em hora em três dias e as diárias em trinta, mais até um dia para o
       armazenamento apagar o que expirou.</p>
-    <p>O Caixa Simples pode encerrar uma Conta, ou o serviço inteiro, com trinta dias de aviso ao
+    <p>O Fechadia pode encerrar uma Conta, ou o serviço inteiro, com trinta dias de aviso ao
       e-mail do administrador. Nesse prazo o acesso continua, para a Conta guardar o que quiser, e
       depois o encerramento segue como acima. O acesso da Conta só é suspenso na hora, com aviso ao
       administrador, em caso de uso ilegal ou de ataque ao serviço. O atraso da mensalidade não
@@ -96,9 +96,9 @@ export function TelaDosTermos({ obrigatoria = false }: Props) {
     <h2>Anexo: tratamento de dados pessoais</h2>
 
     <h3>Papéis</h3>
-    <p>A Conta decide sobre os dados dos seus Clientes e funcionários: é a controladora deles. O Caixa
-      Simples trata esses dados em nome da Conta, como operador, conforme as instruções destes termos.
-      O Caixa Simples decide sobre o cadastro da Conta e do seu administrador, isto é, o nome do
+    <p>A Conta decide sobre os dados dos seus Clientes e funcionários: é a controladora deles. O
+      Fechadia trata esses dados em nome da Conta, como operador, conforme as instruções destes termos.
+      O Fechadia decide sobre o cadastro da Conta e do seu administrador, isto é, o nome do
       negócio e o nome e o e-mail de acesso do administrador, que existe para executar este
       contrato.</p>
 
@@ -107,7 +107,7 @@ export function TelaDosTermos({ obrigatoria = false }: Props) {
       registrar vendas, pagamentos, fiado e recebimentos; abrir, movimentar e fechar o caixa; controlar
       o estoque; mostrar relatórios; guardar no aparelho o que é preciso para trabalhar sem rede e
       enviar ao servidor depois; remover Clientes e usuários e encerrar a Conta, a pedido dela.</p>
-    <p>O Caixa Simples não usa os dados da Conta para outra finalidade, não os vende, não os
+    <p>O Fechadia não usa os dados da Conta para outra finalidade, não os vende, não os
       compartilha além dos fornecedores abaixo, não entra em contato com os Clientes da Conta e não
       leva os dados dos Clientes e funcionários para fora do Brasil. Só acessa os dados da Conta para
       manter o serviço, investigar um incidente de segurança ou atender um pedido da própria
@@ -118,11 +118,11 @@ export function TelaDosTermos({ obrigatoria = false }: Props) {
       cópias de segurança, cifradas, e o registro das remoções ficam no armazenamento da Amazon Web
       Services no Brasil. A troca de um fornecedor que guarde dados da Conta vem numa versão nova
       destes termos. A cobrança Pix integrada usa a conta da própria Conta na Efí, contratada por ela;
-      em cada cobrança, o Caixa Simples manda à Efí só o valor, a chave Pix e a validade.</p>
+      em cada cobrança, o Fechadia manda à Efí só o valor, a chave Pix e a validade.</p>
 
     <h3>Sigilo</h3>
-    <p>O Caixa Simples mantém em sigilo os dados da Conta, e quem tiver acesso a eles em nome do Caixa
-      Simples fica sujeito ao mesmo sigilo.</p>
+    <p>O Fechadia mantém em sigilo os dados da Conta, e quem tiver acesso a eles em nome do
+      Fechadia fica sujeito ao mesmo sigilo.</p>
 
     <h3>Segurança</h3>
     <p>Em linhas gerais: cada Conta só enxerga os próprios dados, em toda consulta; a conexão é
@@ -134,7 +134,7 @@ export function TelaDosTermos({ obrigatoria = false }: Props) {
       sozinho e só aceita acesso administrativo por chave.</p>
 
     <h3>Incidente de segurança</h3>
-    <p>Se um incidente de segurança alcançar dado pessoal da Conta, o Caixa Simples avisa o
+    <p>Se um incidente de segurança alcançar dado pessoal da Conta, o Fechadia avisa o
       administrador por e-mail em até dois dias úteis de quando souber, com o que já se sabe: o que
       aconteceu, que dados e que pessoas foram alcançados, os riscos, as medidas tomadas e o que a
       Conta pode fazer. E apoia a Conta na comunicação que caiba a ela fazer.</p>
@@ -143,7 +143,7 @@ export function TelaDosTermos({ obrigatoria = false }: Props) {
     <p>Os Clientes e funcionários pedem à Conta o que quiserem sobre os próprios dados. No
       aplicativo, o administrador remove os dados de um Cliente sem saldo devedor nem comanda aberta
       e, ao inativar um usuário, apaga o acesso dele e, a pedido, o nome. Um pedido sobre dados da
-      Conta que chegar ao Caixa Simples é encaminhado a ela.</p>
+      Conta que chegar ao Fechadia é encaminhado a ela.</p>
 
     <h3>Deveres da Conta</h3>
     <p>A Conta informa os seus Clientes e funcionários sobre o uso dos dados deles e responde pelo que

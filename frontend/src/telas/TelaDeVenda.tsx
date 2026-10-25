@@ -85,7 +85,7 @@ function erroDaComanda(falha: unknown): string {
 }
 
 function tentativaPix(vendaId: string, valor: number): string {
-  const chave = `caixa-simples-pix-${vendaId}`
+  const chave = `fechadia-pix-${vendaId}`
   const guardada = sessionStorage.getItem(chave)
   if (guardada) {
     const tentativa = JSON.parse(guardada) as { id: string; valor: number }
@@ -409,7 +409,7 @@ export function TelaDeVenda() {
       if (opcaoEscolhida === 'PIX_INTEGRADO') {
         const parcela = await vendas.cobrarPix(atual.id, tentativaPix(atual.id, valor), valor)
         if (parcela.pix?.estado === 'DISPONIVEL') {
-          sessionStorage.removeItem(`caixa-simples-pix-${atual.id}`)
+          sessionStorage.removeItem(`fechadia-pix-${atual.id}`)
         }
         setValorPagamento('')
         await atualizar(atual.id)

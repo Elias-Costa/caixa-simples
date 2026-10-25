@@ -9,7 +9,7 @@
 # outras transações. Se as duas leituras diferem, houve escrita no meio, a conferência pode não
 # corresponder ao dump, e a cópia é refeita.
 #
-# A cópia que começa na hora UTC de CAIXA_SIMPLES_COPIA_HORA_DIARIA vai para o destino diário,
+# A cópia que começa na hora UTC de FECHADIA_COPIA_HORA_DIARIA vai para o destino diário,
 # guardado por mais tempo; as das outras horas vão para o destino de hora em hora. Cada destino
 # apaga o que é antigo pela regra de expiração do próprio armazenamento: este job não apaga nada.
 #
@@ -19,26 +19,26 @@
 # objeto depois e não pede permissão de acesso.
 #
 # Variáveis:
-#   CAIXA_SIMPLES_COPIA_BANCO           URL de conexão do PostgreSQL de origem
-#   CAIXA_SIMPLES_COPIA_CHAVE_PUBLICA   chave pública do age, a linha que começa com age1
-#   CAIXA_SIMPLES_COPIA_DESTINO         destino das cópias de hora em hora, no formato do rclone
+#   FECHADIA_COPIA_BANCO           URL de conexão do PostgreSQL de origem
+#   FECHADIA_COPIA_CHAVE_PUBLICA   chave pública do age, a linha que começa com age1
+#   FECHADIA_COPIA_DESTINO         destino das cópias de hora em hora, no formato do rclone
 #                                       (s3:bucket/horaria ou /copias/horaria)
-#   CAIXA_SIMPLES_COPIA_DESTINO_DIARIA  destino da cópia diária, no mesmo formato
-#   CAIXA_SIMPLES_COPIA_HORA_DIARIA     hora UTC, de 0 a 23, cuja cópia vai para o destino diário
+#   FECHADIA_COPIA_DESTINO_DIARIA  destino da cópia diária, no mesmo formato
+#   FECHADIA_COPIA_HORA_DIARIA     hora UTC, de 0 a 23, cuja cópia vai para o destino diário
 
 set -eu
 set -o pipefail
 
-: "${CAIXA_SIMPLES_COPIA_BANCO:?informe a URL de conexão do banco de origem}"
-: "${CAIXA_SIMPLES_COPIA_CHAVE_PUBLICA:?informe a chave pública do age}"
-: "${CAIXA_SIMPLES_COPIA_DESTINO:?informe o destino das cópias de hora em hora, no formato do rclone}"
-: "${CAIXA_SIMPLES_COPIA_DESTINO_DIARIA:?informe o destino da cópia diária, no formato do rclone}"
-: "${CAIXA_SIMPLES_COPIA_HORA_DIARIA:?informe a hora UTC da cópia diária, de 0 a 23}"
+: "${FECHADIA_COPIA_BANCO:?informe a URL de conexão do banco de origem}"
+: "${FECHADIA_COPIA_CHAVE_PUBLICA:?informe a chave pública do age}"
+: "${FECHADIA_COPIA_DESTINO:?informe o destino das cópias de hora em hora, no formato do rclone}"
+: "${FECHADIA_COPIA_DESTINO_DIARIA:?informe o destino da cópia diária, no formato do rclone}"
+: "${FECHADIA_COPIA_HORA_DIARIA:?informe a hora UTC da cópia diária, de 0 a 23}"
 
-case "$CAIXA_SIMPLES_COPIA_HORA_DIARIA" in
+case "$FECHADIA_COPIA_HORA_DIARIA" in
     [0-9] | 1[0-9] | 2[0-3]) ;;
     *)
-        echo "CAIXA_SIMPLES_COPIA_HORA_DIARIA deve ser uma hora UTC de 0 a 23, sem zero à esquerda." >&2
+        echo "FECHADIA_COPIA_HORA_DIARIA deve ser uma hora UTC de 0 a 23, sem zero à esquerda." >&2
         exit 1
         ;;
 esac
@@ -46,10 +46,10 @@ esac
 # O destino é decidido pela hora em que a cópia começa, e não pela hora em que termina, para que
 # uma cópia repetida por causa da conferência continue indo para o mesmo lugar.
 HORA_UTC=$(date -u +%H)
-if [ "$HORA_UTC" -eq "$CAIXA_SIMPLES_COPIA_HORA_DIARIA" ]; then
-    DESTINO=$CAIXA_SIMPLES_COPIA_DESTINO_DIARIA
+if [ "$HORA_UTC" -eq "$FECHADIA_COPIA_HORA_DIARIA" ]; then
+    DESTINO=$FECHADIA_COPIA_DESTINO_DIARIA
 else
-    DESTINO=$CAIXA_SIMPLES_COPIA_DESTINO
+    DESTINO=$FECHADIA_COPIA_DESTINO
 fi
 
 AQUI=$(dirname "$0")
@@ -58,7 +58,7 @@ TRABALHO=$(mktemp -d)
 trap 'rm -rf "$TRABALHO"' EXIT
 
 conferir() {
-    psql --no-psqlrc --quiet --dbname="$CAIXA_SIMPLES_COPIA_BANCO" --file="$AQUI/conferencia.sql"
+    psql --no-psqlrc --quiet --dbname="$FECHADIA_COPIA_BANCO" --file="$AQUI/conferencia.sql"
 }
 
 enviar() {
@@ -70,8 +70,8 @@ tentativa=1
 while :; do
     # A conferência fica em variável, e não em arquivo: é dado de negócio, e só sai daqui cifrada.
     antes=$(conferir)
-    pg_dump --format=custom --dbname="$CAIXA_SIMPLES_COPIA_BANCO" \
-        | age --recipient "$CAIXA_SIMPLES_COPIA_CHAVE_PUBLICA" > "$TRABALHO/copia.dump.age"
+    pg_dump --format=custom --dbname="$FECHADIA_COPIA_BANCO" \
+        | age --recipient "$FECHADIA_COPIA_CHAVE_PUBLICA" > "$TRABALHO/copia.dump.age"
     depois=$(conferir)
     if [ "$antes" = "$depois" ]; then
         break
@@ -85,11 +85,11 @@ while :; do
 done
 
 printf '%s\n' "$depois" \
-    | age --recipient "$CAIXA_SIMPLES_COPIA_CHAVE_PUBLICA" > "$TRABALHO/copia.conferencia.age"
+    | age --recipient "$FECHADIA_COPIA_CHAVE_PUBLICA" > "$TRABALHO/copia.conferencia.age"
 
 # O nome carrega o instante em UTC, então a ordem alfabética é a cronológica. A conferência sobe
 # por último: o par só está completo quando ela existe.
-NOME="caixa-simples-$(date -u +%Y%m%dT%H%M%SZ)"
+NOME="fechadia-$(date -u +%Y%m%dT%H%M%SZ)"
 enviar "$TRABALHO/copia.dump.age" "$DESTINO/$NOME.dump.age"
 enviar "$TRABALHO/copia.conferencia.age" "$DESTINO/$NOME.conferencia.age"
 

@@ -211,7 +211,7 @@ class EfiPixGateway implements PixGateway {
 
     private static Configuracao configuracao() {
         String sufixo = TenantContext.exigirAtual().valor().toString().replace("-", "").toUpperCase();
-        String prefixo = "CAIXA_SIMPLES_EFI_" + sufixo + "_";
+        String prefixo = "FECHADIA_EFI_" + sufixo + "_";
         String ambiente = System.getenv(prefixo + "AMBIENTE");
         if (!"HOMOLOGACAO".equals(ambiente) && !"PRODUCAO".equals(ambiente)) {
             throw new IllegalStateException("O Pix integrado não está configurado para esta Conta.");

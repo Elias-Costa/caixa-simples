@@ -18,11 +18,11 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param segredo             a chave HMAC dos códigos, com ao menos 32 bytes
  * @param mensalidadeCompleto o valor mensal do plano completo
  */
-@ConfigurationProperties(prefix = "caixa-simples.planos")
+@ConfigurationProperties(prefix = "fechadia.planos")
 public record ConfiguracaoDosPlanos(String segredo, BigDecimal mensalidadeCompleto) {
 
     public ConfiguracaoDosPlanos {
-        exigirMensalidade(mensalidadeCompleto, "CAIXA_SIMPLES_MENSALIDADE_COMPLETO");
+        exigirMensalidade(mensalidadeCompleto, "FECHADIA_MENSALIDADE_COMPLETO");
     }
 
     private static void exigirMensalidade(BigDecimal valor, String variavel) {

@@ -165,7 +165,7 @@ public class ContaService {
 
     /**
      * Corrige o nome do negócio da Conta autenticada (LGPD, art. 18, III): o nome pode identificar o
-     * dono, como num MEI, e o Caixa Simples é controlador desse cadastro.
+     * dono, como num MEI, e o Fechadia é controlador desse cadastro.
      *
      * <p>A linha fica travada como nas outras chaves, porque a gravação escreve a linha inteira, com o
      * plano e o vencimento, e não pode desfazer um código de plano aplicado ao mesmo tempo.

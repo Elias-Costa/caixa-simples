@@ -16,9 +16,9 @@ export default defineConfig({
       // manifest; a extensão webmanifest sairia como binário, porque o servidor não a conhece.
       manifestFilename: 'manifest.json',
       manifest: {
-        name: 'Caixa Simples',
-        short_name: 'Caixa Simples',
-        description: 'Caixa e ponto de venda para pequenos negócios',
+        name: 'Fechadia',
+        short_name: 'Fechadia',
+        description: 'Sistema de caixa e vendas para pequenos negócios',
         lang: 'pt-BR',
         start_url: '/',
         scope: '/',

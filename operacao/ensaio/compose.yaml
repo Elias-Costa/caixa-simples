@@ -1,5 +1,5 @@
 # Ensaio local da produção, por cima do compose da VPS, para subir o mesmo arquivo que vai ao ar e
-# rodar os mesmos scripts: operacao/vps/compose.sh com CAIXA_SIMPLES_COMPOSE_ADICIONAL apontando para
+# rodar os mesmos scripts: operacao/vps/compose.sh com FECHADIA_COMPOSE_ADICIONAL apontando para
 # este arquivo, e a configuração e o estado em pastas fora do repositório, a configuração gerada por
 # operacao/vps/criar-configuracao.sh. O passo a passo está em operacao/README.md. Os caminhos
 # relativos valem a partir da pasta do primeiro arquivo, a da VPS.
@@ -8,7 +8,7 @@
 # soma de uma, o pior caso de a vCPU da máquina ser disputada; o proxy atende em outras portas, com o
 # domínio localhost e a autoridade local dele; as cópias e as remoções vão para volumes do Docker no
 # lugar do S3; e há um PostgreSQL vazio para a restauração.
-name: caixa-simples-ensaio
+name: fechadia-ensaio
 
 services:
   proxy:
@@ -19,26 +19,26 @@ services:
 
   app:
     build: ../..
-    image: caixa-simples:ensaio
+    image: fechadia:ensaio
     cpus: 0.6
 
   banco:
     cpus: 0.3
 
   seed:
-    image: caixa-simples:ensaio
+    image: fechadia:ensaio
     cpus: 0.6
 
   redefinir-senha:
-    image: caixa-simples:ensaio
+    image: fechadia:ensaio
     cpus: 0.6
 
   suspender-conta:
-    image: caixa-simples:ensaio
+    image: fechadia:ensaio
     cpus: 0.6
 
   reativar-conta:
-    image: caixa-simples:ensaio
+    image: fechadia:ensaio
     cpus: 0.6
 
   # As cópias ficam num volume do Docker, e não numa pasta do projeto: mesmo cifradas, não têm por que
@@ -47,7 +47,7 @@ services:
     build:
       context: ..
       dockerfile: copia/Dockerfile
-    image: caixa-simples-copia:ensaio
+    image: fechadia-copia:ensaio
     cpus: 0.1
     volumes:
       - copias:/copias
@@ -58,17 +58,17 @@ services:
     environment:
       POSTGRES_DB: restaurado
       POSTGRES_USER: restaurado
-      POSTGRES_PASSWORD: ${CAIXA_SIMPLES_DB_PASSWORD:-}
+      POSTGRES_PASSWORD: ${FECHADIA_DB_PASSWORD:-}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U restaurado -d restaurado"]
       interval: 2s
       timeout: 3s
       retries: 30
 
-  # Sem -e CAIXA_SIMPLES_RESTAURAR_BANCO, restaura no banco do ensaio, como na recriação da máquina;
+  # Sem -e FECHADIA_RESTAURAR_BANCO, restaura no banco do ensaio, como na recriação da máquina;
   # com ele apontando para o restaurado, no PostgreSQL vazio ao lado.
   restaurar:
-    image: caixa-simples-copia:ensaio
+    image: fechadia-copia:ensaio
     depends_on:
       restaurado:
         condition: service_healthy
@@ -77,7 +77,7 @@ services:
       - remocoes:/remocoes:ro
 
   encerrar:
-    image: caixa-simples-copia:ensaio
+    image: fechadia-copia:ensaio
     volumes:
       - remocoes:/remocoes
 

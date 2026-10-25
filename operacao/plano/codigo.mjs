@@ -1,7 +1,7 @@
 // Gera o código de ativação de um pedido de plano, depois de o Pix ser conferido no extrato.
 //
 // Uso, com o mesmo segredo do ambiente publicado:
-//   CAIXA_SIMPLES_PLANO_SECRET=... node operacao/plano/codigo.mjs <id do pedido> <plano> <valor>
+//   FECHADIA_PLANO_SECRET=... node operacao/plano/codigo.mjs <id do pedido> <plano> <valor>
 //
 // O id e o plano vêm do texto do pedido que o administrador mandou, e o valor é o que o Pix
 // conferido no extrato cobre. O plano pode ir como no texto (Completo) ou como no sistema
@@ -25,7 +25,7 @@ const MINIMO_DE_BYTES = 32
 /** O código do pedido, em quatro grupos de quatro caracteres, como a aplicação o mostra. */
 export function codigoDoPedido(segredo, pedidoId, plano, valor) {
   if (!segredo || Buffer.byteLength(segredo, 'utf8') < MINIMO_DE_BYTES) {
-    throw new Error(`CAIXA_SIMPLES_PLANO_SECRET precisa de ao menos ${MINIMO_DE_BYTES} bytes`)
+    throw new Error(`FECHADIA_PLANO_SECRET precisa de ao menos ${MINIMO_DE_BYTES} bytes`)
   }
   const id = String(pedidoId ?? '').trim().toLowerCase()
   if (!UUID.test(id)) throw new Error(`id de pedido invalido: ${pedidoId}`)
@@ -78,10 +78,10 @@ function base32(bytes) {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [pedidoId, plano, valor] = process.argv.slice(2)
   try {
-    console.log(codigoDoPedido(process.env.CAIXA_SIMPLES_PLANO_SECRET, pedidoId, plano, valor))
+    console.log(codigoDoPedido(process.env.FECHADIA_PLANO_SECRET, pedidoId, plano, valor))
   } catch (erro) {
     console.error(erro.message)
-    console.error('Uso: CAIXA_SIMPLES_PLANO_SECRET=... node operacao/plano/codigo.mjs'
+    console.error('Uso: FECHADIA_PLANO_SECRET=... node operacao/plano/codigo.mjs'
       + ' <id do pedido> <plano> <valor>')
     process.exit(1)
   }

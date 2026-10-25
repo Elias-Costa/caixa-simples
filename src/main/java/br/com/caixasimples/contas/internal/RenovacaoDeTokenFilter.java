@@ -40,7 +40,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @Component
 class RenovacaoDeTokenFilter extends OncePerRequestFilter {
 
-    static final String HEADER = "X-Caixa-Simples-Token";
+    static final String HEADER = "X-Fechadia-Token";
 
     private final EmissorDeToken emissor;
 

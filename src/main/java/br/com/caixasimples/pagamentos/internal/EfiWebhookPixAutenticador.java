@@ -14,7 +14,7 @@ import org.springframework.stereotype.Component;
 @Component
 class EfiWebhookPixAutenticador implements WebhookPixAutenticador {
     private static final Pattern NOME = Pattern.compile(
-            "CAIXA_SIMPLES_EFI_([0-9A-F]{32})_WEBHOOK_ID");
+            "FECHADIA_EFI_([0-9A-F]{32})_WEBHOOK_ID");
     private final Map<String, String> ambiente;
 
     EfiWebhookPixAutenticador() {

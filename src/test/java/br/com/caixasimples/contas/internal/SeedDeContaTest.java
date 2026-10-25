@@ -28,11 +28,11 @@ import org.springframework.test.context.TestPropertySource;
 @ActiveProfiles("seed")
 @ExtendWith(OutputCaptureExtension.class)
 @TestPropertySource(properties = {
-        "caixa-simples.seed.nome-negocio=Cafeteria Aurora",
-        "caixa-simples.seed.tipo-negocio=cafeteria",
-        "caixa-simples.seed.nome-usuario=Ana",
-        "caixa-simples.seed.email=seed.aurora@exemplo.test",
-        "caixa-simples.seed.senha=uma senha longa de seed"
+        "fechadia.seed.nome-negocio=Cafeteria Aurora",
+        "fechadia.seed.tipo-negocio=cafeteria",
+        "fechadia.seed.nome-usuario=Ana",
+        "fechadia.seed.email=seed.aurora@exemplo.test",
+        "fechadia.seed.senha=uma senha longa de seed"
 })
 class SeedDeContaTest extends TesteDeIntegracao {
 

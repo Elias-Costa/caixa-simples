@@ -38,7 +38,7 @@ RUN java -Djarmode=tools -jar aplicacao.jar extract --layers --destination extra
 FROM eclipse-temurin:21-jre-alpine@sha256:51ab5e3302e7141ce665ca3ea85e8b5cd648eafbc3c0c90dd79d6537684e4555
 # Liga a imagem publicada a este repositório no registro, e é por ele que o deploy acha as versões
 # antigas para apagar.
-LABEL org.opencontainers.image.source=https://github.com/Elias-Costa/caixa-simples
+LABEL org.opencontainers.image.source=https://github.com/Elias-Costa/fechadia
 # Uid e gid fixos, para o servidor dar a este usuário, e só a ele, a leitura dos certificados Pix
 # montados no contêiner.
 RUN addgroup -S -g 10001 caixa && adduser -S -u 10001 -G caixa caixa
@@ -49,7 +49,7 @@ COPY --from=camadas /camadas/extraido/snapshot-dependencies/ ./
 COPY --from=camadas /camadas/extraido/application/ ./
 USER caixa
 
-# A porta de verdade vem de CAIXA_SIMPLES_PORT; esta é o padrão da aplicação.
+# A porta de verdade vem de FECHADIA_PORT; esta é o padrão da aplicação.
 EXPOSE 8080
 
 # Medido sob carga com meia CPU e com limites de 512 MB e de 1 GB: depois do GC ficam cerca de

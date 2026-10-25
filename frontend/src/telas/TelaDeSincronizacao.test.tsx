@@ -13,7 +13,7 @@ import { SincronizacaoContext, type Sincronizacao } from '../shell/sincronizacao
 import { TelaDeSincronizacao } from './TelaDeSincronizacao'
 
 afterEach(() => vi.restoreAllMocks())
-beforeEach(async () => { await deleteDB('caixa-simples-offline') })
+beforeEach(async () => { await deleteDB('fechadia-offline') })
 
 function identidade(perfil: Perfil): Identidade {
   return { usuarioId: 'u-1', nome: 'Ana', perfil, contaId: 'c-1', nomeNegocio: 'Loja da Esquina',

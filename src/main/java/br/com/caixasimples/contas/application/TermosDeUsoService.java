@@ -12,7 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * O aceite dos termos de uso pela Conta: o que o Caixa Simples faz com os dados que ela registra,
+ * O aceite dos termos de uso pela Conta: o que o Fechadia faz com os dados que ela registra,
  * aceito por um administrador antes de ela usar o aplicativo, e de novo a cada versão.
  *
  * <p>O aplicativo mostra só a tela dos termos ao administrador enquanto a Conta não aceitou a
@@ -28,7 +28,7 @@ public class TermosDeUsoService {
      * do aplicativo, que um teste confere ser igual a esta; mudá-la pede o aceite de novo a toda
      * Conta.
      */
-    public static final String VERSAO_VIGENTE = "2026-10-19";
+    public static final String VERSAO_VIGENTE = "2026-10-25";
 
     private final AceiteDosTermosRepository aceites;
     private final ContaRepository contas;

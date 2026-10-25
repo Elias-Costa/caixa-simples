@@ -1,6 +1,6 @@
 import type { Identidade } from '../sessao/Identidade'
 
-const prefixo = 'caixa-simples.intencao-online.'
+const prefixo = 'fechadia.intencao-online.'
 
 export type IntencaoOnline = { id: string; confirmar(): void }
 

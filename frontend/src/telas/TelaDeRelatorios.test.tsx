@@ -252,10 +252,10 @@ describe('relatórios na tela', () => {
   it('o erro de uma das chamadas vale para a tela inteira', async () => {
     prepararApi()
     vi.spyOn(relatorios, 'fluxoDeCaixa').mockRejectedValue(
-      new ErroDaApi(409, 'Recurso fora do plano', 'Relatórios fazem parte do plano Caixa Simples.', {}))
+      new ErroDaApi(409, 'Recurso fora do plano', 'Os relatórios fazem parte do plano Completo.', {}))
     render(<TelaDeRelatorios />)
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Relatórios fazem parte do plano Caixa Simples.')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Os relatórios fazem parte do plano Completo.')
     expect(screen.queryByRole('heading', { name: /^Faturamento/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: /^Mais vendidos/ })).not.toBeInTheDocument()
   })

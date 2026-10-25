@@ -13,11 +13,11 @@
 # e :'senha' a escreve como literal do SQL, com qualquer caractere.
 set -eu
 
-: "${CAIXA_SIMPLES_DB_PASSWORD:?informe a senha do papel da aplicação}"
+: "${FECHADIA_DB_PASSWORD:?informe a senha do papel da aplicação}"
 
 psql --no-psqlrc --set=ON_ERROR_STOP=1 --username="$POSTGRES_USER" --dbname=postgres <<'SQL'
-\getenv senha CAIXA_SIMPLES_DB_PASSWORD
-CREATE ROLE caixa_simples LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS
+\getenv senha FECHADIA_DB_PASSWORD
+CREATE ROLE fechadia LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS
     PASSWORD :'senha';
-CREATE DATABASE caixa_simples OWNER caixa_simples;
+CREATE DATABASE fechadia OWNER fechadia;
 SQL

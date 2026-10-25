@@ -23,7 +23,7 @@ export type RodadaDeEnvio = { desfecho: DesfechoDaRodada; resolvidos: number }
 
 type EnviarLote = (operacoes: OperacaoDoLote[]) => Promise<ResultadoDaOperacao[]>
 
-const TRAVA_DO_ENVIO = 'caixa-simples-envio-da-fila'
+const TRAVA_DO_ENVIO = 'fechadia-envio-da-fila'
 let rodadaNestaAba = false
 
 /**

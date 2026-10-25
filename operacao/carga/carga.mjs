@@ -1,4 +1,4 @@
-// Carga de correção contra uma instalação do Caixa Simples.
+// Carga de correção contra uma instalação do Fechadia.
 //
 // Em cada Conta, todas em paralelo: abre o caixa, faz 100 Vendas com rede (dinheiro com troco,
 // cartão e fiado, em rodízio), uma sangria e um lote de 100 gestos registrados sem rede (25 Vendas

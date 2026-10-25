@@ -2,15 +2,15 @@
 # publicada nunca ficar aberta sem ele, e depois do firewalld, que sobe primeiro. O arquivo é a cópia
 # feita pelo preparo, fora do repositório: um commit não muda o firewall sozinho.
 [Unit]
-Description=Limite de conexões por origem do Caixa Simples
+Description=Limite de conexões por origem do Fechadia
 After=firewalld.service
 Before=docker.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/usr/sbin/nft -f /etc/nftables/caixa-simples-limite.nft
-ExecStop=/usr/sbin/nft delete table inet caixa_simples_limite
+ExecStart=/usr/sbin/nft -f /etc/nftables/fechadia-limite.nft
+ExecStop=/usr/sbin/nft delete table inet fechadia_limite
 
 [Install]
 WantedBy=multi-user.target

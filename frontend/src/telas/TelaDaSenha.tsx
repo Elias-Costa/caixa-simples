@@ -135,7 +135,7 @@ const ROTULO_DO_PERFIL: Record<MeusDados['perfil'], string> = {
 }
 
 /**
- * O que o Caixa Simples guarda do cadastro de quem entrou, e a troca do e-mail de entrada (LGPD, art.
+ * O que o Fechadia guarda do cadastro de quem entrou, e a troca do e-mail de entrada (LGPD, art.
  * 18, I a III). Os dados são lidos do servidor ao abrir a tela e não ficam no aparelho: a identidade
  * guardada na sessão não leva o e-mail.
  *

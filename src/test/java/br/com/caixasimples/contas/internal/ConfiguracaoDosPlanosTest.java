@@ -30,7 +30,7 @@ class ConfiguracaoDosPlanosTest {
     void mensalidadeInvalida() {
         assertThatIllegalStateException().isThrownBy(
                 () -> new ConfiguracaoDosPlanos(SEGREDO, null))
-                .withMessageContaining("CAIXA_SIMPLES_MENSALIDADE_COMPLETO");
+                .withMessageContaining("FECHADIA_MENSALIDADE_COMPLETO");
         assertThatIllegalStateException().isThrownBy(
                 () -> new ConfiguracaoDosPlanos(SEGREDO, BigDecimal.ZERO));
         assertThatIllegalStateException().isThrownBy(

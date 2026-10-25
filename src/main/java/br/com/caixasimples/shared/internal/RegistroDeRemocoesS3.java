@@ -27,7 +27,7 @@ class RegistroDeRemocoesS3 implements RegistroDeRemocoes {
     private final String bucket;
 
     RegistroDeRemocoesS3(S3Client s3, ObjectMapper json,
-            @Value("${CAIXA_SIMPLES_REMOCOES_BUCKET:}") String bucket) {
+            @Value("${FECHADIA_REMOCOES_BUCKET:}") String bucket) {
         this.s3 = s3;
         this.json = json;
         this.bucket = bucket;

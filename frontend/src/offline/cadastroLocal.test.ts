@@ -47,7 +47,7 @@ function rede(online: boolean) {
 }
 
 beforeEach(async () => {
-  await deleteDB('caixa-simples-offline')
+  await deleteDB('fechadia-offline')
 })
 afterEach(() => vi.restoreAllMocks())
 

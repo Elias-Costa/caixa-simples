@@ -32,9 +32,9 @@ import org.springframework.web.context.WebApplicationContext;
  */
 @SpringBootTest(webEnvironment = WebEnvironment.NONE, properties = {
         "spring.profiles.active=seed",
-        "caixa-simples.seed.nome-negocio=Loja da Esquina",
-        "caixa-simples.seed.email=seed.esquina@exemplo.test",
-        "caixa-simples.seed.senha=uma senha longa de seed avulso"
+        "fechadia.seed.nome-negocio=Loja da Esquina",
+        "fechadia.seed.email=seed.esquina@exemplo.test",
+        "fechadia.seed.senha=uma senha longa de seed avulso"
 })
 @Import({TestcontainersConfiguration.class, SeedSemServidorWebTest.SemRede.class})
 class SeedSemServidorWebTest {
@@ -49,7 +49,7 @@ class SeedSemServidorWebTest {
     static void chaveDeAssinaturaDoTeste(DynamicPropertyRegistry registro) {
         byte[] aleatoria = new byte[48];
         new SecureRandom().nextBytes(aleatoria);
-        registro.add("caixa-simples.jwt.secret",
+        registro.add("fechadia.jwt.secret",
                 () -> Base64.getUrlEncoder().withoutPadding().encodeToString(aleatoria));
         TesteDeIntegracao.registrarPlanos(registro);
     }

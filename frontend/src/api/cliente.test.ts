@@ -71,7 +71,7 @@ describe('chamarApi', () => {
     const leituraOriginal = Storage.prototype.getItem
     let trocou = false
     const leitura = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(function (this: Storage, chave: string) {
-      if (!trocou && this === sessionStorage && chave === 'caixa-simples.sessao-na-aba') {
+      if (!trocou && this === sessionStorage && chave === 'fechadia.sessao-na-aba') {
         trocou = true
         gravarToken('token-conta-b')
         fixarSessaoDaAba(sessaoA)

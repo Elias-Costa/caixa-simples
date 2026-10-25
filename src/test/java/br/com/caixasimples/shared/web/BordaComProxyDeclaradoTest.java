@@ -28,7 +28,7 @@ import tools.jackson.databind.ObjectMapper;
  */
 @SpringBootTest(
         webEnvironment = WebEnvironment.RANDOM_PORT,
-        properties = "CAIXA_SIMPLES_PROXIES_CONFIAVEIS=198.51.100.0/24, 2001:db8:ffff::/48")
+        properties = "FECHADIA_PROXIES_CONFIAVEIS=198.51.100.0/24, 2001:db8:ffff::/48")
 class BordaComProxyDeclaradoTest extends TesteDeIntegracao {
 
     private static final String CLIENTE = "203.0.113.7";

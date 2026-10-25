@@ -10,7 +10,7 @@ import { Inicio } from './Inicio'
 
 afterEach(() => vi.restoreAllMocks())
 beforeEach(async () => {
-  await deleteDB('caixa-simples-offline')
+  await deleteDB('fechadia-offline')
   gravarToken(tokenComExpiracao(new Date(Date.now() + 60 * 60 * 1000)))
   gravarIdentidade({ usuarioId: 'u-1', nome: 'Ana', perfil: 'OPERADOR', contaId: 'c-1',
     nomeNegocio: 'Loja da Esquina', estoqueHabilitado: false })

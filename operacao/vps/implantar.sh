@@ -1,7 +1,7 @@
 #!/bin/sh
 # O deploy de um commit, pedido pelo CI, de madrugada ou pelo botão de urgência, pela chave SSH que
 # só pode rodar este script; o SHA é tudo o que o CI manda. O preparo o instala como root fora do
-# repositório, em /usr/local/sbin/caixa-simples-implantar, para que um commit não troque as regras
+# repositório, em /usr/local/sbin/fechadia-implantar, para que um commit não troque as regras
 # do próprio deploy; mudou este arquivo, o preparo copia de novo.
 #
 # Recusa, e o CI fica vermelho:
@@ -22,10 +22,10 @@ set -eu
 # Um cancelamento no CI derruba a conexão SSH; o deploy segue até o fim em vez de parar no meio.
 trap '' HUP
 
-REPOSITORIO=${CAIXA_SIMPLES_REPOSITORIO:-/opt/caixa-simples/repositorio}
-ESTADO=${CAIXA_SIMPLES_ESTADO:-/var/lib/caixa-simples}
+REPOSITORIO=${FECHADIA_REPOSITORIO:-/opt/fechadia/repositorio}
+ESTADO=${FECHADIA_ESTADO:-/var/lib/fechadia}
 VERSAO="$ESTADO/versao.env"
-FONTE=https://github.com/Elias-Costa/caixa-simples
+FONTE=https://github.com/Elias-Costa/fechadia
 
 # Pela chave do CI, o SHA chega como o comando que o cliente pediu; à mão, como argumento.
 sha=${SSH_ORIGINAL_COMMAND:-${1:-}}
@@ -51,7 +51,7 @@ git -C "$REPOSITORIO" merge-base --is-ancestor "$sha" origin/main 2>/dev/null \
 
 atual=""
 if [ -f "$VERSAO" ]; then
-    atual=$(sed -n 's/^CAIXA_SIMPLES_VERSAO=//p' "$VERSAO")
+    atual=$(sed -n 's/^FECHADIA_VERSAO=//p' "$VERSAO")
 fi
 # A execução da madrugada pede todo dia o último commit aprovado, que quase sempre já está no ar.
 if [ "$sha" = "$atual" ]; then
@@ -71,8 +71,8 @@ git -C "$REPOSITORIO" checkout --quiet --detach "$sha"
 compose="$REPOSITORIO/operacao/vps/compose.sh"
 
 # A versão nova vai pelo ambiente, que vale mais que o arquivo, até ela provar que sobe.
-CAIXA_SIMPLES_VERSAO=$sha
-export CAIXA_SIMPLES_VERSAO
+FECHADIA_VERSAO=$sha
+export FECHADIA_VERSAO
 echo "Baixando as imagens de $sha."
 # A imagem do banco não vem do registro: é construída aqui, pelo up logo abaixo.
 sh "$compose" --profile copia pull --quiet --ignore-buildable
@@ -83,7 +83,7 @@ sh "$compose" up --detach --wait --wait-timeout 300 \
 sh "$compose" exec -T proxy caddy reload --config /etc/caddy/Caddyfile \
     || recusar "o proxy recusou o Caddyfile de $sha e continua com o anterior."
 
-printf 'CAIXA_SIMPLES_VERSAO=%s\n' "$sha" > "$VERSAO.nova"
+printf 'FECHADIA_VERSAO=%s\n' "$sha" > "$VERSAO.nova"
 mv "$VERSAO.nova" "$VERSAO"
 
 # As imagens deste repositório que não são da versão no ar só ocupariam o disco: a volta a uma

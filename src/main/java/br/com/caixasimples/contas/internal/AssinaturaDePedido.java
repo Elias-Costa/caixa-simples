@@ -47,7 +47,7 @@ public class AssinaturaDePedido {
         byte[] bytes = segredo.getBytes(StandardCharsets.UTF_8);
         if (bytes.length < MINIMO_DE_BYTES) {
             throw new IllegalStateException(
-                    "CAIXA_SIMPLES_PLANO_SECRET precisa de ao menos " + MINIMO_DE_BYTES
+                    "FECHADIA_PLANO_SECRET precisa de ao menos " + MINIMO_DE_BYTES
                             + " bytes para HMAC-SHA256; recebeu " + bytes.length);
         }
         this.chave = new SecretKeySpec(bytes, "HmacSHA256");

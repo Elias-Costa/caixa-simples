@@ -55,9 +55,9 @@ class EfiConsultaPixTest {
     void configuracaoDoWebhookExigeIdentificadorESegredoDaMesmaConta() {
         UUID a = UUID.randomUUID();
         UUID b = UUID.randomUUID();
-        String prefixoA = "CAIXA_SIMPLES_EFI_" + a.toString().replace("-", "").toUpperCase()
+        String prefixoA = "FECHADIA_EFI_" + a.toString().replace("-", "").toUpperCase()
                 + "_WEBHOOK_";
-        String prefixoB = "CAIXA_SIMPLES_EFI_" + b.toString().replace("-", "").toUpperCase()
+        String prefixoB = "FECHADIA_EFI_" + b.toString().replace("-", "").toUpperCase()
                 + "_WEBHOOK_";
         var autenticador = new EfiWebhookPixAutenticador(Map.of(
                 prefixoA + "ID", "id-a", prefixoA + "SECRET", "segredo-a",

@@ -1,5 +1,5 @@
 # Limite de conexões simultâneas por origem às portas do proxy, carregado pela unidade
-# caixa-simples-limite antes do Docker. Sem ele, mil conexões abertas ao mesmo tempo de uma única
+# fechadia-limite antes do Docker. Sem ele, mil conexões abertas ao mesmo tempo de uma única
 # máquina esgotam a memória do proxy, que cai e tira o serviço do ar enquanto o ataque durar.
 #
 # A tabela é só deste arquivo: o firewalld e o Docker não mexem em tabela de outro dono, nem ao
@@ -8,9 +8,9 @@
 #
 # Uma Conta atrás de um só endereço cabe com folga: o navegador abre até seis conexões por servidor,
 # e o limite comporta oito aparelhos nesse teto. Muitas origens ao mesmo tempo não são contidas aqui.
-table inet caixa_simples_limite
-delete table inet caixa_simples_limite
-table inet caixa_simples_limite {
+table inet fechadia_limite
+delete table inet fechadia_limite
+table inet fechadia_limite {
 	# Uma entrada por endereço com conexão aberta; a entrada sai quando a última conexão fecha.
 	set origens {
 		type ipv4_addr

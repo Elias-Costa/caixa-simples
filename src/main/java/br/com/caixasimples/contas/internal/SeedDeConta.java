@@ -61,9 +61,9 @@ class SeedDeConta implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments argumentos) {
-        exigirPreenchido(propriedades.nomeNegocio(), "caixa-simples.seed.nome-negocio");
-        exigirPreenchido(propriedades.email(), "caixa-simples.seed.email");
-        exigirPreenchido(propriedades.senha(), "caixa-simples.seed.senha");
+        exigirPreenchido(propriedades.nomeNegocio(), "fechadia.seed.nome-negocio");
+        exigirPreenchido(propriedades.email(), "fechadia.seed.email");
+        exigirPreenchido(propriedades.senha(), "fechadia.seed.senha");
 
         if (credenciais.existsByEmailIgnoreCase(propriedades.email())) {
             log.info("Ja existe credencial; nada a fazer.");

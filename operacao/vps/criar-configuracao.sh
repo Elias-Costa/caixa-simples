@@ -4,12 +4,12 @@
 # da cópia e endereços do vigia) fica vazio, para preencher à mão. Nunca sobrescreve um arquivo que
 # já existe: trocar a senha do banco ou a chave dos tokens depois de no ar é outra operação.
 #
-# Uso: sh criar-configuracao.sh <pasta>, como root na VPS, com /etc/caixa-simples; no ensaio, uma
+# Uso: sh criar-configuracao.sh <pasta>, como root na VPS, com /etc/fechadia; no ensaio, uma
 # pasta fora do repositório.
 set -eu
 
 PASTA=${1:?informe a pasta da configuração}
-ARQUIVO="$PASTA/caixa-simples.env"
+ARQUIVO="$PASTA/fechadia.env"
 
 if [ -e "$ARQUIVO" ]; then
     echo "$ARQUIVO já existe e não foi alterado." >&2
@@ -27,51 +27,51 @@ aleatorio() {
 }
 
 cat > "$ARQUIVO" <<FIM
-# Configuração do Caixa Simples nesta máquina, lida pelo compose.sh. Só o root lê este arquivo.
+# Configuração do Fechadia nesta máquina, lida pelo compose.sh. Só o root lê este arquivo.
 # Valores sem aspas e sem espaço em volta do sinal de igual.
 
 # Domínio do aplicativo, com o registro A apontando para esta máquina.
-CAIXA_SIMPLES_DOMINIO=
+FECHADIA_DOMINIO=
 
-# Gerados aqui. A senha do banco é a do papel caixa_simples, sem superusuário, com que a aplicação, a
+# Gerados aqui. A senha do banco é a do papel fechadia, sem superusuário, com que a aplicação, a
 # cópia, a restauração e o encerramento conectam; a do superusuário vai só para o contêiner do banco,
 # e nenhum serviço conecta com ela. Trocar uma senha do banco depois exige trocá-la também dentro dele;
 # trocar a chave dos tokens obriga todo mundo a entrar de novo; trocar o segredo dos planos invalida os
 # códigos ainda não aplicados. Guarde o segredo dos planos também fora da máquina: o script do código
 # de plano precisa dele.
-CAIXA_SIMPLES_DB_PASSWORD=$(aleatorio)
-CAIXA_SIMPLES_DB_SUPERUSUARIO_PASSWORD=$(aleatorio)
-CAIXA_SIMPLES_JWT_SECRET=$(aleatorio)
-CAIXA_SIMPLES_PLANO_SECRET=$(aleatorio)
+FECHADIA_DB_PASSWORD=$(aleatorio)
+FECHADIA_DB_SUPERUSUARIO_PASSWORD=$(aleatorio)
+FECHADIA_JWT_SECRET=$(aleatorio)
+FECHADIA_PLANO_SECRET=$(aleatorio)
 
 # Mensalidade do plano completo em reais, com ponto decimal.
-CAIXA_SIMPLES_MENSALIDADE_COMPLETO=
+FECHADIA_MENSALIDADE_COMPLETO=
 
 # Registro mínimo das remoções, num bucket separado das cópias, sem expiração. A credencial só grava
 # nele; o destino, no formato s3:<bucket>/remocoes, serve ao encerramento e à restauração.
-CAIXA_SIMPLES_REMOCOES_BUCKET=
-CAIXA_SIMPLES_REMOCOES_DESTINO=
-CAIXA_SIMPLES_REMOCOES_AWS_ACCESS_KEY_ID=
-CAIXA_SIMPLES_REMOCOES_AWS_SECRET_ACCESS_KEY=
+FECHADIA_REMOCOES_BUCKET=
+FECHADIA_REMOCOES_DESTINO=
+FECHADIA_REMOCOES_AWS_ACCESS_KEY_ID=
+FECHADIA_REMOCOES_AWS_SECRET_ACCESS_KEY=
 
 # Cópia de hora em hora: a linha age1... da chave pública, os destinos s3:<bucket>/horaria e
 # s3:<bucket>/diaria e a credencial que só grava objeto novo. A hora diária é em UTC.
-CAIXA_SIMPLES_COPIA_CHAVE_PUBLICA=
-CAIXA_SIMPLES_COPIA_DESTINO=
-CAIXA_SIMPLES_COPIA_DESTINO_DIARIA=
-CAIXA_SIMPLES_COPIA_HORA_DIARIA=6
-CAIXA_SIMPLES_COPIA_AWS_ACCESS_KEY_ID=
-CAIXA_SIMPLES_COPIA_AWS_SECRET_ACCESS_KEY=
+FECHADIA_COPIA_CHAVE_PUBLICA=
+FECHADIA_COPIA_DESTINO=
+FECHADIA_COPIA_DESTINO_DIARIA=
+FECHADIA_COPIA_HORA_DIARIA=6
+FECHADIA_COPIA_AWS_ACCESS_KEY_ID=
+FECHADIA_COPIA_AWS_SECRET_ACCESS_KEY=
 
 # Endereços de sinal do vigia, um por check: o da cópia, o da máquina e o das recusas.
-CAIXA_SIMPLES_VIGIA_COPIA=
-CAIXA_SIMPLES_VIGIA_MAQUINA=
-CAIXA_SIMPLES_VIGIA_RECUSAS=
+FECHADIA_VIGIA_COPIA=
+FECHADIA_VIGIA_MAQUINA=
+FECHADIA_VIGIA_RECUSAS=
 FIM
 
 cat > "$PASTA/efi.env" <<FIM
 # Credenciais Pix por Conta que recebe Pix, lidas só pela aplicação. Para cada uma, com o UUID da
-# Conta em maiúsculas e sem hífens: CAIXA_SIMPLES_EFI_<UUID>_AMBIENTE, _CLIENT_ID, _CLIENT_SECRET,
+# Conta em maiúsculas e sem hífens: FECHADIA_EFI_<UUID>_AMBIENTE, _CLIENT_ID, _CLIENT_SECRET,
 # _CHAVE_PIX, _CERTIFICADO_P12 (/segredos/efi/<uuid da Conta>.p12, com o arquivo na pasta efi ao
 # lado), _CERTIFICADO_SENHA, _WEBHOOK_ID e _WEBHOOK_SECRET.
 FIM

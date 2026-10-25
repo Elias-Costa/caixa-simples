@@ -73,7 +73,7 @@ describe('TelaDaSenha', () => {
     entrarComo({ ...ana, senhaProvisoria: true })
     const chamadas = servidor({
       '/api/auth/senha': () => respostaJson(200, { token: 'token-novo' },
-        { 'X-Caixa-Simples-Token': 'token-da-renovacao-anterior' }),
+        { 'X-Fechadia-Token': 'token-da-renovacao-anterior' }),
     })
     abrir('/')
 

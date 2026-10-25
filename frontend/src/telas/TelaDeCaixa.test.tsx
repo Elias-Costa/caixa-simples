@@ -16,7 +16,7 @@ import { TelaDeCaixa } from './TelaDeCaixa'
 
 afterEach(() => vi.restoreAllMocks())
 beforeEach(async () => {
-  await deleteDB('caixa-simples-offline')
+  await deleteDB('fechadia-offline')
   vi.spyOn(vendas, 'daSessao').mockResolvedValue([])
   vi.spyOn(caixa, 'abertas').mockResolvedValue([])
 })
