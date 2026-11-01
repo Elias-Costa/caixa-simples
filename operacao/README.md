@@ -226,12 +226,19 @@ Na máquina, fora dos contêineres:
 | `ecrx-caixa-recusas.timer` | O [alerta de recusas](#vigia), a cada 5 minutos |
 | `dnf-automatic.timer` | As atualizações de segurança, às 7h30 UTC, dentro da janela, com reinício quando pedido |
 
-O [preparo](vps/preparar.sh) deixa o SSH só por chave e sem root, o firewall só com SSH, HTTP e HTTPS,
+O [preparo](vps/preparar.sh) deixa o SSH só por chave e sem root, o firewall só com o SSH, nas portas
+em que o `sshd` já escuta (a 22022, na VPS da HostGator), HTTP e HTTPS,
 o limite de conexões simultâneas por origem às portas do proxy, o fuso em UTC, o swap de 1 GB, e os
 logs do sistema e dos contêineres no journald, um arquivo por dia, apagados depois de 7 dias, com teto
 de 1 GB: os logs podem levar o endereço de quem acessa. O usuário
 `implantacao` existe só para o CI: a chave dele, com `restrict` e um comando forçado, só roda o script
 de deploy, e o sudo só lhe deixa rodar esse script, sem argumento, recebendo o SHA pelo ambiente.
+
+A VPS da HostGator vem com o fail2ban ligado, e o preparo o mantém: falhas seguidas de login no SSH a
+partir de uma origem a bloqueiam por alguns minutos, e no primeiro bloqueio visto todas as portas da
+máquina pararam de responder, não só a do SSH. O `ssh` tenta senha sozinho quando a chave não é aceita,
+então nenhuma prova de SSH se faz contra a VPS, e o administrador só entra com a chave já instalada.
+Para tirar uma origem do bloqueio, como root: `fail2ban-client set sshd unbanip <IP>`.
 
 **Na VPS, os comandos são como root** (`sudo -i`). Todo comando do compose passa por
 [`compose.sh`](vps/compose.sh), que acrescenta a configuração e a versão no ar:
@@ -328,7 +335,8 @@ o nome dele, e o compose da VPS as busca como `ghcr.io/elias-costa/ecrx-caixa` e
    da VPS: ele recebe os pedidos sobre dados pessoais, o encerramento e o pedido de plano, guarda o
    registro de incidentes e entra no aviso de privacidade, no lugar do Gmail do encerramento, e na tela
    do plano.
-3. **Administrador.** Como root, pelo acesso inicial, um usuário com senha, para o sudo, e com a sua
+3. **Administrador.** Como root, pelo acesso inicial (na HostGator, `ssh -p 22022 root@<IP>`, porque o
+   SSH vem na porta 22022, que o preparo mantém), um usuário com senha, para o sudo, e com a sua
    chave SSH em `~/.ssh/authorized_keys`, com dono dele e modo 600. O preparo recusa seguir sem essa
    chave, porque depois dele o SSH não aceita senha nem root.
 4. **Chave do CI**, na máquina do mantenedor, fora do repositório:
@@ -350,6 +358,7 @@ o nome dele, e o compose da VPS as busca como `ghcr.io/elias-costa/ecrx-caixa` e
 9. **GitHub**, nas configurações do repositório:
    - o segredo `VPS_CHAVE_DE_IMPLANTACAO`, com o conteúdo da chave privada do CI;
    - a variável `VPS_ENDERECO`, com o IP ou o domínio da VPS;
+   - a variável `VPS_PORTA_SSH`, com a porta do SSH da VPS, 22022 na HostGator; sem ela, o CI usa a 22;
    - a variável `VPS_CHAVE_DO_HOST`, com a chave pública do host no formato
      `ssh-ed25519 AAAA...`, lida na própria VPS em `/etc/ssh/ssh_host_ed25519_key.pub`, sem o
      comentário do fim;
@@ -690,7 +699,7 @@ chown <administrador> "$arquivo"
 ```
 
 São os logs da máquina inteira, com os acessos por SSH, e não só os da aplicação. Do seu computador,
-`scp <administrador>@<VPS>:incidente-*.log.age .`, e depois, na VPS, `rm "$arquivo"`. Para ler,
+`scp -P <porta do SSH> <administrador>@<VPS>:incidente-*.log.age .`, e depois, na VPS, `rm "$arquivo"`. Para ler,
 `age -d -i <arquivo da chave privada> <arquivo>`, ou pela imagem da cópia, como a chave foi gerada. O
 arquivo fica com você até o incidente fechar, ou, se ele foi comunicado à ANPD, até o processo dela
 terminar, e então é apagado; o registro do incidente guarda o resumo.
@@ -1103,7 +1112,8 @@ perda fica no que foi escrito depois dela, no máximo uma hora.
    ADMIN, a menos que o trecho do log tenha sido preservado fora dela.
 4. Apontar o registro A do domínio para o IP novo; o proxy obtém o certificado assim que o domínio
    chegar à máquina.
-5. No GitHub, atualizar `VPS_ENDERECO` e `VPS_CHAVE_DO_HOST`.
+5. No GitHub, atualizar `VPS_ENDERECO`, `VPS_CHAVE_DO_HOST` e, se a porta do SSH mudou,
+   `VPS_PORTA_SSH`.
 6. `systemctl start ecrx-caixa-copia.timer ecrx-caixa-vigia.timer ecrx-caixa-recusas.timer`,
    e apagar a chave privada da máquina.
 

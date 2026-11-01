@@ -61,11 +61,30 @@ sed -i \
     /etc/dnf/automatic.conf
 mkdir -p /etc/systemd/system/dnf-automatic.timer.d
 
-passo "Firewall: só SSH, HTTP e HTTPS"
+passo "Firewall: só o SSH, nas portas em que o sshd escuta, HTTP e HTTPS"
+# A porta do SSH é a que o sshd já usa, lida da configuração efetiva dele: a HostGator entrega a
+# máquina com a 22022, e liberar só a 22 deixaria o administrador e o deploy fora depois do preparo.
+PORTAS_SSH=$(sshd -T | awk '$1 == "port" {printf "%s ", $2}')
+if [ -z "$PORTAS_SSH" ]; then
+    echo "Não deu para ler a porta do sshd; o firewall ficaria sem o SSH." >&2
+    exit 1
+fi
 systemctl enable --now firewalld
-firewall-cmd --permanent --zone=public --add-service=ssh --add-service=http --add-service=https
+firewall-cmd --permanent --zone=public --add-service=http --add-service=https
+for porta in $PORTAS_SSH; do
+    if [ "$porta" = 22 ]; then
+        firewall-cmd --permanent --zone=public --add-service=ssh
+    else
+        firewall-cmd --permanent --zone=public --add-port="$porta/tcp"
+    fi
+done
+case " $PORTAS_SSH" in
+    *" 22 "*) ;;
+    *) firewall-cmd --permanent --zone=public --remove-service=ssh >/dev/null 2>&1 || true ;;
+esac
 firewall-cmd --permanent --zone=public --remove-service=cockpit >/dev/null 2>&1 || true
 firewall-cmd --reload
+echo "SSH liberado no firewall nas portas: $PORTAS_SSH"
 
 passo "SSH só por chave e sem root"
 # O sshd fica com o primeiro valor que lê, e os arquivos desta pasta são lidos em ordem alfabética:

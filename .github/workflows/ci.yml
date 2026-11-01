@@ -143,6 +143,7 @@ jobs:
           CHAVE: ${{ secrets.VPS_CHAVE_DE_IMPLANTACAO }}
           CHAVE_DO_HOST: ${{ vars.VPS_CHAVE_DO_HOST }}
           ENDERECO: ${{ vars.VPS_ENDERECO }}
+          PORTA: ${{ vars.VPS_PORTA_SSH }}
           SHA: ${{ steps.aprovado.outputs.sha }}
         run: |
           if [ -z "$CHAVE" ] || [ -z "$CHAVE_DO_HOST" ] || [ -z "$ENDERECO" ]; then
@@ -152,7 +153,14 @@ jobs:
           install -d -m 700 ~/.ssh
           printf '%s\n' "$CHAVE" > ~/.ssh/implantacao
           chmod 600 ~/.ssh/implantacao
+          # Sem a variável da porta, o SSH é o da porta 22.
+          porta=${PORTA:-22}
           # A chave do host fica fixada: um servidor que se passasse pela VPS não receberia a conexão.
-          printf '%s %s\n' "$ENDERECO" "$CHAVE_DO_HOST" > ~/.ssh/known_hosts
-          ssh -i ~/.ssh/implantacao -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+          # Fora da porta 22, o ssh procura a chave pelo endereço com a porta, entre colchetes.
+          if [ "$porta" = 22 ]; then
+            printf '%s %s\n' "$ENDERECO" "$CHAVE_DO_HOST" > ~/.ssh/known_hosts
+          else
+            printf '[%s]:%s %s\n' "$ENDERECO" "$porta" "$CHAVE_DO_HOST" > ~/.ssh/known_hosts
+          fi
+          ssh -i ~/.ssh/implantacao -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -p "$porta" \
             "implantacao@$ENDERECO" "$SHA"
