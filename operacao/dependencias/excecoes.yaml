@@ -27,21 +27,21 @@ vulnerabilities:
     statement: >-
       Negação de serviço por quadros SETTINGS do HTTP/2. O proxy da VPS atende só HTTP/1.1 até sair
       o build com o Go corrigido, e fala com a aplicação também por HTTP/1.1.
-    expired_at: 2026-11-09
+    expired_at: 2026-12-01
   - id: CVE-2026-78667
     purls:
       - pkg:golang/stdlib@v1.26.8
     statement: >-
       Negação de serviço por cabeçalho Range ao servir arquivo, em FileServer, ServeContent e
       ServeFile. O proxy da VPS só encaminha à aplicação e não serve arquivo nenhum.
-    expired_at: 2026-11-09
+    expired_at: 2026-12-01
   - id: CVE-2026-97031
     purls:
       - pkg:golang/stdlib@v1.26.8
     statement: >-
       Consumo de memória ao processar o ECH, a extensão que cifra o início do TLS. O proxy da VPS não
       tem ECH configurado, e sem as chaves dele o servidor não processa essa extensão.
-    expired_at: 2026-11-09
+    expired_at: 2026-12-01
   - id: CVE-2026-111943
     purls:
       - pkg:golang/stdlib@v1.26.8
@@ -53,11 +53,24 @@ vulnerabilities:
       impedir a renovação ou fazer o proxy servir um certificado recusado pelo navegador: a chave do
       certificado e a da conta no emissor nascem e ficam na máquina, e nenhum dado de quem acessa passa
       por essa verificação.
-    expired_at: 2026-11-24
+    expired_at: 2026-12-01
 
-  # A base Alpine do mesmo proxy traz a brotli 1.2.0. A correção está na 1.2.1, que o Alpine já
-  # publicou, e ainda não saiu imagem do proxy com ela. Saindo, troca-se o digest no compose da VPS e
-  # esta exceção sai.
+  # O mesmo binário traz o go-jose 4.1.5 e o 3.0.5. A correção está no 4.1.6, e a versão 3 ainda não
+  # tem nenhuma. Saindo um build do proxy com o go-jose corrigido, troca-se o digest no compose da VPS
+  # e esta exceção sai.
+  - id: CVE-2026-116587
+    purls:
+      - pkg:golang/github.com/go-jose/go-jose/v4@v4.1.5
+      - pkg:golang/github.com/go-jose/go-jose/v3@v3.0.5
+    statement: >-
+      Consumo de CPU ao validar os números RSA de uma chave JWK recebida de fora. O proxy só leria uma
+      chave dessas como servidor ACME, que a configuração dele não liga; como cliente do emissor do
+      certificado, assina os pedidos com a própria chave e não lê a chave de ninguém.
+    expired_at: 2026-12-01
+
+  # A base Alpine do mesmo proxy traz a brotli 1.2.0 e o curl 8.22.0. As correções estão na brotli
+  # 1.2.1 e no curl 8.23.0, que o Alpine já publicou, e ainda não saiu imagem do proxy com elas.
+  # Saindo, troca-se o digest no compose da VPS e estas exceções saem.
   - id: CVE-2026-111497
     purls:
       - pkg:apk/alpine/brotli-libs@1.2.0-r0?arch=x86_64&distro=3.23.6
@@ -66,13 +79,21 @@ vulnerabilities:
       biblioteca, e o curl nunca é chamado: o proxy não tem verificação de saúde, e a implantação só
       recarrega a configuração dele. O proxy é um binário estático, que não carrega a biblioteca, e o
       que chega pela rede não passa por ela.
-    expired_at: 2026-11-24
+    expired_at: 2026-12-01
+  - id: CVE-2026-92392
+    purls:
+      - pkg:apk/alpine/curl@8.22.0-r0?arch=x86_64&distro=3.23.6
+      - pkg:apk/alpine/libcurl@8.22.0-r0?arch=x86_64&distro=3.23.6
+    statement: >-
+      Uso de memória já liberada quando o servidor interrompe, por HTTP/2, um envio feito pelo curl. O
+      curl nunca é chamado na imagem do proxy: o proxy não tem verificação de saúde, e a implantação
+      só recarrega a configuração dele. O proxy é um binário estático, que não carrega a biblioteca.
+    expired_at: 2026-12-01
 
   # A base da imagem da aplicação, o eclipse-temurin 21 sobre o Alpine 3.24.2, traz a libexpat 2.8.5 e
   # a brotli 1.2.0. As correções estão na libexpat 2.9.0 e na brotli 1.2.1. A base nova da mesma tag, de
-  # 2026-10-22, traz só a libexpat corrigida e entra depois de 7 dias publicada, como toda troca de
-  # base. Trocado o digest no Dockerfile, sai a exceção de cada correção que a base nova trouxer, e a
-  # que ficar passa ao purl da base nova, que leva a versão do Alpine.
+  # 2026-10-29, traz as duas corrigidas e entra depois de 7 dias publicada, como toda troca de base.
+  # Trocado o digest no Dockerfile, as duas exceções saem.
   - id: CVE-2026-77214
     purls:
       - pkg:apk/alpine/libexpat@2.8.5-r0?arch=x86_64&distro=3.24.2
