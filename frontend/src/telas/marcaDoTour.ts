@@ -5,7 +5,7 @@ import type { Identidade } from '../sessao/Identidade'
  * primeira vez. O prefixo é o do aplicativo, e Apagar os dados deste aparelho a apaga junto.
  */
 function chaveDoTour(identidade: Pick<Identidade, 'contaId' | 'usuarioId'>): string {
-  return `fechadia.tour-visto.${identidade.contaId}.${identidade.usuarioId}`
+  return `ecrx-caixa.tour-visto.${identidade.contaId}.${identidade.usuarioId}`
 }
 
 /** Sem acesso ao armazenamento, o tour conta como visto: aparecer em toda tela seria pior. */

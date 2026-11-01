@@ -46,7 +46,7 @@ function abrir(caminho: string) {
 }
 
 beforeEach(async () => {
-  await deleteDB('fechadia-offline')
+  await deleteDB('ecrx-caixa-offline')
 })
 
 afterEach(() => vi.restoreAllMocks())

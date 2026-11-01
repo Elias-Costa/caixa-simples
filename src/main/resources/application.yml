@@ -1,6 +1,6 @@
 spring:
   application:
-    name: fechadia
+    name: ecrx-caixa
 
   # Arquitetura §8: carga I/O-bound (banco, chamadas a PSP), nao CPU-bound.
   threads:
@@ -8,9 +8,9 @@ spring:
       enabled: true
 
   datasource:
-    url: ${FECHADIA_DB_URL:jdbc:postgresql://localhost:5432/fechadia}
-    username: ${FECHADIA_DB_USER:fechadia}
-    password: ${FECHADIA_DB_PASSWORD:fechadia}
+    url: ${ECRX_CAIXA_DB_URL:jdbc:postgresql://localhost:5432/ecrx_caixa}
+    username: ${ECRX_CAIXA_DB_USER:ecrx_caixa}
+    password: ${ECRX_CAIXA_DB_PASSWORD:ecrx_caixa}
 
   jpa:
     # O schema pertence ao Flyway. O Hibernate so confere se bate.
@@ -44,25 +44,25 @@ spring:
     moments:
       enabled: false
 
-fechadia:
+ecrx-caixa:
   jwt:
     # Sem valor padrão: uma chave fixa no código seria compartilhada por todas as instalações.
     # A aplicação não sobe sem esta variável.
     # Precisa de ao menos 32 bytes (HMAC-SHA256).
-    secret: ${FECHADIA_JWT_SECRET}
+    secret: ${ECRX_CAIXA_JWT_SECRET}
     # 24h contadas do último contato com o servidor: toda resposta autenticada devolve um token novo.
     # Essa é a janela de resistência offline exigida pelo RNF01.
     validade: 24h
   planos:
     # Assina o código que ativa cada pedido de plano. O mantenedor usa o mesmo valor no script que
     # gera o código. Sem valor padrão, como a chave do token, e com ao menos 32 bytes.
-    segredo: ${FECHADIA_PLANO_SECRET}
+    segredo: ${ECRX_CAIXA_PLANO_SECRET}
     # Mensalidade do plano completo em reais, com ponto decimal. Sem valor padrão: preço não mora
     # no repositório, e a aplicação não sobe sem ela.
-    mensalidade-completo: ${FECHADIA_MENSALIDADE_COMPLETO}
+    mensalidade-completo: ${ECRX_CAIXA_MENSALIDADE_COMPLETO}
 
 server:
-  port: ${FECHADIA_PORT:8080}
+  port: ${ECRX_CAIXA_PORT:8080}
   error:
     include-message: never
     include-stacktrace: never
@@ -82,7 +82,7 @@ server:
       # público entre os dois, a variável o declara sem novo build, em CIDR separado por vírgula
       # e com a barra mesmo para um endereço só, porque sem nenhuma barra o Tomcat lê o valor como
       # expressão regular.
-      trusted-proxies: ${FECHADIA_PROXIES_CONFIAVEIS:}
+      trusted-proxies: ${ECRX_CAIXA_PROXIES_CONFIAVEIS:}
 
 management:
   # Só o health sai por HTTP, e a lista é explícita para que nenhum outro endpoint do Actuator

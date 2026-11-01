@@ -36,7 +36,7 @@ describe('TelaDeLogin', () => {
     vi.stubGlobal('fetch', vi.fn())
     renderizarLogin()
 
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Fechadia')
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('ECRX Caixa')
     expect(screen.getByText('Sistema de caixa e vendas')).toBeInTheDocument()
   })
 

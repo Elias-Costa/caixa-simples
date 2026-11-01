@@ -102,6 +102,6 @@ class AssinaturaDePedidoTest {
     void segredoCurto() {
         assertThatIllegalStateException()
                 .isThrownBy(() -> new AssinaturaDePedido("x".repeat(31)))
-                .withMessageContaining("FECHADIA_PLANO_SECRET");
+                .withMessageContaining("ECRX_CAIXA_PLANO_SECRET");
     }
 }

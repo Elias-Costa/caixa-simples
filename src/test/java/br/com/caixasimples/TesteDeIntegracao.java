@@ -43,7 +43,7 @@ public abstract class TesteDeIntegracao {
     static void chaveDeAssinaturaDoTeste(DynamicPropertyRegistry registro) {
         // Gerado uma vez: o fornecedor é consultado a cada leitura da propriedade.
         String chave = segredoAleatorio();
-        registro.add("fechadia.jwt.secret", () -> chave);
+        registro.add("ecrx-caixa.jwt.secret", () -> chave);
         registrarPlanos(registro);
     }
 
@@ -53,8 +53,8 @@ public abstract class TesteDeIntegracao {
      */
     public static void registrarPlanos(DynamicPropertyRegistry registro) {
         String segredo = segredoAleatorio();
-        registro.add("fechadia.planos.segredo", () -> segredo);
-        registro.add("fechadia.planos.mensalidade-completo", () -> MENSALIDADE_COMPLETO);
+        registro.add("ecrx-caixa.planos.segredo", () -> segredo);
+        registro.add("ecrx-caixa.planos.mensalidade-completo", () -> MENSALIDADE_COMPLETO);
     }
 
     private static String segredoAleatorio() {

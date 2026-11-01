@@ -5,22 +5,22 @@
 set -eu
 set -o pipefail
 
-: "${FECHADIA_REMOCOES_DESTINO:?informe o destino externo das remoções}"
-: "${FECHADIA_RESTAURAR_BANCO:?informe o banco restaurado}"
+: "${ECRX_CAIXA_REMOCOES_DESTINO:?informe o destino externo das remoções}"
+: "${ECRX_CAIXA_RESTAURAR_BANCO:?informe o banco restaurado}"
 
 AQUI=$(dirname "$0")
 COLUNA=$(psql --no-psqlrc --quiet --tuples-only --no-align \
-    --dbname="$FECHADIA_RESTAURAR_BANCO" \
+    --dbname="$ECRX_CAIXA_RESTAURAR_BANCO" \
     --command="SELECT count(*) FROM information_schema.columns WHERE table_name = 'cliente' AND column_name = 'removido_em'")
 if [ "$COLUNA" != 1 ]; then
     echo "Aplique as migrations no banco isolado antes de reaplicar as remoções." >&2
     exit 1
 fi
 
-rclone lsf --recursive --files-only --include '*.json' "$FECHADIA_REMOCOES_DESTINO" \
+rclone lsf --recursive --files-only --include '*.json' "$ECRX_CAIXA_REMOCOES_DESTINO" \
     | while IFS= read -r chave; do
         [ -n "$chave" ] || continue
-        registro=$(rclone cat "$FECHADIA_REMOCOES_DESTINO/$chave")
+        registro=$(rclone cat "$ECRX_CAIXA_REMOCOES_DESTINO/$chave")
         conta_id=$(printf '%s' "$registro" | jq -er '.contaId | strings')
         tipo=$(printf '%s' "$registro" | jq -er '.tipo | strings')
         registro_id=$(printf '%s' "$registro" | jq -er '.registroId | strings')
@@ -32,7 +32,7 @@ rclone lsf --recursive --files-only --include '*.json' "$FECHADIA_REMOCOES_DESTI
             CONTA) arquivo="$AQUI/../exclusao/apagar-conta.sql" ;;
             *) echo "Tipo de remoção desconhecido." >&2; exit 1 ;;
         esac
-        psql --no-psqlrc --quiet --dbname="$FECHADIA_RESTAURAR_BANCO" \
+        psql --no-psqlrc --quiet --dbname="$ECRX_CAIXA_RESTAURAR_BANCO" \
             --set=conta_id="$conta_id" --set=registro_id="$registro_id" \
             --set=instante="$instante" --file="$arquivo"
     done

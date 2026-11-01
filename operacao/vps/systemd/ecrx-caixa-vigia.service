@@ -1,10 +1,10 @@
 # O sinal de vida da máquina para o vigia, depois de conferir a aplicação pelo domínio.
 [Unit]
-Description=Sinal de vida do Fechadia
+Description=Sinal de vida do ECRX Caixa
 Requires=docker.service
 After=docker.service
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh /opt/fechadia/repositorio/operacao/vps/vigia.sh
+ExecStart=/bin/sh /opt/ecrx-caixa/repositorio/operacao/vps/vigia.sh
 TimeoutStartSec=2min

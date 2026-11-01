@@ -26,7 +26,7 @@ async function gestoNovo() {
 
 afterEach(() => vi.restoreAllMocks())
 beforeEach(async () => {
-  await deleteDB('fechadia-offline')
+  await deleteDB('ecrx-caixa-offline')
   gravarToken(tokenComExpiracao(new Date(Date.now() + 60 * 60 * 1000)))
   gravarIdentidade(ana)
 })

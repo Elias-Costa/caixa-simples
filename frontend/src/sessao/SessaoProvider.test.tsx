@@ -65,8 +65,8 @@ describe('SessaoProvider', () => {
   })
 
   it('preserva a entrada offline de quem guardou token antes das chaves por sessão', async () => {
-    localStorage.setItem('fechadia.token', tokenComExpiracao(daquiAUmDia()))
-    localStorage.setItem('fechadia.identidade', JSON.stringify(guardada))
+    localStorage.setItem('ecrx-caixa.token', tokenComExpiracao(daquiAUmDia()))
+    localStorage.setItem('ecrx-caixa.identidade', JSON.stringify(guardada))
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
 
     render(<SessaoProvider><QuemEsta /></SessaoProvider>)
@@ -168,7 +168,7 @@ describe('SessaoProvider', () => {
     expect(await screen.findByText('Bia em Mercado B')).toBeInTheDocument()
 
     responderA(new Response(JSON.stringify(guardada), {
-      status: 200, headers: { 'X-Fechadia-Token': tokenA },
+      status: 200, headers: { 'X-Ecrx-Caixa-Token': tokenA },
     }))
     await waitFor(() => expect(lerToken()).toBe(tokenB))
     expect(screen.getByText('Bia em Mercado B')).toBeInTheDocument()

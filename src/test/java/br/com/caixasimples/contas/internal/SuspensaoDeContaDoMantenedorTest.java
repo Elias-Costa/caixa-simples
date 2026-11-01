@@ -105,7 +105,7 @@ class SuspensaoDeContaDoMantenedorTest extends TesteDeIntegracao {
 
         assertThatThrownBy(() -> suspender(" "))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("Informe fechadia.suspensao.conta");
+                .hasMessageContaining("Informe ecrx-caixa.suspensao.conta");
         assertThatThrownBy(() -> suspender("cafeteria-aurora"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("não é o id de uma Conta");
@@ -115,7 +115,7 @@ class SuspensaoDeContaDoMantenedorTest extends TesteDeIntegracao {
 
         assertThatThrownBy(() -> reativar(null))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("Informe fechadia.suspensao.conta");
+                .hasMessageContaining("Informe ecrx-caixa.suspensao.conta");
         assertThatThrownBy(() -> reativar("cafeteria-aurora"))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> reativar(nenhuma))

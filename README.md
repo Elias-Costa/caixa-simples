@@ -1,4 +1,4 @@
-# Fechadia
+# ECRX Caixa
 
 Sistema de caixa e ponto de venda multi-tenant para pequenos negócios, construído como monolito
 modular em Java com Spring Boot e Spring Modulith.
@@ -24,7 +24,7 @@ modular em Java com Spring Boot e Spring Modulith.
 
 ## Sumário
 
-- [Fechadia](#fechadia)
+- [ECRX Caixa](#ecrx-caixa)
   - [Sumário](#sumário)
   - [Sobre o projeto](#sobre-o-projeto)
   - [Estado atual](#estado-atual)
@@ -174,7 +174,7 @@ aparelho, com quem é compartilhado, os registros de segurança como tratamento 
 interesse, e a quem pedir cada direito do art. 18 da LGPD, com o prazo. O ADMIN pede o encerramento
 da Conta pelo canal indicado nele. Os
 [termos de uso](frontend/src/telas/TelaDosTermos.tsx), com o anexo de tratamento de dados, também são
-públicos: dizem o que o Fechadia faz com os dados que a Conta registra, onde eles ficam, o aviso
+públicos: dizem o que o ECRX Caixa faz com os dados que a Conta registra, onde eles ficam, o aviso
 de incidente e o fim do contrato, e o ADMIN os aceita antes de usar o aplicativo. O procedimento em
 [`operacao/exclusao/`](operacao/exclusao/) remove as linhas da Conta e exige a retirada dos segredos
 da Conta; o registro externo das remoções é reaplicado quando uma cópia do banco é restaurada.
@@ -323,7 +323,7 @@ verificada dentro de cada caso de uso e não por rota: a camada `web` de cada m�
 com a tela do PWA que vai consumi-la, para o contrato HTTP ser exercitado pela interface.
 
 **Configuração do webhook Pix (RF25, RNF05).** Cada Conta recebedora usa as variáveis de
-credencial Efí com prefixo `FECHADIA_EFI_<UUID_DA_CONTA_SEM_HIFENS>_`, mais `WEBHOOK_ID`
+credencial Efí com prefixo `ECRX_CAIXA_EFI_<UUID_DA_CONTA_SEM_HIFENS>_`, mais `WEBHOOK_ID`
 (identificador opaco exclusivo) e `WEBHOOK_SECRET` (valor aleatório forte). Registre na Efí uma
 URL HTTPS no formato `/api/webhooks/pix/{identificador}/pix?hmac={segredo}&ignorar=`; `ignorar=`
 evita que o PSP acrescente outro `/pix`. Nenhum desses valores é enviado pelo navegador. O

@@ -129,7 +129,7 @@ async function vendaEmDinheiroEnviada() {
   return { sessao, remoto, local, vendasLocais, vendaId }
 }
 
-beforeEach(async () => { await deleteDB('fechadia-offline') })
+beforeEach(async () => { await deleteDB('ecrx-caixa-offline') })
 afterEach(() => vi.restoreAllMocks())
 
 describe('SessaoCaixa local', () => {

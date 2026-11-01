@@ -51,7 +51,7 @@ async function vendaConcluida(vendaId: string) {
 }
 
 beforeEach(async () => {
-  await deleteDB('fechadia-offline')
+  await deleteDB('ecrx-caixa-offline')
 })
 
 describe('fila local de gestos', () => {
@@ -151,7 +151,7 @@ describe('fila local de gestos', () => {
   })
 
   it('atualiza o banco local existente sem perder gestos ao criar os retratos', async () => {
-    const antigo = await openDB('fechadia-offline', 1, {
+    const antigo = await openDB('ecrx-caixa-offline', 1, {
       upgrade(banco) {
         const gestos = banco.createObjectStore('gestos', { keyPath: 'chave' })
         gestos.createIndex('porDono', 'dono')
@@ -311,7 +311,7 @@ describe('fila local de gestos', () => {
   })
 
   it('lê como anterior a todo resultado o retrato gravado antes da ordem da leitura', async () => {
-    const antigo = await openDB('fechadia-offline', 2, {
+    const antigo = await openDB('ecrx-caixa-offline', 2, {
       upgrade(banco) {
         const gestos = banco.createObjectStore('gestos', { keyPath: 'chave' })
         gestos.createIndex('porDono', 'dono')
@@ -369,14 +369,14 @@ describe('dados do aparelho', () => {
     await enfileirarGesto({ tipo: 'cliente.criar', registroId: registro('31'),
       payload: { nome: 'Joana Lima', contato: 'joana@exemplo.test' } })
     limparSessao()
-    localStorage.setItem('fechadia.token.de-uma-sessao-antiga', 'token')
-    sessionStorage.setItem('fechadia.intencao-online.conta-a.ana.resumo', 'id')
+    localStorage.setItem('ecrx-caixa.token.de-uma-sessao-antiga', 'token')
+    sessionStorage.setItem('ecrx-caixa.intencao-online.conta-a.ana.resumo', 'id')
     localStorage.setItem('outro-aplicativo', 'fica')
 
     await apagarDadosDoAparelho()
 
-    expect(localStorage.getItem('fechadia.token.de-uma-sessao-antiga')).toBeNull()
-    expect(sessionStorage.getItem('fechadia.intencao-online.conta-a.ana.resumo')).toBeNull()
+    expect(localStorage.getItem('ecrx-caixa.token.de-uma-sessao-antiga')).toBeNull()
+    expect(sessionStorage.getItem('ecrx-caixa.intencao-online.conta-a.ana.resumo')).toBeNull()
     expect(localStorage.getItem('outro-aplicativo')).toBe('fica')
     expect(await contarGestosSemResultado()).toBe(0)
     entrar(ana)

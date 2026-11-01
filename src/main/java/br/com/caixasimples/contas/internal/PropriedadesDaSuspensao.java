@@ -10,7 +10,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * <p>É o id, e não o nome do negócio nem o e-mail de um administrador: o id é o que os eventos de
  * segurança do log levam, e não identifica ninguém fora do banco.
  */
-@ConfigurationProperties(prefix = "fechadia.suspensao")
+@ConfigurationProperties(prefix = "ecrx-caixa.suspensao")
 record PropriedadesDaSuspensao(String conta) {
 
     /**
@@ -21,7 +21,7 @@ record PropriedadesDaSuspensao(String conta) {
      */
     ContaId contaId() {
         if (conta == null || conta.isBlank()) {
-            throw new IllegalStateException("Informe fechadia.suspensao.conta");
+            throw new IllegalStateException("Informe ecrx-caixa.suspensao.conta");
         }
         try {
             return ContaId.de(conta.trim());

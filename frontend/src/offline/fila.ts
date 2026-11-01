@@ -88,7 +88,7 @@ interface BancoDaFila extends DBSchema {
   }
 }
 
-const NOME_DO_BANCO = 'fechadia-offline'
+const NOME_DO_BANCO = 'ecrx-caixa-offline'
 /**
  * Avança a cada resultado gravado e a cada marca de caixa desatualizado. A leitura do servidor
  * durante a qual ele avançou não é guardada, porque não se sabe se já contém o que mudou.

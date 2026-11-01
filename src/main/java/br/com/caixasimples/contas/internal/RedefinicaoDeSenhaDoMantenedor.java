@@ -59,8 +59,8 @@ class RedefinicaoDeSenhaDoMantenedor implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments argumentos) {
-        exigirPreenchido(propriedades.email(), "fechadia.redefinicao.email");
-        exigirPreenchido(propriedades.senha(), "fechadia.redefinicao.senha");
+        exigirPreenchido(propriedades.email(), "ecrx-caixa.redefinicao.email");
+        exigirPreenchido(propriedades.senha(), "ecrx-caixa.redefinicao.senha");
 
         Credencial credencial = credenciais.findByEmailIgnoreCase(propriedades.email().trim())
                 .orElseThrow(() -> new IllegalStateException("Nenhum login com esse e-mail"));

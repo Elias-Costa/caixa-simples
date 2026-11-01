@@ -36,7 +36,7 @@ sem corpo.
    [Avisos de segurança das dependências](#avisos-de-segurança-das-dependências)).
 2. Com os dois jobs verdes, e com a variável do repositório `PUBLICAR_NA_VPS` valendo `true`, o job
    `publicar` constrói as duas imagens do commit e as publica no registro de contêineres do GitHub,
-   em `ghcr.io/elias-costa/fechadia` e `ghcr.io/elias-costa/fechadia-copia`, com o SHA como
+   em `ghcr.io/elias-costa/ecrx-caixa` e `ghcr.io/elias-costa/ecrx-caixa-copia`, com o SHA como
    tag, pelo token da própria execução. Nada vai ao ar aqui. Sem a variável, o CI testa e não publica.
 3. Toda madrugada, às 3h UTC (0h no fuso America/Bahia, o começo da janela de manutenção), o job
    `implantar` pega o último commit do `main` cuja execução de push passou inteira e pede à VPS, por
@@ -73,7 +73,7 @@ Actions, ou até o botão. A agenda também pode atrasar; um commit de migration
 das 8h UTC vai na noite seguinte, porque continua sendo o último aprovado.
 
 **Voltar atrás.** O caminho é reverter o commit no `main`: o push verde publica as imagens, e a
-madrugada ou o botão põe no ar. Na VPS, como root, `/usr/local/sbin/fechadia-implantar <SHA>`
+madrugada ou o botão põe no ar. Na VPS, como root, `/usr/local/sbin/ecrx-caixa-implantar <SHA>`
 põe no ar um commit anterior do `main` na hora, mas a execução da madrugada volta ao último aprovado.
 
 ## Imagem
@@ -119,7 +119,7 @@ segredo nenhum. O mesmo script roda na máquina, com o Docker de pé, inclusive 
 sh operacao/dependencias/verificar.sh
 ```
 
-As bases de avisos ficam no volume `fechadia-trivy`. As imagens base estão presas por digest,
+As bases de avisos ficam no volume `ecrx-caixa-trivy`. As imagens base estão presas por digest,
 então a verificação examina a mesma base que a publicação constrói e que está no ar, e a execução
 semanal confere a base em produção.
 
@@ -214,16 +214,16 @@ Na máquina, fora dos contêineres:
 
 | Caminho ou unidade | O que é |
 |---|---|
-| `/opt/fechadia/repositorio` | Clone deste repositório público, no commit no ar; é dele que saem o compose e os scripts |
-| `/etc/fechadia/fechadia.env` | A [configuração](#configuração), só do root |
-| `/etc/fechadia/efi.env` e `efi/` | As credenciais e os certificados Pix de cada Conta |
-| `/var/lib/fechadia/versao.env` | O commit no ar, gravado pelo deploy |
-| `/usr/local/sbin/fechadia-implantar` | O script de deploy, cópia de [`vps/implantar.sh`](vps/implantar.sh) feita pelo preparo, fora do repositório, para um commit não trocar as regras do próprio deploy |
-| `/etc/nftables/fechadia-limite.nft` | O [limite de conexões por origem](#borda), cópia de [`vps/limite-de-conexoes.nft`](vps/limite-de-conexoes.nft) feita pelo preparo, fora do repositório, pelo mesmo motivo |
-| `fechadia-limite.service` | Carrega esse limite a cada boot, depois do firewalld e antes do Docker |
-| `fechadia-copia.timer` | A [cópia](#cópia-de-hora-em-hora-cifrada), toda hora cheia, em UTC |
-| `fechadia-vigia.timer` | O sinal de vida para o [vigia](#vigia), a cada 5 minutos |
-| `fechadia-recusas.timer` | O [alerta de recusas](#vigia), a cada 5 minutos |
+| `/opt/ecrx-caixa/repositorio` | Clone deste repositório público, no commit no ar; é dele que saem o compose e os scripts |
+| `/etc/ecrx-caixa/ecrx-caixa.env` | A [configuração](#configuração), só do root |
+| `/etc/ecrx-caixa/efi.env` e `efi/` | As credenciais e os certificados Pix de cada Conta |
+| `/var/lib/ecrx-caixa/versao.env` | O commit no ar, gravado pelo deploy |
+| `/usr/local/sbin/ecrx-caixa-implantar` | O script de deploy, cópia de [`vps/implantar.sh`](vps/implantar.sh) feita pelo preparo, fora do repositório, para um commit não trocar as regras do próprio deploy |
+| `/etc/nftables/ecrx-caixa-limite.nft` | O [limite de conexões por origem](#borda), cópia de [`vps/limite-de-conexoes.nft`](vps/limite-de-conexoes.nft) feita pelo preparo, fora do repositório, pelo mesmo motivo |
+| `ecrx-caixa-limite.service` | Carrega esse limite a cada boot, depois do firewalld e antes do Docker |
+| `ecrx-caixa-copia.timer` | A [cópia](#cópia-de-hora-em-hora-cifrada), toda hora cheia, em UTC |
+| `ecrx-caixa-vigia.timer` | O sinal de vida para o [vigia](#vigia), a cada 5 minutos |
+| `ecrx-caixa-recusas.timer` | O [alerta de recusas](#vigia), a cada 5 minutos |
 | `dnf-automatic.timer` | As atualizações de segurança, às 7h30 UTC, dentro da janela, com reinício quando pedido |
 
 O [preparo](vps/preparar.sh) deixa o SSH só por chave e sem root, o firewall só com SSH, HTTP e HTTPS,
@@ -237,10 +237,10 @@ de deploy, e o sudo só lhe deixa rodar esse script, sem argumento, recebendo o 
 [`compose.sh`](vps/compose.sh), que acrescenta a configuração e a versão no ar:
 
 ```bash
-cd /opt/fechadia/repositorio/operacao/vps
+cd /opt/ecrx-caixa/repositorio/operacao/vps
 sh compose.sh ps
-journalctl CONTAINER_NAME=fechadia-app-1 --since -1h
-journalctl CONTAINER_NAME=fechadia-app-1 --since -1h | grep evento=
+journalctl CONTAINER_NAME=ecrx-caixa-app-1 --since -1h
+journalctl CONTAINER_NAME=ecrx-caixa-app-1 --since -1h | grep evento=
 ```
 
 Os eventos de segurança da aplicação saem uma linha cada, começando por `evento=`: o login certo e o
@@ -259,7 +259,7 @@ o limite.
 
 ## Configuração
 
-O arquivo `/etc/fechadia/fechadia.env` é gerado uma vez por
+O arquivo `/etc/ecrx-caixa/ecrx-caixa.env` é gerado uma vez por
 [`criar-configuracao.sh`](vps/criar-configuracao.sh), que o preparo chama: os segredos que nascem na
 máquina saem aleatórios, e o resto fica vazio, para preencher à mão. Ele nunca sobrescreve um arquivo
 que já existe. Valores sem aspas e sem espaço em volta do sinal de igual. Cada contêiner recebe só as
@@ -267,24 +267,24 @@ variáveis que o compose lista para ele.
 
 | Variável | De onde vem | Para quê |
 |---|---|---|
-| `FECHADIA_DOMINIO` | O domínio, com o registro A para a VPS | O site do proxy, o certificado e a conferência do vigia |
-| `FECHADIA_DB_PASSWORD` | Gerada | A senha do papel `fechadia`, sem superusuário, para a aplicação, a cópia, a restauração e o encerramento; o banco a lê só no primeiro `initdb`, para criar o papel. Trocá-la depois exige trocá-la também dentro do banco; ver [Banco](#banco) |
-| `FECHADIA_DB_SUPERUSUARIO_PASSWORD` | Gerada | A senha do superusuário `postgres`, que só o contêiner do banco recebe, no primeiro `initdb`. Nenhum serviço conecta com ela |
-| `FECHADIA_JWT_SECRET` | Gerada | Assinatura dos tokens, com ao menos 32 bytes. Trocá-la obriga todo mundo a entrar de novo |
-| `FECHADIA_PLANO_SECRET` | Gerado; guarde também fora da máquina | Confere o código de ativação de cada pedido de plano; ver [Pedido de plano](#pedido-de-plano-e-código-de-ativação). A aplicação não sobe sem ele |
-| `FECHADIA_MENSALIDADE_COMPLETO` | À mão, em reais, com ponto decimal | Valor dos pedidos do plano pago. A aplicação não sobe sem ela |
-| `FECHADIA_REMOCOES_BUCKET` e `FECHADIA_REMOCOES_AWS_*` | O bucket de remoções e a credencial que só grava nele | O registro mínimo antes de uma exclusão; ver [Remoção](#remoção-de-dados-e-encerramento-da-conta) |
-| `FECHADIA_REMOCOES_DESTINO` | `s3:<bucket de remoções>/remocoes` | O encerramento grava ali, e a restauração lê dali |
-| `FECHADIA_COPIA_CHAVE_PUBLICA` | A linha `age1...` da chave pública | A cópia é cifrada para ela |
-| `FECHADIA_COPIA_DESTINO` e `FECHADIA_COPIA_DESTINO_DIARIA` | `s3:<bucket>/horaria` e `s3:<bucket>/diaria` | Os dois destinos da cópia |
-| `FECHADIA_COPIA_HORA_DIARIA` | `6` | A hora UTC da cópia que fica 30 dias |
-| `FECHADIA_COPIA_AWS_*` | A credencial do usuário do IAM da cópia | Grava objeto novo no bucket, e mais nada |
-| `FECHADIA_VIGIA_COPIA`, `FECHADIA_VIGIA_MAQUINA` e `FECHADIA_VIGIA_RECUSAS` | Os endereços de sinal dos três checks | O [vigia](#vigia) |
+| `ECRX_CAIXA_DOMINIO` | O domínio, com o registro A para a VPS | O site do proxy, o certificado e a conferência do vigia |
+| `ECRX_CAIXA_DB_PASSWORD` | Gerada | A senha do papel `ecrx_caixa`, sem superusuário, para a aplicação, a cópia, a restauração e o encerramento; o banco a lê só no primeiro `initdb`, para criar o papel. Trocá-la depois exige trocá-la também dentro do banco; ver [Banco](#banco) |
+| `ECRX_CAIXA_DB_SUPERUSUARIO_PASSWORD` | Gerada | A senha do superusuário `postgres`, que só o contêiner do banco recebe, no primeiro `initdb`. Nenhum serviço conecta com ela |
+| `ECRX_CAIXA_JWT_SECRET` | Gerada | Assinatura dos tokens, com ao menos 32 bytes. Trocá-la obriga todo mundo a entrar de novo |
+| `ECRX_CAIXA_PLANO_SECRET` | Gerado; guarde também fora da máquina | Confere o código de ativação de cada pedido de plano; ver [Pedido de plano](#pedido-de-plano-e-código-de-ativação). A aplicação não sobe sem ele |
+| `ECRX_CAIXA_MENSALIDADE_COMPLETO` | À mão, em reais, com ponto decimal | Valor dos pedidos do plano pago. A aplicação não sobe sem ela |
+| `ECRX_CAIXA_REMOCOES_BUCKET` e `ECRX_CAIXA_REMOCOES_AWS_*` | O bucket de remoções e a credencial que só grava nele | O registro mínimo antes de uma exclusão; ver [Remoção](#remoção-de-dados-e-encerramento-da-conta) |
+| `ECRX_CAIXA_REMOCOES_DESTINO` | `s3:<bucket de remoções>/remocoes` | O encerramento grava ali, e a restauração lê dali |
+| `ECRX_CAIXA_COPIA_CHAVE_PUBLICA` | A linha `age1...` da chave pública | A cópia é cifrada para ela |
+| `ECRX_CAIXA_COPIA_DESTINO` e `ECRX_CAIXA_COPIA_DESTINO_DIARIA` | `s3:<bucket>/horaria` e `s3:<bucket>/diaria` | Os dois destinos da cópia |
+| `ECRX_CAIXA_COPIA_HORA_DIARIA` | `6` | A hora UTC da cópia que fica 30 dias |
+| `ECRX_CAIXA_COPIA_AWS_*` | A credencial do usuário do IAM da cópia | Grava objeto novo no bucket, e mais nada |
+| `ECRX_CAIXA_VIGIA_COPIA`, `ECRX_CAIXA_VIGIA_MAQUINA` e `ECRX_CAIXA_VIGIA_RECUSAS` | Os endereços de sinal dos três checks | O [vigia](#vigia) |
 
-`/etc/fechadia/efi.env` guarda, para cada Conta que recebe pelo Pix integrado, com o UUID da
-Conta em maiúsculas e sem hífens, `FECHADIA_EFI_<UUID>_AMBIENTE`, `_CLIENT_ID`, `_CLIENT_SECRET`,
+`/etc/ecrx-caixa/efi.env` guarda, para cada Conta que recebe pelo Pix integrado, com o UUID da
+Conta em maiúsculas e sem hífens, `ECRX_CAIXA_EFI_<UUID>_AMBIENTE`, `_CLIENT_ID`, `_CLIENT_SECRET`,
 `_CHAVE_PIX`, `_CERTIFICADO_P12`, `_CERTIFICADO_SENHA`, `_WEBHOOK_ID` e `_WEBHOOK_SECRET`. O
-certificado `.p12` vai em `/etc/fechadia/efi/<uuid da Conta>.p12`, com dono 10001, e
+certificado `.p12` vai em `/etc/ecrx-caixa/efi/<uuid da Conta>.p12`, com dono 10001, e
 `_CERTIFICADO_P12` aponta para `/segredos/efi/<uuid da Conta>.p12`, onde a pasta aparece dentro da
 aplicação, só para leitura.
 
@@ -298,7 +298,7 @@ os que mudaram, e a troca da aplicação para o serviço, então vai na janela.
 
 ## Banco
 
-O PostgreSQL tem dois papéis. `fechadia` é o dono do banco, sem nenhum atributo de superusuário:
+O PostgreSQL tem dois papéis. `ecrx_caixa` é o dono do banco, sem nenhum atributo de superusuário:
 a aplicação, as migrations, a cópia, a restauração e o encerramento de Conta conectam com ele, e uma
 consulta injetada com ele não executa comando na máquina do banco, não lê arquivo dela e não cria
 papel. O superusuário `postgres` nenhum serviço usa. Ele serve ao primeiro `initdb`, em que
@@ -306,19 +306,19 @@ papel. O superusuário `postgres` nenhum serviço usa. Ele serve ao primeiro `in
 pelo socket local do contêiner, sem senha, e que só o root da máquina alcança:
 
 ```bash
-sh compose.sh exec banco psql -U postgres -d fechadia
+sh compose.sh exec banco psql -U postgres -d ecrx_caixa
 ```
 
 O script roda só com o volume do banco vazio: na instalação nova, na restauração num projeto à parte e
 na recriação da máquina. Num banco que já existe, mudar uma das duas senhas na configuração não muda
-nada lá dentro. Para trocar a do papel, na janela, porque recria a aplicação: `\password fechadia`
-na manutenção acima, a mesma em `FECHADIA_DB_PASSWORD`, e `sh compose.sh up -d --wait`.
+nada lá dentro. Para trocar a do papel, na janela, porque recria a aplicação: `\password ecrx_caixa`
+na manutenção acima, a mesma em `ECRX_CAIXA_DB_PASSWORD`, e `sh compose.sh up -d --wait`.
 
 ## Primeira publicação
 
-Antes de ligar a publicação, o repositório no GitHub se chama `fechadia`: o CI publica as imagens com
-o nome dele, e o compose da VPS as busca como `ghcr.io/elias-costa/fechadia` e
-`ghcr.io/elias-costa/fechadia-copia`.
+Antes de ligar a publicação, o repositório no GitHub se chama `ecrx-caixa`: o CI publica as imagens com
+o nome dele, e o compose da VPS as busca como `ghcr.io/elias-costa/ecrx-caixa` e
+`ghcr.io/elias-costa/ecrx-caixa-copia`.
 
 1. **Contratar a VPS** com AlmaLinux 9, sem painel. Antes de qualquer Conta real, confirmar por escrito
    com o fornecedor onde a máquina fica e se há backup dele; até a resposta, só Contas de teste.
@@ -332,13 +332,13 @@ o nome dele, e o compose da VPS as busca como `ghcr.io/elias-costa/fechadia` e
    chave SSH em `~/.ssh/authorized_keys`, com dono dele e modo 600. O preparo recusa seguir sem essa
    chave, porque depois dele o SSH não aceita senha nem root.
 4. **Chave do CI**, na máquina do mantenedor, fora do repositório:
-   `ssh-keygen -t ed25519 -N '' -C fechadia-ci -f fechadia-ci`. A `.pub` vai para a VPS.
+   `ssh-keygen -t ed25519 -N '' -C ecrx-caixa-ci -f ecrx-caixa-ci`. A `.pub` vai para a VPS.
 5. **Preparo**, como root:
 
    ```bash
    dnf -y install git
-   git clone https://github.com/Elias-Costa/fechadia.git /opt/fechadia/repositorio
-   sh /opt/fechadia/repositorio/operacao/vps/preparar.sh <administrador> <arquivo .pub do CI>
+   git clone https://github.com/Elias-Costa/ecrx-caixa.git /opt/ecrx-caixa/repositorio
+   sh /opt/ecrx-caixa/repositorio/operacao/vps/preparar.sh <administrador> <arquivo .pub do CI>
    ```
 
 6. **AWS:** a chave da cópia, o bucket, o usuário do IAM e a credencial de leitura, como em
@@ -346,7 +346,7 @@ o nome dele, e o compose da VPS as busca como `ghcr.io/elias-costa/fechadia` e
    regra de 45 dias, credencial de gravação para a aplicação e leitura para a restauração, como em
    [Remoção](#remoção-de-dados-e-encerramento-da-conta).
 7. **Vigia:** os três checks, como em [Vigia](#vigia).
-8. **Configuração:** preencher `/etc/fechadia/fechadia.env`.
+8. **Configuração:** preencher `/etc/ecrx-caixa/ecrx-caixa.env`.
 9. **GitHub**, nas configurações do repositório:
    - o segredo `VPS_CHAVE_DE_IMPLANTACAO`, com o conteúdo da chave privada do CI;
    - a variável `VPS_ENDERECO`, com o IP ou o domínio da VPS;
@@ -372,16 +372,16 @@ o nome dele, e o compose da VPS as busca como `ghcr.io/elias-costa/fechadia` e
     pacotes do GitHub que os dois são públicos: a VPS os baixa sem credencial.
 12. **Primeiro deploy**, pelo botão **Run workflow**. Sem versão no ar ainda, ele vai a qualquer hora.
     A aplicação sobe, aplica as migrations, e o proxy obtém o certificado do domínio.
-13. **Tarefas agendadas:** `systemctl start fechadia-copia.timer fechadia-vigia.timer
-    fechadia-recusas.timer`.
+13. **Tarefas agendadas:** `systemctl start ecrx-caixa-copia.timer ecrx-caixa-vigia.timer
+    ecrx-caixa-recusas.timer`.
 14. **Memória:** `sh compose.sh exec app cat /sys/fs/cgroup/memory.max` tem de dar 1073741824, o
     limite em que a JVM foi medida.
 15. **Banco:** `sh compose.sh exec banco psql -U postgres -tAc "select rolsuper, rolcreaterole,
-    rolcreatedb from pg_roles where rolname = 'fechadia'"` tem de dar `f|f|f`, e
+    rolcreatedb from pg_roles where rolname = 'ecrx_caixa'"` tem de dar `f|f|f`, e
     `sh compose.sh exec banco psql -U postgres -tAc "select distinct usename from pg_stat_activity
-    where datname = 'fechadia'"`, só `fechadia`.
+    where datname = 'ecrx_caixa'"`, só `ecrx_caixa`.
 16. **Borda:** conferir pelo access log, como em [Borda](#borda). Conferir também o limite de conexões:
-    `systemctl is-active fechadia-limite` dá `active`, `nft list table inet fechadia_limite`
+    `systemctl is-active ecrx-caixa-limite` dá `active`, `nft list table inet ecrx_caixa_limite`
     mostra a regra, e `ss -ltn` mostra o 80 e o 443 só em `0.0.0.0`, sem escuta IPv6.
 17. **Contas de teste** pelo [seed](#criar-uma-conta), com o plano completo ativado pelo
     [pedido de plano](#pedido-de-plano-e-código-de-ativação); a [carga](#carga-de-correção); e a
@@ -399,7 +399,7 @@ primeiro endereço fora dela é a origem. O que o cliente escreve à esquerda nu
 chegasse. O `X-Forwarded-Proto` diz se a requisição chegou por HTTPS, e é o que faz a resposta levar o
 `Strict-Transport-Security`.
 
-Se aparecer um salto público entre o proxy e a aplicação, `FECHADIA_PROXIES_CONFIAVEIS` o
+Se aparecer um salto público entre o proxy e a aplicação, `ECRX_CAIXA_PROXIES_CONFIAVEIS` o
 declara, sem novo build: CIDRs separados por vírgula, com a barra mesmo para um endereço só (`/32`),
 porque sem nenhuma barra o valor é lido como expressão regular. Até lá, a origem passa a ser esse
 salto: a falha é fechada, e nenhum endereço escrito pelo cliente vira origem.
@@ -435,7 +435,7 @@ cerca de 500 conexões simultâneas no pior caso medido.
 
 ```bash
 # A regra, com o contador de conexões descartadas, e as origens com conexão aberta agora.
-nft list table inet fechadia_limite
+nft list table inet ecrx_caixa_limite
 ```
 
 Para mudar o limite, troque o número no arquivo e rode o [preparo](vps/preparar.sh) de novo, que copia o
@@ -456,7 +456,7 @@ services:
       SERVER_TOMCAT_ACCESSLOG_REQUEST_ATTRIBUTES_ENABLED: "true"
       SERVER_TOMCAT_ACCESSLOG_PATTERN: "%a %{X-Forwarded-For}i %{X-Forwarded-Proto}i %r %s"
 FIM
-FECHADIA_COMPOSE_ADICIONAL=/root/borda.yaml sh compose.sh up -d --wait app
+ECRX_CAIXA_COMPOSE_ADICIONAL=/root/borda.yaml sh compose.sh up -d --wait app
 sh compose.sh exec app sh -c 'cat /tmp/access_log.*.log'
 sh compose.sh up -d --wait app && rm /root/borda.yaml
 ```
@@ -487,11 +487,11 @@ cria nada.
 o histórico do shell guarda só os comandos: nada que identifica o administrador fica nele.
 
 ```bash
-read -rp 'Nome do negócio: ' FECHADIA_SEED_NOME_NEGOCIO && export FECHADIA_SEED_NOME_NEGOCIO
-read -rp 'E-mail do administrador: ' FECHADIA_SEED_EMAIL && export FECHADIA_SEED_EMAIL
-read -rsp 'Senha provisória: ' FECHADIA_SEED_SENHA && echo && export FECHADIA_SEED_SENHA
+read -rp 'Nome do negócio: ' ECRX_CAIXA_SEED_NOME_NEGOCIO && export ECRX_CAIXA_SEED_NOME_NEGOCIO
+read -rp 'E-mail do administrador: ' ECRX_CAIXA_SEED_EMAIL && export ECRX_CAIXA_SEED_EMAIL
+read -rsp 'Senha provisória: ' ECRX_CAIXA_SEED_SENHA && echo && export ECRX_CAIXA_SEED_SENHA
 sh compose.sh --profile seed run --rm seed
-unset FECHADIA_SEED_NOME_NEGOCIO FECHADIA_SEED_EMAIL FECHADIA_SEED_SENHA
+unset ECRX_CAIXA_SEED_NOME_NEGOCIO ECRX_CAIXA_SEED_EMAIL ECRX_CAIXA_SEED_SENHA
 ```
 
 O log termina com `Conta <id> criada`. A senha passa pela mesma política de qualquer senha, inclusive
@@ -535,10 +535,10 @@ operador.
    nenhum dos dois ficar no histórico do shell:
 
    ```bash
-   read -rp 'E-mail do administrador: ' FECHADIA_REDEFINICAO_EMAIL && export FECHADIA_REDEFINICAO_EMAIL
-   read -rsp 'Senha provisória: ' FECHADIA_REDEFINICAO_SENHA && echo && export FECHADIA_REDEFINICAO_SENHA
+   read -rp 'E-mail do administrador: ' ECRX_CAIXA_REDEFINICAO_EMAIL && export ECRX_CAIXA_REDEFINICAO_EMAIL
+   read -rsp 'Senha provisória: ' ECRX_CAIXA_REDEFINICAO_SENHA && echo && export ECRX_CAIXA_REDEFINICAO_SENHA
    sh compose.sh --profile redefinir-senha run --rm redefinir-senha
-   unset FECHADIA_REDEFINICAO_EMAIL FECHADIA_REDEFINICAO_SENHA
+   unset ECRX_CAIXA_REDEFINICAO_EMAIL ECRX_CAIXA_REDEFINICAO_SENHA
    ```
 
    O log termina com `Senha provisória definida na Conta <id>; acessos de <n> usuários revogados`.
@@ -552,10 +552,10 @@ operador.
    quem a tomou:
 
    ```bash
-   journalctl CONTAINER_NAME=fechadia-app-1 --since -7d | grep 'conta=<uuid da Conta>'
+   journalctl CONTAINER_NAME=ecrx-caixa-app-1 --since -7d | grep 'conta=<uuid da Conta>'
    ```
 
-Trocar `FECHADIA_JWT_SECRET` também derruba todos os aparelhos, mas de **todas** as Contas, e não
+Trocar `ECRX_CAIXA_JWT_SECRET` também derruba todos os aparelhos, mas de **todas** as Contas, e não
 muda senha nenhuma; fica para a suspeita de que a chave dos tokens vazou.
 
 Uma Conta tomada por outra pessoa é um incidente de segurança: siga também
@@ -588,7 +588,7 @@ Conta e derruba os aparelhos de **todos** os usuários dela. Enquanto a Conta es
 
    ```bash
    read -rp 'Nome do negócio: ' NEGOCIO
-   sh compose.sh exec -T banco psql -U postgres -d fechadia -v negocio="$NEGOCIO" <<'FIM'
+   sh compose.sh exec -T banco psql -U postgres -d ecrx_caixa -v negocio="$NEGOCIO" <<'FIM'
    select id, nome_negocio, suspensa_em from conta where nome_negocio ilike '%' || :'negocio' || '%';
    FIM
    unset NEGOCIO
@@ -597,9 +597,9 @@ Conta e derruba os aparelhos de **todos** os usuários dela. Enquanto a Conta es
 2. **Suspenda**, com o id lido pelo `read`:
 
    ```bash
-   read -rp 'Conta: ' FECHADIA_SUSPENSAO_CONTA && export FECHADIA_SUSPENSAO_CONTA
+   read -rp 'Conta: ' ECRX_CAIXA_SUSPENSAO_CONTA && export ECRX_CAIXA_SUSPENSAO_CONTA
    sh compose.sh --profile suspender-conta run --rm suspender-conta
-   unset FECHADIA_SUSPENSAO_CONTA
+   unset ECRX_CAIXA_SUSPENSAO_CONTA
    ```
 
    O log termina com `evento=conta.suspensa conta=<id> usuarios=<n>`, o número de usuários cujos
@@ -612,9 +612,9 @@ Conta e derruba os aparelhos de **todos** os usuários dela. Enquanto a Conta es
 4. **Quando o motivo acabar**, devolva o acesso:
 
    ```bash
-   read -rp 'Conta: ' FECHADIA_SUSPENSAO_CONTA && export FECHADIA_SUSPENSAO_CONTA
+   read -rp 'Conta: ' ECRX_CAIXA_SUSPENSAO_CONTA && export ECRX_CAIXA_SUSPENSAO_CONTA
    sh compose.sh --profile reativar-conta run --rm reativar-conta
-   unset FECHADIA_SUSPENSAO_CONTA
+   unset ECRX_CAIXA_SUSPENSAO_CONTA
    ```
 
    O log termina com `evento=conta.reativada conta=<id>`. Todos os usuários entram de novo com as
@@ -631,7 +631,7 @@ Conta tomada, um segredo vazado com sinal de uso, dados perdidos sem cópia. O s
 cópia, do fornecedor ou de quem achou uma falha. A suspeita ainda não confirmada passa pelos passos 1 a
 3; confirmada, por todos.
 
-O Fechadia tem dois papéis aqui. Dos dados dos Clientes e dos funcionários de uma Conta ele é
+O ECRX Caixa tem dois papéis aqui. Dos dados dos Clientes e dos funcionários de uma Conta ele é
 operador: quem os decide é a Conta, e é ela quem comunica à ANPD e a essas pessoas. Do cadastro da
 Conta e do administrador (nome do negócio, nome, e-mail de acesso e resumo da senha do administrador)
 e dos registros de segurança ele é controlador, e comunica ele mesmo. Os prazos contam do dia em que
@@ -641,8 +641,8 @@ nº 15/2024, contados em dobro para o agente de tratamento de pequeno porte:
 | A quem | Prazo | Quando |
 |---|---|---|
 | O administrador de cada Conta afetada | 2 dias úteis, como os termos de uso prometem | Sempre que o incidente alcançar dado da Conta, com o que já se souber |
-| A ANPD | 6 dias úteis; o complemento, em até 40 dias úteis da comunicação | Risco ou dano relevante no que é do Fechadia |
-| Os titulares do que é do Fechadia | 6 dias úteis; a declaração à ANPD de que foram comunicados, em até 3 dias úteis depois | Idem |
+| A ANPD | 6 dias úteis; o complemento, em até 40 dias úteis da comunicação | Risco ou dano relevante no que é do ECRX Caixa |
+| Os titulares do que é do ECRX Caixa | 6 dias úteis; a declaração à ANPD de que foram comunicados, em até 3 dias úteis depois | Idem |
 | O registro do incidente | Feito no incidente e guardado 5 anos | Todo incidente confirmado, comunicado ou não |
 
 ### 1. Conter
@@ -652,13 +652,13 @@ nº 15/2024, contados em dobro para o agente de tratamento de pequeno porte:
 
   ```bash
   read -rp 'Origem a bloquear: ' ORIGEM
-  nft insert rule inet fechadia_limite encaminhamento ip saddr "$ORIGEM" ct status dnat counter drop
+  nft insert rule inet ecrx_caixa_limite encaminhamento ip saddr "$ORIGEM" ct status dnat counter drop
   ```
 
   Todo pacote dessa origem às portas do proxy passa a ser descartado, inclusive das conexões já
-  abertas. A regra some quando o limite é recarregado, pelo preparo ou pelo `fechadia-limite`, ou
-  quando a máquina reinicia. Para tirá-la antes, `nft -a list chain inet fechadia_limite
-  encaminhamento` mostra o `handle` dela, e `nft delete rule inet fechadia_limite encaminhamento
+  abertas. A regra some quando o limite é recarregado, pelo preparo ou pelo `ecrx-caixa-limite`, ou
+  quando a máquina reinicia. Para tirá-la antes, `nft -a list chain inet ecrx_caixa_limite
+  encaminhamento` mostra o `handle` dela, e `nft delete rule inet ecrx_caixa_limite encaminhamento
   handle <número>` a apaga.
 - **Um segredo vazado:** troque-o. A chave dos tokens derruba os aparelhos de todas as Contas; a senha
   do banco, como em [Banco](#banco); o segredo dos planos invalida os códigos ainda não aplicados
@@ -682,7 +682,7 @@ root, na pasta `operacao/vps`, com o início em UTC, o fuso da máquina, e o seu
 no lugar de `<administrador>`:
 
 ```bash
-chave=$(sed -n 's/^FECHADIA_COPIA_CHAVE_PUBLICA=//p' /etc/fechadia/fechadia.env)
+chave=$(sed -n 's/^ECRX_CAIXA_COPIA_CHAVE_PUBLICA=//p' /etc/ecrx-caixa/ecrx-caixa.env)
 arquivo=/home/<administrador>/incidente-$(date -u +%Y%m%dT%H%MZ).log.age
 journalctl --since '<AAAA-MM-DD HH:MM>' -o short-iso-precise \
   | sh compose.sh --profile copia run --rm -T --no-deps --entrypoint age copia -r "$chave" > "$arquivo"
@@ -700,15 +700,15 @@ terminar, e então é apagado; o registro do incidente guarda o resumo.
 As Contas e as origens envolvidas estão nos [eventos de segurança](#a-vps):
 
 ```bash
-journalctl CONTAINER_NAME=fechadia-app-1 --since -7d | grep evento= | grep -oE 'conta=[^ ]+' | sort | uniq -c
-journalctl CONTAINER_NAME=fechadia-app-1 --since -7d | grep 'conta=<uuid da Conta>' | grep -oE 'origem=[^ ]+' | sort | uniq -c
+journalctl CONTAINER_NAME=ecrx-caixa-app-1 --since -7d | grep evento= | grep -oE 'conta=[^ ]+' | sort | uniq -c
+journalctl CONTAINER_NAME=ecrx-caixa-app-1 --since -7d | grep 'conta=<uuid da Conta>' | grep -oE 'origem=[^ ]+' | sort | uniq -c
 ```
 
 O número de titulares de cada Conta, pela manutenção do banco: os Clientes não removidos e os usuários,
 inclusive os inativos, que guardam o nome:
 
 ```bash
-sh compose.sh exec -T banco psql -U postgres -d fechadia <<'FIM'
+sh compose.sh exec -T banco psql -U postgres -d ecrx_caixa <<'FIM'
 select c.id,
        (select count(*) from cliente cl where cl.conta_id = c.id and cl.removido_em is null) as clientes,
        (select count(*) from usuario u where u.conta_id = c.id) as usuarios
@@ -721,29 +721,29 @@ uso do serviço ou causando dano material ou moral, fraude ou roubo de identidad
 destes: dado de autenticação, como a credencial, que é o e-mail e o resumo da senha; dado financeiro,
 como a chave Pix e as credenciais da Efí de uma Conta; dado em larga escala; dado sensível, sob sigilo ou
 de criança, adolescente ou idoso. Sem risco relevante, nada vai à ANPD nem aos titulares do que é do
-Fechadia, e o motivo vai ao registro. O aviso à Conta afetada sai do mesmo jeito: é ela quem avalia
+ECRX Caixa, e o motivo vai ao registro. O aviso à Conta afetada sai do mesmo jeito: é ela quem avalia
 o risco dos seus Clientes e funcionários.
 
 ### 4. Avisar cada Conta afetada
 
 Pelo e-mail de atendimento, a todos os administradores ativos da Conta, pelo modelo A, com o que já se
-souber; o que vier depois segue na mesma conversa, e o Fechadia responde o que a Conta precisar
+souber; o que vier depois segue na mesma conversa, e o ECRX Caixa responde o que a Conta precisar
 para a comunicação dela. Os e-mails dos administradores, pela manutenção do banco:
 
 ```bash
 read -rp 'Conta: ' CONTA
-sh compose.sh exec -T banco psql -U postgres -d fechadia -v conta="$CONTA" <<'FIM'
+sh compose.sh exec -T banco psql -U postgres -d ecrx_caixa -v conta="$CONTA" <<'FIM'
 select cr.email from usuario u join credencial cr on cr.usuario_id = u.id
 where u.conta_id = :'conta' and u.perfil = 'ADMIN' and u.ativo;
 FIM
 ```
 
-### 5. Comunicar o que é do Fechadia
+### 5. Comunicar o que é do ECRX Caixa
 
 Com risco ou dano relevante no cadastro da Conta e do administrador ou nos registros de segurança:
 
 - **à ANPD**, pelo formulário eletrônico de comunicação de incidente, no site dela, declarando que o
-  Fechadia é agente de tratamento de pequeno porte. O formulário pede: a natureza e a categoria
+  ECRX Caixa é agente de tratamento de pequeno porte. O formulário pede: a natureza e a categoria
   dos dados; o número de titulares afetados e o total de titulares das atividades afetadas; as medidas
   de segurança de antes e de depois; os riscos e os impactos; o motivo da demora, se houver; as medidas
   para reverter ou mitigar; a data do incidente e a do conhecimento; a identificação do controlador e
@@ -765,7 +765,7 @@ de teste, e o registro fica com o mantenedor, levado para a caixa quando ela exi
 **A. Aviso à Conta afetada**, a todos os administradores ativos dela:
 
 ```text
-Assunto: Incidente de segurança com dados da sua Conta no Fechadia
+Assunto: Incidente de segurança com dados da sua Conta no ECRX Caixa
 
 Em <data>, soubemos de um incidente de segurança que alcançou dados da Conta <nome do negócio>.
 
@@ -777,17 +777,17 @@ Como os dados estavam protegidos e o que já fizemos: <medidas de antes e de dep
 O que a Conta pode fazer: <por exemplo, trocar senhas, conferir a tela Usuários, avisar Clientes>.
 
 A Conta decide sobre os dados dos seus Clientes e funcionários e avalia se comunica o incidente à
-ANPD e a eles. O Fechadia, <identificação>, trata esses dados em nome da Conta e responde nesta
+ANPD e a eles. O ECRX Caixa, <identificação>, trata esses dados em nome da Conta e responde nesta
 conversa o que ela precisar para isso. Este aviso traz o que já sabemos; o resto vem aqui.
 ```
 
 **B. Comunicação ao administrador titular:**
 
 ```text
-Assunto: Incidente de segurança com o seu cadastro no Fechadia
+Assunto: Incidente de segurança com o seu cadastro no ECRX Caixa
 
 Em <data do conhecimento>, soubemos de um incidente de segurança que alcançou o seu cadastro de
-administrador no Fechadia.
+administrador no ECRX Caixa.
 
 Que dados: <por exemplo, o nome, o e-mail de acesso, o resumo protegido da senha, o nome do negócio>.
 Como estavam protegidos: <por exemplo, a senha guardada só como resumo, a conexão cifrada>.
@@ -808,7 +808,7 @@ Assunto: Incidente <AAAA-MM-DD>, <resumo em poucas palavras>
 1. Data em que se soube do incidente:
 2. Circunstâncias: o que aconteceu, como foi notado, a causa, se conhecida:
 3. Natureza e categoria dos dados afetados:
-4. Número de titulares afetados, por Conta e no que é do Fechadia:
+4. Número de titulares afetados, por Conta e no que é do ECRX Caixa:
 5. Avaliação do risco e dos possíveis danos aos titulares:
 6. Medidas de correção e de mitigação:
 7. Comunicações feitas, a cada Conta, à ANPD e aos titulares, com a data e o meio
@@ -821,9 +821,9 @@ Trecho do log preservado: onde está e quando foi apagado:
 [suspensão](#suspensão-de-uma-conta):
 
 ```text
-Assunto: Acesso da sua Conta no Fechadia suspenso
+Assunto: Acesso da sua Conta no ECRX Caixa suspenso
 
-Em <data e hora>, o acesso da Conta <nome do negócio> ao Fechadia foi suspenso, como os termos de
+Em <data e hora>, o acesso da Conta <nome do negócio> ao ECRX Caixa foi suspenso, como os termos de
 uso preveem em caso de <uso ilegal do serviço ou ataque ao serviço>.
 
 O que foi observado: <o que aconteceu, sem dados de Clientes ou de funcionários>.
@@ -838,9 +838,9 @@ Para esclarecer o que aconteceu ou contestar a suspensão, responda este e-mail.
 **E. Aviso do reverso**, na mesma conversa:
 
 ```text
-Assunto: Acesso da sua Conta no Fechadia devolvido
+Assunto: Acesso da sua Conta no ECRX Caixa devolvido
 
-Em <data e hora>, o acesso da Conta <nome do negócio> ao Fechadia foi devolvido. Cada usuário
+Em <data e hora>, o acesso da Conta <nome do negócio> ao ECRX Caixa foi devolvido. Cada usuário
 entra de novo com o próprio e-mail e a própria senha. O que um aparelho registrou sem rede durante a
 suspensão é enviado quando o mesmo usuário entrar ali.
 
@@ -859,7 +859,7 @@ conferido no extrato.
 2. Gerar o código com o id, o plano e o valor do pedido:
 
    ```bash
-   FECHADIA_PLANO_SECRET=<segredo> node operacao/plano/codigo.mjs <id do pedido> <plano> <valor>
+   ECRX_CAIXA_PLANO_SECRET=<segredo> node operacao/plano/codigo.mjs <id do pedido> <plano> <valor>
    ```
 
    O plano vai como no texto (`Completo`) ou como no sistema (`COMPLETO`); o valor, como no texto
@@ -878,7 +878,7 @@ muda. Se o administrador disser que o código foi recusado, compare com ele o te
 o Pix recebido, ou peça um pedido novo, que substitui o anterior, e gere o código dele depois de
 conferir o Pix do valor novo.
 
-O segredo é o `FECHADIA_PLANO_SECRET` da [configuração](#configuração), gerado com ela e guardado
+O segredo é o `ECRX_CAIXA_PLANO_SECRET` da [configuração](#configuração), gerado com ela e guardado
 também fora da máquina, com o mantenedor, porque o script precisa dele. Trocá-lo invalida os códigos
 ainda não aplicados. Mudar a mensalidade vale para os pedidos seguintes, depois de recriar a
 aplicação, e o pedido aberto mantém o valor do dia em que foi feito.
@@ -889,7 +889,7 @@ e cadastro nunca param.
 
 ## Cópia de hora em hora cifrada
 
-A cada hora cheia, em UTC, o timer `fechadia-copia` roda [`copia-agendada.sh`](vps/copia-agendada.sh),
+A cada hora cheia, em UTC, o timer `ecrx-caixa-copia` roda [`copia-agendada.sh`](vps/copia-agendada.sh),
 que roda o perfil `copia` com a imagem da versão no ar. A cópia:
 
 1. lê a conferência: a contagem de linhas de cada tabela e os totais por dia das Vendas concluídas e
@@ -898,15 +898,15 @@ que roda o perfil `copia` com a imagem da versão no ar. A cópia:
    nunca chega ao disco, e a máquina não consegue decifrar o que guardou;
 3. lê a conferência de novo. Se as duas leituras diferem, houve escrita no meio, e a cópia é
    refeita, até três vezes; depois da terceira, ela falha sem enviar nada;
-4. envia `fechadia-<instante UTC>.dump.age` e, por último,
-   `fechadia-<instante UTC>.conferencia.age`, também cifrada. A cópia só está completa com o
+4. envia `ecrx-caixa-<instante UTC>.dump.age` e, por último,
+   `ecrx-caixa-<instante UTC>.conferencia.age`, também cifrada. A cópia só está completa com o
    par.
 
 Depois, o script manda ao vigia o sinal do check da cópia, ou o de falha, que avisa o mantenedor de
 que aquela hora ficou sem cópia. O sinal não leva o log da cópia nem nada das Contas. Uma hora perdida
 com a máquina desligada fica perdida, e o vigia avisa da falta.
 
-A cópia que começa na hora `FECHADIA_COPIA_HORA_DIARIA`, 6h UTC (3h no fuso America/Bahia,
+A cópia que começa na hora `ECRX_CAIXA_COPIA_HORA_DIARIA`, 6h UTC (3h no fuso America/Bahia,
 dentro da janela), vai para `diaria/` e fica 30 dias; as outras vão para `horaria/` e ficam 3 dias.
 Quem apaga é a regra de ciclo de vida do bucket; a cópia não apaga nada.
 
@@ -917,16 +917,16 @@ credencial vazada não destrói as cópias.
 
 Preparação, uma vez:
 
-1. **Chave.** Na máquina do mantenedor, `age-keygen -o fechadia-copia.txt`, ou pela própria
+1. **Chave.** Na máquina do mantenedor, `age-keygen -o ecrx-caixa-copia.txt`, ou pela própria
    imagem da cópia, numa pasta fora do repositório:
 
    ```bash
-   docker build --tag fechadia-copia:ensaio --file operacao/copia/Dockerfile operacao
-   docker run --rm -v "<pasta fora do repositório>:/chave" fechadia-copia:ensaio \
-     age-keygen -o /chave/fechadia-copia.txt
+   docker build --tag ecrx-caixa-copia:ensaio --file operacao/copia/Dockerfile operacao
+   docker run --rm -v "<pasta fora do repositório>:/chave" ecrx-caixa-copia:ensaio \
+     age-keygen -o /chave/ecrx-caixa-copia.txt
    ```
 
-   A linha `# public key: age1...` do arquivo vai para `FECHADIA_COPIA_CHAVE_PUBLICA`. O arquivo
+   A linha `# public key: age1...` do arquivo vai para `ECRX_CAIXA_COPIA_CHAVE_PUBLICA`. O arquivo
    inteiro é a chave privada: fica num gerenciador de senhas e numa cópia offline, fora da VPS e do
    Git. **Perdida a chave privada, nenhuma cópia pode ser lida, e não há como recuperá-la.**
 2. **Bucket.** Um bucket só para as cópias, na região `sa-east-1`, com o bloqueio de acesso público
@@ -945,7 +945,7 @@ Preparação, uma vez:
    --lifecycle-configuration file://ciclo-de-vida.json`. O S3 conta os dias até a meia-noite UTC
    seguinte, então cada cópia fica até um dia além do prazo.
 3. **Usuário da cópia.** Um usuário do IAM com uma chave de acesso, que vai em
-   `FECHADIA_COPIA_AWS_*`, e só esta política, que permite gravar e mais nada. A segunda
+   `ECRX_CAIXA_COPIA_AWS_*`, e só esta política, que permite gravar e mais nada. A segunda
    permissão deixa iniciar e enviar partes de um upload grande; a conclusão ainda exige
    `If-None-Match`:
 
@@ -987,8 +987,8 @@ Preparação, uma vez:
 **Conferir depois de publicar.** A primeira cópia chega ao bucket na hora cheia seguinte, em
 `horaria/`, e a das 6h UTC em `diaria/`. Com a credencial da cópia, gravar de novo o nome de uma cópia
 existente tem de ser recusado: com o cabeçalho, o S3 responde que a condição falhou; sem ele, nega o
-acesso. À mão, `systemctl start fechadia-copia.service` roda uma cópia na hora, e
-`journalctl -u fechadia-copia --since -1h` mostra o resultado.
+acesso. À mão, `systemctl start ecrx-caixa-copia.service` roda uma cópia na hora, e
+`journalctl -u ecrx-caixa-copia --since -1h` mostra o resultado.
 
 ## Restauração
 
@@ -1016,27 +1016,27 @@ mesma credencial.
 [ensaio](#ensaio-local) preparado:
 
 ```bash
-export FECHADIA_LEITURA_AWS_ACCESS_KEY_ID=<chave de leitura>
-read -rs FECHADIA_LEITURA_AWS_SECRET_ACCESS_KEY && export FECHADIA_LEITURA_AWS_SECRET_ACCESS_KEY
-FECHADIA_REMOCOES_DESTINO=s3:<bucket de remoções>/remocoes sh operacao/vps/compose.sh \
+export ECRX_CAIXA_LEITURA_AWS_ACCESS_KEY_ID=<chave de leitura>
+read -rs ECRX_CAIXA_LEITURA_AWS_SECRET_ACCESS_KEY && export ECRX_CAIXA_LEITURA_AWS_SECRET_ACCESS_KEY
+ECRX_CAIXA_REMOCOES_DESTINO=s3:<bucket de remoções>/remocoes sh operacao/vps/compose.sh \
   --profile restauracao run --rm -T \
-  -e FECHADIA_RESTAURAR_BANCO=postgresql://restaurado@restaurado:5432/restaurado \
+  -e ECRX_CAIXA_RESTAURAR_BANCO=postgresql://restaurado@restaurado:5432/restaurado \
   -v "<arquivo da chave privada>:/chave/chave-privada.txt:ro" \
-  restaurar s3:<bucket>/diaria/fechadia-<instante UTC>
+  restaurar s3:<bucket>/diaria/ecrx-caixa-<instante UTC>
 ```
 
 **Num banco vazio na própria VPS**, num projeto de compose à parte, na janela, porque ocupa mais
-512 MB enquanto roda. O banco desse projeto nasce com o papel `fechadia` pelo `initdb`, e a
+512 MB enquanto roda. O banco desse projeto nasce com o papel `ecrx_caixa` pelo `initdb`, e a
 restauração conecta com ele, sem superusuário, como faria na recriação da máquina. Como root, na pasta
 `operacao/vps`, com a credencial de leitura exportada como acima e a chave privada copiada só para este
 comando:
 
 ```bash
-sh compose.sh -p fechadia-restauracao up -d --wait banco
-sh compose.sh -p fechadia-restauracao --profile restauracao run --rm -T --no-deps \
+sh compose.sh -p ecrx-caixa-restauracao up -d --wait banco
+sh compose.sh -p ecrx-caixa-restauracao --profile restauracao run --rm -T --no-deps \
   -v "<arquivo da chave privada>:/chave/chave-privada.txt:ro" \
-  restaurar s3:<bucket>/diaria/fechadia-<instante UTC>
-sh compose.sh -p fechadia-restauracao --profile restauracao down -v
+  restaurar s3:<bucket>/diaria/ecrx-caixa-<instante UTC>
+sh compose.sh -p ecrx-caixa-restauracao --profile restauracao down -v
 ```
 
 Depois, apague a chave privada da máquina.
@@ -1048,18 +1048,18 @@ deploy na recriação, reaplique esses bloqueios pelo log da aplicação, que gu
 root, com o instante da cópia restaurada em UTC:
 
 ```bash
-journalctl CONTAINER_NAME=fechadia-app-1 --since '<AAAA-MM-DD HH:MM:SS da cópia> UTC' -o cat \
+journalctl CONTAINER_NAME=ecrx-caixa-app-1 --since '<AAAA-MM-DD HH:MM:SS da cópia> UTC' -o cat \
   | grep 'evento=usuario.bloqueado ' \
   | sed -nE "s/.* conta=([0-9a-f-]{36}) .* alvo=([0-9a-f-]{36}) .*/UPDATE usuario SET ativo = false WHERE conta_id = '\1' AND id = '\2';/p" \
   > bloqueios.sql
 cat bloqueios.sql
-sh compose.sh exec -T banco psql -U postgres -d fechadia -v ON_ERROR_STOP=1 < bloqueios.sql
+sh compose.sh exec -T banco psql -U postgres -d ecrx_caixa -v ON_ERROR_STOP=1 < bloqueios.sql
 rm bloqueios.sql
 ```
 
 Confira que o arquivo tem uma linha por bloqueio do período antes de aplicar; um bloqueio concluído
 depois já está nos registros externos, e repetir o `UPDATE` não muda nada. O `psql` vai ao banco em que
-a cópia foi restaurada: no projeto à parte, com `-p fechadia-restauracao` depois de `compose.sh`.
+a cópia foi restaurada: no projeto à parte, com `-p ecrx-caixa-restauracao` depois de `compose.sh`.
 A credencial fica, como no bloqueio original, e o ADMIN conclui a inativação na tela Usuários.
 
 **Quando o log não alcança a cópia**, porque ela é de mais de 7 dias atrás ou a máquina se perdeu com o
@@ -1088,14 +1088,14 @@ perda fica no que foi escrito depois dela, no máximo uma hora.
    [Restauração](#restauração) e a versão que vai ao ar:
 
    ```bash
-   export FECHADIA_VERSAO=<SHA do último commit aprovado>
+   export ECRX_CAIXA_VERSAO=<SHA do último commit aprovado>
    sh compose.sh --profile restauracao run --rm -T \
      -v "<arquivo da chave privada>:/chave/chave-privada.txt:ro" \
-     restaurar s3:<bucket>/horaria/fechadia-<instante UTC da mais recente>
-   /usr/local/sbin/fechadia-implantar "$FECHADIA_VERSAO"
+     restaurar s3:<bucket>/horaria/ecrx-caixa-<instante UTC da mais recente>
+   /usr/local/sbin/ecrx-caixa-implantar "$ECRX_CAIXA_VERSAO"
    ```
 
-   O banco sobe pela primeira vez com a restauração e cria, no `initdb`, o papel `fechadia` com
+   O banco sobe pela primeira vez com a restauração e cria, no `initdb`, o papel `ecrx_caixa` com
    a senha da configuração nova; a cópia entra nele como esse papel, sem superusuário. O deploy sobe a
    aplicação sobre o banco restaurado e aplica as migrations que a cópia ainda não tem. Entre a
    restauração e o deploy, trate os bloqueios feitos sem o registro de remoções, como em
@@ -1104,7 +1104,7 @@ perda fica no que foi escrito depois dela, no máximo uma hora.
 4. Apontar o registro A do domínio para o IP novo; o proxy obtém o certificado assim que o domínio
    chegar à máquina.
 5. No GitHub, atualizar `VPS_ENDERECO` e `VPS_CHAVE_DO_HOST`.
-6. `systemctl start fechadia-copia.timer fechadia-vigia.timer fechadia-recusas.timer`,
+6. `systemctl start ecrx-caixa-copia.timer ecrx-caixa-vigia.timer ecrx-caixa-recusas.timer`,
    e apagar a chave privada da máquina.
 
 No ensaio local, a recriação inteira, num projeto de compose novo com volume vazio, terminou com a
@@ -1116,7 +1116,7 @@ O ADMIN remove Cliente no aplicativo. Se houver dívida ou comanda ABERTA, a ope
 após quitar ou cancelar a Venda elegível, o pedido pode ser repetido. A inativação de Usuário apaga
 a credencial, e o ADMIN pode anonimizar o nome depois. Essas ações gravam antes um registro mínimo
 em objetos `remocoes/<conta>/<tipo>/<id>/<instante>.json` num bucket S3 separado do backup, na
-região `sa-east-1`. A aplicação recebe `FECHADIA_REMOCOES_BUCKET` e uma credencial limitada a
+região `sa-east-1`. A aplicação recebe `ECRX_CAIXA_REMOCOES_BUCKET` e uma credencial limitada a
 gravar nesse bucket. Sem acesso ao registro, a remoção do Cliente e a do nome do Usuário respondem
 503 e não removem o dado do banco.
 
@@ -1127,7 +1127,7 @@ resposta diz que o login ficou, o log registra `evento=usuario.bloqueado` no lug
 `usuario.inativado`, e a tela Usuários mostra o inativo com o login guardado e o botão Concluir a
 inativação, que repete o pedido: com o registro de volta, ele grava o registro, apaga a credencial e
 registra `usuario.inativado`; ainda fora, responde 503 sem mudar nada. Sem
-`FECHADIA_REMOCOES_BUCKET`, como numa execução local, toda inativação termina no bloqueio. O
+`ECRX_CAIXA_REMOCOES_BUCKET`, como numa execução local, toda inativação termina no bloqueio. O
 bloqueio não tem registro externo; a [restauração](#restauração) o reaplica pelo log.
 
 O servidor não alcança o aparelho. O que um aparelho guardou, inclusive o cadastro de Clientes, só sai
@@ -1156,8 +1156,8 @@ com `aws s3api put-bucket-lifecycle-configuration --bucket <bucket de remoções
 encerramento gravam sob o prefixo `remocoes/`; a restauração reaplica todo registro que encontra, então
 o prazo não muda nada nela.
 
-**Pedido de Cliente ou de funcionário que chega ao Fechadia.** Quem decide sobre esses dados é a
-Conta, e o Fechadia só age sobre eles por instrução dela: o pedido é encaminhado, nunca atendido
+**Pedido de Cliente ou de funcionário que chega ao ECRX Caixa.** Quem decide sobre esses dados é a
+Conta, e o ECRX Caixa só age sobre eles por instrução dela: o pedido é encaminhado, nunca atendido
 direto. Em até 2 dias úteis:
 
 1. Ache a Conta pelo nome do negócio que a pessoa deu, lido pelo `read`, com os e-mails dos
@@ -1165,7 +1165,7 @@ direto. Em até 2 dias úteis:
 
    ```bash
    read -rp 'Nome do negócio: ' NEGOCIO
-   sh compose.sh exec -T banco psql -U postgres -d fechadia -v negocio="$NEGOCIO" <<'FIM'
+   sh compose.sh exec -T banco psql -U postgres -d ecrx_caixa -v negocio="$NEGOCIO" <<'FIM'
    select c.id, c.nome_negocio, cr.email
    from conta c join usuario u on u.conta_id = c.id and u.perfil = 'ADMIN' and u.ativo
    join credencial cr on cr.usuario_id = u.id
@@ -1175,18 +1175,18 @@ direto. Em até 2 dias úteis:
    ```
 
 2. Encaminhe a cada administrador o pedido como chegou, com o contato que a pessoa deu, e nada mais.
-   O Fechadia não consulta nem muda os dados dela para responder.
-3. Responda à pessoa que o Fechadia trata esses dados em nome do negócio, que o pedido foi
+   O ECRX Caixa não consulta nem muda os dados dela para responder.
+3. Responda à pessoa que o ECRX Caixa trata esses dados em nome do negócio, que o pedido foi
    encaminhado a ele e que a resposta vem dele. Sem o nome do negócio, pergunte qual é, sem dizer se há
    dado dela em alguma Conta.
 
 O pedido, o encaminhamento e a resposta ficam no e-mail de atendimento cinco anos depois da resposta,
 como prova de que foram atendidos no prazo, e depois são apagados. O pedido do administrador sobre o
-cadastro da Conta ou o dele não é encaminhado: quem decide sobre esse cadastro é o Fechadia.
+cadastro da Conta ou o dele não é encaminhado: quem decide sobre esse cadastro é o ECRX Caixa.
 
-**Pedido do administrador ao Fechadia.** O cadastro da Conta (o nome e o tipo do negócio, o plano)
+**Pedido do administrador ao ECRX Caixa.** O cadastro da Conta (o nome e o tipo do negócio, o plano)
 e o do administrador (o nome, o e-mail de entrada, o perfil, os aceites dos termos, os pedidos de plano e
-os eventos de segurança dele) são do Fechadia, que atende o pedido direto. Os prazos são os do
+os eventos de segurança dele) são do ECRX Caixa, que atende o pedido direto. Os prazos são os do
 agente de pequeno porte, em dobro.
 
 - **Correção.** O administrador corrige sozinho, no aplicativo: o nome dele e o de cada Usuário, na tela
@@ -1202,7 +1202,7 @@ agente de pequeno porte, em dobro.
 
      ```bash
      read -rp 'E-mail do administrador: ' EMAIL
-     sh compose.sh exec -T banco psql -U postgres -d fechadia -v email="$EMAIL" <<'FIM'
+     sh compose.sh exec -T banco psql -U postgres -d ecrx_caixa -v email="$EMAIL" <<'FIM'
      \x on
      select c.id as conta, c.nome_negocio, c.tipo_negocio, c.plano, c.proximo_vencimento,
             c.criado_em as conta_criada_em, u.id as usuario, u.nome, u.perfil, u.ativo,
@@ -1228,11 +1228,11 @@ agente de pequeno porte, em dobro.
      consulta mostrou:
 
      ```bash
-     journalctl CONTAINER_NAME=fechadia-app-1 --since -7d | grep -E '(usuario|alvo)=<uuid do Usuário>'
+     journalctl CONTAINER_NAME=ecrx-caixa-app-1 --since -7d | grep -E '(usuario|alvo)=<uuid do Usuário>'
      ```
 
   4. Escreva a declaração do e-mail de atendimento ao e-mail de entrada que a consulta mostrou, e só a
-     ele: os dados das duas consultas; de onde veio cada um (o cadastro da Conta pelo Fechadia, o
+     ele: os dados das duas consultas; de onde veio cada um (o cadastro da Conta pelo ECRX Caixa, o
      resto pelo próprio administrador no aplicativo, os eventos pela aplicação); para que servem, a base
      e por quanto tempo ficam, como no aviso de privacidade; e com quem são compartilhados, que é a
      hospedagem e a cópia no Brasil.
@@ -1251,12 +1251,12 @@ a identidade e o vínculo do ADMIN com a Conta e anote a data do pedido para cum
 dias. Responda ao ADMIN que, em cada aparelho da Conta, cada usuário entre com rede, espere o envio do
 que registrou sem rede e saia, e que então alguém toque em Apagar os dados deste aparelho, na tela de
 entrada, e em Apagar os dados, na página que se abre: o aparelho guarda o cadastro, com nome e contato
-dos Clientes, e o Fechadia não o alcança. O link continua na tela de entrada depois do
+dos Clientes, e o ECRX Caixa não o alcança. O link continua na tela de entrada depois do
 encerramento, mas o que não tiver sido enviado até lá se perde. Na hora de executar, pare a aplicação para impedir novas escritas, com
 `sh compose.sh stop app`. Retire de
-`/etc/fechadia/efi.env` todas as linhas da Conta, que começam por
-`FECHADIA_EFI_<UUID_DA_CONTA_SEM_HIFENS>_`, e apague o certificado dela em
-`/etc/fechadia/efi/`. Confira que nenhuma linha com esse prefixo restou e guarde a evidência
+`/etc/ecrx-caixa/efi.env` todas as linhas da Conta, que começam por
+`ECRX_CAIXA_EFI_<UUID_DA_CONTA_SEM_HIFENS>_`, e apague o certificado dela em
+`/etc/ecrx-caixa/efi/`. Confira que nenhuma linha com esse prefixo restou e guarde a evidência
 dessa conferência fora do banco a apagar. O pedido, a data e a evidência ficam guardados no Brasil por
 cinco anos depois do encerramento, como prova de que ele foi pedido e feito no prazo, e depois são
 apagados; o registro do encerramento no bucket de remoções segue os 45 dias dos outros.
@@ -1264,12 +1264,12 @@ apagados; o registro do encerramento no bucket de remoções segue os 45 dias do
 Depois, como root, na pasta `operacao/vps`:
 
 ```bash
-FECHADIA_SEGREDOS_REMOVIDOS=sim sh compose.sh --profile exclusao run --rm -T \
+ECRX_CAIXA_SEGREDOS_REMOVIDOS=sim sh compose.sh --profile exclusao run --rm -T \
   encerrar <uuid da Conta> <uuid do ADMIN>
 sh compose.sh up -d --wait app
 ```
 
-A confirmação `FECHADIA_SEGREDOS_REMOVIDOS=sim` vai só no comando, depois da conferência. O
+A confirmação `ECRX_CAIXA_SEGREDOS_REMOVIDOS=sim` vai só no comando, depois da conferência. O
 script verifica se o solicitante é ADMIN ativo da Conta, grava o registro externo com a credencial
 de gravação do bucket de remoções, apaga em uma transação as linhas da Conta e confere que ela não
 existe mais. A Conta de outro tenant continua. Uma falha depois do registro externo exige investigar
@@ -1321,13 +1321,13 @@ pedindo também entra na contagem, com o motivo `conta_suspensa`. Com o aviso, a
 estão no log, e uma origem pode ser bloqueada como em [Incidente de segurança](#incidente-de-segurança):
 
 ```bash
-journalctl CONTAINER_NAME=fechadia-app-1 --since -30min | grep -E ' evento=[a-z_.]*recusad' \
+journalctl CONTAINER_NAME=ecrx-caixa-app-1 --since -30min | grep -E ' evento=[a-z_.]*recusad' \
   | grep -oE 'origem=[^ ]+' | sort | uniq -c | sort -rn | head
 ```
 
 Sem conseguir ler o log, o script não manda sinal nenhum, e o check só cai depois da tolerância: a troca
 da aplicação no deploy não vira alerta. Numa configuração gerada antes do alerta, a linha
-`FECHADIA_VIGIA_RECUSAS=` entra à mão, porque o gerador nunca sobrescreve o arquivo.
+`ECRX_CAIXA_VIGIA_RECUSAS=` entra à mão, porque o gerador nunca sobrescreve o arquivo.
 
 ## Ensaio local
 
@@ -1341,13 +1341,13 @@ do Windows, os caminhos no formato `C:/...`:
 
 ```bash
 # Configuração e estado do ensaio, em pastas fora do repositório.
-export FECHADIA_CONFIGURACAO=<pasta>/configuracao FECHADIA_ESTADO=<pasta>/estado
-export FECHADIA_COMPOSE_ADICIONAL="$(pwd -W 2>/dev/null || pwd)/operacao/ensaio/compose.yaml"
-sh operacao/vps/criar-configuracao.sh "$FECHADIA_CONFIGURACAO"
-mkdir -p "$FECHADIA_ESTADO" && echo FECHADIA_VERSAO=ensaio > "$FECHADIA_ESTADO/versao.env"
-# No arquivo gerado: FECHADIA_DOMINIO=localhost, a mensalidade (20.00),
-# FECHADIA_COPIA_DESTINO=/copias/horaria, FECHADIA_COPIA_DESTINO_DIARIA=/copias/diaria,
-# FECHADIA_REMOCOES_DESTINO=/remocoes e, para a cópia agendada, endereços de um vigia local.
+export ECRX_CAIXA_CONFIGURACAO=<pasta>/configuracao ECRX_CAIXA_ESTADO=<pasta>/estado
+export ECRX_CAIXA_COMPOSE_ADICIONAL="$(pwd -W 2>/dev/null || pwd)/operacao/ensaio/compose.yaml"
+sh operacao/vps/criar-configuracao.sh "$ECRX_CAIXA_CONFIGURACAO"
+mkdir -p "$ECRX_CAIXA_ESTADO" && echo ECRX_CAIXA_VERSAO=ensaio > "$ECRX_CAIXA_ESTADO/versao.env"
+# No arquivo gerado: ECRX_CAIXA_DOMINIO=localhost, a mensalidade (20.00),
+# ECRX_CAIXA_COPIA_DESTINO=/copias/horaria, ECRX_CAIXA_COPIA_DESTINO_DIARIA=/copias/diaria,
+# ECRX_CAIXA_REMOCOES_DESTINO=/remocoes e, para a cópia agendada, endereços de um vigia local.
 
 # Proxy, aplicação e banco, em https://localhost:18443, depois das migrations e do healthcheck; e a
 # raiz da autoridade local do proxy, para o Node e o curl confiarem nela.
@@ -1356,14 +1356,14 @@ sh operacao/vps/compose.sh cp proxy:/data/caddy/pki/authorities/local/root.crt <
 
 # Uma Conta por execução; para a carga, três, com a mesma senha. Cada uma pede o plano completo na
 # tela Plano, e o código sai do script com o segredo da configuração do ensaio.
-FECHADIA_SEED_NOME_NEGOCIO="Loja da Esquina" FECHADIA_SEED_EMAIL=<e-mail> \
-FECHADIA_SEED_SENHA=<senha> sh operacao/vps/compose.sh --profile seed run --rm seed
+ECRX_CAIXA_SEED_NOME_NEGOCIO="Loja da Esquina" ECRX_CAIXA_SEED_EMAIL=<e-mail> \
+ECRX_CAIXA_SEED_SENHA=<senha> sh operacao/vps/compose.sh --profile seed run --rm seed
 
 # Carga, e a memória dos contêineres depois dela.
 NODE_EXTRA_CA_CERTS=<pasta>/proxy-raiz.crt CARGA_URL=https://localhost:18443 \
   CARGA_EMAILS=<e-mail 1>,<e-mail 2>,<e-mail 3> CARGA_SENHA=<senha> node operacao/carga/carga.mjs
-for c in app banco proxy; do docker exec fechadia-ensaio-$c-1 cat /sys/fs/cgroup/memory.peak; done
-docker inspect -f '{{.RestartCount}} reinícios, OOMKilled={{.State.OOMKilled}}' fechadia-ensaio-app-1
+for c in app banco proxy; do docker exec ecrx-caixa-ensaio-$c-1 cat /sys/fs/cgroup/memory.peak; done
+docker inspect -f '{{.RestartCount}} reinícios, OOMKilled={{.State.OOMKilled}}' ecrx-caixa-ensaio-app-1
 
 # A troca da aplicação, como no deploy, para ver a espera do proxy.
 sh operacao/vps/compose.sh up -d --force-recreate --no-deps --wait app
@@ -1372,12 +1372,12 @@ sh operacao/vps/compose.sh up -d --force-recreate --no-deps --wait app
 # chave pública na configuração; com a hora diária igual à hora UTC de agora, vai para a diaria.
 sh operacao/vps/compose.sh --profile copia build copia
 sh operacao/vps/copia-agendada.sh
-FECHADIA_COPIA_HORA_DIARIA=<hora UTC de agora, sem zero à esquerda> sh operacao/vps/copia-agendada.sh
+ECRX_CAIXA_COPIA_HORA_DIARIA=<hora UTC de agora, sem zero à esquerda> sh operacao/vps/copia-agendada.sh
 
 # Restauração de uma cópia no PostgreSQL vazio.
 sh operacao/vps/compose.sh --profile restauracao run --rm -T \
-  -e FECHADIA_RESTAURAR_BANCO=postgresql://restaurado@restaurado:5432/restaurado \
-  -v "<arquivo da chave privada>:/chave/chave-privada.txt:ro" restaurar /copias/diaria/fechadia-<instante UTC>
+  -e ECRX_CAIXA_RESTAURAR_BANCO=postgresql://restaurado@restaurado:5432/restaurado \
+  -v "<arquivo da chave privada>:/chave/chave-privada.txt:ro" restaurar /copias/diaria/ecrx-caixa-<instante UTC>
 
 # Fim: contêineres e volumes do ensaio.
 sh operacao/vps/compose.sh --profile seed --profile redefinir-senha --profile suspender-conta --profile reativar-conta --profile copia --profile restauracao --profile exclusao down -v

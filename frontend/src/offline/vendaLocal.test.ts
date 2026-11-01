@@ -52,7 +52,7 @@ async function prepararCadastro() {
   await guardarRetrato('clientesInativos', [], 0)
 }
 
-beforeEach(async () => { await deleteDB('fechadia-offline') })
+beforeEach(async () => { await deleteDB('ecrx-caixa-offline') })
 afterEach(() => vi.restoreAllMocks())
 
 describe('Venda no dispositivo', () => {

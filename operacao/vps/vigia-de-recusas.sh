@@ -9,16 +9,16 @@
 # Sem conseguir ler o log, o script não manda sinal nenhum, e o check só cai depois da tolerância:
 # assim a troca da aplicação no deploy não vira alerta.
 #
-# Uso: sh vigia-de-recusas.sh, pelo timer fechadia-recusas.
+# Uso: sh vigia-de-recusas.sh, pelo timer ecrx-caixa-recusas.
 set -u
 
-CONFIGURACAO=${FECHADIA_CONFIGURACAO:-/etc/fechadia}
+CONFIGURACAO=${ECRX_CAIXA_CONFIGURACAO:-/etc/ecrx-caixa}
 LIMITE=50
 AQUI=$(cd "$(dirname "$0")" && pwd)
-vigia=$(sed -n 's/^FECHADIA_VIGIA_RECUSAS=//p' "$CONFIGURACAO/fechadia.env")
+vigia=$(sed -n 's/^ECRX_CAIXA_VIGIA_RECUSAS=//p' "$CONFIGURACAO/ecrx-caixa.env")
 
 if [ -z "$vigia" ]; then
-    echo "Falta FECHADIA_VIGIA_RECUSAS na configuração." >&2
+    echo "Falta ECRX_CAIXA_VIGIA_RECUSAS na configuração." >&2
     exit 1
 fi
 

@@ -35,7 +35,7 @@ public class EmissorDeToken {
     private final JwtEncoder encoder;
     private final Duration validade;
 
-    EmissorDeToken(JwtEncoder encoder, @Value("${fechadia.jwt.validade}") Duration validade) {
+    EmissorDeToken(JwtEncoder encoder, @Value("${ecrx-caixa.jwt.validade}") Duration validade) {
         this.encoder = encoder;
         this.validade = validade;
     }

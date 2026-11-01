@@ -8,6 +8,6 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *
  * <p>Sem valor padrão: uma senha padrão em código seria a mesma em toda instalação.
  */
-@ConfigurationProperties(prefix = "fechadia.redefinicao")
+@ConfigurationProperties(prefix = "ecrx-caixa.redefinicao")
 record PropriedadesDaRedefinicao(String email, String senha) {
 }

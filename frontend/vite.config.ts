@@ -16,8 +16,8 @@ export default defineConfig({
       // manifest; a extensão webmanifest sairia como binário, porque o servidor não a conhece.
       manifestFilename: 'manifest.json',
       manifest: {
-        name: 'Fechadia',
-        short_name: 'Fechadia',
+        name: 'ECRX Caixa',
+        short_name: 'ECRX Caixa',
         description: 'Sistema de caixa e vendas para pequenos negócios',
         lang: 'pt-BR',
         start_url: '/',

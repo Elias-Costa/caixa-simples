@@ -1,21 +1,21 @@
 services:
   postgres:
     image: postgres:17-alpine
-    container_name: fechadia-db
+    container_name: ecrx-caixa-db
     environment:
-      POSTGRES_DB: ${FECHADIA_DB_NAME:-fechadia}
-      POSTGRES_USER: ${FECHADIA_DB_USER:-fechadia}
-      POSTGRES_PASSWORD: ${FECHADIA_DB_PASSWORD:-fechadia}
+      POSTGRES_DB: ${ECRX_CAIXA_DB_NAME:-ecrx_caixa}
+      POSTGRES_USER: ${ECRX_CAIXA_DB_USER:-ecrx_caixa}
+      POSTGRES_PASSWORD: ${ECRX_CAIXA_DB_PASSWORD:-ecrx_caixa}
     ports:
-      - "${FECHADIA_DB_PORT:-5432}:5432"
+      - "${ECRX_CAIXA_DB_PORT:-5432}:5432"
     volumes:
-      - fechadia-pgdata:/var/lib/postgresql/data
+      - ecrx-caixa-pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${FECHADIA_DB_USER:-fechadia}"]
+      test: ["CMD-SHELL", "pg_isready -U ${ECRX_CAIXA_DB_USER:-ecrx_caixa}"]
       interval: 5s
       timeout: 3s
       retries: 10
     restart: unless-stopped
 
 volumes:
-  fechadia-pgdata:
+  ecrx-caixa-pgdata:
