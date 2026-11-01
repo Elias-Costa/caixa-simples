@@ -40,7 +40,10 @@ jq -n --arg contaId "$CONTA_ID" --arg registroId "$CONTA_ID" \
     '{contaId: $contaId, tipo: "CONTA", registroId: $registroId,
       instante: $instante, solicitadoPor: $solicitadoPor}' > "$TRABALHO/remocao.json"
 
-rclone copyto --no-check-dest "$TRABALHO/remocao.json" \
+# A credencial do bucket de remoções só grava. Sem estas opções, o rclone tentaria criar o bucket
+# antes de enviar e ler o objeto depois; as duas chamadas seriam recusadas, e o encerramento pararia
+# sem apagar a Conta.
+rclone copyto --no-check-dest --s3-no-check-bucket --s3-no-head "$TRABALHO/remocao.json" \
     "$ECRX_CAIXA_REMOCOES_DESTINO/$CONTA_ID/CONTA/$CONTA_ID/$NOME"
 
 AQUI=$(dirname "$0")

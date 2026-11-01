@@ -1156,6 +1156,21 @@ com `aws s3api put-bucket-lifecycle-configuration --bucket <bucket de remoções
 encerramento gravam sob o prefixo `remocoes/`; a restauração reaplica todo registro que encontra, então
 o prazo não muda nada nela.
 
+A credencial de `ECRX_CAIXA_REMOCOES_AWS_*`, a da aplicação e do encerramento, é de um usuário do IAM
+só com esta política, que permite gravar e mais nada:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    { "Effect": "Allow", "Action": "s3:PutObject", "Resource": "arn:aws:s3:::<bucket de remoções>/*" }
+  ]
+}
+```
+
+Por isso o encerramento envia o registro sem tentar criar o bucket antes e sem ler o objeto depois: com
+essa credencial, as duas chamadas seriam recusadas, e o encerramento pararia sem apagar a Conta.
+
 **Pedido de Cliente ou de funcionário que chega ao ECRX Caixa.** Quem decide sobre esses dados é a
 Conta, e o ECRX Caixa só age sobre eles por instrução dela: o pedido é encaminhado, nunca atendido
 direto. Em até 2 dias úteis:
