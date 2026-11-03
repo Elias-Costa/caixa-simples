@@ -93,7 +93,8 @@ vulnerabilities:
   # A base da imagem da aplicação, o eclipse-temurin 21 sobre o Alpine 3.24.2, traz a libexpat 2.8.5 e
   # a brotli 1.2.0. As correções estão na libexpat 2.9.0 e na brotli 1.2.1. A base nova da mesma tag, de
   # 2026-10-29, traz as duas corrigidas e entra depois de 7 dias publicada, como toda troca de base.
-  # Trocado o digest no Dockerfile, as duas exceções saem.
+  # Trocado o digest no Dockerfile, as duas exceções saem. Os dois avisos da libexpat que vêm depois
+  # delas valem até a 2.9.0 e só saem com uma base que traga a 2.10.0, que o Alpine já publicou.
   - id: CVE-2026-77214
     purls:
       - pkg:apk/alpine/libexpat@2.8.5-r0?arch=x86_64&distro=3.24.2
@@ -113,3 +114,23 @@ vulnerabilities:
       desenha texto nem imagem, que é o que a levaria ao fontconfig; nenhum dado vindo de fora chega à
       biblioteca.
     expired_at: 2026-11-24
+  - id: CVE-2026-117610
+    purls:
+      - pkg:apk/alpine/libexpat@2.8.5-r0?arch=x86_64&distro=3.24.2
+    statement: >-
+      Ponteiro nulo ao interpretar uma entidade externa entregue em pedaços escolhidos por quem envia o
+      XML. Na imagem, só o fontconfig usa a libexpat, e ele lê só os arquivos de configuração de fontes
+      da própria imagem, sem entidade externa. A aplicação não desenha texto nem imagem, que é o que
+      levaria a JVM ao fontconfig, e a JVM lê XML com o próprio leitor, sem a libexpat; nenhum dado
+      vindo de fora chega a ela.
+    expired_at: 2026-12-01
+  - id: CVE-2026-118370
+    purls:
+      - pkg:apk/alpine/libexpat@2.8.5-r0?arch=x86_64&distro=3.24.2
+    statement: >-
+      Estouro de inteiro com escrita fora do buffer num documento de vários gigabytes com mais de 2^30
+      atributos numa marca. Na imagem, só o fontconfig usa a libexpat, e ele lê só os arquivos de
+      configuração de fontes da própria imagem. A aplicação não desenha texto nem imagem, que é o que
+      levaria a JVM ao fontconfig, e a JVM lê XML com o próprio leitor, sem a libexpat; nenhum dado
+      vindo de fora chega a ela.
+    expired_at: 2026-12-01
