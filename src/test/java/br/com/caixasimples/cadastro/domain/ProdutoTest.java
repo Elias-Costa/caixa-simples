@@ -214,11 +214,29 @@ class ProdutoTest {
         assertThatIllegalStateException()
                 .isThrownBy(() -> produto.alterar("Outro nome", Money.de("9.00"), null, null, null,
                         null))
-                .withMessageContaining("inativo");
+                .withMessage("O produto Cafe coado está inativo; reative-o antes de editar.");
 
         assertThat(produto.getNome())
                 .as("a recusa não pode ter aplicado nada pela metade")
                 .isEqualTo("Cafe coado");
+    }
+
+    @Test
+    @DisplayName("reativar devolve o item ao catálogo, com o saldo que tinha, e de novo não estoura")
+    void reativarDevolveOItem() {
+        Produto produto = valido(Money.de("6.50"));
+        produto.registrarEntrada(new BigDecimal("4"), null);
+        produto.inativar();
+
+        produto.reativar();
+        produto.reativar();
+
+        assertThat(produto.isAtivo()).isTrue();
+        assertThat(produto.getEstoqueAtual())
+                .as("o saldo continua o que era; só movimento move o saldo")
+                .isEqualByComparingTo("4");
+        produto.alterar("Cafe coado grande", Money.de("8.00"), null, null, null, null);
+        assertThat(produto.getNome()).isEqualTo("Cafe coado grande");
     }
 
     @Test

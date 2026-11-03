@@ -41,7 +41,8 @@ describe('telas de cadastro sem rede', () => {
         nome: 'Café expresso', preco: 0, codigo: null, categoria: 'Bebidas',
         unidade: 'un', atributos: {},
       }]), { status: 200 })
-      if (caminho === '/api/clientes' || caminho === '/api/clientes/inativos') {
+      if (caminho === '/api/produtos/inativos' || caminho === '/api/clientes'
+        || caminho === '/api/clientes/inativos') {
         return new Response('[]', { status: 200 })
       }
       throw new Error(`Rota inesperada: ${caminho}`)
@@ -71,12 +72,12 @@ describe('telas de cadastro sem rede', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Editar' }))
     fireEvent.change(screen.getByLabelText('Preço (R$)'), { target: { value: '7,50' } })
     fireEvent.click(screen.getByRole('button', { name: 'Salvar' }))
-    await waitFor(() => expect(screen.getByText('R$ 7,50')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('R$ 7,50/un')).toBeInTheDocument())
     expect((await listarGestos())[0]).toMatchObject({ tipo: 'produto.editar', versaoBase: 2 })
 
     tela.unmount()
     render(<SessaoContext.Provider value={sessao}><TelaDeProdutos /></SessaoContext.Provider>)
-    expect(await screen.findByText('R$ 7,50')).toBeInTheDocument()
+    expect(await screen.findByText('R$ 7,50/un')).toBeInTheDocument()
     // A contagem do que está guardado no aparelho vem de uma leitura do IndexedDB depois da lista:
     // lida na hora, a asserção dependia de qual das duas terminava primeiro.
     expect(await screen.findByRole('status')).toHaveTextContent('aguardando sincronização')

@@ -391,6 +391,37 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
     }
 
     @Test
+    @DisplayName("produto reativado sem rede: aplicado com a revisão nova, ou recusado se o código foi para outro")
+    void reativacaoDeProdutoPeloLote() {
+        ContaCriada conta = criador.criar("Armazem Aurora", SENHA);
+        UUID livre = cadastrar(conta, "Vela", "3.00");
+        UUID ocupado = conta.comoUsuario(() -> produtos.cadastrar(TipoProduto.PRODUTO,
+                new DadosDoProduto("Fosforo", Money.de("1.00"), "F-1", null, "un", Map.of())));
+        conta.comoUsuario(() -> {
+            produtos.inativar(livre);
+            produtos.inativar(ocupado);
+            produtos.cadastrar(TipoProduto.PRODUTO,
+                    new DadosDoProduto("Fosforo longo", Money.de("2.00"), "F-1", null, "un", Map.of()));
+        });
+        GestoDeTeste reativaLivre = GestoDeTeste.de("produto.reativar", livre, conteudo());
+        GestoDeTeste reativaOcupado = GestoDeTeste.de("produto.reativar", ocupado, conteudo());
+
+        List<ResultadoDaOperacao> resultados = conta.comoUsuario(() ->
+                sincronizacao.sincronizar(recebidas(List.of(reativaLivre, reativaOcupado))));
+
+        assertThat(resultados.get(0).resultado()).isEqualTo(Resultado.APLICADA);
+        assertThat(resultados.get(0).versao()).isEqualTo(2L);
+        assertThat(resultados.get(1).resultado()).isEqualTo(Resultado.NAO_APLICADA);
+        assertThat(resultados.get(1).detalhe()).isEqualTo("O código F-1 já é de Fosforo longo,"
+                + " que está ativo. Para reativar Fosforo, mude o código de Fosforo longo ou"
+                + " inative-o antes.");
+        conta.comoUsuario(() -> {
+            assertThat(linhasDeProduto.findById(livre).orElseThrow().isAtivo()).isTrue();
+            assertThat(linhasDeProduto.findById(ocupado).orElseThrow().isAtivo()).isFalse();
+        });
+    }
+
+    @Test
     @DisplayName("relógio do dispositivo adiantado além da tolerância: aplicado com revisão e o instante mantido")
     void relogioAdiantadoVaiParaRevisao() {
         ContaCriada conta = criador.criar("Papelaria Aurora", SENHA);

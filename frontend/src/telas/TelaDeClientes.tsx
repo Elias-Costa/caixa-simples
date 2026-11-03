@@ -119,6 +119,7 @@ export function TelaDeClientes() {
     }
   }
 
+  /** Só pela edição: na lista, dois botões de perigo em cada linha ficariam ao alcance de um toque errado. */
   async function inativar(cliente: Cliente) {
     const sim = await confirmar({
       titulo: `Inativar ${cliente.nome}?`,
@@ -129,10 +130,11 @@ export function TelaDeClientes() {
     limparMensagens()
     try {
       await cadastro.inativarCliente(cliente.id)
+      setAberto(false)
       await carregar()
       avisar(`${cliente.nome} inativado.`)
     } catch (falha) {
-      setErro(erroDeCadastro(falha))
+      setErroDoFormulario(erroDeCadastro(falha))
     }
   }
 
@@ -147,7 +149,11 @@ export function TelaDeClientes() {
     }
   }
 
-  async function remover(cliente: Cliente) {
+  /**
+   * Da edição do cliente ativo e da linha do inativo. A recusa, como a dívida no fiado, aparece onde
+   * o botão foi tocado: no formulário ou no alto da lista.
+   */
+  async function remover(cliente: Cliente, mostrarErro: (texto: string) => void) {
     const sim = await confirmar({
       titulo: `Remover os dados de ${cliente.nome}?`,
       texto: 'O nome e o contato saem do cadastro, e esta ação não pode ser desfeita. As vendas '
@@ -158,10 +164,11 @@ export function TelaDeClientes() {
     limparMensagens()
     try {
       await cadastro.removerCliente(cliente.id)
+      setAberto(false)
       await carregar()
       avisar('Dados do cliente removidos.')
     } catch (falha) {
-      setErro(erroDeCadastro(falha))
+      mostrarErro(erroDeCadastro(falha))
     }
   }
 
@@ -169,6 +176,7 @@ export function TelaDeClientes() {
   const ativosEncontrados = filtrarPorNome(ativos, busca, (cliente) => cliente.nome)
   const inativosEncontrados = filtrarPorNome(inativos, busca, (cliente) => cliente.nome)
   const termo = busca.trim()
+  const clienteEditado = ativos.find((cliente) => cliente.id === editando)
 
   return <section className="cadastro">
     <div className="cadastro__topo">
@@ -188,12 +196,7 @@ export function TelaDeClientes() {
         : <ul className="cadastro__lista">
         {ativosEncontrados.map((cliente) => <li className="cadastro__item" key={cliente.id}>
           <div><strong>{cliente.nome}</strong><p>{cliente.contato ?? 'Sem contato'}</p></div>
-          <div className="cadastro__acoes">
-            <button className="botao botao--secundario" type="button" onClick={() => editar(cliente)}>Editar</button>
-            <button className="botao botao--perigo" type="button" onClick={() => void inativar(cliente)}>Inativar</button>
-            {podeRemover && <button className="botao botao--perigo" type="button"
-              onClick={() => void remover(cliente)}>Remover dados</button>}
-          </div>
+          <button className="botao botao--secundario" type="button" onClick={() => editar(cliente)}>Editar</button>
         </li>)}
       </ul>}
       {inativosEncontrados.length > 0 && <><h3>Inativos</h3><ul className="cadastro__lista">
@@ -201,7 +204,7 @@ export function TelaDeClientes() {
           <div><strong>{cliente.nome}</strong><p>{cliente.contato ?? 'Sem contato'}</p></div>
           <button className="botao botao--secundario" type="button" onClick={() => void reativar(cliente)}>Reativar</button>
           {podeRemover && <button className="botao botao--perigo" type="button"
-            onClick={() => void remover(cliente)}>Remover dados</button>}
+            onClick={() => void remover(cliente, setErro)}>Remover dados</button>}
         </li>)}
       </ul></>}
     </>}
@@ -222,6 +225,12 @@ export function TelaDeClientes() {
         <button className="botao" type="submit" disabled={salvando}>{salvando ? 'Salvando...' : 'Salvar'}</button>
         <button className="botao botao--secundario" type="button" onClick={() => setAberto(false)}>Cancelar</button>
       </div>
+      {/* O que tira o cliente da lista fica separado do Salvar, abaixo de uma linha. */}
+      {clienteEditado && <div className="cadastro__acoes cadastro__perigo">
+        <button className="botao botao--perigo" type="button" onClick={() => void inativar(clienteEditado)}>Inativar</button>
+        {podeRemover && <button className="botao botao--perigo" type="button"
+          onClick={() => void remover(clienteEditado, setErroDoFormulario)}>Remover dados</button>}
+      </div>}
     </form>}
     {dialogoDeConfirmacao}
   </section>

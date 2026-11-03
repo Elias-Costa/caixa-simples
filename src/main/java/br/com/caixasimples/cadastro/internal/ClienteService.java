@@ -123,9 +123,8 @@ public class ClienteService {
     /**
      * Traz de volta um cliente inativado. Idempotente pelo mesmo motivo da inativação.
      *
-     * <p>Existe aqui e não existe em produto porque lá a reativação esbarraria no índice único de
-     * {@code codigo} entre os ativos, que ela poderia violar. A tabela {@code cliente} não tem
-     * índice único nenhum, então a operação não esbarra em nada.
+     * <p>Ao contrário da reativação de produto, que confere se o código do item foi para outro, aqui
+     * não há o que conferir: a tabela {@code cliente} não tem índice único nenhum.
      *
      * @throws ClienteNaoEncontradoException se o id não existe nesta conta
      */

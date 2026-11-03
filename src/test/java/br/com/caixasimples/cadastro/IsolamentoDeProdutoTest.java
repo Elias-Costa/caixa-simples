@@ -1,8 +1,11 @@
 package br.com.caixasimples.cadastro;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 
 import br.com.caixasimples.TesteDeIntegracao;
+import br.com.caixasimples.cadastro.application.ProdutoNaoEncontradoException;
+import br.com.caixasimples.cadastro.application.ProdutoService;
 import br.com.caixasimples.cadastro.domain.Produto;
 import br.com.caixasimples.cadastro.internal.ProdutoEntity;
 import br.com.caixasimples.cadastro.internal.ProdutoRepository;
@@ -32,11 +35,47 @@ class IsolamentoDeProdutoTest extends TesteDeIntegracao {
     private ProdutoRepository produtos;
 
     @Autowired
+    private ProdutoService produtoService;
+
+    @Autowired
     private CriadorDeContaDeTeste criador;
 
     @AfterEach
     void limparContexto() {
         TenantContext.limpar();
+    }
+
+    @Test
+    @DisplayName("a reativação não vê o inativo nem o código de outra conta")
+    void reativacaoFicaNaPropriaConta() {
+        ContaCriada contaA = criador.criar("Mercearia Aurora", SENHA_DE_TESTE);
+        ContaCriada contaB = criador.criar("Mercearia Vizinha", SENHA_DE_TESTE);
+        UUID inativoDaA = contaA.comoUsuario(() -> {
+            Produto produto = new Produto("Arroz", Money.de("6.50"), TipoProduto.PRODUTO, "AR-1",
+                    null, "un", Map.of());
+            produto.inativar();
+            return produtos.save(ProdutoEntity.de(produto)).getId();
+        });
+        // O mesmo código, ativo na conta B: não ocupa nada na conta A.
+        contaB.comoUsuario(() -> produtos.save(ProdutoEntity.de(new Produto("Arroz integral",
+                Money.de("8.00"), TipoProduto.PRODUTO, "AR-1", null, "un", Map.of()))));
+
+        contaB.comoUsuario(() -> {
+            assertThat(produtos.findByAtivoFalse())
+                    .as("inativos da conta B")
+                    .extracting(ProdutoEntity::getId)
+                    .doesNotContain(inativoDaA);
+            assertThat(produtoService.listarInativosComVersao()).isEmpty();
+        });
+        assertThatExceptionOfType(ProdutoNaoEncontradoException.class)
+                .isThrownBy(() -> contaB.comoUsuario(() -> produtoService.reativar(inativoDaA)));
+        contaA.comoUsuario(() -> assertThat(produtos.findById(inativoDaA).orElseThrow().isAtivo())
+                .as("a tentativa da conta B não reativou o produto da A")
+                .isFalse());
+
+        contaA.comoUsuario(() -> produtoService.reativar(inativoDaA));
+        contaA.comoUsuario(() -> assertThat(produtos.findById(inativoDaA).orElseThrow().isAtivo())
+                .isTrue());
     }
 
     @Test

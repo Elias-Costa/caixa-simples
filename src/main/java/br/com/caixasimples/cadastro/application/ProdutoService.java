@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -53,10 +54,10 @@ import org.springframework.transaction.annotation.Transactional;
  * desenho: o módulo de estoque decide se a conta participa, e este serviço executa sobre o
  * agregado.
  *
- * <p><strong>Não existe caso de uso de reativação</strong>, nem de exclusão: o RF05 é soft delete,
- * e {@code DELETE} não aparece em lugar nenhum deste módulo.
+ * <p><strong>Não existe caso de uso de exclusão</strong>: o RF05 é soft delete, e {@code DELETE} não
+ * aparece em lugar nenhum deste módulo. O item inativado volta por {@link #reativar}.
  *
- * <p><strong>Quem pode chamar o quê (RF30).</strong> Cadastrar, editar e inativar são do
+ * <p><strong>Quem pode chamar o quê (RF30).</strong> Cadastrar, editar, inativar e reativar são do
  * administrador, e perguntam isso na primeira linha. As consultas servem aos dois perfis, porque
  * o operador precisa achar o produto para vender. Os casos de uso de estoque não perguntam:
  * a baixa e o estorno são acionados por ouvinte de evento, sem pessoa por trás, e o ajuste, o
@@ -67,7 +68,8 @@ import org.springframework.transaction.annotation.Transactional;
  * parcial da migration V2, provado em {@code CodigoDeProdutoTest}. Uma consulta prévia aqui
  * duplicaria a regra em dois lugares e ainda assim não dispensaria o índice, porque duas
  * requisições simultâneas passariam pela checagem juntas. Traduzir a violação numa mensagem
- * amigável é trabalho da camada {@code web/}.
+ * amigável é trabalho da camada {@code web/}. A reativação é a exceção: ela pergunta antes, para a
+ * recusa dizer qual item ficou com o código, e o índice continua recusando a corrida.
  */
 @Service
 public class ProdutoService {
@@ -164,6 +166,42 @@ public class ProdutoService {
         produtos.save(linha);
     }
 
+    /**
+     * Devolve ao catálogo um item inativado, com o cadastro e o saldo que ele tinha. É idempotente,
+     * como a inativação.
+     *
+     * <p><strong>O código do item pode ter ido para outro</strong> enquanto ele estava fora, porque o
+     * índice da migration V2 só vale entre os ativos. Aí a reativação é recusada, e nada muda: tirar
+     * o código em silêncio mudaria um dado que ninguém pediu para mudar. A recusa diz qual item está
+     * com o código e qual é a saída, mudar o código dele ou inativá-lo, porque o inativo não se
+     * edita.
+     *
+     * @throws br.com.caixasimples.shared.AcessoNegadoException se quem chama não é ADMIN
+     * @throws ProdutoNaoEncontradoException se o id não existe nesta conta
+     * @throws IllegalStateException         se outro produto ativo usa o código deste
+     */
+    @Transactional
+    public void reativar(UUID id) {
+        UsuarioContext.exigirAdmin();
+        ProdutoEntity linha = buscar(id);
+        Produto produto = linha.paraDominio();
+
+        if (!produto.isAtivo() && produto.getCodigo() != null) {
+            Optional<ProdutoEntity> donoDoCodigo =
+                    produtos.findByAtivoTrueAndCodigoIgnoreCase(produto.getCodigo());
+            if (donoDoCodigo.isPresent()) {
+                String outro = donoDoCodigo.get().getNome();
+                throw new IllegalStateException("O código " + produto.getCodigo() + " já é de "
+                        + outro + ", que está ativo. Para reativar " + produto.getNome()
+                        + ", mude o código de " + outro + " ou inative-o antes.");
+            }
+        }
+        produto.reativar();
+
+        linha.atualizarCom(produto);
+        produtos.save(linha);
+    }
+
     /** Catálogo da conta. Produto inativado não aparece aqui, que é o efeito visível do RF05. */
     @Transactional(readOnly = true)
     public List<Produto> listarAtivos() {
@@ -174,6 +212,14 @@ public class ProdutoService {
     @Transactional(readOnly = true)
     public List<ProdutoComVersao> listarAtivosComVersao() {
         return produtos.findByAtivoTrue().stream()
+                .map(linha -> new ProdutoComVersao(linha.paraDominio(), linha.getVersao()))
+                .toList();
+    }
+
+    /** Os inativados, com a revisão, para a tela os reativar também sem rede. */
+    @Transactional(readOnly = true)
+    public List<ProdutoComVersao> listarInativosComVersao() {
+        return produtos.findByAtivoFalse().stream()
                 .map(linha -> new ProdutoComVersao(linha.paraDominio(), linha.getVersao()))
                 .toList();
     }

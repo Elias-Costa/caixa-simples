@@ -170,22 +170,21 @@ public class Produto {
      * <p><strong>Não recebe {@code tipo}, e a ausência é que é a decisão.</strong> O tipo decide se
      * o item participa de estoque, então trocá-lo depois deixaria um movimento de estoque órfão num
      * item que virou SERVICO, ou um SERVICO com saldo. Errou o tipo no cadastro? Use
-     * {@link #inativar()} e recadastre; o histórico de vendas do item antigo continua de pé.
-     *
+     * {@link #inativar()} e recadastre; o histórico de vendas do item antigo continua de pé.     *
      * <p>Não recebe {@code estoqueAtual} pelo mesmo tipo de motivo: saldo só se move por movimento
      * de estoque, nunca por edição de cadastro. Nem {@code estoqueMinimo}: o limiar do alerta é
      * política de estoque, não descrição do item, e tem caso de uso próprio,
      * {@link #definirEstoqueMinimo}, para o formulário de cadastro não carregar um campo que só
      * faz sentido com o controle de estoque ligado.
      *
-     * @throws IllegalStateException se o produto já foi inativado. Como não há reativação, editar
-     *                               um registro que ninguém mais enxerga não teria efeito nenhum
+     * @throws IllegalStateException se o produto já foi inativado. Editado ali, o item mudaria em
+     *                               silêncio fora do balcão; quem quer mudá-lo reativa antes
      */
     public void alterar(String nome, Money preco, String codigo, String categoria, String unidade,
             Map<String, Object> atributos) {
         if (!ativo) {
             throw new IllegalStateException(
-                    "O produto " + nome + " está inativo e não pode ser editado.");
+                    "O produto " + this.nome + " está inativo; reative-o antes de editar.");
         }
         this.nome = exigirTexto(nome, "nome do produto", TAMANHO_DO_NOME);
         this.preco = exigirPreco(preco);
@@ -201,13 +200,22 @@ public class Produto {
      * <p><strong>É idempotente.</strong> Inativar um produto já inativo não é erro de ninguém, e
      * sim o mesmo estado pedido de novo: dois cliques no balcão, ou a requisição que o cliente
      * offline reenvia ao voltar a rede.
-     *
-     * <p>Não existe {@code reativar()}. Reativar esbarraria no índice único parcial do código do
-     * produto, que só vale entre os ativos, porque o código do item inativado pode já ter sido
-     * reaproveitado por outro.
      */
     public void inativar() {
         this.ativo = false;
+    }
+
+    /**
+     * Traz de volta ao catálogo um item inativado, com o cadastro e o saldo de estoque que ele tinha.
+     * Idempotente pelo mesmo motivo de {@link #inativar()}.
+     *
+     * <p><strong>Não confere o código</strong>, e não é esquecimento: o código só é único entre os
+     * ativos, e o do item inativado pode ter ido para outro enquanto ele estava fora. Quem sabe disso
+     * é o catálogo da Conta, não esta raiz; o caso de uso pergunta antes de reativar, e o índice
+     * único parcial da migration V2 recusa a corrida.
+     */
+    public void reativar() {
+        this.ativo = true;
     }
 
     /**

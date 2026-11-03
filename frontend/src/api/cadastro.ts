@@ -28,6 +28,7 @@ export type DadosDoCliente = Omit<Cliente, 'id' | 'versao'>
 
 const remoto = {
   produtos: () => chamarApi<Produto[]>('/api/produtos'),
+  produtosInativos: () => chamarApi<Produto[]>('/api/produtos/inativos'),
   buscarProdutos: (termo: string) =>
     chamarApi<Produto[]>(`/api/produtos/busca?termo=${encodeURIComponent(termo)}`),
   criarProduto: (dados: DadosDoProduto) =>
@@ -39,6 +40,8 @@ const remoto = {
     } }),
   inativarProduto: (id: string) =>
     chamarApi<void>(`/api/produtos/${id}/inativar`, { metodo: 'POST' }),
+  reativarProduto: (id: string) =>
+    chamarApi<void>(`/api/produtos/${id}/reativar`, { metodo: 'POST' }),
   clientes: () => chamarApi<Cliente[]>('/api/clientes'),
   clientesInativos: () => chamarApi<Cliente[]>('/api/clientes/inativos'),
   criarCliente: (dados: DadosDoCliente) =>

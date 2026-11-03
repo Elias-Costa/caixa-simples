@@ -25,13 +25,15 @@ function entrar(identidade: Identidade) {
   gravarIdentidade(identidade)
 }
 
-function remoto(produtos: Produto[] = [], clientes: Cliente[] = []) {
+function remoto(produtos: Produto[] = [], clientes: Cliente[] = [], produtosInativos: Produto[] = []) {
   return {
     produtos: vi.fn(async () => produtos),
+    produtosInativos: vi.fn(async () => produtosInativos),
     buscarProdutos: vi.fn(async (_termo: string) => produtos),
     criarProduto: vi.fn(async (_dados: DadosDoProduto) => ({ id: crypto.randomUUID() })),
     editarProduto: vi.fn(async (_id: string, _dados: DadosDoProduto) => undefined),
     inativarProduto: vi.fn(async (_id: string) => undefined),
+    reativarProduto: vi.fn(async (_id: string) => undefined),
     clientes: vi.fn(async () => clientes),
     clientesInativos: vi.fn(async () => [] as Cliente[]),
     criarCliente: vi.fn(async (_dados: DadosDoCliente) => ({ id: crypto.randomUUID() })),
@@ -207,6 +209,49 @@ describe('cadastro local', () => {
     expect((await cadastro.produtos())[0]).toMatchObject({ preco: 9, versao: 6 })
     rede(false)
     expect((await cadastro.produtos())[0]).toMatchObject({ preco: 9, versao: 6 })
+  })
+
+  it('reativa Produto sem rede, com a recusa do servidor quando o código foi para outro item', async () => {
+    entrar(ana)
+    rede(true)
+    const item = (id: string, nome: string, codigo: string | null): Produto => ({
+      id, versao: 3, tipo: 'PRODUTO', nome, preco: 5, codigo, categoria: null, unidade: 'un', atributos: {},
+    })
+    const paoDeQueijo = item('00000000-0000-4000-8000-000000000021', 'Pão de queijo', '789')
+    const paoFrances = item('00000000-0000-4000-8000-000000000022', 'Pão francês', '789')
+    const boloVelho = item('00000000-0000-4000-8000-000000000023', 'Bolo de fubá', null)
+    const servidor = remoto([paoDeQueijo], [], [paoFrances, boloVelho])
+    const cadastro = criarCadastroLocal(servidor)
+    // As duas listas vêm num pedido só, e o retrato das duas tem a mesma ordem da leitura.
+    const [ativos, inativos] = await Promise.all([cadastro.produtos(), cadastro.produtosInativos()])
+    expect(ativos.map((produto) => produto.nome)).toEqual(['Pão de queijo'])
+    expect(inativos.map((produto) => produto.nome)).toEqual(['Pão francês', 'Bolo de fubá'])
+    expect(servidor.produtos).toHaveBeenCalledTimes(1)
+    expect(servidor.produtosInativos).toHaveBeenCalledTimes(1)
+    expect(await lerRetrato('produtosInativos')).toEqual({ dados: [paoFrances, boloVelho], ordemDaLeitura: 0 })
+
+    rede(false)
+    await cadastro.reativarProduto(boloVelho.id)
+    await expect(cadastro.reativarProduto(paoFrances.id)).rejects.toThrow('O código 789 já é de Pão '
+      + 'de queijo, que está ativo. Para reativar Pão francês, mude o código de Pão de queijo ou inative-o antes.')
+    await expect(cadastro.editarProduto(paoFrances.id, { ...paoFrances, preco: 6 }))
+      .rejects.toThrow('O produto Pão francês está inativo; reative-o antes de editar.')
+    expect((await cadastro.produtos()).map((produto) => produto.nome)).toEqual(['Pão de queijo', 'Bolo de fubá'])
+    expect((await cadastro.buscarProdutos('bolo')).map((produto) => produto.nome)).toEqual(['Bolo de fubá'])
+
+    // Com o dono do código fora do catálogo, a reativação passa, também sem rede.
+    await cadastro.inativarProduto(paoDeQueijo.id)
+    await cadastro.reativarProduto(paoFrances.id)
+    expect((await cadastro.produtos()).map((produto) => produto.nome)).toEqual(['Pão francês', 'Bolo de fubá'])
+    expect((await cadastro.produtosInativos()).map((produto) => produto.nome)).toEqual(['Pão de queijo'])
+    const gestos = await listarGestos()
+    expect(gestos.map((gesto) => gesto.tipo))
+      .toEqual(['produto.reativar', 'produto.inativar', 'produto.reativar'])
+    expect(gestos[0]).toMatchObject({ registroId: boloVelho.id, versaoBase: 3, payload: {} })
+    expect(servidor.reativarProduto).not.toHaveBeenCalled()
+
+    entrar({ ...ana, usuarioId: 'operador', perfil: 'OPERADOR' })
+    await expect(cadastro.reativarProduto(paoDeQueijo.id)).rejects.toThrow('Só ADMIN')
   })
 
   it('lê as duas listas de clientes juntas, num pedido só para a tela que pede as duas', async () => {

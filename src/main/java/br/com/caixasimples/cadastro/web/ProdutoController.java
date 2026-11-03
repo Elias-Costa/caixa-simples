@@ -42,6 +42,13 @@ class ProdutoController {
                 .map(item -> ProdutoNaLista.de(item.produto(), item.versao())).toList();
     }
 
+    /** Os dois perfis leem, como a lista de ativos: o aparelho guarda as duas juntas. */
+    @GetMapping("/inativos")
+    List<ProdutoNaLista> listarInativos() {
+        return produtos.listarInativosComVersao().stream()
+                .map(item -> ProdutoNaLista.de(item.produto(), item.versao())).toList();
+    }
+
     /** RF06: código exato primeiro; depois nomes que contêm o termo. */
     @GetMapping("/busca")
     List<ProdutoNaLista> buscar(@RequestParam String termo) {
@@ -64,6 +71,12 @@ class ProdutoController {
     @PostMapping("/{id}/inativar")
     ResponseEntity<Void> inativar(@PathVariable UUID id) {
         produtos.inativar(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{id}/reativar")
+    ResponseEntity<Void> reativar(@PathVariable UUID id) {
+        produtos.reativar(id);
         return ResponseEntity.noContent().build();
     }
 

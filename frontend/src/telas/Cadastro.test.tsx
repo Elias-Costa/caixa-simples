@@ -1,12 +1,17 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cadastro } from '../api/cadastro'
 import { ErroDaApi } from '../api/cliente'
+import { gravarIdentidade, gravarToken, limparSessao } from '../sessao/armazenamento'
 import { SessaoContext } from '../sessao/contexto'
+import { tokenComExpiracao } from '../sessao/tokenDeTeste'
+import { confirmacaoAberta, responderConfirmacao } from './confirmacaoDeTeste'
 import { TelaDeClientes } from './TelaDeClientes'
 import { TelaDeProdutos } from './TelaDeProdutos'
 
-afterEach(() => vi.restoreAllMocks())
+// Só o administrador lê os inativos; o teste que precisa deles troca a resposta.
+beforeEach(() => { vi.spyOn(cadastro, 'produtosInativos').mockResolvedValue([]) })
+afterEach(() => { vi.restoreAllMocks(); limparSessao() })
 
 const produto = {
   id: 'item-1', tipo: 'PRODUTO' as const, nome: 'Café', preco: 0,
@@ -83,7 +88,7 @@ describe('cadastro na tela', () => {
     expect(screen.queryByRole('button', { name: 'Novo item' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Editar' })).not.toBeInTheDocument()
     // O catálogo sugerido nasce sem preço, e a lista lembra o que falta precificar.
-    expect(screen.getByText('R$ 0,00')).toBeInTheDocument()
+    expect(screen.getByText('R$ 0,00/un')).toBeInTheDocument()
     expect(screen.getByText('preço zerado')).toBeInTheDocument()
   })
 
@@ -171,5 +176,107 @@ describe('cadastro na tela', () => {
     const ativos = screen.getByRole('heading', { name: 'Ativos' }).closest('section') as HTMLElement
     expect(within(ativos).getAllByRole('listitem').map((item) => item.textContent))
       .toEqual([expect.stringMatching(/^Ana/), expect.stringMatching(/^Bruno/), expect.stringMatching(/^Carla/)])
+  })
+
+  it('produtos em ordem alfabética, com o preço da unidade de venda e o filtro de categoria', async () => {
+    vi.spyOn(cadastro, 'produtos').mockResolvedValue([
+      { ...produto, id: 'item-1', nome: 'Sanduíche natural', categoria: 'Lanches', preco: 12 },
+      { ...produto, id: 'item-2', nome: 'Muçarela', categoria: 'Frios', unidade: 'kg', preco: 54.9 },
+      { ...produto, id: 'item-3', nome: 'Água', categoria: null, unidade: null, preco: 3 },
+      { ...produto, id: 'item-4', nome: 'Cappuccino', categoria: 'Bebidas', preco: 9 },
+    ])
+    mostrarProdutos('OPERADOR')
+
+    const nomes = async () => (await screen.findAllByRole('listitem')).map((item) => item.querySelector('strong')?.textContent)
+    expect(await nomes()).toEqual(['Água', 'Cappuccino', 'Muçarela', 'Sanduíche natural'])
+    expect(screen.getByText('R$ 54,90/kg')).toBeInTheDocument()
+    // Sem unidade, o preço sai sozinho, como no balcão.
+    expect(screen.getByText('R$ 3,00')).toBeInTheDocument()
+
+    const categoria = screen.getByLabelText('Categoria')
+    expect([...categoria.querySelectorAll('option')].map((opcao) => opcao.textContent))
+      .toEqual(['Todas as categorias', 'Bebidas', 'Frios', 'Lanches', 'Sem categoria'])
+    fireEvent.change(categoria, { target: { value: 'categoria:Frios' } })
+    expect(await nomes()).toEqual(['Muçarela'])
+    fireEvent.change(categoria, { target: { value: 'sem' } })
+    expect(await nomes()).toEqual(['Água'])
+    // A busca por nome vale junto com a categoria.
+    fireEvent.change(categoria, { target: { value: 'todas' } })
+    fireEvent.change(screen.getByLabelText('Buscar por nome'), { target: { value: 'ca' } })
+    expect(await nomes()).toEqual(['Cappuccino', 'Muçarela'])
+  })
+
+  it('ADMIN vê os inativos no fim e reativa; a recusa aparece no item, com o nome de quem tem o código', async () => {
+    const paoFrances = { ...produto, id: 'item-9', nome: 'Pão francês', codigo: '789', unidade: 'kg' }
+    let reativado = false
+    vi.spyOn(cadastro, 'produtos').mockImplementation(async () => reativado ? [produto, paoFrances] : [produto])
+    vi.spyOn(cadastro, 'produtosInativos').mockImplementation(async () => reativado ? [] : [paoFrances])
+    const reativar = vi.spyOn(cadastro, 'reativarProduto')
+      .mockRejectedValueOnce(new ErroDaApi(409, 'Conflict', 'O código 789 já é de Pão de queijo, que está '
+        + 'ativo. Para reativar Pão francês, mude o código de Pão de queijo ou inative-o antes.', {}))
+      .mockImplementation(async () => { reativado = true })
+    mostrarProdutos('ADMIN')
+
+    const inativos = (await screen.findByRole('heading', { name: 'Inativos' })).nextElementSibling as HTMLElement
+    expect(within(inativos).getByText('Pão francês')).toBeInTheDocument()
+    expect(screen.getByText('Itens da sua Conta. Os inativos ficam no fim da página.')).toBeInTheDocument()
+    fireEvent.click(within(inativos).getByRole('button', { name: 'Reativar' }))
+    expect(await within(inativos).findByRole('alert')).toHaveTextContent('O código 789 já é de Pão de queijo')
+
+    fireEvent.click(within(inativos).getByRole('button', { name: 'Reativar' }))
+    expect(await screen.findByRole('status')).toHaveTextContent('Pão francês reativado.')
+    expect(reativar).toHaveBeenCalledWith('item-9')
+    expect(screen.queryByRole('heading', { name: 'Inativos' })).not.toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Editar' })).toHaveLength(2)
+  })
+
+  it('OPERADOR não vê nem pede os inativos', async () => {
+    vi.spyOn(cadastro, 'produtos').mockResolvedValue([produto])
+    const inativos = vi.spyOn(cadastro, 'produtosInativos')
+    mostrarProdutos('OPERADOR')
+
+    expect(await screen.findByText('Itens ativos da sua Conta.')).toBeInTheDocument()
+    expect(inativos).not.toHaveBeenCalled()
+    expect(screen.queryByRole('heading', { name: 'Inativos' })).not.toBeInTheDocument()
+  })
+
+  it('a confirmação de inativar produto diz que ele pode ser reativado', async () => {
+    vi.spyOn(cadastro, 'produtos').mockResolvedValue([produto])
+    const inativar = vi.spyOn(cadastro, 'inativarProduto').mockResolvedValue(undefined)
+    mostrarProdutos('ADMIN')
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Inativar' }))
+    const dialogo = await confirmacaoAberta()
+    expect(dialogo).toHaveTextContent('O item sai do balcão e da lista de ativos e pode ser reativado depois.')
+    await responderConfirmacao('Inativar')
+    await waitFor(() => expect(inativar).toHaveBeenCalledWith('item-1'))
+  })
+
+  it('na lista de clientes só Editar fica à vista; inativar e remover os dados ficam na edição', async () => {
+    gravarToken(tokenComExpiracao(new Date(Date.now() + 60 * 60 * 1000)))
+    gravarIdentidade({ usuarioId: 'u-1', nome: 'Ana', perfil: 'ADMIN', contaId: 'c-1',
+      nomeNegocio: 'Cafeteria', estoqueHabilitado: false })
+    vi.spyOn(cadastro, 'clientes').mockResolvedValue([{ id: 'cliente-1', nome: 'Lia', contato: null }])
+    vi.spyOn(cadastro, 'clientesInativos').mockResolvedValue([])
+    const inativar = vi.spyOn(cadastro, 'inativarCliente')
+      .mockRejectedValueOnce(new ErroDaApi(409, 'Conflict', 'Recusa de teste.', {}))
+      .mockResolvedValue(undefined)
+    render(<TelaDeClientes />)
+
+    const linha = (await screen.findByText('Lia')).closest('li')!
+    expect(within(linha).getAllByRole('button').map((botao) => botao.textContent)).toEqual(['Editar'])
+    fireEvent.click(within(linha).getByRole('button', { name: 'Editar' }))
+    const formulario = screen.getByRole('heading', { name: 'Editar cliente' }).closest('form')!
+    expect(within(formulario).getByRole('button', { name: 'Remover dados' })).toBeInTheDocument()
+
+    fireEvent.click(within(formulario).getByRole('button', { name: 'Inativar' }))
+    await responderConfirmacao('Inativar')
+    // A recusa aparece no formulário, perto do botão tocado.
+    expect(await within(formulario).findByRole('alert')).toHaveTextContent('Recusa de teste.')
+    fireEvent.click(within(formulario).getByRole('button', { name: 'Inativar' }))
+    await responderConfirmacao('Inativar')
+    await waitFor(() => expect(inativar).toHaveBeenCalledTimes(2))
+    expect(await screen.findByText('Lia inativado.')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Editar cliente' })).not.toBeInTheDocument()
   })
 })

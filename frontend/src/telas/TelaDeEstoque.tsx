@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { estoque, type EstoqueDoProduto } from '../api/estoque'
-import { quantidade } from '../formatos'
+import { quantidade, quantidadeComUnidade } from '../formatos'
 import { erroDeCadastro } from './erroDeCadastro'
 import { Mensagem } from './Mensagem'
 import { TituloComAjuda } from './TituloComAjuda'
@@ -15,9 +15,22 @@ function lerQuantidade(valor: string, permiteNegativo: boolean): number {
   return Number(valor.replace(',', '.'))
 }
 
+const porNome = (a: EstoqueDoProduto, b: EstoqueDoProduto) => a.nome.localeCompare(b.nome, 'pt-BR')
+
+/**
+ * O alerta com o saldo negativo no alto, que é venda acima do que o estoque registrava, e o resto em
+ * ordem alfabética. Não ordena pela distância até o mínimo: quilos e unidades não se comparam.
+ */
+function emOrdemDeAlerta(baixos: EstoqueDoProduto[]): EstoqueDoProduto[] {
+  return [...baixos].sort((a, b) => Number(b.estoqueAtual < 0) - Number(a.estoqueAtual < 0) || porNome(a, b))
+}
+
+
 export function TelaDeEstoque() {
   const [produtos, setProdutos] = useState<EstoqueDoProduto[]>([])
   const [baixos, setBaixos] = useState<EstoqueDoProduto[]>([])
+  const formulariosRef = useRef<HTMLElement>(null)
+  const seletorRef = useRef<HTMLSelectElement>(null)
   const [produtoId, setProdutoId] = useState('')
   const [modo, setModo] = useState<'diferenca' | 'contagem'>('diferenca')
   const [valor, setValor] = useState('')
@@ -34,9 +47,10 @@ export function TelaDeEstoque() {
     setCarregando(true)
     try {
       const [lista, alerta] = await Promise.all([estoque.produtos(), estoque.baixo()])
-      setProdutos(lista)
-      setBaixos(alerta)
-      setProdutoId((atual) => lista.some((produto) => produto.id === atual) ? atual : (lista[0]?.id ?? ''))
+      const emOrdem = [...lista].sort(porNome)
+      setProdutos(emOrdem)
+      setBaixos(emOrdemDeAlerta(alerta))
+      setProdutoId((atual) => emOrdem.some((produto) => produto.id === atual) ? atual : (emOrdem[0]?.id ?? ''))
       setErro(null)
     } catch (falha) {
       setErro(erroDeCadastro(falha))
@@ -47,7 +61,45 @@ export function TelaDeEstoque() {
 
   useEffect(() => { queueMicrotask(() => void carregar()) }, [carregar])
 
+  function trocarProduto(id: string) {
+    setProdutoId(id)
+    setValor('')
+    setMinimo('')
+    setComprado('')
+  }
+
+  /**
+   * O item tocado no alerta ou na lista vai para os formulários, sem procurá-lo de novo no seletor. O
+   * foco vai ao seletor, que diz qual produto ficou escolhido, sem abrir o teclado de um campo.
+   */
+  function escolher(id: string) {
+    trocarProduto(id)
+    formulariosRef.current?.scrollIntoView?.({ block: 'start' })
+    seletorRef.current?.focus({ preventScroll: true })
+  }
+
+  /**
+   * O alerta e a lista inteira na mesma tabela. O nome é o botão que escolhe o produto, e a marca do
+   * negativo fica embaixo dele: ao lado do saldo, espremeria o nome no celular.
+   */
+  function tabelaDeSaldos(idDoTitulo: string, itens: EstoqueDoProduto[]) {
+    return <table className="tabela" aria-labelledby={idDoTitulo}>
+      <thead><tr><th scope="col">Produto</th><th scope="col" className="tabela__numero">Saldo</th>
+        <th scope="col" className="tabela__numero">Mínimo</th></tr></thead>
+      <tbody>{itens.map((item) => <tr key={item.id}>
+        <th scope="row">
+          <button type="button" className="estoque__escolher" onClick={() => escolher(item.id)}>{item.nome}</button>
+          {item.estoqueAtual < 0 && <span className="marcas"><span className="marca marca--alerta">negativo</span></span>}
+        </th>
+        <td className={item.estoqueAtual < 0 ? 'tabela__numero estoque__negativo' : 'tabela__numero'}>
+          {quantidadeComUnidade(item.estoqueAtual, item.unidade)}</td>
+        <td className="tabela__numero">{quantidadeComUnidade(item.estoqueMinimo, item.unidade)}</td>
+      </tr>)}</tbody>
+    </table>
+  }
+
   const produto = produtos.find((item) => item.id === produtoId)
+  const temNegativo = baixos.some((item) => item.estoqueAtual < 0)
   let diferenca: number | null = null
   if (produto && valor.trim()) {
     try {
@@ -145,23 +197,23 @@ export function TelaDeEstoque() {
     <Mensagem tipo="sucesso" texto={aviso} />
     {carregando ? <p>Carregando estoque...</p> : <>
       <section className="relatorios__cartao">
-        <h3>Estoque baixo</h3>
-        {baixos.length === 0 ? <p>Nenhum produto com estoque baixo.</p> :
-          <ul className="estoque__lista">{baixos.map((item) => <li key={item.id}>
-            <strong>{item.nome}</strong>: {quantidade.format(item.estoqueAtual)} {item.unidade ?? ''}
-            {' · '}mínimo {quantidade.format(item.estoqueMinimo)}
-          </li>)}</ul>}
+        <h3 id="estoque-baixo">Estoque baixo</h3>
+        {baixos.length === 0 ? <p>Nenhum produto com estoque baixo.</p> : tabelaDeSaldos('estoque-baixo', baixos)}
+        {temNegativo && <p>Saldo negativo é venda acima do estoque registrado. Conte a prateleira e lance a contagem física no ajuste.</p>}
       </section>
-      <section className="relatorios__cartao">
+      <section className="relatorios__cartao" ref={formulariosRef}>
         <h3>Produtos</h3>
         {produtos.length === 0 ? <p>Nenhum produto ativo. Cadastre um produto para controlar o estoque.</p> : <>
           <label className="estoque__selecao">Produto
-            <select className="campo__entrada" value={produtoId} onChange={(evento) => { setProdutoId(evento.target.value); setValor(''); setMinimo(''); setComprado('') }}>
+            <select ref={seletorRef} className="campo__entrada" value={produtoId} onChange={(evento) => trocarProduto(evento.target.value)}>
               {produtos.map((item) => <option key={item.id} value={item.id}>{item.nome}{item.codigo ? ` · ${item.codigo}` : ''}</option>)}
             </select>
           </label>
-          {produto && <p>Saldo atual: <strong>{quantidade.format(produto.estoqueAtual)} {produto.unidade ?? ''}</strong>
-            {' · '}mínimo: <strong>{quantidade.format(produto.estoqueMinimo)} {produto.unidade ?? ''}</strong></p>}
+          {/* O saldo negativo leva a palavra, e a cor do alerta só a reforça. */}
+          {produto && <p>Saldo atual: <strong className={produto.estoqueAtual < 0 ? 'estoque__negativo' : undefined}>
+            {quantidadeComUnidade(produto.estoqueAtual, produto.unidade)}</strong>
+            {produto.estoqueAtual < 0 && <> <span className="marca marca--alerta">negativo</span></>}
+            {' · '}mínimo: <strong>{quantidadeComUnidade(produto.estoqueMinimo, produto.unidade)}</strong></p>}
           <div className="estoque__formularios">
             <form onSubmit={(evento) => void registrarEntrada(evento)}>
               <h4>Entrada de mercadoria</h4>
@@ -192,7 +244,8 @@ export function TelaDeEstoque() {
               <label>Motivo
                 <input className="campo__entrada" value={motivo} required onChange={(evento) => setMotivo(evento.target.value)} placeholder="Ex.: perda, quebra ou contagem" />
               </label>
-              <button className="botao" disabled={salvando}>Confirmar ajuste</button>
+              {/* A entrada é a ação de todo dia e fica como a principal; o ajuste e o mínimo, não. */}
+              <button className="botao botao--secundario" disabled={salvando}>Confirmar ajuste</button>
             </form>
             <form onSubmit={(evento) => void definirMinimo(evento)}>
               <h4>Alerta de estoque baixo</h4>
@@ -206,6 +259,11 @@ export function TelaDeEstoque() {
           </div>
         </>}
       </section>
+      {/* A lista inteira vem depois dos formulários: a ação da tela antes do extrato longo. */}
+      {produtos.length > 0 && <section className="relatorios__cartao">
+        <h3 id="estoque-saldos">Saldo dos produtos</h3>
+        {tabelaDeSaldos('estoque-saldos', produtos)}
+      </section>}
     </>}
   </section>
 }

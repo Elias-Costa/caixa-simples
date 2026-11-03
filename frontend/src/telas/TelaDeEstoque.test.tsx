@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { estoque, type EstoqueDoProduto } from '../api/estoque'
@@ -77,6 +77,42 @@ describe('estoque na tela', () => {
     fireEvent.change(screen.getByLabelText('Motivo (opcional)'), { target: { value: '  nota 123 ' } })
     fireEvent.click(screen.getByRole('button', { name: 'Registrar entrada' }))
     await waitFor(() => expect(entrada).toHaveBeenLastCalledWith('arroz', 3, 'nota 123'))
+  })
+
+  it('lista o saldo de todos, põe o negativo no alto do alerta com a marca, e o toque escolhe o produto', async () => {
+    const pao: EstoqueDoProduto = { id: 'pao', nome: 'Pão francês', codigo: null, unidade: 'kg',
+      estoqueAtual: -19.173, estoqueMinimo: 5 }
+    const leite: EstoqueDoProduto = { id: 'leite', nome: 'Leite', codigo: '002', unidade: 'un',
+      estoqueAtual: 2, estoqueMinimo: 6 }
+    const acucar: EstoqueDoProduto = { id: 'acucar', nome: 'Açúcar', codigo: null, unidade: 'kg',
+      estoqueAtual: 12, estoqueMinimo: 2 }
+    vi.spyOn(estoque, 'produtos').mockResolvedValue([pao, leite, acucar])
+    vi.spyOn(estoque, 'baixo').mockResolvedValue([leite, pao])
+    render(<TelaDeEstoque />)
+
+    const alerta = (await screen.findByRole('heading', { name: 'Estoque baixo' })).closest('section')!
+    const linhasDoAlerta = within(screen.getByRole('table', { name: 'Estoque baixo' })).getAllByRole('row').slice(1)
+    expect(linhasDoAlerta.map((linha) => [...linha.children].map((celula) => celula.textContent))).toEqual([
+      ['Pão francêsnegativo', '-19,173 kg', '5 kg'],
+      ['Leite', '2 un', '6 un'],
+    ])
+    expect(alerta).toHaveTextContent('Saldo negativo é venda acima do estoque registrado. Conte a prateleira e lance a contagem física no ajuste.')
+
+    const tabela = screen.getByRole('table', { name: 'Saldo dos produtos' })
+    expect(within(tabela).getAllByRole('rowheader').map((celula) => within(celula).getByRole('button').textContent))
+      .toEqual(['Açúcar', 'Leite', 'Pão francês'])
+    const seletor = screen.getByLabelText('Produto')
+    expect(seletor).toHaveValue('acucar')
+    fireEvent.change(screen.getByLabelText('Quantidade comprada'), { target: { value: '3' } })
+    fireEvent.click(within(tabela).getByRole('button', { name: 'Leite' }))
+    expect(seletor).toHaveValue('leite')
+    expect(seletor).toHaveFocus()
+    // O que se digitou para outro produto não segue para o escolhido.
+    expect(screen.getByLabelText('Quantidade comprada')).toHaveValue('')
+
+    fireEvent.click(within(alerta).getByRole('button', { name: 'Pão francês' }))
+    expect(seletor).toHaveValue('pao')
+    expect(screen.getByText(/Saldo atual/)).toHaveTextContent('Saldo atual: -19,173 kg negativo · mínimo: 5 kg')
   })
 
   it('define o mínimo e recusa diferença zero na tela', async () => {

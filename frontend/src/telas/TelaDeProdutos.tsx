@@ -28,6 +28,25 @@ const vazio: Formulario = {
   tipo: 'PRODUTO', nome: '', preco: '', codigo: '', categoria: '', unidade: '', atributos: [],
 }
 
+/** Em ordem alfabética, como os clientes: o servidor e o aparelho devolvem na ordem em que guardam. */
+function emOrdem(produtos: Produto[]): Produto[] {
+  return [...produtos].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+}
+
+/**
+ * O valor do seletor de categoria. A categoria vai com um prefixo para não se confundir com as duas
+ * opções fixas, porque o cadastro aceita qualquer texto como categoria.
+ */
+const TODAS = 'todas'
+const SEM_CATEGORIA = 'sem'
+const daCategoria = (categoria: string) => `categoria:${categoria}`
+
+function naCategoria(produto: Produto, escolhida: string): boolean {
+  if (escolhida === TODAS) return true
+  if (escolhida === SEM_CATEGORIA) return !produto.categoria
+  return !!produto.categoria && daCategoria(produto.categoria) === escolhida
+}
+
 function paraFormulario(produto: Produto): Formulario {
   return {
     tipo: produto.tipo,
@@ -69,7 +88,9 @@ export function TelaDeProdutos() {
   const { identidade } = useSessao()
   const admin = identidade?.perfil === 'ADMIN'
   const [produtos, setProdutos] = useState<Produto[]>([])
+  const [inativos, setInativos] = useState<Produto[]>([])
   const [busca, setBusca] = useState('')
+  const [categoria, setCategoria] = useState(TODAS)
   const [editando, setEditando] = useState<string | null>(null)
   const [formulario, setFormulario] = useState<Formulario>(vazio)
   const [aberto, setAberto] = useState(false)
@@ -80,6 +101,8 @@ export function TelaDeProdutos() {
   const [erroDoFormulario, setErroDoFormulario] = useState<string | null>(null)
   const [camposComErro, setCamposComErro] = useState<Record<string, string>>({})
   const [aviso, setAviso] = useState<string | null>(null)
+  // A recusa da reativação fica no item tocado: ela diz qual outro item está com o código.
+  const [erroDoInativo, setErroDoInativo] = useState<{ id: string; texto: string } | null>(null)
   const [pendentes, setPendentes] = useState(0)
   const formularioRef = useRef<HTMLFormElement>(null)
   const [confirmar, dialogoDeConfirmacao] = useConfirmacao()
@@ -87,7 +110,12 @@ export function TelaDeProdutos() {
 
   const carregar = useCallback(async () => {
     try {
-      setProdutos(await cadastro.produtos())
+      // Só o administrador reativa, e por isso só ele vê os inativos.
+      const [ativos, foraDoCatalogo] = await Promise.all([
+        cadastro.produtos(), admin ? cadastro.produtosInativos() : Promise.resolve([]),
+      ])
+      setProdutos(emOrdem(ativos))
+      setInativos(emOrdem(foraDoCatalogo))
       setErro(null)
     } catch (falha) {
       setErro(erroDeCadastro(falha))
@@ -98,7 +126,7 @@ export function TelaDeProdutos() {
       }
       setCarregando(false)
     }
-  }, [])
+  }, [admin])
 
   useEffect(() => { queueMicrotask(() => void carregar()) }, [carregar])
   useEffect(() => {
@@ -117,6 +145,7 @@ export function TelaDeProdutos() {
     setErroDoFormulario(null)
     setCamposComErro({})
     setAviso(null)
+    setErroDoInativo(null)
   }
 
   /** O que o campo precisa para ser anunciado com o erro que o servidor apontou nele. */
@@ -180,7 +209,8 @@ export function TelaDeProdutos() {
   async function inativar(produto: Produto) {
     const sim = await confirmar({
       titulo: `Inativar ${produto.nome}?`,
-      texto: 'O produto sai da lista de ativos, e as vendas antigas continuam com ele.',
+      texto: 'O item sai do balcão e da lista de ativos e pode ser reativado depois. As vendas '
+        + 'antigas continuam com ele.',
       acao: 'Inativar',
     })
     if (!sim) return
@@ -194,7 +224,28 @@ export function TelaDeProdutos() {
     }
   }
 
-  const encontrados = filtrarPorNome(produtos, busca, (produto) => produto.nome)
+  async function reativar(produto: Produto) {
+    limparMensagens()
+    try {
+      await cadastro.reativarProduto(produto.id)
+      await carregar()
+      if (online) setAviso(`${produto.nome} reativado.`)
+    } catch (falha) {
+      setErroDoInativo({ id: produto.id, texto: erroDeCadastro(falha) })
+    }
+  }
+
+  // As opções saem das categorias dos itens ativos: escolhida qualquer uma, a lista tem o que mostrar.
+  const categorias = [...new Set(produtos.flatMap((produto) => produto.categoria ? [produto.categoria] : []))]
+    .sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  const temSemCategoria = produtos.some((produto) => !produto.categoria)
+  // A categoria escolhida pode sumir, com o último item dela inativado; aí a lista volta inteira.
+  const categoriaEscolhida = categoria === SEM_CATEGORIA && temSemCategoria
+    || categorias.some((nome) => daCategoria(nome) === categoria) ? categoria : TODAS
+  const filtrar = (lista: Produto[]) => filtrarPorNome(lista, busca, (produto) => produto.nome)
+    .filter((produto) => naCategoria(produto, categoriaEscolhida))
+  const encontrados = filtrar(produtos)
+  const inativosEncontrados = filtrar(inativos)
   // Dois itens com o mesmo nome aparecem iguais na busca do balcão. Só avisa: o servidor aceita o
   // nome repetido, e recusar aqui seria regra nova. Compara como a busca, sem acento nem maiúscula.
   const nomeDigitado = paraBusca(formulario.nome)
@@ -203,40 +254,68 @@ export function TelaDeProdutos() {
   const descricaoDoNome = [camposComErro.nome ? 'produto-erro-nome' : null,
     nomeRepetido ? 'produto-aviso-nome' : null].filter(Boolean).join(' ') || undefined
 
+  /** O que a linha do item mostra, igual nas duas listas. */
+  function dadosDoItem(produto: Produto) {
+    return <>
+      <div className="cadastro__dados">
+        <strong>{produto.nome}</strong> <span className="cadastro__apoio">{ROTULO_CURTO_DO_TIPO[produto.tipo]}</span>
+        <p>{produto.codigo ? `Código ${produto.codigo} · ` : ''}{produto.categoria ?? 'Sem categoria'}</p>
+      </div>
+      {/* O preço é o da unidade de venda, como no balcão. O catálogo sugerido nasce com preço zero;
+          a marca lembra o que falta precificar. */}
+      <div className="cadastro__valor">
+        <strong>{moeda.format(produto.preco)}{produto.unidade && `/${produto.unidade}`}</strong>
+        {produto.preco === 0 && <span className="cadastro__alerta">preço zerado</span>}
+      </div>
+    </>
+  }
+
   return (
     <section className="cadastro">
       <div className="cadastro__topo">
-        <div><TituloComAjuda titulo="Produtos e serviços" ajuda={AJUDA.produtos} /><p>Itens ativos da sua Conta.</p></div>
+        <div><TituloComAjuda titulo="Produtos e serviços" ajuda={AJUDA.produtos} />
+          <p>{admin ? 'Itens da sua Conta. Os inativos ficam no fim da página.' : 'Itens ativos da sua Conta.'}</p></div>
         {admin && <button className="botao" type="button" onClick={novo}>Novo item</button>}
       </div>
 
       <Mensagem tipo="erro" texto={erro} />
       <Mensagem tipo="sucesso" texto={aviso} />
       {pendentes > 0 && <p className="mensagem-info" role="status">{pendentes === 1 ? 'Uma alteração de item guardada' : `${pendentes} alterações de item guardadas`} neste dispositivo, aguardando sincronização.</p>}
-      {carregando ? <p>Carregando...</p> : produtos.length === 0 ? <p>Nenhum item ativo.</p> : <>
-        <label className="cadastro__busca">Buscar por nome
-          <input type="search" value={busca} onChange={(evento) => setBusca(evento.target.value)} />
-        </label>
-        {encontrados.length === 0 && <p role="status">Nenhum item encontrado para {busca.trim()}.</p>}
-        <ul className="cadastro__lista">
-          {encontrados.map((produto) => (
+      {carregando ? <p>Carregando...</p> : <>
+        {(produtos.length > 0 || inativos.length > 0) && <div className="cadastro__filtros">
+          <label className="cadastro__busca">Buscar por nome
+            <input type="search" value={busca} onChange={(evento) => setBusca(evento.target.value)} />
+          </label>
+          {categorias.length > 0 && <label className="cadastro__busca">Categoria
+            <select value={categoriaEscolhida} onChange={(evento) => setCategoria(evento.target.value)}>
+              <option value={TODAS}>Todas as categorias</option>
+              {categorias.map((nome) => <option key={nome} value={daCategoria(nome)}>{nome}</option>)}
+              {temSemCategoria && <option value={SEM_CATEGORIA}>Sem categoria</option>}
+            </select>
+          </label>}
+        </div>}
+        {produtos.length === 0 ? <p>Nenhum item ativo.</p>
+          : encontrados.length === 0 ? <p role="status">Nenhum item encontrado para {busca.trim()}.</p>
+          : <ul className="cadastro__lista">
+            {encontrados.map((produto) => (
+              <li className="cadastro__item" key={produto.id}>
+                {dadosDoItem(produto)}
+                {admin && <div className="cadastro__acoes">
+                  <button className="botao botao--secundario" type="button" onClick={() => editar(produto)}>Editar</button>
+                  <button className="botao botao--perigo" type="button" onClick={() => void inativar(produto)}>Inativar</button>
+                </div>}
+              </li>
+            ))}
+          </ul>}
+        {inativosEncontrados.length > 0 && <><h3>Inativos</h3><ul className="cadastro__lista">
+          {inativosEncontrados.map((produto) => (
             <li className="cadastro__item" key={produto.id}>
-              <div className="cadastro__dados">
-                <strong>{produto.nome}</strong> <span className="cadastro__apoio">{ROTULO_CURTO_DO_TIPO[produto.tipo]}</span>
-                <p>{produto.codigo ? `Código ${produto.codigo} · ` : ''}{produto.categoria ?? 'Sem categoria'} · {produto.unidade ?? 'Sem unidade'}</p>
-              </div>
-              {/* O catálogo sugerido nasce com preço zero; a marca lembra o que falta precificar. */}
-              <div className="cadastro__valor">
-                <strong>{moeda.format(produto.preco)}</strong>
-                {produto.preco === 0 && <span className="cadastro__alerta">preço zerado</span>}
-              </div>
-              {admin && <div className="cadastro__acoes">
-                <button className="botao botao--secundario" type="button" onClick={() => editar(produto)}>Editar</button>
-                <button className="botao botao--perigo" type="button" onClick={() => void inativar(produto)}>Inativar</button>
-              </div>}
+              {dadosDoItem(produto)}
+              <button className="botao botao--secundario" type="button" onClick={() => void reativar(produto)}>Reativar</button>
+              <Mensagem tipo="erro" texto={erroDoInativo?.id === produto.id ? erroDoInativo.texto : null} />
             </li>
           ))}
-        </ul>
+        </ul></>}
       </>}
 
       {admin && aberto && <form ref={formularioRef} className="cadastro__formulario" onSubmit={(evento) => void salvar(evento)}>

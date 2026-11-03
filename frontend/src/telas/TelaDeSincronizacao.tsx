@@ -19,6 +19,7 @@ const ROTULOS: Record<string, string> = {
   'produto.criar': 'Produto cadastrado',
   'produto.editar': 'Produto editado',
   'produto.inativar': 'Produto inativado',
+  'produto.reativar': 'Produto reativado',
   'cliente.criar': 'Cliente cadastrado',
   'cliente.editar': 'Cliente editado',
   'cliente.inativar': 'Cliente inativado',

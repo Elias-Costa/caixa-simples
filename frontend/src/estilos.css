@@ -644,6 +644,9 @@ main.cadastro {
 .cadastro__topo { margin-bottom: var(--espaco); }
 /* A busca das listas filtra o que já está na tela, sem ir ao servidor. */
 .cadastro__busca { display: grid; gap: 6px; max-width: 420px; margin-bottom: var(--espaco); }
+/* A busca e a categoria lado a lado; sem largura para as duas, uma embaixo da outra. */
+.cadastro__filtros { display: flex; flex-wrap: wrap; column-gap: var(--espaco); }
+.cadastro__filtros .cadastro__busca { flex: 1 1 240px; }
 .cadastro__topo p,
 .cadastro__item p { margin: 4px 0 0; }
 .cadastro__lista { list-style: none; padding: 0; margin: 0 0 24px; }
@@ -672,6 +675,10 @@ main.cadastro {
   border-radius: var(--raio);
 }
 .cadastro__formulario h3 { margin-top: 0; }
+/* O que tira o registro da lista, longe do Salvar: abaixo de uma linha, alinhado à esquerda. */
+.cadastro__perigo { justify-content: flex-start; margin-top: var(--espaco); padding-top: var(--espaco); border-top: 1px solid var(--cor-borda); }
+/* O total do fiado da Conta, antes da lista de quem deve. */
+.fiado__total { margin: 0 0 var(--espaco); font-size: 1.1rem; }
 .cadastro__grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 var(--espaco); }
 .cadastro__atributos { border: 1px solid var(--cor-borda); border-radius: var(--raio); margin: 0 0 var(--espaco); padding: var(--espaco); }
 .cadastro__par { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; margin-bottom: 8px; }
@@ -791,7 +798,29 @@ main.cadastro {
 .relatorios__cliente { display: block; color: var(--cor-texto-secundario); }
 
 .estoque { max-width: 1100px; margin: 0 auto; }
-.estoque__lista { padding-left: 20px; display: grid; gap: 8px; }
+/* O nome que escolhe o produto nos formulários: texto sublinhado, como um link, com a altura de toque. */
+.estoque__escolher {
+  min-height: var(--toque);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--cor-texto);
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: var(--cor-primaria);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.estoque__escolher:hover { text-decoration-color: var(--cor-destaque); }
+/* A marca do negativo fica embaixo do nome, colada no botão, que já tem a folga da altura de toque. */
+.estoque__escolher + .marcas { margin: 0 0 8px; }
+.estoque__negativo { color: var(--cor-alerta); font-weight: 700; }
+/* O nome é um botão de 48px: os números ficam no meio da linha, na altura do texto dele. No desktop a
+   tabela para em 44rem, como as do caixa, para o saldo não ficar longe do nome. */
+.estoque .tabela { max-width: 44rem; }
+.estoque .tabela th, .estoque .tabela td { vertical-align: middle; }
 .estoque__selecao { display: grid; gap: 8px; max-width: 420px; }
 .estoque__formularios { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--espaco); }
 .estoque__formularios form, .estoque__formularios label { display: grid; gap: 8px; align-content: start; }

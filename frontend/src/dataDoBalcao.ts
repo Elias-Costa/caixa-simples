@@ -10,6 +10,15 @@ export function diaNoBalcao(instante: Date): string {
   return `${campo('year')}-${campo('month')}-${campo('day')}`
 }
 
+/**
+ * Quantos dias do balcão se passaram de um instante até hoje, contados pela folha do calendário e não
+ * por 24 horas: a venda de ontem às 23h tem um dia hoje de manhã, como diria quem a fez.
+ */
+export function diasAteHoje(instante: Date): number {
+  const meiaNoite = (dia: string) => Date.UTC(Number(dia.slice(0, 4)), Number(dia.slice(5, 7)) - 1, Number(dia.slice(8, 10)))
+  return Math.round((meiaNoite(hojeNoBalcao()) - meiaNoite(diaNoBalcao(instante))) / 86_400_000)
+}
+
 /** A data padrão das telas segue o mesmo fuso em que a API delimita um dia. */
 export function hojeNoBalcao(): string {
   return diaNoBalcao(new Date())

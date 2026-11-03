@@ -33,7 +33,7 @@ class GestosForaDoPlanoTest extends TesteDeIntegracao {
                 .collect(Collectors.toSet());
 
         assertThat(tipos).containsExactlyInAnyOrder(
-                "produto.criar", "produto.editar", "produto.inativar",
+                "produto.criar", "produto.editar", "produto.inativar", "produto.reativar",
                 "cliente.criar", "cliente.editar", "cliente.inativar", "cliente.reativar",
                 "caixa.abrir", "caixa.sangrar", "caixa.suprir", "caixa.fechar",
                 "venda.iniciar", "venda.adicionarItem", "venda.removerItem",

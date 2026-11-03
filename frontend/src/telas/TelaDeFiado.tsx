@@ -5,6 +5,7 @@ import { SemConexao } from '../api/cliente'
 import { intencaoOnline } from '../api/intencaoOnline'
 import { fiado, type Divida } from '../api/fiado'
 import type { ComprovanteDeRecebimento, FormaPagamento } from '../api/vendas'
+import { diasAteHoje } from '../dataDoBalcao'
 import { dataHora, lerDinheiro, moeda } from '../formatos'
 import { normalizarNsu } from '../offline/raizDaVenda'
 import { criarVendaLocal } from '../offline/vendaLocal'
@@ -36,6 +37,10 @@ function textoDoComprovante(c: ComprovanteDeRecebimento, negocio: string): strin
 /** As dívidas de um cliente numa linha só: quem deve em dez vendas aparecia dez vezes. */
 type Devedor = { clienteId: string; nomeCliente: string; dividas: Divida[]; totalCentavos: number }
 
+/**
+ * Quem deve mais vem primeiro, e o empate vai pelo nome; dentro de cada cliente, da venda mais antiga
+ * para a mais nova, que é a que se cobra antes.
+ */
 function agruparPorCliente(dividas: Divida[]): Devedor[] {
   const devedores = new Map<string, Devedor>()
   for (const divida of dividas) {
@@ -46,7 +51,22 @@ function agruparPorCliente(dividas: Divida[]): Devedor[] {
     devedor.totalCentavos += Math.round(divida.saldoDevedor * 100)
     devedores.set(divida.clienteId, devedor)
   }
-  return [...devedores.values()]
+  for (const devedor of devedores.values()) {
+    devedor.dividas.sort((a, b) => Date.parse(a.concluidoEm) - Date.parse(b.concluidoEm))
+  }
+  return [...devedores.values()].sort((a, b) => b.totalCentavos - a.totalCentavos
+    || a.nomeCliente.localeCompare(b.nomeCliente, 'pt-BR'))
+}
+
+function emAberto(concluidoEm: string): string {
+  const dias = diasAteHoje(new Date(concluidoEm))
+  if (dias <= 0) return 'em aberto desde hoje'
+  return dias === 1 ? 'em aberto há 1 dia' : `em aberto há ${dias} dias`
+}
+
+/** A venda pela data, e não pelo id: é a data que o cliente reconhece quando é cobrado. */
+function linhaDaVenda(divida: Divida): string {
+  return `Venda de ${dataHora.format(new Date(divida.concluidoEm))}, ${emAberto(divida.concluidoEm)}.`
 }
 
 export function TelaDeFiado() {
@@ -138,7 +158,10 @@ export function TelaDeFiado() {
   }
 
   const erroEm = (lugar: LugarDoErro) => erro?.lugar === lugar ? erro.texto : undefined
-  const encontrados = filtrarPorNome(agruparPorCliente(dividas), busca, (devedor) => devedor.nomeCliente)
+  const devedores = agruparPorCliente(dividas)
+  const encontrados = filtrarPorNome(devedores, busca, (devedor) => devedor.nomeCliente)
+  // O total é da Conta inteira, e não muda com a busca.
+  const totalCentavos = devedores.reduce((soma, devedor) => soma + devedor.totalCentavos, 0)
 
   // O recebimento continua sendo de uma venda por vez, como a dívida é de cada venda.
   function receberDe(divida: Divida) {
@@ -152,6 +175,8 @@ export function TelaDeFiado() {
       <p>Quem deve, com o saldo de cada venda. Cada recebimento entra no caixa de quem o registra.</p>
     </div></div>
     <Mensagem tipo="erro" texto={erroEm('tela')} />
+    {!carregando && devedores.length > 0 && <p className="fiado__total">Total em aberto:{' '}
+      <strong>{moeda.format(totalCentavos / 100)}</strong>, de {devedores.length === 1 ? '1 cliente' : `${devedores.length} clientes`}.</p>}
     {carregando ? <p>Carregando...</p> : <>
       {/* Sem caixa não há recebimento: ir ao caixa é a ação da tela, e vem como botão. */}
       {!sessao && <>
@@ -171,8 +196,8 @@ export function TelaDeFiado() {
           return <li className="cadastro__item" key={devedor.clienteId}>
             <div className="cadastro__dados"><strong>{devedor.nomeCliente}</strong>
               <p>Saldo: {moeda.format(devedor.totalCentavos / 100)}
-                {unica ? '' : ` em ${devedor.dividas.length} vendas`}</p>
-              {unica && <p>Venda {unica.vendaId.slice(0, 8)} · {dataHora.format(new Date(unica.concluidoEm))}</p>}
+                {unica ? '' : ` em ${devedor.dividas.length} vendas, a mais antiga ${emAberto(devedor.dividas[0].concluidoEm)}.`}</p>
+              {unica && <p>{linhaDaVenda(unica)}</p>}
             </div>
             {unica ? receberDe(unica) : <>
               <button type="button" className="botao botao--secundario" aria-expanded={aberto}
@@ -180,7 +205,7 @@ export function TelaDeFiado() {
                 {aberto ? 'Esconder vendas' : 'Ver vendas'}</button>
               <ul id={idDasVendas} className="cadastro__lista" hidden={!aberto}>
                 {devedor.dividas.map((divida) => <li className="cadastro__item" key={divida.vendaId}>
-                  <div><p>Venda {divida.vendaId.slice(0, 8)} · {dataHora.format(new Date(divida.concluidoEm))}</p>
+                  <div><p>{linhaDaVenda(divida)}</p>
                     <p>Saldo: {moeda.format(divida.saldoDevedor)}</p></div>
                   {receberDe(divida)}
                 </li>)}

@@ -3,18 +3,20 @@ import { SemConexao } from '../api/cliente'
 import { lerIdentidade } from '../sessao/armazenamento'
 import { paraBusca } from '../textoDeBusca'
 import {
-  enfileirarGesto, gestoAplicavel, gestoPendente, guardarClienteRemovido, guardarRetrato,
-  guardarRetratos, jaEstaNoRetrato,
+  enfileirarGesto, gestoAplicavel, gestoPendente, guardarClienteRemovido, guardarRetratos,
+  jaEstaNoRetrato,
   lerDoServidor, lerRetrato, listarGestos, ordenarPorDependencia, versaoDoResultado,
   type GestoNaFila, type Retrato, type ValorJson,
 } from './fila'
 
 type Remoto = {
   produtos(): Promise<Produto[]>
+  produtosInativos(): Promise<Produto[]>
   buscarProdutos(termo: string): Promise<Produto[]>
   criarProduto(dados: DadosDoProduto): Promise<{ id: string }>
   editarProduto(id: string, dados: DadosDoProduto): Promise<void>
   inativarProduto(id: string): Promise<void>
+  reativarProduto(id: string): Promise<void>
   clientes(): Promise<Cliente[]>
   clientesInativos(): Promise<Cliente[]>
   criarCliente(dados: DadosDoCliente): Promise<{ id: string }>
@@ -24,6 +26,7 @@ type Remoto = {
   removerCliente(id: string): Promise<void>
 }
 
+type ProdutoLocal = Produto & { ativo: boolean }
 type ClienteLocal = Cliente & { ativo: boolean }
 const GESTOS_PRODUTO = 'produto.'
 const GESTOS_CLIENTE = 'cliente.'
@@ -107,20 +110,32 @@ function ultimoGesto(gestos: GestoNaFila[], prefixo: string, id: string): GestoN
  * o preço trocado em outro aparelho. O confirmado depois da leitura entra com a revisão que o
  * servidor devolveu.
  */
-function projetarProdutos(retrato: Retrato<Produto[]> | null, gestos: GestoNaFila[]): Produto[] {
-  const itens = new Map((retrato?.dados ?? []).map((item) => [item.id, item]))
+function projetarProdutos(ativos: Retrato<Produto[]> | null, inativos: Retrato<Produto[]> | null,
+  gestos: GestoNaFila[]): ProdutoLocal[] {
+  const itens = new Map<string, ProdutoLocal>([
+    ...(ativos?.dados ?? []).map((item) => [item.id, { ...item, ativo: true }] as const),
+    ...(inativos?.dados ?? []).map((item) => [item.id, { ...item, ativo: false }] as const),
+  ])
+  const leitura = ativos && inativos
+    ? { ordemDaLeitura: Math.min(ativos.ordemDaLeitura, inativos.ordemDaLeitura) }
+    : ativos ?? inativos
   for (const gesto of gestosAplicaveis(gestos, GESTOS_PRODUTO)) {
-    if (jaEstaNoRetrato(gesto, retrato)) continue
+    if (jaEstaNoRetrato(gesto, leitura)) continue
     const dados = gesto.payload as DadosDoProduto
     if (gesto.tipo === 'produto.criar') {
-      itens.set(gesto.registroId, { id: gesto.registroId, versao: versaoDoResultado(gesto) ?? 0, ...dados })
+      itens.set(gesto.registroId, { id: gesto.registroId, versao: versaoDoResultado(gesto) ?? 0, ...dados,
+        ativo: true })
     }
+    const anterior = itens.get(gesto.registroId)
+    if (!anterior) continue
     if (gesto.tipo === 'produto.editar') {
-      const anterior = itens.get(gesto.registroId)
-      if (anterior) itens.set(gesto.registroId, { ...anterior, ...dados, tipo: anterior.tipo,
+      itens.set(gesto.registroId, { ...anterior, ...dados, tipo: anterior.tipo,
         versao: versaoDoResultado(gesto) ?? anterior.versao })
     }
-    if (gesto.tipo === 'produto.inativar') itens.delete(gesto.registroId)
+    if (gesto.tipo === 'produto.inativar' || gesto.tipo === 'produto.reativar') {
+      itens.set(gesto.registroId, { ...anterior, ativo: gesto.tipo === 'produto.reativar',
+        versao: versaoDoResultado(gesto) ?? anterior.versao })
+    }
   }
   return [...itens.values()]
 }
@@ -155,12 +170,24 @@ function projetarClientes(ativos: Retrato<Cliente[]> | null, inativos: Retrato<C
   return [...itens.values()].filter((cliente) => !removidos.has(cliente.id))
 }
 
-async function locaisProdutos(): Promise<Produto[]> {
-  const [retrato, gestos] = await Promise.all([lerRetrato<Produto[]>('produtos'), listarGestos()])
-  if (!retrato && !gestos.some((gesto) => gesto.tipo === 'produto.criar')) {
+async function locaisProdutos(): Promise<ProdutoLocal[]> {
+  const [ativos, inativos, gestos] = await Promise.all([
+    lerRetrato<Produto[]>('produtos'), lerRetrato<Produto[]>('produtosInativos'), listarGestos(),
+  ])
+  if (!ativos && !inativos && !gestos.some((gesto) => gesto.tipo === 'produto.criar')) {
     throw new Error('O catálogo ainda não foi carregado neste dispositivo. Entre online para prepará-lo.')
   }
-  return projetarProdutos(retrato, gestos)
+  return projetarProdutos(ativos, inativos, gestos)
+}
+
+async function locaisAtivos(): Promise<ProdutoLocal[]> {
+  return (await locaisProdutos()).filter((produto) => produto.ativo)
+}
+
+/** O mesmo código, como o índice do servidor compara: sem espaço nas pontas e sem maiúsculas. */
+function mesmoCodigo(produto: Produto, codigo: string | null | undefined): boolean {
+  const procurado = codigo?.trim().toLocaleLowerCase()
+  return !!procurado && produto.codigo?.toLocaleLowerCase() === procurado
 }
 
 async function locaisClientes(): Promise<ClienteLocal[]> {
@@ -185,7 +212,21 @@ async function enfileirar(tipo: string, id: string, dados: unknown, dependeDe: s
 
 /** A lista da API é a base local; gestos da sessão são reaplicados sem copiar o catálogo de novo. */
 export function criarCadastroLocal<T extends Remoto>(remoto: T): T {
+  let leituraDosProdutos: Promise<unknown> | null = null
   let leituraDosClientes: Promise<unknown> | null = null
+
+  // Ativos e inativos vêm juntos, como os clientes: o produto reativado em outro aparelho sai de uma
+  // lista e entra na outra, e duas leituras de momentos diferentes o mostrariam nas duas ou em
+  // nenhuma.
+  function lerProdutosDoServidor(): Promise<unknown> {
+    leituraDosProdutos ??= lerDoServidor(
+      () => Promise.all([remoto.produtos(), remoto.produtosInativos()]),
+      ([ativos, inativos], ordem) => guardarRetratos([
+        { tipo: 'produtos', dados: ativos }, { tipo: 'produtosInativos', dados: inativos },
+      ], ordem),
+    ).finally(() => { leituraDosProdutos = null })
+    return leituraDosProdutos
+  }
 
   // As duas listas vêm juntas para o retrato ter uma ordem só, e a tela que pede as duas ao mesmo
   // tempo aproveita o mesmo pedido.
@@ -205,13 +246,23 @@ export function criarCadastroLocal<T extends Remoto>(remoto: T): T {
       if (!('indexedDB' in globalThis)) return remoto.produtos()
       if (navigator.onLine) {
         try {
-          await lerDoServidor(() => remoto.produtos(),
-            (recebidos, ordem) => guardarRetrato('produtos', recebidos, ordem))
+          await lerProdutosDoServidor()
         } catch (falha) {
           if (!(falha instanceof SemConexao)) throw falha
         }
       }
-      return locaisProdutos()
+      return locaisAtivos()
+    },
+    async produtosInativos() {
+      if (!('indexedDB' in globalThis)) return remoto.produtosInativos()
+      if (navigator.onLine) {
+        try {
+          await lerProdutosDoServidor()
+        } catch (falha) {
+          if (!(falha instanceof SemConexao)) throw falha
+        }
+      }
+      return (await locaisProdutos()).filter((produto) => !produto.ativo)
     },
     async buscarProdutos(termo) {
       if (!('indexedDB' in globalThis)) return remoto.buscarProdutos(termo)
@@ -226,7 +277,7 @@ export function criarCadastroLocal<T extends Remoto>(remoto: T): T {
           if (!(falha instanceof SemConexao)) throw falha
         }
       }
-      return buscarNoCatalogo(await locaisProdutos(), termo)
+      return buscarNoCatalogo(await locaisAtivos(), termo)
     },
     async clientes() {
       if (!('indexedDB' in globalThis)) return remoto.clientes()
@@ -255,8 +306,7 @@ export function criarCadastroLocal<T extends Remoto>(remoto: T): T {
       exigirArmazenamento()
       exigirAdmin()
       validarProduto(dados)
-      const codigo = dados.codigo?.trim().toLocaleLowerCase()
-      if (codigo && (await locaisProdutos()).some((item) => item.codigo?.toLocaleLowerCase() === codigo)) {
+      if ((await locaisAtivos()).some((item) => mesmoCodigo(item, dados.codigo))) {
         throw new Error('Já existe item ativo com esse código neste dispositivo.')
       }
       const id = crypto.randomUUID()
@@ -273,8 +323,8 @@ export function criarCadastroLocal<T extends Remoto>(remoto: T): T {
       const itens = await locaisProdutos()
       const atual = itens.find((item) => item.id === id)
       if (!atual) throw new Error('Item não encontrado no catálogo local.')
-      const codigo = dados.codigo?.trim().toLocaleLowerCase()
-      if (codigo && itens.some((item) => item.id !== id && item.codigo?.toLocaleLowerCase() === codigo)) {
+      if (!atual.ativo) throw new Error(`O produto ${atual.nome} está inativo; reative-o antes de editar.`)
+      if (itens.some((item) => item.ativo && item.id !== id && mesmoCodigo(item, dados.codigo))) {
         throw new Error('Já existe item ativo com esse código neste dispositivo.')
       }
       await enfileirar('produto.editar', id, camposDeEdicaoDoProduto(dados), dependeDe, versaoLida(atual))
@@ -288,6 +338,24 @@ export function criarCadastroLocal<T extends Remoto>(remoto: T): T {
       const atual = (await locaisProdutos()).find((item) => item.id === id)
       if (!atual) throw new Error('Item não encontrado no catálogo local.')
       await enfileirar('produto.inativar', id, {}, dependeDe, versaoLida(atual))
+    },
+    async reativarProduto(id) {
+      if (navigator.onLine && !('indexedDB' in globalThis)) return remoto.reativarProduto(id)
+      exigirArmazenamento()
+      const { dependeDe, pendente } = await dependencias(GESTOS_PRODUTO, id)
+      if (navigator.onLine && !pendente) return remoto.reativarProduto(id)
+      exigirAdmin()
+      const itens = await locaisProdutos()
+      const atual = itens.find((item) => item.id === id)
+      if (!atual) throw new Error('Item não encontrado no catálogo local.')
+      // A mesma recusa do servidor, com o mesmo texto: o código pode ter ido para outro item.
+      const dono = atual.ativo ? undefined
+        : itens.find((item) => item.ativo && item.id !== id && mesmoCodigo(item, atual.codigo))
+      if (dono) {
+        throw new Error(`O código ${atual.codigo} já é de ${dono.nome}, que está ativo. Para reativar `
+          + `${atual.nome}, mude o código de ${dono.nome} ou inative-o antes.`)
+      }
+      await enfileirar('produto.reativar', id, {}, dependeDe, versaoLida(atual))
     },
     async criarCliente(dados) {
       if (navigator.onLine) return remoto.criarCliente(dados)

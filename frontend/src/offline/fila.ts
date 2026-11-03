@@ -214,12 +214,13 @@ export async function guardarRetratos(retratos: { tipo: string; dados: unknown }
         dados: structuredClone(dados), ordemDaLeitura })
     }
     const tiposLidos = new Set(retratos.map((retrato) => retrato.tipo))
+    const produtosCompletos = tiposLidos.has('produtos') && tiposLidos.has('produtosInativos')
     const clientesCompletos = tiposLidos.has('clientesAtivos') && tiposLidos.has('clientesInativos')
     const gestos = transacao.objectStore('gestos')
     let cursor = await gestos.index('porDono').openCursor(dono)
     while (cursor) {
       const gesto = cursor.value
-      const cadastroLido = gesto.tipo.startsWith('produto.') && tiposLidos.has('produtos')
+      const cadastroLido = gesto.tipo.startsWith('produto.') && produtosCompletos
         || gesto.tipo.startsWith('cliente.') && clientesCompletos
       if (gesto.estado === 'sent' && gesto.ordemDoResultado !== undefined
         && gesto.ordemDoResultado <= ordemDaLeitura && cadastroLido) {

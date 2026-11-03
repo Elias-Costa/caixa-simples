@@ -6,7 +6,7 @@ import type { Identidade } from '../sessao/Identidade'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
 import {
   apagarDadosDoAparelho, atualizarRetratoDoCaixa, conferirGesto, contarGestosSemResultado, enfileirarGesto,
-  guardarRetrato, guardarRetratoDaVenda, iniciarEnvio, jaEstaNoRetrato, lerCaixaNoAparelho, lerDoServidor,
+  guardarRetrato, guardarRetratoDaVenda, guardarRetratos, iniciarEnvio, jaEstaNoRetrato, lerCaixaNoAparelho, lerDoServidor,
   lerRetrato, listarGestos, mudarEstadoDoGesto, recuperarEnviosInterrompidos, registrarDesfechos,
   SessaoAbertaNoAparelho, type GestoNaFila,
 } from './fila'
@@ -284,7 +284,10 @@ describe('fila local de gestos', () => {
 
   it('guarda a leitura só quando sabe quais resultados ela contém', async () => {
     entrar(ana)
-    const guardar = (dados: string[], ordem: number) => guardarRetrato('produtos', dados, ordem)
+    // As duas listas de produtos vão juntas: o gesto enviado só sai quando as duas o contêm.
+    const guardar = (dados: string[], ordem: number) => guardarRetratos([
+      { tipo: 'produtos', dados }, { tipo: 'produtosInativos', dados: [] },
+    ], ordem)
     await lerDoServidor(async () => ['sem fila'], guardar)
     expect(await lerRetrato('produtos')).toEqual({ dados: ['sem fila'], ordemDaLeitura: 0 })
 

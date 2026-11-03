@@ -131,6 +131,52 @@ class CadastroHttpTest extends TesteDeIntegracao {
     }
 
     @Test
+    void produtoInativoSeListaEVoltaPeloAdminSoSeOCodigoEstaLivre() throws Exception {
+        ContaCriada contaA = criador.criar("Padaria A", SENHA);
+        ContaCriada contaB = criador.criar("Padaria B", SENHA);
+        ContaCriada operador = criador.criar("Padaria com operador", SENHA, Perfil.OPERADOR, true);
+        RequestPostProcessor adminA = autenticador.como(contaA);
+        RequestPostProcessor adminB = autenticador.como(contaB);
+        UUID antigo = UUID.fromString(json.readTree(http.perform(post("/api/produtos")
+                        .with(adminA).contentType(MediaType.APPLICATION_JSON).content(PRODUTO))
+                .andReturn().getResponse().getContentAsString()).get("id").asText());
+        http.perform(post("/api/produtos/{id}/inativar", antigo).with(adminA))
+                .andExpect(status().isNoContent());
+        UUID novo = UUID.fromString(json.readTree(http.perform(post("/api/produtos")
+                        .with(adminA).contentType(MediaType.APPLICATION_JSON)
+                        .content(PRODUTO.replace("Café especial", "Café do dia")))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString())
+                .get("id").asText());
+
+        http.perform(get("/api/produtos/inativos").with(adminA))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(antigo.toString()))
+                .andExpect(jsonPath("$[0].versao").value(1))
+                .andExpect(jsonPath("$.length()").value(1));
+        http.perform(get("/api/produtos/inativos").with(adminB))
+                .andExpect(status().isOk()).andExpect(jsonPath("$").isEmpty());
+        http.perform(get("/api/produtos/inativos").with(autenticador.como(operador)))
+                .andExpect(status().isOk());
+        http.perform(post("/api/produtos/{id}/reativar", antigo).with(autenticador.como(operador)))
+                .andExpect(status().isForbidden());
+        http.perform(post("/api/produtos/{id}/reativar", antigo).with(adminB))
+                .andExpect(status().isNotFound());
+        http.perform(post("/api/produtos/{id}/reativar", antigo).with(adminA))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.detail").value("O código C-1 já é de Café do dia, que está"
+                        + " ativo. Para reativar Café especial, mude o código de Café do dia ou"
+                        + " inative-o antes."));
+
+        http.perform(post("/api/produtos/{id}/inativar", novo).with(adminA))
+                .andExpect(status().isNoContent());
+        http.perform(post("/api/produtos/{id}/reativar", antigo).with(adminA))
+                .andExpect(status().isNoContent());
+        http.perform(get("/api/produtos").with(adminA))
+                .andExpect(jsonPath("$[0].id").value(antigo.toString()))
+                .andExpect(jsonPath("$[0].versao").value(2));
+    }
+
+    @Test
     void clienteDoOperadorEditaInativaReativaEOutraContaNaoEnxerga() throws Exception {
         ContaCriada contaA = criador.criar("Balcão A", SENHA, Perfil.OPERADOR, true);
         ContaCriada contaB = criador.criar("Balcão B", SENHA);

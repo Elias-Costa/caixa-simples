@@ -190,6 +190,59 @@ class ProdutoServiceTest extends TesteDeIntegracao {
     }
 
     @Test
+    @DisplayName("reativar devolve o produto ao catálogo com o saldo que tinha, e de novo não estoura")
+    void reativarDevolveOProdutoComOSaldo() {
+        ContaCriada conta = criador.criar("Emporio da Praca", SENHA_DE_TESTE);
+        UUID id = cadastrarProduto(conta, "Arroz");
+        conta.comoUsuario(() -> {
+            produtoService.ajustarEstoque(id, new BigDecimal("7.250"), "contagem inicial");
+            produtoService.inativar(id);
+        });
+
+        conta.comoUsuario(() -> {
+            assertThat(produtoService.listarInativosComVersao())
+                    .extracting(item -> item.produto().getId())
+                    .containsExactly(id);
+            produtoService.reativar(id);
+            produtoService.reativar(id);
+        });
+
+        conta.comoUsuario(() -> {
+            assertThat(produtoService.listarAtivos()).extracting(Produto::getId).containsExactly(id);
+            assertThat(produtoService.listarInativosComVersao()).isEmpty();
+            assertThat(saldoDe(id)).isEqualByComparingTo("7.250");
+        });
+    }
+
+    @Test
+    @DisplayName("reativar é recusado quando o código foi para outro produto ativo, que a recusa nomeia")
+    void reativarComCodigoOcupadoERecusado() {
+        ContaCriada conta = criador.criar("Padaria da Ladeira", SENHA_DE_TESTE);
+        UUID antigo = conta.comoUsuario(() ->
+                produtoService.cadastrar(TipoProduto.PRODUTO, produto("Pao frances", "pf-7")));
+        conta.comoUsuario(() -> produtoService.inativar(antigo));
+        UUID novo = conta.comoUsuario(() ->
+                produtoService.cadastrar(TipoProduto.PRODUTO, produto("Pao de queijo", "PF-7")));
+
+        // Maiúsculas não contam no código, como no índice da V2.
+        assertThatIllegalStateException()
+                .isThrownBy(() -> conta.comoUsuario(() -> produtoService.reativar(antigo)))
+                .withMessage("O código pf-7 já é de Pao de queijo, que está ativo. Para reativar"
+                        + " Pao frances, mude o código de Pao de queijo ou inative-o antes.");
+        conta.comoUsuario(() -> assertThat(produtoService.listarInativosComVersao())
+                .as("a recusa não reativou nada")
+                .extracting(item -> item.produto().getId()).containsExactly(antigo));
+
+        // Com o outro fora do catálogo, o código está livre e a reativação passa.
+        conta.comoUsuario(() -> {
+            produtoService.inativar(novo);
+            produtoService.reativar(antigo);
+        });
+        conta.comoUsuario(() -> assertThat(produtoService.buscarPorNomeOuCodigo("pf-7"))
+                .extracting(Produto::getId).first().isEqualTo(antigo));
+    }
+
+    @Test
     @DisplayName("produto inativo não pode ser editado")
     void editarProdutoInativoERecusado() {
         ContaCriada conta = criador.criar("Oficina da Avenida", SENHA_DE_TESTE);
@@ -649,7 +702,7 @@ class ProdutoServiceTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("o operador não cadastra, edita nem inativa produto, mas consulta e busca (RF30)")
+    @DisplayName("o operador não cadastra, edita, inativa nem reativa produto, mas consulta e busca (RF30)")
     void operadorSoConsulta() {
         ContaCriada conta = criador.criar("Mercearia com Atendente", SENHA_DE_TESTE);
         UsuarioCriado operador = criador.criarOperadorEm(conta.contaId(), "Atendente");
@@ -663,6 +716,13 @@ class ProdutoServiceTest extends TesteDeIntegracao {
                         produtoService.editar(id, produto("Arroz integral", null))));
         assertThatExceptionOfType(AcessoNegadoException.class)
                 .isThrownBy(() -> operador.comoUsuario(() -> produtoService.inativar(id)));
+        conta.comoUsuario(() -> produtoService.inativar(id));
+        assertThatExceptionOfType(AcessoNegadoException.class)
+                .isThrownBy(() -> operador.comoUsuario(() -> produtoService.reativar(id)));
+        operador.comoUsuario(() -> assertThat(produtoService.listarInativosComVersao())
+                .as("a lista de inativos se lê pelos dois perfis, como a de ativos")
+                .hasSize(1));
+        conta.comoUsuario(() -> produtoService.reativar(id));
 
         // O balcão precisa achar o produto para vender: a leitura é dos dois perfis.
         operador.comoUsuario(() -> {

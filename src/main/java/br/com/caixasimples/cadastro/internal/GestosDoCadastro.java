@@ -22,7 +22,7 @@ import tools.jackson.databind.ObjectMapper;
  * uso do cadastro.
  *
  * <p>Cada gesto é o caso de uso com rede de mesmo nome, com as mesmas guardas: só o administrador
- * cadastra, edita e inativa produto; cliente é dos dois perfis. A criação usa o id e o instante que
+ * cadastra, edita, inativa e reativa produto; cliente é dos dois perfis. A criação usa o id e o instante que
  * o dispositivo gravou, porque a Venda registrada sem rede já aponta para esse id; o instante é o
  * da própria operação, que o lote confere contra o relógio do servidor, e por isso a aplicação não
  * devolve instante. A edição segue a última escrita aceita pelo servidor: é aplicada sobre a versão
@@ -51,8 +51,8 @@ class GestosDoCadastro implements AplicadorDeOperacoes {
 
     @Override
     public Set<String> tipos() {
-        return Set.of("produto.criar", "produto.editar", "produto.inativar", "cliente.criar",
-                "cliente.editar", "cliente.inativar", "cliente.reativar");
+        return Set.of("produto.criar", "produto.editar", "produto.inativar", "produto.reativar",
+                "cliente.criar", "cliente.editar", "cliente.inativar", "cliente.reativar");
     }
 
     @Override
@@ -68,6 +68,7 @@ class GestosDoCadastro implements AplicadorDeOperacoes {
                 case "produto.editar" -> produtos.editar(id,
                         operacao.payloadComo(json, EdicaoDeProduto.class).dados(operacao));
                 case "produto.inativar" -> produtos.inativar(id);
+                case "produto.reativar" -> produtos.reativar(id);
                 case "cliente.criar" -> clientes.cadastrar(id,
                         operacao.payloadComo(json, CamposDoCliente.class).dados(),
                         operacao.criadoEm());

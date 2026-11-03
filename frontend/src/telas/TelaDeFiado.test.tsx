@@ -142,6 +142,47 @@ it('quem deve em duas vendas aparece numa linha só, com o total, e as vendas ab
   expect(screen.getAllByRole('button', { name: 'Receber' })).toHaveLength(3)
 })
 
+it('o total da Conta no topo, quem deve mais primeiro e cada venda pela data, com os dias em aberto', async () => {
+  // Só o relógio é falso: as esperas da tela continuam reais.
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-11-03T15:00:00Z'))
+  vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(undefined)
+  vi.spyOn(fiado, 'dividas').mockResolvedValue([
+    { vendaId: 'venda-3', clienteId: 'cliente-1', nomeCliente: 'Lia',
+      concluidoEm: '2026-11-03T13:00:00Z', saldoDevedor: 0.2 },
+    { vendaId: 'venda-1', clienteId: 'cliente-1', nomeCliente: 'Lia',
+      concluidoEm: '2026-10-23T12:01:00Z', saldoDevedor: 20.1 },
+    { vendaId: 'venda-2', clienteId: 'cliente-2', nomeCliente: 'Dona Marta',
+      concluidoEm: '2026-11-02T16:00:00Z', saldoDevedor: 8 },
+    { vendaId: 'venda-4', clienteId: 'cliente-3', nomeCliente: 'Bruno',
+      concluidoEm: '2026-11-03T02:30:00Z', saldoDevedor: 30 },
+  ])
+  try {
+    render(<MemoryRouter><SessaoContext.Provider value={{
+      identidade: { usuarioId: 'operador-1', nome: 'Ana', perfil: 'OPERADOR',
+        contaId: 'conta-1', nomeNegocio: 'Loja', estoqueHabilitado: false },
+      entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(),
+    }}><TelaDeFiado /></SessaoContext.Provider></MemoryRouter>)
+
+    expect(await screen.findByText(/Total em aberto/)).toHaveTextContent('Total em aberto: R$ 58,30, de 3 clientes.')
+    expect(screen.getAllByRole('listitem').map((item) => item.querySelector('strong')?.textContent))
+      .toEqual(['Bruno', 'Lia', 'Dona Marta'])
+    // 23h30 de ontem no fuso do balcão: pela folha do calendário, já é de ontem, não de hoje.
+    expect(screen.getByText('Venda de 02/11/2026, 23:30, em aberto há 1 dia.')).toBeInTheDocument()
+    expect(screen.getByText('Venda de 02/11/2026, 13:00, em aberto há 1 dia.')).toBeInTheDocument()
+    expect(screen.getByText(/Saldo: R\$\s20,30 em 2 vendas, a mais antiga em aberto há 11 dias\./)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ver vendas' }))
+    const vendasDaLia = screen.getByRole('button', { name: 'Esconder vendas' }).nextElementSibling as HTMLElement
+    expect([...vendasDaLia.querySelectorAll('li')].map((venda) => venda.querySelector('p')?.textContent)).toEqual([
+      'Venda de 23/10/2026, 09:01, em aberto há 11 dias.',
+      'Venda de 03/11/2026, 10:00, em aberto desde hoje.',
+    ])
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
 it('a busca filtra as Vendas com saldo pelo nome do cliente e recusa o valor acima do saldo', async () => {
   vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue({
     id: 'sessao-1', usuarioId: 'operador-1', valorAbertura: 0,

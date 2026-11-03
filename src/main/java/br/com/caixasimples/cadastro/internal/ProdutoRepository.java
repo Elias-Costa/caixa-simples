@@ -49,6 +49,9 @@ public interface ProdutoRepository extends JpaRepository<ProdutoEntity, UUID> {
 
     List<ProdutoEntity> findByAtivoTrue();
 
+    /** Os inativados, que a tela de produtos lista para reativar. */
+    List<ProdutoEntity> findByAtivoFalse();
+
     /**
      * Os produtos ativos de um tipo. É a base da lista de estoque baixo (RF20): só PRODUTO tem
      * estoque, e item fora do catálogo não vai ser reposto.

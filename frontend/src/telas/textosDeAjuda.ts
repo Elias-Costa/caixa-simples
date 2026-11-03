@@ -16,7 +16,7 @@ export const AJUDA = {
   produtos: [
     'Com estoque é o item comprado pronto, que se conta na prateleira; Sem estoque é serviço ou preparado na hora.',
     'O tipo não muda depois do cadastro.',
-    'Inativar tira o item da venda e mantém o histórico.',
+    'Inativar tira o item da venda e mantém o histórico; reativar o devolve.',
   ],
   clientes: [
     'O cliente é obrigatório no fiado e opcional nas outras vendas.',
