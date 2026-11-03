@@ -175,7 +175,7 @@ async function locaisProdutos(): Promise<ProdutoLocal[]> {
     lerRetrato<Produto[]>('produtos'), lerRetrato<Produto[]>('produtosInativos'), listarGestos(),
   ])
   if (!ativos && !inativos && !gestos.some((gesto) => gesto.tipo === 'produto.criar')) {
-    throw new Error('O catálogo ainda não foi carregado neste dispositivo. Entre online para prepará-lo.')
+    throw new Error('O catálogo ainda não foi carregado neste aparelho. Entre online para prepará-lo.')
   }
   return projetarProdutos(ativos, inativos, gestos)
 }
@@ -196,7 +196,7 @@ async function locaisClientes(): Promise<ClienteLocal[]> {
     listarGestos(), lerRetrato<string[]>('clientesRemovidos'),
   ])
   if (!ativos && !inativos && !gestos.some((gesto) => gesto.tipo === 'cliente.criar')) {
-    throw new Error('O cadastro de clientes ainda não foi carregado neste dispositivo. Entre online para prepará-lo.')
+    throw new Error('O cadastro de clientes ainda não foi carregado neste aparelho. Entre online para prepará-lo.')
   }
   return projetarClientes(ativos, inativos, gestos, new Set(removidos?.dados ?? []))
 }
@@ -307,7 +307,7 @@ export function criarCadastroLocal<T extends Remoto>(remoto: T): T {
       exigirAdmin()
       validarProduto(dados)
       if ((await locaisAtivos()).some((item) => mesmoCodigo(item, dados.codigo))) {
-        throw new Error('Já existe item ativo com esse código neste dispositivo.')
+        throw new Error('Já existe item ativo com esse código neste aparelho.')
       }
       const id = crypto.randomUUID()
       await enfileirar('produto.criar', id, camposDoProduto(dados))
@@ -325,7 +325,7 @@ export function criarCadastroLocal<T extends Remoto>(remoto: T): T {
       if (!atual) throw new Error('Item não encontrado no catálogo local.')
       if (!atual.ativo) throw new Error(`O produto ${atual.nome} está inativo; reative-o antes de editar.`)
       if (itens.some((item) => item.ativo && item.id !== id && mesmoCodigo(item, dados.codigo))) {
-        throw new Error('Já existe item ativo com esse código neste dispositivo.')
+        throw new Error('Já existe item ativo com esse código neste aparelho.')
       }
       await enfileirar('produto.editar', id, camposDeEdicaoDoProduto(dados), dependeDe, versaoLida(atual))
     },

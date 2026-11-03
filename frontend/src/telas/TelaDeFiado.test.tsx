@@ -44,7 +44,7 @@ it('operador registra recebimento parcial e vê comprovante com saldo restante',
   await waitFor(() => expect(receber).toHaveBeenCalledTimes(2))
   expect(receber.mock.calls[0][3]).toBe(receber.mock.calls[1][3])
   const papel = await screen.findByLabelText('Comprovante de recebimento não fiscal')
-  expect(papel).toHaveTextContent('Saldo da Venda após recebimento: R$ 13,00')
+  expect(papel).toHaveTextContent('Saldo da venda após recebimento: R$ 13,00')
   expect(papel).toHaveTextContent('Forma: Pix')
 })
 
@@ -208,6 +208,6 @@ it('a busca filtra as Vendas com saldo pelo nome do cliente e recusa o valor aci
   fireEvent.change(screen.getByLabelText('Valor recebido'), { target: { value: '8,01' } })
   fireEvent.click(screen.getByRole('button', { name: 'Registrar recebimento' }))
   const formulario = screen.getByRole('heading', { name: 'Receber de Dona Marta' }).closest('form')!
-  expect(await within(formulario).findByRole('alert')).toHaveTextContent('O valor recebido passa do saldo desta Venda.')
+  expect(await within(formulario).findByRole('alert')).toHaveTextContent('O valor recebido passa do saldo desta venda.')
   expect(receber).not.toHaveBeenCalled()
 })

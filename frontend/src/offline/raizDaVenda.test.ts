@@ -48,7 +48,7 @@ describe('raiz da Venda no dispositivo', () => {
 
     const comDesconto = aplicarDesconto(adicionarItem(venda, item({ precoUnitario: 2 })), 9)
     expect(() => removerItem(comDesconto, comDesconto.itens[0].id)).toThrow('Reduza o desconto')
-    expect(() => removerItem(comDesconto, 'item-que-nao-existe')).toThrow('não está nesta Venda')
+    expect(() => removerItem(comDesconto, 'item-que-nao-existe')).toThrow('não está na venda')
     expect(total(venda)).toBe(1000)
     expect(venda.itens).toHaveLength(1)
   })

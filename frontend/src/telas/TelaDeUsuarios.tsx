@@ -52,6 +52,12 @@ export function TelaDeUsuarios() {
     return mensagem?.onde === onde ? <Mensagem tipo={mensagem.tipo} texto={mensagem.texto} /> : null
   }
 
+  /** O servidor recusa inativar o último administrador ativo: a Conta nunca fica sem um. */
+  function unicoAdministrador(usuario: UsuarioDaConta): boolean {
+    const ativos = usuarios.filter((outro) => outro.ativo && outro.perfil === 'ADMIN')
+    return usuario.perfil === 'ADMIN' && ativos.length <= 1
+  }
+
   async function criar(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault()
     setMensagem(null)
@@ -199,22 +205,46 @@ export function TelaDeUsuarios() {
           <input className="campo__entrada" type="email" value={dados.email} required
             onChange={(evento) => setDados({ ...dados, email: evento.target.value })} />
         </label>
-        <CampoDeSenha rotulo="Senha inicial" autoComplete="new-password" minLength={15} valor={dados.senha}
-          aoMudar={(senha) => setDados({ ...dados, senha })} />
+        {/* Na linha inteira da grade: na coluna de 220px, o Mostrar deixava 113px para uma senha de
+            15 caracteres ou mais. */}
+        <div className="usuarios__senha">
+          <CampoDeSenha rotulo="Senha inicial" autoComplete="new-password" minLength={15} valor={dados.senha}
+            aoMudar={(senha) => setDados({ ...dados, senha })} />
+        </div>
       </div>
-      <p className="cadastro__apoio">A senha precisa ter de 15 caracteres a 72 letras sem acento, em que letra com acento ou cedilha conta como duas, e passa pela verificação de vazamentos. O usuário escolhe a própria senha no primeiro acesso.</p>
+      {/* O máximo de 72 continua conferido antes de enviar, com a mensagem que explica o acento. */}
+      <p className="cadastro__apoio">A senha tem ao menos 15 caracteres, e senha que já vazou é recusada. O usuário troca por uma dele no primeiro acesso.</p>
       {mostrarEm('novo')}
       <button className="botao" disabled={salvando}>{salvando ? 'Criando...' : 'Criar usuário'}</button>
     </form>
 
     <h3>Usuários da Conta</h3>
     {carregando ? <p>Carregando...</p> : usuarios.length === 0 ? <p>Nenhum usuário encontrado.</p> :
-      <ul className="cadastro__lista">{usuarios.map((usuario) => <li className="cadastro__item" key={usuario.id}>
+      <ul className="cadastro__lista">{usuarios.map((usuario) => <li className="cadastro__item usuarios__item" key={usuario.id}>
         <div><strong>{usuario.nome}</strong><p>{usuario.perfil === 'ADMIN' ? 'Administrador' : 'Operador'} · {usuario.ativo ? 'Ativo'
           : usuario.loginGuardado ? 'Inativo, com o login guardado até concluir a inativação' : 'Inativo'}</p></div>
-        {usuario.nome !== NOME_REMOVIDO && corrigindo !== usuario.id &&
-          <button className="botao botao--secundario" type="button"
-            onClick={() => { setCorrigindo(usuario.id); setNomeCorrigido(usuario.nome); setRedefinindo(null) }}>Corrigir nome</button>}
+        {/* Os botões comuns à esquerda e os que tiram o acesso à direita, sempre na mesma ordem, para
+            cada um cair no mesmo lugar de usuário a usuário. */}
+        <div className="usuarios__acoes">
+          <div className="usuarios__grupo">
+            {usuario.nome !== NOME_REMOVIDO && corrigindo !== usuario.id &&
+              <button className="botao botao--secundario" type="button"
+                onClick={() => { setCorrigindo(usuario.id); setNomeCorrigido(usuario.nome); setRedefinindo(null) }}>Corrigir nome</button>}
+            {usuario.ativo && usuario.perfil === 'OPERADOR' && redefinindo !== usuario.id &&
+              <button className="botao botao--secundario" type="button"
+                onClick={() => { setRedefinindo(usuario.id); setSenhaProvisoria(''); setCorrigindo(null) }}>Redefinir senha</button>}
+          </div>
+          <div className="usuarios__grupo usuarios__grupo--perigo">
+            {usuario.ativo && !unicoAdministrador(usuario) && <button className="botao botao--perigo" type="button"
+              onClick={() => void inativar(usuario)}>Inativar</button>}
+            {/* O acesso já terminou; concluir só apaga o login, sem outra confirmação. */}
+            {!usuario.ativo && usuario.loginGuardado && <button className="botao botao--perigo" type="button"
+              onClick={() => void pedirInativacao(usuario)}>Concluir a inativação</button>}
+            {!usuario.ativo && usuario.nome !== NOME_REMOVIDO &&
+              <button className="botao botao--perigo" type="button"
+                onClick={() => void anonimizar(usuario)}>Remover nome</button>}
+          </div>
+        </div>
         {corrigindo === usuario.id &&
           <form onSubmit={(evento) => void corrigir(evento, usuario)} noValidate>
             <label className="campo"><span className="campo__rotulo">Nome de {usuario.nome}</span>
@@ -225,9 +255,6 @@ export function TelaDeUsuarios() {
             <button className="botao botao--secundario" type="button"
               onClick={() => setCorrigindo(null)}>Cancelar</button>
           </form>}
-        {usuario.ativo && usuario.perfil === 'OPERADOR' && redefinindo !== usuario.id &&
-          <button className="botao botao--secundario" type="button"
-            onClick={() => { setRedefinindo(usuario.id); setSenhaProvisoria(''); setCorrigindo(null) }}>Redefinir senha</button>}
         {redefinindo === usuario.id &&
           <form onSubmit={(evento) => void redefinir(evento, usuario)} noValidate>
             <CampoDeSenha rotulo={`Senha provisória de ${usuario.nome}`} autoComplete="new-password"
@@ -236,14 +263,6 @@ export function TelaDeUsuarios() {
             <button className="botao botao--secundario" type="button"
               onClick={() => setRedefinindo(null)}>Cancelar</button>
           </form>}
-        {usuario.ativo && <button className="botao botao--perigo" type="button"
-          onClick={() => void inativar(usuario)}>Inativar</button>}
-        {/* O acesso já terminou; concluir só apaga o login, sem outra confirmação. */}
-        {!usuario.ativo && usuario.loginGuardado && <button className="botao botao--perigo" type="button"
-          onClick={() => void pedirInativacao(usuario)}>Concluir a inativação</button>}
-        {!usuario.ativo && usuario.nome !== NOME_REMOVIDO &&
-          <button className="botao botao--perigo" type="button"
-            onClick={() => void anonimizar(usuario)}>Remover nome</button>}
         {mostrarEm(usuario.id)}
       </li>)}</ul>}
     {dialogoDeConfirmacao}

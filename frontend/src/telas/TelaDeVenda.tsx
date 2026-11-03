@@ -687,9 +687,9 @@ export function TelaDeVenda() {
                 type="button" disabled={ocupado} onClick={() => void cancelar()}>Cancelar venda</button>}
             </div>
             {atual.status !== 'CANCELADA' && doDispositivo && <p className="pdv__ajuda">{CANCELAR_DEPOIS_DE_SINCRONIZAR}</p>}
-            {doDispositivo && <p className="mensagem-info" role="status">Registrada neste dispositivo. Aguardando sincronização com o servidor.</p>}
+            {doDispositivo && <p className="mensagem-info" role="status">Registrada neste aparelho. Aguardando sincronização com o servidor.</p>}
             {!online && !doDispositivo && atual.status === 'ABERTA' &&
-              <p className="mensagem-info" role="status">Esta Venda está no servidor e continua quando a rede voltar. Para vender agora, comece uma nova venda.</p>}
+              <p className="mensagem-info" role="status">Esta venda está no servidor e continua quando a rede voltar. Para vender agora, comece uma nova venda.</p>}
             {atual.status === 'CANCELADA' && atual.parcelas.some((p) => p.pix && p.status === 'CONFIRMADO') &&
               <p className="mensagem-info" role="status">Pix integrado recebido. A devolução precisa ser feita fora do sistema e ainda exige conciliação; este aplicativo não verifica se ela aconteceu.</p>}
             {/* O cliente se acha pelo nome, como o produto: uma lista com todos não cabe no balcão,
@@ -734,7 +734,7 @@ export function TelaDeVenda() {
               </div>
               <button className="botao botao--secundario" disabled={ocupado}>Aplicar</button>
             </form>}
-            {atual.saldoDevedor > 0 && <p><strong>Saldo devedor desta Venda: {moeda.format(atual.saldoDevedor)}</strong></p>}
+            {atual.saldoDevedor > 0 && <p><strong>Saldo devedor desta venda: {moeda.format(atual.saldoDevedor)}</strong></p>}
             {atual.parcelas.length > 0 && <ul className="pdv__parcelas">
               {atual.parcelas.map((parcela) => <li key={parcela.id}>{ROTULO_DA_FORMA[parcela.forma]}: {moeda.format(parcela.valor)}
                 {parcela.troco > 0 && ` · troco ${moeda.format(parcela.troco)}`}
@@ -845,7 +845,7 @@ export function TelaDeVenda() {
 
         <section className="pdv__painel pdv__historico">
           <h3>Vendas deste caixa</h3>
-          {!online && <p className="pdv__ajuda">Sem conexão, a lista mostra as Vendas registradas neste dispositivo.</p>}
+          {!online && <p className="pdv__ajuda">Sem conexão, a lista mostra as vendas registradas neste aparelho.</p>}
           <Mensagem tipo="erro" texto={erroEm('historico')} />
           {historico.length === 0 ? <p>Nenhuma venda neste caixa.</p> : <ul id={idDaLista}>
             {vendasNaLista.map((resumo) => <li key={resumo.id}>

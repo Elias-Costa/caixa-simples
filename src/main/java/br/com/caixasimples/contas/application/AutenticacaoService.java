@@ -1,5 +1,6 @@
 package br.com.caixasimples.contas.application;
 
+import br.com.caixasimples.contas.MovimentosDeEstoqueDaConta;
 import br.com.caixasimples.contas.Plano;
 import br.com.caixasimples.contas.RecursoDoPlano;
 import br.com.caixasimples.contas.SituacaoDoPlano;
@@ -73,6 +74,7 @@ public class AutenticacaoService {
     private final TermosDeUsoService termos;
     private final PixCobrancaService pix;
     private final TransactionTemplate transacao;
+    private final MovimentosDeEstoqueDaConta movimentos;
 
     /**
      * Conferido no lugar da senha guardada quando o e-mail não tem credencial. Nasce do mesmo
@@ -84,7 +86,8 @@ public class AutenticacaoService {
     AutenticacaoService(CredencialRepository credenciais, UsuarioRepository usuarios,
             ContaRepository contas, PasswordEncoder encoder, EmissorDeToken emissor,
             ContaService contaService, ContencaoDeLogin contencao, PoliticaDeSenha politica,
-            TermosDeUsoService termos, PixCobrancaService pix, TransactionTemplate transacao) {
+            TermosDeUsoService termos, PixCobrancaService pix, TransactionTemplate transacao,
+            MovimentosDeEstoqueDaConta movimentos) {
         this.credenciais = credenciais;
         this.usuarios = usuarios;
         this.contas = contas;
@@ -96,6 +99,7 @@ public class AutenticacaoService {
         this.termos = termos;
         this.pix = pix;
         this.transacao = transacao;
+        this.movimentos = movimentos;
         this.hashSintetico = encoder.encode(UUID.randomUUID().toString());
     }
 
@@ -360,7 +364,7 @@ public class AutenticacaoService {
                 conta.definirChavePix(conferida, cidade);
             }
             contas.save(conta);
-            return ConfiguracaoDaConta.de(conta);
+            return ConfiguracaoDaConta.de(conta, movimentos.existem());
         });
     }
 

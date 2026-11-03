@@ -116,17 +116,18 @@ class ConfiguracaoDaContaController {
     }
 
     /**
-     * @param tipoDaChavePix omitido enquanto a Conta não tem chave
-     * @param chavePix       omitida enquanto a Conta não tem chave
-     * @param cidadePix      omitida junto com a chave
+     * @param estoqueComMovimentos se já há movimento de estoque, que impede desligar o controle
+     * @param tipoDaChavePix       omitido enquanto a Conta não tem chave
+     * @param chavePix             omitida enquanto a Conta não tem chave
+     * @param cidadePix            omitida junto com a chave
      */
-    record Configuracao(String nomeNegocio, boolean estoqueHabilitado, boolean nsuObrigatorio,
-            ChavePix.Tipo tipoDaChavePix, String chavePix, String cidadePix) {
+    record Configuracao(String nomeNegocio, boolean estoqueHabilitado, boolean estoqueComMovimentos,
+            boolean nsuObrigatorio, ChavePix.Tipo tipoDaChavePix, String chavePix, String cidadePix) {
 
         static Configuracao de(ConfiguracaoDaConta configuracao) {
             return new Configuracao(configuracao.nomeNegocio(), configuracao.estoqueHabilitado(),
-                    configuracao.nsuObrigatorio(), configuracao.tipoDaChavePix(),
-                    configuracao.chavePix(), configuracao.cidadePix());
+                    configuracao.estoqueComMovimentos(), configuracao.nsuObrigatorio(),
+                    configuracao.tipoDaChavePix(), configuracao.chavePix(), configuracao.cidadePix());
         }
     }
 }

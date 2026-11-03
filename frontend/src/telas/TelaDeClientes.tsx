@@ -185,7 +185,7 @@ export function TelaDeClientes() {
     </div>
     <Mensagem tipo="erro" texto={erro} />
     <Mensagem tipo="sucesso" texto={aviso} />
-    {pendentes > 0 && <p className="mensagem-info" role="status">{pendentes === 1 ? 'Uma alteração de cliente guardada' : `${pendentes} alterações de cliente guardadas`} neste dispositivo, aguardando sincronização.</p>}
+    {pendentes > 0 && <p className="mensagem-info" role="status">{pendentes === 1 ? 'Uma alteração de cliente guardada' : `${pendentes} alterações de cliente guardadas`} neste aparelho, aguardando sincronização.</p>}
     {carregando ? <p>Carregando...</p> : <>
       {(ativos.length > 0 || inativos.length > 0) && <label className="cadastro__busca">Buscar por nome
         <input type="search" value={busca} onChange={(evento) => setBusca(evento.target.value)} />

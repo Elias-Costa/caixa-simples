@@ -402,6 +402,13 @@ textarea:disabled {
   margin: 0 0 var(--espaco);
 }
 
+/* A dica da senha esquecida, em texto secundário: 6,78:1 sobre a superfície do cartão. */
+.login__ajuda {
+  margin: var(--espaco) 0 0;
+  color: var(--cor-texto-secundario);
+  font-size: 0.9rem;
+}
+
 /* O apagar os dados do aparelho é raro e não se desfaz: na entrada ele é só um link, em texto
    secundário, para não disputar a atenção com Entrar. */
 .links-de-apoio--discreto {
@@ -680,6 +687,23 @@ main.cadastro {
 /* O total do fiado da Conta, antes da lista de quem deve. */
 .fiado__total { margin: 0 0 var(--espaco); font-size: 1.1rem; }
 .cadastro__grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 var(--espaco); }
+/* Usuários: a senha inicial ocupa a linha da grade, com largura para uma frase de 15 caracteres ou
+   mais ao lado do Mostrar. */
+.usuarios__senha { grid-column: 1 / -1; max-width: 28rem; }
+/* Cada usuário em grade, e não em flex com espaço entre: com quebra, o espaço entre espalhava os
+   botões, e cada um caía num lugar diferente de linha a linha. Formulário e resposta ocupam a linha
+   inteira, embaixo. */
+.usuarios__item { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; }
+.usuarios__item > form, .usuarios__item > .mensagem-erro, .usuarios__item > .mensagem-sucesso { grid-column: 1 / -1; }
+.usuarios__acoes { display: flex; flex-wrap: wrap; gap: 8px; }
+.usuarios__grupo { display: flex; flex-wrap: wrap; gap: 8px; }
+/* O que tira o acesso fica na ponta direita, longe do Corrigir nome, mesmo quando desce de linha. */
+.usuarios__grupo--perigo { margin-left: auto; justify-content: flex-end; }
+.usuarios__grupo:empty { display: none; }
+@media (min-width: 760px) {
+  /* O nome numa coluna de largura fixa: os botões começam no mesmo ponto em todo usuário. */
+  .usuarios__item { grid-template-columns: 14rem minmax(0, 1fr); }
+}
 .cadastro__atributos { border: 1px solid var(--cor-borda); border-radius: var(--raio); margin: 0 0 var(--espaco); padding: var(--espaco); }
 .cadastro__par { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; margin-bottom: 8px; }
 
@@ -1012,6 +1036,8 @@ html:has(.pdv__rodape) { scroll-padding-bottom: 240px; }
 }
 
 .primeiros-passos h2 { margin: 4px 0 8px; font-size: 1.2rem; }
+/* A marca do passo já cumprido fica ao lado do título, fora dele, para o título continuar só o nome. */
+.primeiros-passos__titulo { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
 .primeiros-passos__contagem { margin: 0; color: var(--cor-texto-secundario); font-size: 0.9rem; }
 .primeiros-passos__acoes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 

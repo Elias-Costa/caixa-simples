@@ -30,7 +30,7 @@ function textoDoComprovante(c: ComprovanteDeRecebimento, negocio: string): strin
   return [negocio, 'Comprovante de recebimento não fiscal',
     `Cliente: ${c.nomeCliente}`, `Recebido em: ${dataHora.format(new Date(c.recebidoEm))}`,
     `Forma: ${ROTULO_DA_FORMA[c.forma]}`, `Valor recebido: ${moeda.format(c.valor)}`,
-    `Saldo da Venda após recebimento: ${moeda.format(c.saldoApos)}`,
+    `Saldo da venda após recebimento: ${moeda.format(c.saldoApos)}`,
     `Venda: ${c.vendaId}`, `Recebimento: ${c.recebimentoId}`].join('\n')
 }
 
@@ -124,7 +124,7 @@ export function TelaDeFiado() {
       return
     }
     if (quantia > selecionada.saldoDevedor) {
-      setErro({ lugar: 'recebimento', texto: 'O valor recebido passa do saldo desta Venda.' })
+      setErro({ lugar: 'recebimento', texto: 'O valor recebido passa do saldo desta venda.' })
       return
     }
     setOcupado(true); setErro(undefined)
@@ -183,7 +183,7 @@ export function TelaDeFiado() {
         <p>Abra o seu caixa para registrar recebimentos.</p>
         <p><Link className="botao" to="/caixa">Ir ao caixa</Link></p>
       </>}
-      {dividas.length === 0 ? <p>Nenhuma Venda com saldo devedor.</p> : <>
+      {dividas.length === 0 ? <p>Nenhuma venda com saldo devedor.</p> : <>
         <label className="cadastro__busca">Buscar pelo nome do cliente
           <input type="search" value={busca} onChange={(evento) => setBusca(evento.target.value)} />
         </label>
@@ -217,7 +217,7 @@ export function TelaDeFiado() {
     </>}
     {selecionada && sessao && <form ref={formularioRef} className="cadastro__formulario" onSubmit={(evento) => void receber(evento)}>
       <h3>Receber de {selecionada.nomeCliente}</h3>
-      <p>Saldo desta Venda: {moeda.format(selecionada.saldoDevedor)}</p>
+      <p>Saldo desta venda: {moeda.format(selecionada.saldoDevedor)}</p>
       <CampoDeDinheiro rotulo="Valor recebido" required valor={valor} aoMudar={setValor} />
       <label>Forma
         <select value={forma} onChange={(evento) => setForma(evento.target.value as FormaPagamento)}>
@@ -242,7 +242,7 @@ export function TelaDeFiado() {
       <p>Recebido em: {dataHora.format(new Date(comprovante.recebidoEm))}</p>
       <p>Forma: {ROTULO_DA_FORMA[comprovante.forma]}</p>
       <p>Valor recebido: {moeda.format(comprovante.valor)}</p>
-      <p>Saldo da Venda após recebimento: {moeda.format(comprovante.saldoApos)}</p>
+      <p>Saldo da venda após recebimento: {moeda.format(comprovante.saldoApos)}</p>
       <p>Venda: {comprovante.vendaId}</p><p>Recebimento: {comprovante.recebimentoId}</p>
       <div className="comprovante__acoes">
         <button className="botao" type="button" onClick={() => window.print()}>Imprimir</button>

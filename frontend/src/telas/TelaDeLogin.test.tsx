@@ -40,6 +40,14 @@ describe('TelaDeLogin', () => {
     expect(screen.getByText('Sistema de caixa e vendas')).toBeInTheDocument()
   })
 
+  it('diz a quem pedir a senha esquecida antes de qualquer erro', () => {
+    vi.stubGlobal('fetch', vi.fn())
+    renderizarLogin()
+
+    expect(screen.getByText('Esqueceu a senha? Peça ao administrador da Conta uma senha provisória. '
+      + 'Se você é o administrador, fale com o atendimento do ECRX Caixa.')).toBeInTheDocument()
+  })
+
   it('mostra a senha digitada a quem toca em Mostrar, e a esconde de novo', () => {
     renderizarLogin()
     const senha = screen.getByLabelText('Senha')

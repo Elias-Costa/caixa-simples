@@ -229,7 +229,7 @@ export function adicionarItem(venda: VendaNoDispositivo, dados: DadosDoItem): Ve
 export function removerItem(venda: VendaNoDispositivo, itemId: string): VendaNoDispositivo {
   exigirAberta(venda)
   const item = venda.itens.find((candidato) => candidato.id === itemId)
-  if (!item) throw new Error('O item não está nesta Venda.')
+  if (!item) throw new Error('Este item não está na venda.')
   const somaSemOItem = somaDosItens(venda) - subtotal(item)
   const totalSemOItem = somaSemOItem - venda.descontoCentavos
   if (totalSemOItem < 0) {

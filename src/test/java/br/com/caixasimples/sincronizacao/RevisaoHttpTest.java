@@ -76,7 +76,7 @@ class RevisaoHttpTest extends TesteDeIntegracao {
                 .isEqualTo(atendente.usuarioId().toString());
         assertThat(revisao.path("tipo").asText()).isEqualTo("cliente.criar");
         assertThat(revisao.path("payload").path("nome").asText()).isEqualTo("Maria");
-        assertThat(revisao.path("detalhe").asText()).contains("relogio");
+        assertThat(revisao.path("detalhe").asText()).contains("relógio");
         assertThat(revisao.has("conferidaEm")).isFalse();
         JsonNode recusa = daOperacao(antes.path("pendentes"), recusado);
         assertThat(recusa.path("resultado").asText()).isEqualTo("NAO_APLICADA");

@@ -280,7 +280,7 @@ export function TelaDeProdutos() {
 
       <Mensagem tipo="erro" texto={erro} />
       <Mensagem tipo="sucesso" texto={aviso} />
-      {pendentes > 0 && <p className="mensagem-info" role="status">{pendentes === 1 ? 'Uma alteração de item guardada' : `${pendentes} alterações de item guardadas`} neste dispositivo, aguardando sincronização.</p>}
+      {pendentes > 0 && <p className="mensagem-info" role="status">{pendentes === 1 ? 'Uma alteração de item guardada' : `${pendentes} alterações de item guardadas`} neste aparelho, aguardando sincronização.</p>}
       {carregando ? <p>Carregando...</p> : <>
         {(produtos.length > 0 || inativos.length > 0) && <div className="cadastro__filtros">
           <label className="cadastro__busca">Buscar por nome

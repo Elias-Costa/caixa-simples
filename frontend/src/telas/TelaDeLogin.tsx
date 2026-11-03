@@ -74,6 +74,12 @@ export function TelaDeLogin() {
         <button type="submit" className="botao botao--largo" disabled={enviando}>
           {enviando ? 'Entrando...' : 'Entrar'}
         </button>
+        {/* Não há recuperação por e-mail: o administrador redefine a senha do operador, e o próprio
+            administrador é socorrido pelo atendimento. Fica à vista antes do primeiro erro. */}
+        <p className="login__ajuda">
+          Esqueceu a senha? Peça ao administrador da Conta uma senha provisória. Se você é o
+          administrador, fale com o atendimento do ECRX Caixa.
+        </p>
         <p className="links-de-apoio"><Link to="/privacidade">Aviso de privacidade</Link> · <Link to="/termos">Termos de uso</Link></p>
         {/* Fica aqui, e não dentro do aplicativo, porque o aparelho de uma Conta encerrada ou de quem
             foi inativado não entra mais. A página explica e confirma antes de apagar. */}

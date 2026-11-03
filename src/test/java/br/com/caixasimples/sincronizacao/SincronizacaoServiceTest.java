@@ -161,7 +161,7 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
                     .orElseThrow();
             assertThat(gravada.getPayload()).isEqualTo("{}");
             assertThat(gravada.getResultado()).isEqualTo(Resultado.APLICADA_COM_REVISAO);
-            assertThat(gravada.getDetalhe()).isEqualTo(detalhe).contains("relogio");
+            assertThat(gravada.getDetalhe()).isEqualTo(detalhe).contains("relógio");
         });
     }
 
@@ -437,7 +437,7 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
                 sincronizacao.sincronizar(recebidas(List.of(longe, perto))));
 
         assertThat(resultados.get(0).resultado()).isEqualTo(Resultado.APLICADA_COM_REVISAO);
-        assertThat(resultados.get(0).detalhe()).contains("relogio do dispositivo");
+        assertThat(resultados.get(0).detalhe()).contains("relógio do aparelho");
         assertThat(resultados.get(1).resultado())
                 .as("dentro dos cinco minutos, o erro normal de relógio não vira revisão")
                 .isEqualTo(Resultado.APLICADA);
@@ -463,7 +463,7 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
         assertThat(resultados).extracting(ResultadoDaOperacao::resultado).containsExactly(
                 Resultado.APLICADA, Resultado.APLICADA, Resultado.APLICADA,
                 Resultado.APLICADA_COM_REVISAO);
-        assertThat(resultados.get(3).detalhe()).contains("relogio do dispositivo");
+        assertThat(resultados.get(3).detalhe()).contains("relógio do aparelho");
         LocalDate diaDoBalcao = LocalDate.ofInstant(umAnoAFrente, FusoDeReferencia.DO_BALCAO);
         conta.comoUsuario(() -> {
             assertThat(linhasDeVenda.findById(vendaId).orElseThrow().paraDominio()
@@ -508,7 +508,7 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
 
         assertThat(conclusaoNoLimite.resultado()).isEqualTo(Resultado.APLICADA);
         assertThat(conclusaoAlem.resultado()).isEqualTo(Resultado.APLICADA_COM_REVISAO);
-        assertThat(conclusaoAlem.detalhe()).contains("relogio do dispositivo");
+        assertThat(conclusaoAlem.detalhe()).contains("relógio do aparelho");
         assertThat(conclusaoComOperacaoAdiantada.resultado())
                 .isEqualTo(Resultado.APLICADA_COM_REVISAO);
     }
@@ -530,7 +530,7 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
 
         assertThat(resultados).extracting(ResultadoDaOperacao::resultado).containsExactly(
                 Resultado.APLICADA, Resultado.APLICADA_COM_REVISAO);
-        assertThat(resultados.get(1).detalhe()).contains("relogio do dispositivo");
+        assertThat(resultados.get(1).detalhe()).contains("relógio do aparelho");
         conta.comoUsuario(() -> assertThat(linhasDeVenda.findById(vendaAlem).orElseThrow()
                 .paraDominio().getCriadoEm()).isEqualTo(agora.plus(6, ChronoUnit.MINUTES)));
     }
@@ -557,7 +557,7 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
         assertThat(segundo).extracting(ResultadoDaOperacao::resultado)
                 .containsOnly(Resultado.APLICADA_COM_REVISAO);
         assertThat(segundo).extracting(ResultadoDaOperacao::detalhe)
-                .allSatisfy(detalhe -> assertThat(detalhe).contains("relogio do dispositivo"));
+                .allSatisfy(detalhe -> assertThat(detalhe).contains("relógio do aparelho"));
         conta.comoUsuario(() -> {
             SessaoCaixa sessao = linhasDeSessao.findById(sessaoAlem).orElseThrow().paraDominio();
             assertThat(sessao.getAbertaEm()).isEqualTo(alem);

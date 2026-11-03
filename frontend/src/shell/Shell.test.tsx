@@ -209,36 +209,15 @@ describe('versão nova no Shell', () => {
   })
 })
 
-describe('primeiros passos no Shell', () => {
+describe('primeiros passos fora do Shell', () => {
   beforeEach(() => localStorage.clear())
 
-  it('aparecem no primeiro acesso, passam pelos três cartões e não voltam depois de começar', () => {
-    const primeiro = abrir('/caixa')
-    expect(screen.getByText('Primeiros passos (1 de 3)')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Abra o caixa' })).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Próximo' }))
-    expect(screen.getByRole('heading', { name: 'Venda' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Anterior' }))
-    expect(screen.getByRole('heading', { name: 'Abra o caixa' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Próximo' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Próximo' }))
-    expect(screen.getByRole('heading', { name: 'Feche o caixa' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Começar a usar' }))
+  it('não aparecem no alto das telas, nem para quem nunca os viu: só a tela Caixa os mostra', async () => {
+    vendaParaRetomar()
+    abrir('/vender')
+    expect(await screen.findByRole('button', { name: /Aberta.*retomar/ })).toBeInTheDocument()
     expect(screen.queryByText(/Primeiros passos \(/)).not.toBeInTheDocument()
-
-    primeiro.unmount()
-    abrir('/caixa')
-    expect(screen.queryByText(/Primeiros passos \(/)).not.toBeInTheDocument()
-    expect(localStorage.getItem('ecrx-caixa.tour-visto.conta-1.usuario-1')).toBe('1')
-  })
-
-  it('pular também marca, e outra pessoa no mesmo aparelho vê o tour na primeira vez', () => {
-    localStorage.setItem('ecrx-caixa.tour-visto.conta-1.outra-pessoa', '1')
-    abrir('/caixa')
-    fireEvent.click(screen.getByRole('button', { name: 'Pular' }))
-    expect(screen.queryByText(/Primeiros passos \(/)).not.toBeInTheDocument()
-    expect(localStorage.getItem('ecrx-caixa.tour-visto.conta-1.usuario-1')).toBe('1')
+    expect(localStorage.getItem('ecrx-caixa.tour-visto.conta-1.usuario-1')).toBeNull()
   })
 })
 

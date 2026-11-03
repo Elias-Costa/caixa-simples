@@ -233,7 +233,7 @@ describe('SessaoCaixa local', () => {
 
     entrar({ ...ana, contaId: 'conta-b' })
     expect(await local.abertaDoOperadorAtual()).toBeUndefined()
-    await expect(local.consultar(primeiro.id)).rejects.toThrow('não encontrada')
+    await expect(local.consultar(primeiro.id)).rejects.toThrow('Caixa não encontrado neste aparelho.')
     const segundo = await local.abrir(30)
     expect((await listarGestos()).map((gesto) => gesto.registroId)).toEqual([segundo.id])
 

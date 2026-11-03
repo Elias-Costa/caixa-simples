@@ -18,14 +18,18 @@ import { nomesDosClientesNoAparelho } from './clientesNoAparelho'
 import { Comprovante } from './Comprovante'
 import { erroDeCadastro } from './erroDeCadastro'
 import { Mensagem } from './Mensagem'
+import { PrimeirosPassos } from './PrimeirosPassos'
 import { ROTULO_DA_FORMA, ROTULO_DA_VENDA, ROTULO_DO_CAIXA, ROTULO_DO_MOVIMENTO } from './rotulos'
 import { useConfirmacao, type Pergunta } from './useConfirmacao'
 import { TituloComAjuda } from './TituloComAjuda'
 import { AJUDA } from './textosDeAjuda'
+import { useTourDoCaixa } from './tourDoCaixa'
 
 const caixa = criarCaixaLocal()
 // A mesma leitura da tela Vender: sem rede, as vendas da sessão guardadas neste aparelho.
 const vendas = criarVendaLocal()
+// Fora do componente, para ser a mesma função em toda renderização: o tour a usa como dependência.
+const vendasDoCaixa = (sessaoId: string) => vendas.daSessao(sessaoId)
 
 /** A ordem em que as formas aparecem no vendido, a mesma do comprovante e dos relatórios. */
 const FORMAS: FormaPagamento[] = ['DINHEIRO', 'PIX', 'CARTAO', 'FIADO']
@@ -288,6 +292,8 @@ export function TelaDeCaixa() {
   // abertura não mostra no dia de hoje. Só do administrador, e só com rede.
   const [deOutroDia, setDeOutroDia] = useState<SessaoCaixa[]>([])
   const [confirmar, dialogoDeConfirmacao] = useConfirmacao()
+  // A entrada traz para cá quem está sem caixa aberto; o tour mora nesta tela, e não no alto de todas.
+  const tour = useTourDoCaixa({ identidade, aberta, historico, carregando, vendasDoCaixa })
   const sessaoSelecionada = selecionada?.id
   const listaDaSessao = vendasDaSessao?.sessaoId === sessaoSelecionada ? vendasDaSessao?.lista : undefined
   const detalheDaSessao = emDetalhe?.venda.sessaoCaixaId === sessaoSelecionada ? emDetalhe : undefined
@@ -491,6 +497,7 @@ export function TelaDeCaixa() {
     vendasEmOrdem.filter((venda) => venda.status === 'CANCELADA').length) : null
 
   return <section className="caixa">
+    {tour.mostrar && <PrimeirosPassos feitos={tour.feitos} aoTerminar={tour.fechar} />}
     <TituloComAjuda titulo="Caixa" ajuda={AJUDA.caixa} />
     {mostrarEm('tela')}
     {carregando ? <p>Carregando...</p> : <>
@@ -530,7 +537,7 @@ export function TelaDeCaixa() {
         <label>Dia
           <input type="date" value={dia} onChange={(evento) => setDia(evento.target.value)} />
         </label>
-        <p>{!online ? 'Caixas deste operador guardados no dispositivo.'
+        <p>{!online ? 'Caixas deste operador guardados no aparelho.'
           : administrador ? 'Caixas de todos os operadores.' : 'Seus caixas.'}</p>
         {historico.length === 0 ? <p>Nenhum caixa neste dia.</p> : <ul className="caixa__lista">
           {historico.map((sessao) => <li key={sessao.id}>

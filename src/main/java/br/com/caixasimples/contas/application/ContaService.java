@@ -114,7 +114,7 @@ public class ContaService {
     @Transactional(readOnly = true)
     public ConfiguracaoDaConta configuracao() {
         UsuarioContext.exigirAdmin();
-        return ConfiguracaoDaConta.de(contaDoContexto());
+        return ConfiguracaoDaConta.de(contaDoContexto(), movimentos.existem());
     }
 
     /**
@@ -137,11 +137,12 @@ public class ContaService {
         if (habilitado && !conta.isEstoqueHabilitado()) {
             exigirRecurso(conta, RecursoDoPlano.ESTOQUE);
         }
-        if (!habilitado && conta.isEstoqueHabilitado() && movimentos.existem()) {
+        boolean comMovimentos = movimentos.existem();
+        if (!habilitado && conta.isEstoqueHabilitado() && comMovimentos) {
             throw new EstoqueComMovimentosException();
         }
         conta.definirEstoqueHabilitado(habilitado);
-        return ConfiguracaoDaConta.de(conta);
+        return ConfiguracaoDaConta.de(conta, comMovimentos);
     }
 
     /**
@@ -160,7 +161,7 @@ public class ContaService {
                 .orElseThrow(() -> new IllegalStateException(
                         "conta do contexto nao existe: " + contaId));
         conta.definirNsuObrigatorio(obrigatorio);
-        return ConfiguracaoDaConta.de(conta);
+        return ConfiguracaoDaConta.de(conta, movimentos.existem());
     }
 
     /**
@@ -180,26 +181,33 @@ public class ContaService {
                 .orElseThrow(() -> new IllegalStateException(
                         "conta do contexto nao existe: " + contaId));
         conta.corrigirNomeDoNegocio(nomeNegocio);
-        return ConfiguracaoDaConta.de(conta);
+        return ConfiguracaoDaConta.de(conta, movimentos.existem());
     }
 
     /**
      * O que o administrador configura na Conta, como a tela o mostra.
      *
-     * @param tipoDaChavePix nulo junto com a chave
-     * @param chavePix       nula enquanto o administrador não cadastra uma
-     * @param cidadePix      nula junto com a chave
+     * @param estoqueComMovimentos se algum produto da Conta, ativo ou inativo, já tem movimento de
+     *                             estoque: a tela deixa de oferecer o desligamento que seria recusado
+     * @param tipoDaChavePix       nulo junto com a chave
+     * @param chavePix             nula enquanto o administrador não cadastra uma
+     * @param cidadePix            nula junto com a chave
      */
     public record ConfiguracaoDaConta(String nomeNegocio, boolean estoqueHabilitado,
-            boolean nsuObrigatorio, ChavePix.Tipo tipoDaChavePix, String chavePix,
-            String cidadePix) {
+            boolean estoqueComMovimentos, boolean nsuObrigatorio, ChavePix.Tipo tipoDaChavePix,
+            String chavePix, String cidadePix) {
 
-        /** Também para a troca da chave Pix, que confere a senha antes de gravar. */
-        static ConfiguracaoDaConta de(Conta conta) {
+        /**
+         * Também para a troca da chave Pix, que confere a senha antes de gravar. Toda mudança devolve
+         * a configuração inteira, e a tela troca a que tinha pela resposta: por isso cada caminho
+         * pergunta pelos movimentos, e não só a leitura.
+         */
+        static ConfiguracaoDaConta de(Conta conta, boolean estoqueComMovimentos) {
             ChavePix.Tipo tipo = conta.getChavePix() == null
                     ? null : ChavePix.tipoDaGravada(conta.getChavePix());
             return new ConfiguracaoDaConta(conta.getNomeNegocio(), conta.isEstoqueHabilitado(),
-                    conta.isNsuObrigatorio(), tipo, conta.getChavePix(), conta.getCidadePix());
+                    estoqueComMovimentos, conta.isNsuObrigatorio(), tipo, conta.getChavePix(),
+                    conta.getCidadePix());
         }
     }
 

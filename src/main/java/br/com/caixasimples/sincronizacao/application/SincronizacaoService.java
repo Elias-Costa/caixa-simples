@@ -225,8 +225,8 @@ public class SincronizacaoService {
         }
         if (passaDaTolerancia(operacao.criadoEm(), recebidaEm)
                 || passaDaTolerancia(aplicacao.instanteGravado(), recebidaEm)) {
-            revisoes.add("o relogio do dispositivo estava adiantado em relacao ao servidor; o"
-                    + " instante do balcao foi mantido, e o dia do registro precisa ser conferido");
+            revisoes.add("o relógio do aparelho estava adiantado em relação ao servidor; o"
+                    + " instante do balcão foi mantido, e o dia do registro precisa ser conferido");
         }
         return revisoes.isEmpty()
                 ? gravar(operacao, usuarioId, recebidaEm, Resultado.APLICADA,

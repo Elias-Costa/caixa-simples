@@ -3,8 +3,6 @@ import { Link, Outlet, useLocation, useNavigate } from 'react-router'
 import { useRegisterSW } from 'virtual:pwa-register/react'
 import type { Perfil } from '../sessao/Identidade'
 import { useSessao } from '../sessao/useSessao'
-import { marcarTourVisto, tourVisto } from '../telas/marcaDoTour'
-import { PrimeirosPassos } from '../telas/PrimeirosPassos'
 import { avisoDoPlano } from './avisoDoPlano'
 import { useAvisoDoCaixaDeOutroDia } from './caixaDeOutroDia'
 import { itensDoMenu } from './menu'
@@ -20,9 +18,10 @@ const INTERVALO_DA_PROCURA_DE_VERSAO = 60 * 60 * 1000
 /**
  * A moldura de toda tela: quem está operando e em que negócio, a navegação e os avisos que
  * valem para o aplicativo inteiro (sem rede, fila por enviar, revisão por conferir, versão nova,
- * vencimento do plano, caixa aberto desde outro dia), os primeiros passos no primeiro acesso de cada
- * pessoa no aparelho, e o rodapé com o aviso de privacidade e os termos de uso. É também onde a fila
- * do aparelho é enviada sozinha, uma vez para o aplicativo inteiro.
+ * vencimento do plano, caixa aberto desde outro dia), e o rodapé com o aviso de privacidade e os
+ * termos de uso. É também onde a fila do aparelho é enviada sozinha, uma vez para o aplicativo
+ * inteiro. Os primeiros passos não ficam aqui: só a tela Caixa os mostra, porque é ela que sabe o
+ * que a pessoa já fez.
  */
 export function Shell() {
   const { identidade, sair } = useSessao()
@@ -32,13 +31,9 @@ export function Shell() {
   const sincronizacao = useEnvioAutomatico(identidade, sair, pathname)
   const quem = identidade ? `${identidade.contaId}:${identidade.usuarioId}` : null
   const caixaDeOutroDia = useAvisoDoCaixaDeOutroDia(quem, sincronizacao.rodada, pathname)
-  // No celular, a tela de venda fica com a barra numa linha só e sem o tour: com o menu em duas
-  // linhas e o cartão dos primeiros passos, a busca começava perto do fim da tela, onde o teclado
-  // virtual a cobre. As outras telas continuam como estão.
+  // No celular, a tela de venda fica com a barra numa linha só: com o menu em duas linhas, a busca
+  // começava perto do fim da tela, onde o teclado virtual a cobre. As outras telas continuam como estão.
   const balcaoNoCelular = useCelular() && pathname === '/vender'
-  // Quem já viu o tour neste aparelho, por Conta e pessoa. Guardado por quem, para a troca de usuário
-  // na mesma aba ler a marca da pessoa nova.
-  const [tourFechadoPara, setTourFechadoPara] = useState<string | null>(null)
   const [faixaDeContexto, definirFaixa] = useState<string | null>(null)
   const [vendaAberta, definirVendaAberta] = useState(false)
   const [registro, definirRegistro] = useState<ServiceWorkerRegistration>()
@@ -68,15 +63,6 @@ export function Shell() {
 
   if (!identidade) return null
   const vencimento = avisoDoPlano(identidade)
-  // A página dos primeiros passos já os mostra; o painel no alto ficaria repetido.
-  const mostrarTour = tourFechadoPara !== quem && pathname !== '/primeiros-passos'
-    && !balcaoNoCelular && !tourVisto(identidade)
-
-  function fecharTour() {
-    if (!identidade) return
-    marcarTourVisto(identidade)
-    setTourFechadoPara(quem)
-  }
 
   function encerrar() {
     sair()
@@ -152,7 +138,6 @@ export function Shell() {
       <Navegacao itens={itensDoMenu(identidade)} compacta={balcaoNoCelular} />
 
       <main className="conteudo">
-        {mostrarTour && <PrimeirosPassos aoTerminar={fecharTour} />}
         <ContextoDoShellReact.Provider value={{ definirFaixa, definirVendaAberta }}>
           <SincronizacaoContext.Provider value={sincronizacao}><Outlet /></SincronizacaoContext.Provider>
         </ContextoDoShellReact.Provider>

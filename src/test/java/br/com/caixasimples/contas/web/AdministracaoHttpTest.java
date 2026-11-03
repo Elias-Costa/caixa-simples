@@ -127,7 +127,8 @@ class AdministracaoHttpTest extends TesteDeIntegracao {
         http.perform(put("/api/conta/configuracao").with(autenticador.como(primeira))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"estoqueHabilitado\":true}"))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.estoqueComMovimentos").value(false));
 
         UUID produtoId = primeira.comoUsuario(() -> produtos.cadastrar(TipoProduto.PRODUTO,
                 new DadosDoProduto("Arroz", Money.de("10.00"), null, null, "un", null)));
@@ -139,8 +140,13 @@ class AdministracaoHttpTest extends TesteDeIntegracao {
                         .content("{\"estoqueHabilitado\":false}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.detail").exists());
+        // A tela deixa de oferecer o desligamento; o movimento do produto inativo também conta.
         http.perform(get("/api/conta/configuracao").with(autenticador.como(primeira)))
-                .andExpect(jsonPath("$.estoqueHabilitado").value(true));
+                .andExpect(jsonPath("$.estoqueHabilitado").value(true))
+                .andExpect(jsonPath("$.estoqueComMovimentos").value(true));
+        // O movimento da outra Conta não alcança esta.
+        http.perform(get("/api/conta/configuracao").with(autenticador.como(segunda)))
+                .andExpect(jsonPath("$.estoqueComMovimentos").value(false));
 
         // Ligar o controle exige o plano que inclui o estoque; no plano grátis, a recusa é do plano.
         http.perform(put("/api/conta/configuracao").with(autenticador.como(segunda))

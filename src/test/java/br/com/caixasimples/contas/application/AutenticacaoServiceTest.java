@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import br.com.caixasimples.contas.MovimentosDeEstoqueDaConta;
 import br.com.caixasimples.contas.internal.ContaRepository;
 import br.com.caixasimples.contas.internal.ContencaoDeLogin;
 import br.com.caixasimples.contas.internal.CredencialRepository;
@@ -44,7 +45,8 @@ class AutenticacaoServiceTest {
                 mock(UsuarioRepository.class), mock(ContaRepository.class), new BCryptPasswordEncoder(4),
                 mock(EmissorDeToken.class), mock(ContaService.class), contencao,
                 mock(PoliticaDeSenha.class), mock(TermosDeUsoService.class),
-                mock(PixCobrancaService.class), mock(TransactionTemplate.class));
+                mock(PixCobrancaService.class), mock(TransactionTemplate.class),
+                mock(MovimentosDeEstoqueDaConta.class));
 
         // Mais que os dez do par e os trinta da origem.
         for (int i = 0; i < 31; i++) {

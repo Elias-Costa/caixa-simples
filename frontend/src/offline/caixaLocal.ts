@@ -268,7 +268,7 @@ async function locais(): Promise<SessaoCaixa[]> {
 
 async function local(id: string): Promise<SessaoCaixa> {
   const sessao = (await locais()).find((item) => item.id === id)
-  if (!sessao) throw new Error('Sessão de caixa não encontrada neste dispositivo.')
+  if (!sessao) throw new Error('Caixa não encontrado neste aparelho.')
   if (sessao.usuarioId !== usuarioAtual()) throw new Error('Este caixa pertence a outro operador.')
   return sessao
 }

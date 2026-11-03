@@ -207,7 +207,7 @@ describe('Venda no dispositivo', () => {
     await expect(local.concluir(id)).rejects.toThrow('faltam')
     await expect(local.vincularCliente(id, 'cliente-de-outro-lugar')).rejects.toThrow('desconhecido')
     await expect(local.cancelar(id)).rejects.toThrow('depois da sincronização')
-    await expect(local.removerItem(id, 'item-inexistente')).rejects.toThrow('não está nesta Venda')
+    await expect(local.removerItem(id, 'item-inexistente')).rejects.toThrow('não está na venda')
     expect(await listarGestos()).toHaveLength(antes)
 
     await local.pagar(id, 'CARTAO', 12.5)

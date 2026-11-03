@@ -199,6 +199,8 @@ export function TelaDeConfiguracao() {
   // não houver movimento, mesmo sem o plano.
   const semPlanoParaLigar = configuracao?.estoqueHabilitado === false && !!identidade
     && !temRecurso(identidade, 'ESTOQUE')
+  // Depois do primeiro movimento o servidor recusa desligar; a tela não oferece o que seria recusado.
+  const estoqueSemVolta = configuracao?.estoqueHabilitado === true && configuracao.estoqueComMovimentos
 
   return <section className="relatorios">
     <TituloComAjuda titulo="Configuração da Conta" ajuda={AJUDA.configuracao} />
@@ -208,7 +210,7 @@ export function TelaDeConfiguracao() {
       <h3>Nome do negócio</h3>
       {configuracao === null ? <p>Carregando configuração...</p> :
         <form onSubmit={corrigirNome} noValidate>
-          <label className="campo"><span className="campo__rotulo">Nome do negócio</span>
+          <label className="campo"><span className="campo__rotulo">Nome</span>
             <input className="campo__entrada" value={nomeNegocio} required maxLength={120}
               onChange={(evento) => setNomeNegocio(evento.target.value)} />
           </label>
@@ -224,17 +226,20 @@ export function TelaDeConfiguracao() {
       {configuracao === null ? <p>Carregando configuração...</p> : <>
         <p>{configuracao.estoqueHabilitado ? 'Ligado' : 'Desligado'}</p>
         <p>Quando ligado, vendas de produtos movimentam o saldo e o menu Estoque fica disponível.</p>
-        <p>Depois do primeiro movimento de estoque, o controle não pode ser desligado.</p>
+        {estoqueSemVolta
+          ? <p>Já houve movimento de estoque, e o controle não pode mais ser desligado.</p>
+          : <p>Depois do primeiro movimento de estoque, o controle não pode ser desligado.</p>}
         {semPlanoParaLigar && <p>O controle de estoque faz parte do plano Completo, sem
           suspensão. Veja a tela <Link to="/plano">Plano</Link>.</p>}
         {/* Botão comum, e não interruptor: o texto diz a ação, e um interruptor seria lido como
-            "Desligar controle de estoque, ligado". O estado está no parágrafo acima. */}
-        <button className="botao" type="button"
+            "Desligar controle de estoque, ligado". O estado está no parágrafo acima. Secundário,
+            como o do NSU: a ação principal da página é salvar o que se digita. */}
+        {!estoqueSemVolta && <button className="botao botao--secundario" type="button"
           disabled={salvando !== null || semPlanoParaLigar}
           onClick={() => void mudar('estoque', () => contas.definirEstoque(!configuracao.estoqueHabilitado))}>
           {salvando === 'estoque' ? 'Salvando...'
             : configuracao.estoqueHabilitado ? 'Desligar controle de estoque' : 'Ligar controle de estoque'}
-        </button>
+        </button>}
       </>}
     </section>
     <section className="relatorios__cartao">
@@ -246,7 +251,7 @@ export function TelaDeConfiguracao() {
         <p>Quando obrigatório, a venda e o recebimento de fiado em cartão só são registrados com o
           NSU. O que já foi lançado sem ele continua valendo, e a venda feita sem rede que chegar sem
           NSU aparece em Sincronização para conferência.</p>
-        <button className="botao" type="button"
+        <button className="botao botao--secundario" type="button"
           disabled={salvando !== null}
           onClick={() => void mudar('nsu', () => contas.definirNsu(!configuracao.nsuObrigatorio))}>
           {salvando === 'nsu' ? 'Salvando...'

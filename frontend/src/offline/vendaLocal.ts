@@ -25,9 +25,9 @@ export type VendasDoPdv = Omit<VendasDaApi, 'adicionarItem' | 'pagar' | 'receber
     recebimentoId?: string, nsu?: string): Promise<{ id: string; saldoDevedor: number }>
 }
 
-const VENDA_DO_SERVIDOR_SEM_REDE = 'Esta Venda está no servidor e continua quando a rede voltar. '
+const VENDA_DO_SERVIDOR_SEM_REDE = 'Esta venda está no servidor e continua quando a rede voltar. '
   + 'Para vender agora, comece uma nova venda.'
-const CANCELAR_DEPOIS_DE_SINCRONIZAR = 'Esta Venda foi registrada neste dispositivo e ainda não chegou '
+const CANCELAR_DEPOIS_DE_SINCRONIZAR = 'Esta venda foi registrada neste aparelho e ainda não chegou '
   + 'ao servidor. O cancelamento fica disponível depois da sincronização.'
 export const NSU_EXIGIDO = 'Informe o NSU do comprovante da maquininha: esta Conta exige o NSU no '
   + 'pagamento em cartão.'
@@ -176,7 +176,7 @@ function paraTela(venda: raiz.VendaNoDispositivo, pendente: boolean): Venda {
  */
 function comprovanteDoDispositivo(venda: raiz.VendaNoDispositivo, pendente: boolean): Comprovante {
   if (venda.status !== 'CONCLUIDA' || !venda.concluidoEm) {
-    throw new Error('Só Venda concluída tem comprovante.')
+    throw new Error('Só venda concluída tem comprovante.')
   }
   const fiado = valorFiado(venda)
   return {
@@ -300,7 +300,7 @@ export function criarVendaLocal(remoto: VendasDaApi = vendas, caixa: CaixaDoDisp
       if (alvo === 'servidor') return remoto.vincularCliente(id, clienteId)
       // Cliente inativo não entra em Venda nova; o cadastro do dispositivo inclui os criados na fila.
       if (!(await clientes.clientes()).some((cliente) => cliente.id === clienteId)) {
-        throw new Error('Cliente inativo ou desconhecido neste dispositivo. Reative ou cadastre o '
+        throw new Error('Cliente inativo ou desconhecido neste aparelho. Reative ou cadastre o '
           + 'Cliente antes de vincular.')
       }
       const dados: raiz.DadosDoVinculo = { clienteId }

@@ -51,7 +51,7 @@ describe('PDV sem rede', () => {
   it('conclui a Venda no dispositivo com troco e comprovante pendente e a mostra de novo ao reabrir', async () => {
     await criarCaixaLocal().abrir(20)
     const tela = mostrar()
-    expect(await screen.findByText(/lista mostra as Vendas registradas neste dispositivo/)).toBeInTheDocument()
+    expect(await screen.findByText(/lista mostra as vendas registradas neste aparelho/)).toBeInTheDocument()
 
     const busca = await screen.findByLabelText('Produto por nome ou código')
     let toques = 0
@@ -60,7 +60,7 @@ describe('PDV sem rede', () => {
     fireEvent.change(busca, { target: { value: '2*café' } })
     fireEvent.click(await screen.findByRole('button', { name: /Café expresso · R\$\s*6,25/ }, espera))
     expect(await screen.findByText(/2 un × Café expresso/, undefined, espera)).toBeInTheDocument()
-    expect(screen.getByText('Registrada neste dispositivo. Aguardando sincronização com o servidor.'))
+    expect(screen.getByText('Registrada neste aparelho. Aguardando sincronização com o servidor.'))
       .toBeInTheDocument()
     expect(within(screen.getByLabelText('Forma')).queryByRole('option', { name: 'Pix integrado' }))
       .not.toBeInTheDocument()
@@ -92,7 +92,7 @@ describe('PDV sem rede', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Concluída.*pendente de sincronização/ }, espera))
     expect(await screen.findByLabelText('Comprovante não fiscal', undefined, espera))
       .toHaveTextContent('Troco: R$ 7,50')
-    expect(screen.getByText('Registrada neste dispositivo. Aguardando sincronização com o servidor.'))
+    expect(screen.getByText('Registrada neste aparelho. Aguardando sincronização com o servidor.'))
       .toBeInTheDocument()
     expect(buscar).not.toHaveBeenCalled()
   }, 20000)

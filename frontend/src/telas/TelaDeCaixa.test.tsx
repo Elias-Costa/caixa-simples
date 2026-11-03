@@ -14,11 +14,16 @@ import { SessaoContext } from '../sessao/contexto'
 import { confirmacaoAberta, responderConfirmacao } from './confirmacaoDeTeste'
 import { TelaDeCaixa } from './TelaDeCaixa'
 
+/** A marca de visto dos primeiros passos da Ana, a pessoa de todos os testes desta tela. */
+const TOUR_DA_ANA = 'ecrx-caixa.tour-visto.c-1.u-1'
+
 afterEach(() => vi.restoreAllMocks())
 beforeEach(async () => {
   await deleteDB('ecrx-caixa-offline')
   vi.spyOn(vendas, 'daSessao').mockResolvedValue([])
   vi.spyOn(caixa, 'abertas').mockResolvedValue([])
+  // Os testes da tela não são sobre o tour; os dele, no fim do arquivo, apagam a marca.
+  localStorage.setItem(TOUR_DA_ANA, '1')
 })
 
 const aberta: SessaoCaixa = {
@@ -489,7 +494,7 @@ describe('caixa na tela', () => {
     mostrar()
 
     expect(await screen.findByText('Nenhum caixa aberto para você.')).toBeInTheDocument()
-    expect(screen.getByText('Caixas deste operador guardados no dispositivo.')).toBeInTheDocument()
+    expect(screen.getByText('Caixas deste operador guardados no aparelho.')).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Valor inicial'), { target: { value: '10.00' } })
     fireEvent.click(screen.getByRole('button', { name: 'Abrir caixa' }))
     expect((await screen.findAllByText('Pendente de sincronização com o servidor.')).length).toBeGreaterThan(0)
@@ -562,5 +567,89 @@ describe('caixa na tela', () => {
     fireEvent.change(screen.getByLabelText('Motivo'), { target: { value: 'Depósito' } })
     fireEvent.click(screen.getByRole('button', { name: 'Registrar sangria' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('a sangria espera')
+  })
+})
+
+describe('primeiros passos na tela Caixa', () => {
+  beforeEach(() => localStorage.removeItem(TOUR_DA_ANA))
+
+  it('sem caixa, abrem no primeiro passo; abrir o caixa marca o passo sem trocar o cartão', async () => {
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValueOnce(undefined).mockResolvedValue(aberta)
+    vi.spyOn(caixa, 'historico').mockResolvedValueOnce([]).mockResolvedValue([aberta])
+    vi.spyOn(caixa, 'consultar').mockResolvedValue({ ...aberta, movimentos: [] })
+    vi.spyOn(caixa, 'abrir').mockResolvedValue({ id: 's-1' })
+    mostrar()
+
+    const tour = await screen.findByRole('region', { name: 'Primeiros passos' })
+    expect(within(tour).getByText('Primeiros passos (1 de 3)')).toBeInTheDocument()
+    expect(within(tour).getByRole('heading', { name: 'Abra o caixa' })).toBeInTheDocument()
+    expect(within(tour).queryByText('Feito')).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Valor inicial'), { target: { value: '20,00' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir caixa' }))
+    // O mesmo cartão, no mesmo passo, agora com a marca.
+    expect(await within(tour).findByText('Feito')).toBeInTheDocument()
+    expect(within(tour).getByRole('heading', { name: 'Abra o caixa' })).toBeInTheDocument()
+    expect(tour).toBeInTheDocument()
+  })
+
+  it('com o caixa aberto e uma venda concluída, abrem em Feche o caixa, com os passos anteriores feitos', async () => {
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(caixa, 'historico').mockResolvedValue([])
+    vi.spyOn(caixa, 'consultar').mockResolvedValue({ ...aberta, movimentos: [] })
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([resumo('v-1', 'CONCLUIDA', 12.5, '2026-09-22T12:10:00Z')])
+    mostrar()
+
+    const tour = await screen.findByRole('region', { name: 'Primeiros passos' })
+    expect(within(tour).getByText('Primeiros passos (3 de 3)')).toBeInTheDocument()
+    expect(within(tour).getByRole('heading', { name: 'Feche o caixa' })).toBeInTheDocument()
+    expect(within(tour).queryByText('Feito')).not.toBeInTheDocument()
+    fireEvent.click(within(tour).getByRole('button', { name: 'Anterior' }))
+    expect(within(tour).getByRole('heading', { name: 'Venda' })).toBeInTheDocument()
+    expect(within(tour).getByText('Feito')).toBeInTheDocument()
+    fireEvent.click(within(tour).getByRole('button', { name: 'Anterior' }))
+    expect(within(tour).getByRole('heading', { name: 'Abra o caixa' })).toBeInTheDocument()
+    expect(within(tour).getByText('Feito')).toBeInTheDocument()
+  })
+
+  it('com o caixa aberto e só venda aberta, abrem em Venda', async () => {
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(caixa, 'historico').mockResolvedValue([aberta])
+    vi.spyOn(caixa, 'consultar').mockResolvedValue({ ...aberta, movimentos: [] })
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([resumo('v-1', 'ABERTA', 12.5, '2026-09-22T12:10:00Z')])
+    mostrar()
+
+    const tour = await screen.findByRole('region', { name: 'Primeiros passos' })
+    expect(within(tour).getByText('Primeiros passos (2 de 3)')).toBeInTheDocument()
+    expect(within(tour).getByRole('heading', { name: 'Venda' })).toBeInTheDocument()
+  })
+
+  it('com um caixa da pessoa fechado no dia, o tour termina sozinho e fica marcado', async () => {
+    const fechado: SessaoCaixa = { ...aberta, status: 'FECHADA', fechadaEm: '2026-09-22T20:00:00Z',
+      valorFechamentoContado: 20, diferenca: 0 }
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(undefined)
+    vi.spyOn(caixa, 'historico').mockResolvedValue([fechado])
+    vi.spyOn(caixa, 'consultar').mockResolvedValue({ ...fechado, movimentos: [] })
+    mostrar()
+
+    expect(await screen.findByText('Nenhum caixa aberto para você.')).toBeInTheDocument()
+    await waitFor(() => expect(localStorage.getItem(TOUR_DA_ANA)).toBe('1'))
+    expect(screen.queryByRole('region', { name: 'Primeiros passos' })).not.toBeInTheDocument()
+  })
+
+  it('o caixa fechado de outra pessoa não conta, a marca de outra pessoa também não, e Pular marca', async () => {
+    localStorage.setItem('ecrx-caixa.tour-visto.c-1.outra-pessoa', '1')
+    const daBia: SessaoCaixa = { ...aberta, id: 's-2', usuarioId: 'u-2', status: 'FECHADA',
+      fechadaEm: '2026-09-22T20:00:00Z', valorFechamentoContado: 20, diferenca: 0 }
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(undefined)
+    vi.spyOn(caixa, 'historico').mockResolvedValue([daBia])
+    vi.spyOn(contas, 'usuarios').mockResolvedValue([])
+    mostrar('ADMIN')
+
+    const tour = await screen.findByRole('region', { name: 'Primeiros passos' })
+    expect(within(tour).getByText('Primeiros passos (1 de 3)')).toBeInTheDocument()
+    fireEvent.click(within(tour).getByRole('button', { name: 'Pular' }))
+    expect(screen.queryByRole('region', { name: 'Primeiros passos' })).not.toBeInTheDocument()
+    expect(localStorage.getItem(TOUR_DA_ANA)).toBe('1')
   })
 })

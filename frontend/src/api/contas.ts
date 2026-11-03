@@ -28,6 +28,8 @@ export type TipoDeChavePix = 'CPF' | 'CNPJ' | 'TELEFONE' | 'EMAIL' | 'ALEATORIA'
 export type ConfiguracaoDaConta = {
   nomeNegocio: string
   estoqueHabilitado: boolean
+  /** Se já houve movimento de estoque, que impede desligar o controle. */
+  estoqueComMovimentos: boolean
   nsuObrigatorio: boolean
   /** Os três faltam juntos, enquanto a Conta não tem chave Pix. */
   tipoDaChavePix?: TipoDeChavePix
