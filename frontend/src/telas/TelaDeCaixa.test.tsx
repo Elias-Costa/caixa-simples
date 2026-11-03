@@ -260,6 +260,36 @@ describe('caixa na tela', () => {
     expect(within(gaveta).getByRole('row', { name: /Saldo esperado/ })).toHaveTextContent('R$ 20,00')
   })
 
+  it('o operador vê no próprio caixa a venda do administrador, no vendido e no aviso, sem o Ver', async () => {
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(caixa, 'historico').mockResolvedValue([aberta])
+    vi.spyOn(caixa, 'consultar').mockResolvedValue({ ...aberta, movimentos: [] })
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([
+      resumo('v-1', 'CONCLUIDA', 15, '2026-09-22T13:00:00Z', [{ forma: 'CARTAO', valor: 15 }]),
+      { ...resumo('v-2', 'CONCLUIDA', 12.5, '2026-09-22T13:10:00Z', [{ forma: 'DINHEIRO', valor: 12.5 }]),
+        usuarioId: 'u-adm' },
+      { ...resumo('v-3', 'ABERTA', 8, '2026-09-22T13:20:00Z', []), usuarioId: 'u-adm' },
+    ])
+    const consultar = vi.spyOn(vendas, 'consultar')
+    mostrar()
+
+    const vendido = await screen.findByRole('table', { name: 'Vendido neste caixa' })
+    expect(within(vendido).getByRole('row', { name: /Total de 2 vendas/ })).toHaveTextContent('R$ 27,50')
+    // O aviso do fechamento é sobre o caixa inteiro: a comanda do administrador também fica presa.
+    expect(screen.getByText('Este caixa tem uma venda aberta. Depois do fechamento ela não conclui mais, '
+      + 'só pode ser cancelada.')).toBeInTheDocument()
+
+    const lista = await abrirLista(/^Vendas \(3\)$/)
+    expect(within(linhaDaVenda(lista, /Cartão/)).getByRole('button', { name: 'Ver' })).toBeInTheDocument()
+    const doAdministrador = [linhaDaVenda(lista, /Dinheiro/), linhaDaVenda(lista, /Aberta/)]
+    for (const linha of doAdministrador) {
+      expect(linha).toHaveTextContent('do administrador')
+      expect(within(linha).queryByRole('button')).not.toBeInTheDocument()
+    }
+    expect(within(lista).getAllByText('do administrador')).toHaveLength(2)
+    expect(consultar).not.toHaveBeenCalled()
+  })
+
   it('o fechamento lista as vendas abertas com o recebido, e a pergunta lembra delas sem impedir o fechamento', async () => {
     vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
     vi.spyOn(caixa, 'historico').mockResolvedValue([aberta])
@@ -610,6 +640,20 @@ describe('primeiros passos na tela Caixa', () => {
     fireEvent.click(within(tour).getByRole('button', { name: 'Anterior' }))
     expect(within(tour).getByRole('heading', { name: 'Abra o caixa' })).toBeInTheDocument()
     expect(within(tour).getByText('Feito')).toBeInTheDocument()
+  })
+
+  it('a venda concluída do administrador no caixa da pessoa não conta como o passo Venda', async () => {
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(caixa, 'historico').mockResolvedValue([aberta])
+    vi.spyOn(caixa, 'consultar').mockResolvedValue({ ...aberta, movimentos: [] })
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([
+      { ...resumo('v-1', 'CONCLUIDA', 12.5, '2026-09-22T12:10:00Z'), usuarioId: 'u-adm' }])
+    mostrar()
+
+    const tour = await screen.findByRole('region', { name: 'Primeiros passos' })
+    expect(within(tour).getByText('Primeiros passos (2 de 3)')).toBeInTheDocument()
+    expect(within(tour).getByRole('heading', { name: 'Venda' })).toBeInTheDocument()
+    expect(within(tour).queryByText('Feito')).not.toBeInTheDocument()
   })
 
   it('com o caixa aberto e só venda aberta, abrem em Venda', async () => {

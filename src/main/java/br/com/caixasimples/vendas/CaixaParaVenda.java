@@ -1,9 +1,10 @@
 package br.com.caixasimples.vendas;
 
+import java.util.Optional;
 import java.util.UUID;
 
 /**
- * A pergunta que a venda faz ao caixa: esta sessão existe nesta conta e está aberta?
+ * As perguntas que a venda faz ao caixa: esta sessão existe nesta conta, está aberta, e quem a abriu?
  *
  * <p><strong>Declarada aqui, e implementada pelo módulo do caixa.</strong> A direção é
  * deliberada: o caixa já depende de vendas para ouvir {@link VendaConcluida}, e dois módulos não
@@ -31,4 +32,14 @@ public interface CaixaParaVenda {
 
     /** Sessão ABERTA de quem está recebendo agora, independentemente de quem fez a Venda. */
     java.util.Optional<UUID> sessaoAbertaDoOperadorAtual();
+
+    /**
+     * Quem abriu a sessão, aberta ou fechada, sem aplicar regra nenhuma: é a lista das vendas da
+     * sessão que aplica a regra do próprio caixa a esse dono, porque a lista é da sessão, e não de
+     * cada venda.
+     *
+     * @return vazio se a sessão não existe nesta conta; um id de outra conta é indistinguível de um
+     *         id que nunca existiu (RNF05)
+     */
+    Optional<UUID> operadorDaSessao(UUID sessaoCaixaId);
 }

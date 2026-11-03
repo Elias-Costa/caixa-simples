@@ -707,6 +707,9 @@ export function TelaDeCaixa() {
                   {vendasEmOrdem.map((resumo) => {
                     const aberto = detalheDaSessao?.venda.id === resumo.id
                     const cancelada = resumo.status === 'CANCELADA'
+                    // O administrador vende em qualquer caixa: a venda dele entra na lista e no vendido
+                    // do caixa do operador, mas o detalhe dela só ele abre.
+                    const abre = administrador || resumo.usuarioId === identidade?.usuarioId
                     return <Fragment key={resumo.id}>
                       <tr>
                         <td className="tabela__hora">{horaNoDia(new Date(resumo.criadoEm), diaDaAbertura)}</td>
@@ -716,14 +719,15 @@ export function TelaDeCaixa() {
                             {listaDeFormas.format(resumo.formas.map((forma) => ROTULO_DA_FORMA[forma.forma]))}
                           </span>}
                           {resumo.pendenteSincronizacao && <span className="caixa__sob">pendente de sincronização</span>}
+                          {!abre && <span className="caixa__sob">do administrador</span>}
                         </td>
                         <td className={cancelada ? 'tabela__numero caixa__cancelada' : 'tabela__numero'}>
                           {cancelada ? <s>{moeda.format(resumo.total)}</s> : moeda.format(resumo.total)}
                         </td>
                         <td>
-                          <button id={idDoVer(resumo.id)} className="botao botao--secundario caixa__ver" type="button"
+                          {abre && <button id={idDoVer(resumo.id)} className="botao botao--secundario caixa__ver" type="button"
                             aria-expanded={aberto}
-                            onClick={() => aberto ? setEmDetalhe(undefined) : void verVenda(resumo)}>Ver</button>
+                            onClick={() => aberto ? setEmDetalhe(undefined) : void verVenda(resumo)}>Ver</button>}
                         </td>
                       </tr>
                       {aberto && detalheDaSessao && <tr className="caixa__detalhe-da-linha"><td colSpan={4}>

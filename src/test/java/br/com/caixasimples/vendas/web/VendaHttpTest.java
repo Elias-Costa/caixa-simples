@@ -350,6 +350,76 @@ class VendaHttpTest extends TesteDeIntegracao {
     }
 
     @Test
+    void operadorVeNaListaDoProprioCaixaAVendaQueOAdministradorFezNele() throws Exception {
+        ContaCriada conta = criador.criar("PDV Balcão Dividido", SENHA);
+        criador.contratar(conta.contaId(), Plano.COMPLETO);
+        RequestPostProcessor admin = autenticador.como(conta);
+        RequestPostProcessor operador = operadorNovo(admin);
+        UUID produto = produto(conta);
+        String item = "{\"produtoId\":\"" + produto + "\",\"quantidade\":1,\"desconto\":0}";
+        UUID sessaoDoOperador = uuidDaResposta(http.perform(post("/api/caixa/sessoes").with(operador)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"valorAbertura\":0}"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString());
+        UUID vendaDoOperador = criarVenda(operador, sessaoDoOperador);
+        http.perform(post("/api/vendas/{id}/itens", vendaDoOperador).with(operador)
+                .contentType(MediaType.APPLICATION_JSON).content(item)).andExpect(status().isCreated());
+        pagar(operador, vendaDoOperador, UUID.randomUUID(), "CARTAO", "12.50", null)
+                .andExpect(status().isOk());
+        http.perform(post("/api/vendas/{id}/conclusao", vendaDoOperador).with(operador))
+                .andExpect(status().isNoContent());
+        http.perform(get("/api/vendas").param("sessaoCaixaId", sessaoDoOperador.toString())
+                .with(operador)).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1));
+
+        // O administrador vende em qualquer sessão da Conta, e a venda nasce com ele como operador.
+        UUID vendaDoAdmin = criarVenda(admin, sessaoDoOperador);
+        http.perform(get("/api/vendas").param("sessaoCaixaId", sessaoDoOperador.toString())
+                        .with(operador))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[?(@.id == '" + vendaDoAdmin + "')].status").value("ABERTA"))
+                .andExpect(jsonPath("$[?(@.id == '" + vendaDoAdmin + "')].usuarioId")
+                        .value(conta.usuarioId().toString()));
+
+        http.perform(post("/api/vendas/{id}/itens", vendaDoAdmin).with(admin)
+                .contentType(MediaType.APPLICATION_JSON).content(item)).andExpect(status().isCreated());
+        pagar(admin, vendaDoAdmin, UUID.randomUUID(), "DINHEIRO", "12.50", null)
+                .andExpect(status().isOk());
+        http.perform(post("/api/vendas/{id}/conclusao", vendaDoAdmin).with(admin))
+                .andExpect(status().isNoContent());
+
+        // A lista e o extrato contam as mesmas vendas: o dinheiro da venda do administrador está
+        // na gaveta que o operador vai contar.
+        http.perform(get("/api/vendas").param("sessaoCaixaId", sessaoDoOperador.toString())
+                        .with(operador))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[?(@.id == '" + vendaDoAdmin + "')].status").value("CONCLUIDA"))
+                .andExpect(jsonPath("$[?(@.id == '" + vendaDoAdmin + "')].formas[*].forma",
+                        contains("DINHEIRO")));
+        http.perform(get("/api/caixa/sessoes/{id}", sessaoDoOperador).with(operador))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.valorFechamentoEsperado").value(12.5))
+                .andExpect(jsonPath("$.movimentos[?(@.vendaId == '" + vendaDoAdmin + "')].valor")
+                        .value(12.5));
+
+        // Abrir a venda continua com quem a fez.
+        http.perform(get("/api/vendas/{id}", vendaDoAdmin).with(operador))
+                .andExpect(status().isForbidden());
+        http.perform(get("/api/vendas/{id}/comprovante", vendaDoAdmin).with(operador))
+                .andExpect(status().isForbidden());
+        http.perform(get("/api/vendas").param("sessaoCaixaId", sessaoDoOperador.toString())
+                .with(admin)).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(2));
+
+        // O caixa de outro usuário é recusado pelo dono dele, mesmo sem venda nenhuma.
+        UUID sessaoDoAdmin = conta.comoUsuario(() -> caixas.abrir(Money.ZERO));
+        http.perform(get("/api/vendas").param("sessaoCaixaId", sessaoDoAdmin.toString())
+                        .with(operador))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.detail")
+                        .value("O operador só alcança o próprio caixa e as próprias vendas."));
+    }
+
+    @Test
     void comprovanteDaVendaFiadaTrazOClienteEODaVendaSemFiadoNao() throws Exception {
         ContaCriada conta = criador.criar("PDV Caderneta", SENHA);
         RequestPostProcessor admin = autenticador.como(conta);

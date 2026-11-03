@@ -900,6 +900,9 @@ main.cadastro {
 .pdv__ajuda { margin-top: 0; color: var(--cor-texto-secundario); font-size: 0.85rem; }
 .pdv__resultados, .pdv__itens, .pdv__parcelas, .pdv__historico ul { list-style: none; padding: 0; display: grid; gap: 8px; }
 .pdv__resultados .botao, .pdv__historico li .botao { text-align: left; width: 100%; white-space: normal; }
+/* A venda de outro usuário não abre por aqui: é texto, com o recuo do botão da lista, para a linha
+   começar onde as outras começam. */
+.pdv__venda-de-outro { margin: 0; padding: 8px calc(var(--espaco) * 1.25); border: 1px solid transparent; color: var(--cor-texto-secundario); }
 .pdv__topo, .pdv__acoes { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
 /* Remover fica sempre na coluna da direita, com o nome curto ou longo: numa linha que quebra, ele
    descia para baixo do nome longo e mudava de lugar a cada item. */

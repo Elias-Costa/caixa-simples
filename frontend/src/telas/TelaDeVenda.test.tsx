@@ -754,6 +754,47 @@ describe('PDV no tablet', () => {
     await waitFor(() => expect(screen.getByLabelText('Produto por nome ou código')).toHaveFocus())
   })
 
+  it('a venda do administrador no caixa do operador aparece na lista só para leitura e fora do aviso', async () => {
+    const doCaixa = { sessaoCaixaId: aberta.id }
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([
+      { ...doCaixa, id: 'venda-adm-1', usuarioId: 'admin-1', status: 'ABERTA', total: 8,
+        criadoEm: new Date().toISOString() },
+      { ...doCaixa, id: 'venda-adm-2', usuarioId: 'admin-1', status: 'CONCLUIDA', total: 12.5,
+        criadoEm: new Date(Date.now() - 1000).toISOString(), formas: [{ forma: 'DINHEIRO', valor: 12.5 }] },
+      { ...doCaixa, id: 'venda-1', usuarioId: aberta.usuarioId, status: 'CONCLUIDA', total: 3,
+        criadoEm: new Date(Date.now() - 2000).toISOString() },
+    ])
+    const consultar = vi.spyOn(vendas, 'consultar').mockResolvedValue(comanda)
+    mostrar()
+
+    const lista = (await screen.findByRole('heading', { name: 'Vendas deste caixa' })).closest('section')!
+    await waitFor(() => expect(within(lista).getAllByRole('listitem')).toHaveLength(3))
+    const [abertaDoAdmin, concluidaDoAdmin, minha] = within(lista).getAllByRole('listitem')
+    expect(abertaDoAdmin).toHaveTextContent(/^\d{2}:\d{2} · Aberta · R\$\s8,00 · do administrador$/)
+    expect(concluidaDoAdmin).toHaveTextContent(/^\d{2}:\d{2} · Concluída · R\$\s12,50 · Dinheiro · do administrador$/)
+    expect(within(abertaDoAdmin).queryByRole('button')).not.toBeInTheDocument()
+    expect(within(concluidaDoAdmin).queryByRole('button')).not.toBeInTheDocument()
+    expect(within(minha).getByRole('button')).toBeInTheDocument()
+    // A comanda do administrador não é desta pessoa retomar: o aviso de venda aberta não a conta.
+    const painel = screen.getByRole('heading', { name: 'Comanda' }).closest('section')!
+    expect(within(painel).queryByRole('button', { name: 'Retomar' })).not.toBeInTheDocument()
+    expect(within(painel).queryByText(/Este caixa tem/)).not.toBeInTheDocument()
+    expect(consultar).not.toHaveBeenCalled()
+  })
+
+  it('o administrador abre pela lista a venda de qualquer usuário do caixa', async () => {
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([{ id: comanda.id, sessaoCaixaId: aberta.id,
+      usuarioId: 'outro-1', status: 'ABERTA', total: comanda.total, criadoEm: comanda.criadoEm }])
+    const consultar = vi.spyOn(vendas, 'consultar').mockResolvedValue(comanda)
+    mostrar('ADMIN')
+
+    fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
+    await waitFor(() => expect(consultar).toHaveBeenCalledWith(comanda.id))
+    expect(screen.queryByText(/do administrador/)).not.toBeInTheDocument()
+  })
+
   it('sem caixa aberto, Ir ao caixa é um botão', async () => {
     vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(undefined)
     mostrar()

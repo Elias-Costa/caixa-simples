@@ -36,6 +36,7 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -151,9 +152,10 @@ import org.springframework.transaction.support.TransactionTemplate;
  * não aparece em assinatura nenhuma deste arquivo (RNF05). A partir daí vale a regra do próprio
  * caixa: o perfil Operador só toca as próprias vendas, e cada caso de uso pergunta isso por
  * {@code exigirDonoOuAdmin} logo depois de carregar a venda; o administrador toca qualquer venda
- * da conta. Que a sessão em que a venda nasce seja a do operador é regra do caixa, e vale na
- * pergunta que este serviço lhe faz: o operador que tenta iniciar, concluir ou cancelar uma venda
- * no caixa do colega é recusado pelo caixa ao responder se a sessão está aberta.
+ * da conta. A lista das vendas de uma sessão é a exceção: pergunta pelo dono da sessão, porque é
+ * uma consulta do caixa dele. Que a sessão em que a venda nasce seja a do operador é regra do
+ * caixa, e vale na pergunta que este serviço lhe faz: o operador que tenta iniciar, concluir ou
+ * cancelar uma venda no caixa do colega é recusado pelo caixa ao responder se a sessão está aberta.
  *
  * <p><strong>Não há como desfazer uma parcela lançada.</strong> Uma parcela com o valor errado se
  * corrige cancelando a venda e abrindo outra. <strong>O cancelamento não registra motivo, nem
@@ -996,18 +998,30 @@ public class VendaService {
      * Vendas da SessaoCaixa, inclusive comandas ABERTA que podem ser retomadas ou canceladas, cada
      * uma com o valor de cada forma de pagamento. A venda dividida tem uma linha por forma, com as
      * parcelas da mesma forma somadas; a soma das formas da venda concluída é o total dela.
+     *
+     * <p><strong>A regra do próprio caixa vale pelo dono da sessão</strong>, como no extrato, e não
+     * pelo dono de cada venda: o administrador vende em qualquer caixa, e a venda dele no caixa do
+     * operador tem o dinheiro na gaveta que o operador conta. A lista inteira é dele; abrir,
+     * retomar ou cancelar cada venda continua com quem a fez, ou com o administrador.
+     *
+     * @return vazia se a sessão não existe nesta conta (RNF05)
+     * @throws br.com.caixasimples.shared.AcessoNegadoException se a sessão é de outro operador e
+     *         quem chama não é ADMIN, tenha ela venda ou não
      */
     @Transactional(readOnly = true)
     public List<ResumoDaVenda> vendasDaSessao(UUID sessaoCaixaId) {
         Objects.requireNonNull(sessaoCaixaId, "id da sessao de caixa nao pode ser nulo");
+        Optional<UUID> dono = caixa.operadorDaSessao(sessaoCaixaId);
+        if (dono.isEmpty()) {
+            return List.of();
+        }
+        UsuarioContext.exigirDonoOuAdmin(dono.get());
+
         return vendas.findBySessaoCaixaIdOrderByCriadoEmDesc(sessaoCaixaId).stream()
                 .map(VendaEntity::paraDominio)
-                .map(venda -> {
-                    UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
-                    return new ResumoDaVenda(venda.getId(), venda.getSessaoCaixaId(),
-                            venda.getUsuarioId(), venda.getStatus(), venda.getValorTotal(),
-                            venda.getCriadoEm(), formasDa(venda));
-                })
+                .map(venda -> new ResumoDaVenda(venda.getId(), venda.getSessaoCaixaId(),
+                        venda.getUsuarioId(), venda.getStatus(), venda.getValorTotal(),
+                        venda.getCriadoEm(), formasDa(venda)))
                 .toList();
     }
 

@@ -10,7 +10,7 @@ import java.util.Optional;
 import org.springframework.stereotype.Component;
 
 /**
- * A resposta do caixa à pergunta que a venda faz: esta sessão está aberta?
+ * A resposta do caixa às perguntas que a venda faz: esta sessão está aberta, e quem a abriu?
  *
  * <p>É o caixa quem implementa a interface declarada em vendas, e não o contrário, porque a
  * dependência entre os dois módulos só pode ter um sentido: o caixa ouve o evento de venda
@@ -57,5 +57,11 @@ class CaixaParaVendaAdapter implements CaixaParaVenda {
         return linhas.findLinhaById(sessaoCaixaId)
                 .map(linha -> linha.status() == StatusSessaoCaixa.ABERTA)
                 .orElse(false);
+    }
+
+    /** A linha vem do repositório filtrado pela conta do contexto, sem a regra do próprio caixa. */
+    @Override
+    public Optional<UUID> operadorDaSessao(UUID sessaoCaixaId) {
+        return linhas.findLinhaById(sessaoCaixaId).map(LinhaDoHistorico::usuarioId);
     }
 }

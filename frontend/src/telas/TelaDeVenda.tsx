@@ -218,9 +218,14 @@ export function TelaDeVenda() {
     ? lerDinheiro(valorRecebido) : null
   const previaDoTroco = recebidoNaPrevia !== null && valorDaParcela !== null
     ? (Math.round(recebidoNaPrevia * 100) - Math.round(valorDaParcela * 100)) / 100 : undefined
-  // A venda aberta que ficou para trás no caixa. Com outra aberta na comanda, quem vende já escolheu
-  // em qual continua, e o aviso sai.
-  const abertasNoCaixa = historico.filter((resumo) => resumo.status === 'ABERTA' && resumo.id !== atual?.id)
+  // O administrador vende em qualquer caixa, e a venda dele aparece na lista do caixa do operador;
+  // abrir, retomar e cancelar continuam com quem a fez, ou com o administrador.
+  const abreAVenda = (resumo: ResumoDaVenda) =>
+    identidade?.perfil === 'ADMIN' || resumo.usuarioId === identidade?.usuarioId
+  // A venda aberta que ficou para trás no caixa, das que esta pessoa retoma. Com outra aberta na
+  // comanda, quem vende já escolheu em qual continua, e o aviso sai.
+  const abertasNoCaixa = historico.filter((resumo) => resumo.status === 'ABERTA' && resumo.id !== atual?.id
+    && abreAVenda(resumo))
   const avisarAbertas = atual?.status !== 'ABERTA' && abertasNoCaixa.length > 0
   const vendasNaLista = todasAsVendas ? historico : historico.slice(0, VENDAS_A_VISTA)
 
@@ -849,13 +854,16 @@ export function TelaDeVenda() {
           <Mensagem tipo="erro" texto={erroEm('historico')} />
           {historico.length === 0 ? <p>Nenhuma venda neste caixa.</p> : <ul id={idDaLista}>
             {vendasNaLista.map((resumo) => <li key={resumo.id}>
-              <button type="button" className="botao botao--secundario"
+              {abreAVenda(resumo) ? <button type="button" className="botao botao--secundario"
                 onClick={() => void selecionar(resumo)}>
                 {quando(resumo.criadoEm)} · {ROTULO_DA_VENDA[resumo.status]} · {moeda.format(resumo.total)}
                 {formasDaLinha(resumo)}
                 {resumo.status === 'ABERTA' && (resumo.pendenteSincronizacao ? ' · retomar' : ' · retomar ou cancelar')}
                 {resumo.pendenteSincronizacao && ' · pendente de sincronização'}
-              </button>
+              </button> : <p className="pdv__venda-de-outro">
+                {quando(resumo.criadoEm)} · {ROTULO_DA_VENDA[resumo.status]} · {moeda.format(resumo.total)}
+                {formasDaLinha(resumo)} · do administrador
+              </p>}
             </li>)}
           </ul>}
           {historico.length > VENDAS_A_VISTA && <button type="button" className="botao botao--secundario"
