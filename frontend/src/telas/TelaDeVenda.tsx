@@ -8,8 +8,8 @@ import { contas } from '../api/contas'
 import { fiado } from '../api/fiado'
 import { intencaoOnline, type IntencaoOnline } from '../api/intencaoOnline'
 import type { Comprovante as DadosDoComprovante, ConciliacaoPix, FormaPagamento, ResumoDaVenda, Venda } from '../api/vendas'
-import { diaNoBalcao, FUSO_DO_BALCAO, hojeNoBalcao } from '../dataDoBalcao'
-import { dataHora, hora, lerDinheiro, moeda, quantidadeComUnidade, valorNoCampo } from '../formatos'
+import { diaNoBalcao, hojeNoBalcao } from '../dataDoBalcao'
+import { dataHora, diaEMes, hora, horaNoDia, lerDinheiro, moeda, quantidadeComUnidade, valorNoCampo } from '../formatos'
 import { criarCaixaLocal } from '../offline/caixaLocal'
 import { normalizarNsu } from '../offline/raizDaVenda'
 import { criarVendaLocal } from '../offline/vendaLocal'
@@ -39,7 +39,6 @@ const NOTAS = [10, 20, 50, 100]
  * pixels abaixo da comanda; as últimas são as que o balcão procura.
  */
 const VENDAS_A_VISTA = 10
-const diaEMes = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', timeZone: FUSO_DO_BALCAO })
 const listaDeFormas = new Intl.ListFormat('pt-BR', { style: 'long', type: 'conjunction' })
 
 /**
@@ -110,9 +109,7 @@ function tentativaPix(vendaId: string, valor: number): string {
  * misturaria as vendas de ontem com as de hoje.
  */
 function quando(criadoEm: string): string {
-  const instante = new Date(criadoEm)
-  return diaNoBalcao(instante) === hojeNoBalcao() ? hora.format(instante)
-    : `${diaEMes.format(instante)} ${hora.format(instante)}`
+  return horaNoDia(new Date(criadoEm), hojeNoBalcao())
 }
 
 /** As formas pelas quais a venda entrou, como Dinheiro e Cartão; a venda sem parcela que vale não tem. */

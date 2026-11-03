@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { caixa as caixaNoServidor, type SessaoCaixa } from '../api/caixa'
+import { Fragment, useCallback, useEffect, useId, useState, type FormEvent } from 'react'
+import { caixa as caixaNoServidor, type MovimentoCaixa, type SessaoCaixa } from '../api/caixa'
 import { SemConexao } from '../api/cliente'
 import { contas } from '../api/contas'
 import { intencaoOnline } from '../api/intencaoOnline'
-import type { Comprovante as DadosDoComprovante, ResumoDaVenda, Venda } from '../api/vendas'
-import { abertaAntesDeHoje, hojeNoBalcao } from '../dataDoBalcao'
-import { dataHora, lerDinheiro, moeda } from '../formatos'
+import type {
+  Comprovante as DadosDoComprovante, FormaPagamento, ResumoDaVenda, ValorDaForma, Venda,
+} from '../api/vendas'
+import { abertaAntesDeHoje, diaNoBalcao, hojeNoBalcao } from '../dataDoBalcao'
+import { dataHora, diaEMes, hora, horaNoDia, lerDinheiro, moeda } from '../formatos'
 import { criarCaixaLocal } from '../offline/caixaLocal'
 import { criarVendaLocal } from '../offline/vendaLocal'
 import { useSincronizacao } from '../shell/sincronizacao'
@@ -25,6 +27,16 @@ const caixa = criarCaixaLocal()
 // A mesma leitura da tela Vender: sem rede, as vendas da sessão guardadas neste aparelho.
 const vendas = criarVendaLocal()
 
+/** A ordem em que as formas aparecem no vendido, a mesma do comprovante e dos relatórios. */
+const FORMAS: FormaPagamento[] = ['DINHEIRO', 'PIX', 'CARTAO', 'FIADO']
+const listaDeFormas = new Intl.ListFormat('pt-BR', { style: 'long', type: 'conjunction' })
+/** A forma no meio de uma frase: o Pix é nome próprio e continua com maiúscula. */
+const EM_FORMA: Record<FormaPagamento, string> = {
+  DINHEIRO: 'em dinheiro', PIX: 'em Pix', CARTAO: 'em cartão', FIADO: 'no fiado',
+}
+/** Sangria e estorno tiram dinheiro da gaveta; venda, suprimento e recebimento de fiado põem. */
+const SAI_DA_GAVETA: ReadonlySet<MovimentoCaixa['tipo']> = new Set(['SANGRIA', 'ESTORNO'])
+
 /** O cartão em que a resposta de uma ação aparece: o mesmo em que ela foi tocada. */
 type LugarDaMensagem = 'tela' | 'abertura' | 'sessao' | 'movimento' | 'fechamento' | 'vendas'
 type MensagemNaTela = { tipo: 'erro' | 'sucesso'; texto: string; lugar: LugarDaMensagem }
@@ -34,6 +46,8 @@ type VendasDaSessao = { sessaoId: string; lista: ResumoDaVenda[] }
 type VendaEmDetalhe = { venda: Venda; cliente: string | null }
 /** A segunda via aberta no detalhe, com o instante da reimpressão, que vai no papel. */
 type SegundaVia = { comprovante: DadosDoComprovante; em: Date }
+/** As vendas abertas do caixa e o dinheiro já recebido nelas, que o saldo esperado não conta. */
+type Abertas = { quantas: number; dinheiro: number }
 
 /**
  * A diferença do fechamento em palavras, falta ou sobra, no lugar do sinal, que é convenção do
@@ -49,19 +63,141 @@ function comMaiuscula(texto: string): string {
   return texto.charAt(0).toUpperCase() + texto.slice(1)
 }
 
+/** Em centavos, a soma de dezenas de linhas não acumula o erro do ponto flutuante. */
+function centavos(valor: number): number {
+  return Math.round(valor * 100)
+}
+
 /**
  * A pergunta antes de fechar diz a diferença em palavras: o fechamento não se refaz, e é a última
- * chance de recontar a gaveta. Sem o saldo esperado lido, diz o valor contado.
+ * chance de recontar a gaveta. Sem o saldo esperado lido, diz o valor contado. Com venda aberta,
+ * lembra que ela não conclui depois e que o dinheiro dela está fora do esperado.
  */
-function perguntaDoFechamento(contado: number, diferenca: number | null): Pergunta {
+function perguntaDoFechamento(contado: number, diferenca: number | null, abertas: Abertas | null): Pergunta {
   const como = diferenca === null ? `com ${moeda.format(contado)} contados`
     : diferenca === 0 ? 'sem diferença'
       : `com ${diferencaEmPalavras(diferenca)}`
   return {
     titulo: `Fechar o caixa ${como}?`,
-    texto: 'O fechamento não pode ser refeito. Se o valor não parece certo, volte e conte a gaveta de novo.',
+    texto: (abertas ? `${abertasNaPergunta(abertas)} ` : '')
+      + 'O fechamento não pode ser refeito. Se o valor não parece certo, volte e conte a gaveta de novo.',
     acao: 'Fechar caixa',
   }
+}
+
+function abertasNaPergunta({ quantas, dinheiro }: Abertas): string {
+  const quais = quantas === 1 ? 'uma venda aberta, que só pode ser cancelada'
+    : `${quantas} vendas abertas, que só podem ser canceladas`
+  const fora = dinheiro > 0
+    ? `, e ${moeda.format(dinheiro)} em dinheiro recebido ${quantas === 1 ? 'nela' : 'nelas'} fica fora do saldo esperado`
+    : ''
+  return `Este caixa tem ${quais} depois do fechamento${fora}.`
+}
+
+/**
+ * O aviso do fechamento com venda aberta. O servidor não conclui venda de caixa fechado, e o dinheiro
+ * de parcela só entra no saldo esperado quando a venda conclui: na contagem, ele apareceria como sobra.
+ */
+function avisoDasAbertas({ quantas, dinheiro }: Abertas): string {
+  const inicio = quantas === 1
+    ? 'Este caixa tem uma venda aberta. Depois do fechamento ela não conclui mais, só pode ser cancelada.'
+    : `Este caixa tem ${quantas} vendas abertas. Depois do fechamento elas não concluem mais, só podem ser canceladas.`
+  if (dinheiro === 0) return inicio
+  return `${inicio} O que já foi recebido ${quantas === 1 ? 'nela' : 'nelas'} não está no saldo esperado: `
+    + `os ${moeda.format(dinheiro)} em dinheiro, se estiverem na gaveta, aparecem como sobra.`
+}
+
+/** O que a venda aberta já recebeu, por forma. O fiado fica de fora: é promessa, não entrou dinheiro. */
+function recebidoNaAberta(venda: ResumoDaVenda): ValorDaForma[] | undefined {
+  return venda.formas?.filter((forma) => forma.forma !== 'FIADO')
+}
+
+/** Sem as formas, de um servidor anterior a elas, a tela diz que não sabe, e não que é zero. */
+function recebidoEmPalavras(recebido: ValorDaForma[] | undefined): string {
+  if (!recebido) return 'Não informado'
+  if (recebido.length === 0) return moeda.format(0)
+  return listaDeFormas.format(recebido.map((forma) => `${moeda.format(forma.valor)} ${EM_FORMA[forma.forma]}`))
+}
+
+type Vendido = {
+  porForma: ValorDaForma[]
+  /** As concluídas que chegaram sem as formas: entram no total e numa linha à parte. */
+  semForma: number
+  total: number
+  vendas: number
+}
+
+/**
+ * O vendido no caixa, por forma: só a venda concluída conta, como no faturamento. A soma das formas de
+ * uma concluída é o total dela; a que chega sem as formas não vira zero numa forma que não foi a dela.
+ */
+function vendidoNoCaixa(lista: ResumoDaVenda[]): Vendido {
+  const porForma = new Map<FormaPagamento, number>()
+  let semForma = 0
+  let total = 0
+  let quantas = 0
+  for (const venda of lista) {
+    if (venda.status !== 'CONCLUIDA') continue
+    quantas += 1
+    total += centavos(venda.total)
+    if (!venda.formas) {
+      semForma += centavos(venda.total)
+      continue
+    }
+    for (const { forma, valor } of venda.formas) {
+      porForma.set(forma, (porForma.get(forma) ?? 0) + centavos(valor))
+    }
+  }
+  return {
+    porForma: FORMAS.filter((forma) => porForma.has(forma))
+      .map((forma) => ({ forma, valor: (porForma.get(forma) ?? 0) / 100 })),
+    semForma: semForma / 100, total: total / 100, vendas: quantas,
+  }
+}
+
+function foraDoTotal(abertas: number, canceladas: number): string | null {
+  const contar = (quantas: number, uma: string, varias: string) => quantas === 1 ? uma : `${quantas} ${varias}`
+  if (abertas > 0 && canceladas > 0) {
+    return `Fora do total: ${contar(abertas, 'uma venda aberta', 'vendas abertas')} e `
+      + `${contar(canceladas, 'uma cancelada', 'canceladas')}.`
+  }
+  if (abertas > 0) return `Fora do total: ${contar(abertas, 'uma venda aberta', 'vendas abertas')}.`
+  if (canceladas > 0) return `Fora do total: ${contar(canceladas, 'uma venda cancelada', 'vendas canceladas')}.`
+  return null
+}
+
+/**
+ * Cada movimento com o sinal de quem sai da gaveta e o saldo depois dele, a partir do valor inicial,
+ * na ordem do lançamento: a última linha bate com o saldo esperado.
+ */
+function extratoComSaldo(sessao: SessaoCaixa): { movimento: MovimentoCaixa; valor: number; saldo: number }[] {
+  let saldo = centavos(sessao.valorAbertura)
+  return (sessao.movimentos ?? []).map((movimento) => {
+    const valor = SAI_DA_GAVETA.has(movimento.tipo) ? -centavos(movimento.valor) : centavos(movimento.valor)
+    saldo += valor
+    return { movimento, valor: valor / 100, saldo: saldo / 100 }
+  })
+}
+
+/**
+ * Um caixa no histórico do dia: quando abriu e fechou, o valor inicial com o rótulo, para não se ler
+ * como vendido, e a diferença do fechamento, que é o que se procura nele.
+ */
+function linhaDoHistorico(sessao: SessaoCaixa): string {
+  const abertura = new Date(sessao.abertaEm)
+  const partes = [`Aberto às ${hora.format(abertura)}`]
+  if (sessao.status === 'FECHADA') {
+    const fechamento = sessao.fechadaEm ? new Date(sessao.fechadaEm) : null
+    partes.push(!fechamento ? 'Fechado'
+      : diaNoBalcao(fechamento) === diaNoBalcao(abertura) ? `Fechado às ${hora.format(fechamento)}`
+        : `Fechado em ${diaEMes.format(fechamento)} às ${hora.format(fechamento)}`)
+  }
+  partes.push(`Valor inicial ${moeda.format(sessao.valorAbertura)}`)
+  if (sessao.status === 'FECHADA' && sessao.diferenca !== null && !sessao.fechamentoSemValores
+    && !sessao.saldoDesatualizado) {
+    partes.push(comMaiuscula(diferencaEmPalavras(sessao.diferenca)))
+  }
+  return partes.join(' · ')
 }
 
 /**
@@ -101,6 +237,12 @@ function DetalheDaVenda({ venda, cliente, aoFechar, aoPedirSegundaVia }: VendaEm
   </section>
 }
 
+/** A situação da venda na tabela: a concluída em texto; a aberta e a cancelada com a marca, que salta. */
+function SituacaoDaVenda({ status }: { status: ResumoDaVenda['status'] }) {
+  if (status === 'CONCLUIDA') return <>{ROTULO_DA_VENDA[status]}</>
+  return <span className={status === 'ABERTA' ? 'marca marca--alerta' : 'marca'}>{ROTULO_DA_VENDA[status]}</span>
+}
+
 /** O valor do campo, ou o erro que diz qual campo corrigir, perto do botão que foi tocado. */
 function dinheiroDoCampo(texto: string, nome: string): number {
   const valor = lerDinheiro(texto)
@@ -108,10 +250,16 @@ function dinheiroDoCampo(texto: string, nome: string): number {
   return valor
 }
 
+/** O botão Ver de uma venda, que recebe o foco de volta quando o detalhe dela fecha. */
+function idDoVer(vendaId: string): string {
+  return `caixa-ver-venda-${vendaId}`
+}
+
 export function TelaDeCaixa() {
   const { identidade } = useSessao()
   const { rodada } = useSincronizacao()
   const online = useOnline()
+  const ids = useId()
   const administrador = identidade?.perfil === 'ADMIN'
   const [aberta, setAberta] = useState<SessaoCaixa | undefined>()
   const [selecionada, setSelecionada] = useState<SessaoCaixa | undefined>()
@@ -145,6 +293,19 @@ export function TelaDeCaixa() {
   const detalheDaSessao = emDetalhe?.venda.sessaoCaixaId === sessaoSelecionada ? emDetalhe : undefined
   const segundaViaDoDetalhe = segundaVia?.comprovante.vendaId === detalheDaSessao?.venda.id
     ? segundaVia : undefined
+  // A lista chega da mais recente para a mais antiga; o caixa a mostra como o extrato, na ordem do dia.
+  const vendasEmOrdem = listaDaSessao ? [...listaDaSessao].sort((a, b) => a.criadoEm.localeCompare(b.criadoEm)) : []
+  const vendasAbertas = vendasEmOrdem.filter((venda) => venda.status === 'ABERTA')
+  const resumoDasAbertas: Abertas | null = vendasAbertas.length === 0 ? null : {
+    quantas: vendasAbertas.length,
+    dinheiro: vendasAbertas.reduce((soma, venda) => soma + centavos(recebidoNaAberta(venda)
+      ?.find((forma) => forma.forma === 'DINHEIRO')?.valor ?? 0), 0) / 100,
+  }
+  const diaDaAbertura = selecionada ? diaNoBalcao(new Date(selecionada.abertaEm)) : dia
+  // O administrador pode lançar e fechar no caixa de quem está no balcão agora; o aviso vem antes.
+  const emUsoPorOutro = selecionada !== undefined && administrador
+    && selecionada.usuarioId !== identidade?.usuarioId && selecionada.status === 'ABERTA'
+    && !abertaAntesDeHoje(selecionada.abertaEm)
 
   const carregar = useCallback(async () => {
     try {
@@ -237,6 +398,15 @@ export function TelaDeCaixa() {
     }
   }
 
+  /**
+   * O detalhe abre logo abaixo da linha da venda; fechado pelo botão de dentro dele, o foco volta ao
+   * Ver da linha, em vez de cair no começo da página com o botão que sumiu.
+   */
+  function fecharDetalhe(vendaId: string) {
+    setEmDetalhe(undefined)
+    document.getElementById(idDoVer(vendaId))?.focus()
+  }
+
   /** Sem rede, o comprovante é montado com o que o aparelho guarda, como o da venda feita sem rede. */
   async function pedirSegundaVia(venda: Venda) {
     setMensagem(undefined)
@@ -300,7 +470,7 @@ export function TelaDeCaixa() {
         lugar: 'fechamento' })
       return
     }
-    if (!(await confirmar(perguntaDoFechamento(contado, diferencaPrevista)))) return
+    if (!(await confirmar(perguntaDoFechamento(contado, diferencaPrevista, resumoDasAbertas)))) return
     setOcupado('fechar')
     try {
       await caixa.fechar(selecionada.id, contado)
@@ -316,13 +486,17 @@ export function TelaDeCaixa() {
     }
   }
 
+  const vendido = listaDaSessao ? vendidoNoCaixa(listaDaSessao) : undefined
+  const notaForaDoTotal = vendido && vendido.vendas > 0 ? foraDoTotal(vendasAbertas.length,
+    vendasEmOrdem.filter((venda) => venda.status === 'CANCELADA').length) : null
+
   return <section className="caixa">
     <TituloComAjuda titulo="Caixa" ajuda={AJUDA.caixa} />
     {mostrarEm('tela')}
     {carregando ? <p>Carregando...</p> : <>
       {deOutroDia.length > 0 && <section className="caixa__cartao">
         <h3>Caixas abertos desde outro dia</h3>
-        <p>Sessões de outros usuários que ficaram abertas. Escolha uma para conferir e fechar.</p>
+        <p>Caixas de outros usuários que ficaram abertos. Escolha um para conferir e fechar.</p>
         <ul className="caixa__lista">
           {deOutroDia.map((sessao) => <li key={sessao.id}>
             <button className="botao botao--secundario" type="button" onClick={() => setSelecionada(sessao)}>
@@ -337,8 +511,9 @@ export function TelaDeCaixa() {
           <p>Aberto em {dataHora.format(new Date(aberta.abertaEm))}</p>
           <p>Valor inicial: <strong>{moeda.format(aberta.valorAbertura)}</strong></p>
           {aberta.pendenteSincronizacao && <p>Pendente de sincronização com o servidor.</p>}
-          <button className="botao botao--secundario" type="button"
-            onClick={() => setSelecionada(aberta)}>Ver meu caixa</button>
+          {/* Com o próprio caixa já aberto embaixo, o botão só repetiria o que está na tela. */}
+          {selecionada?.id !== aberta.id && <button className="botao botao--secundario" type="button"
+            onClick={() => setSelecionada(aberta)}>Ver meu caixa</button>}
         </> : <form onSubmit={(evento) => void abrir(evento)}>
           <p>Nenhum caixa aberto para você.</p>
           <CampoDeDinheiro rotulo="Valor inicial" required placeholder="0,00" valor={valorAbertura}
@@ -355,38 +530,82 @@ export function TelaDeCaixa() {
         <label>Dia
           <input type="date" value={dia} onChange={(evento) => setDia(evento.target.value)} />
         </label>
-        <p>{!online ? 'Sessões deste operador guardadas no dispositivo.'
-          : administrador ? 'Sessões de todos os operadores.' : 'Suas sessões.'}</p>
-        {historico.length === 0 ? <p>Nenhuma sessão neste dia.</p> : <ul className="caixa__lista">
+        <p>{!online ? 'Caixas deste operador guardados no dispositivo.'
+          : administrador ? 'Caixas de todos os operadores.' : 'Seus caixas.'}</p>
+        {historico.length === 0 ? <p>Nenhum caixa neste dia.</p> : <ul className="caixa__lista">
           {historico.map((sessao) => <li key={sessao.id}>
-            <button className="botao botao--secundario" type="button"
+            <button className="botao botao--secundario caixa__item" type="button"
               onClick={() => setSelecionada(sessao)}>
-              {dataHora.format(new Date(sessao.abertaEm))} · {ROTULO_DO_CAIXA[sessao.status]} · {moeda.format(sessao.valorAbertura)}
-              {administrador && ` · ${nomeDoOperador(sessao.usuarioId)}`}
+              {administrador && <strong>{nomeDoOperador(sessao.usuarioId)}</strong>}
+              <span>{linhaDoHistorico(sessao)}</span>
             </button>
           </li>)}
         </ul>}
       </section>
 
-      {selecionada && <section className="caixa__cartao">
-        <h3>Sessão selecionada</h3>
+      {/* A chave recolhe de novo as listas abertas quando outro caixa é escolhido. */}
+      {selecionada && <section className="caixa__cartao" key={selecionada.id}>
+        <h3>Caixa de {nomeDoOperador(selecionada.usuarioId)}</h3>
         {mostrarEm('sessao')}
+        {emUsoPorOutro && <p className="mensagem-alerta">
+          {nomeDoOperador(selecionada.usuarioId)} está com este caixa em uso desde
+          as {hora.format(new Date(selecionada.abertaEm))} de hoje. Sangria, suprimento e fechamento
+          lançados aqui mudam a gaveta que está no balcão.
+        </p>}
         <p>Situação: <strong>{ROTULO_DO_CAIXA[selecionada.status]}</strong></p>
         {selecionada.pendenteSincronizacao && <p>Pendente de sincronização com o servidor.</p>}
         <p>Abertura: {dataHora.format(new Date(selecionada.abertaEm))}</p>
-        <p>Valor inicial: {moeda.format(selecionada.valorAbertura)}</p>
-        <p>Saldo esperado: <strong>{selecionada.saldoDesatualizado ? 'indisponível até a próxima leitura do caixa'
-          : moeda.format(selecionada.valorFechamentoEsperado)}</strong></p>
-        {selecionada.saldoDesatualizado && <p>Este caixa mudou com rede depois da última leitura feita neste
-          aparelho. Saldo, diferença e extrato atualizados aparecem quando ele for lido de novo; até lá, a
-          sangria sem rede espera.</p>}
-        {selecionada.status === 'FECHADA' && (selecionada.fechamentoSemValores
-          ? <p>Fechada no servidor; valor contado e diferença aparecem quando a rede voltar.</p>
-          : <>
-            <p>Valor contado: {moeda.format(selecionada.valorFechamentoContado ?? 0)}</p>
-            {selecionada.saldoDesatualizado ? <p>Diferença: aparece quando o caixa for lido de novo.</p>
-              : <p><strong>{comMaiuscula(diferencaEmPalavras(selecionada.diferenca ?? 0))}</strong></p>}
-          </>)}
+        {selecionada.fechadaEm && <p>Fechamento: {dataHora.format(new Date(selecionada.fechadaEm))}</p>}
+
+        <div className="caixa__resumo">
+          <div>
+            <h4 id={`${ids}-gaveta`}>Gaveta</h4>
+            <table className="tabela" aria-labelledby={`${ids}-gaveta`}>
+              <tbody>
+                <tr><th scope="row">Valor inicial</th>
+                  <td className="tabela__numero">{moeda.format(selecionada.valorAbertura)}</td></tr>
+                <tr><th scope="row">Saldo esperado</th>
+                  {selecionada.saldoDesatualizado ? <td>indisponível até a próxima leitura do caixa</td>
+                    : <td className="tabela__numero"><strong>{moeda.format(selecionada.valorFechamentoEsperado)}</strong></td>}</tr>
+                {selecionada.status === 'FECHADA' && !selecionada.fechamentoSemValores && <>
+                  <tr><th scope="row">Valor contado</th>
+                    <td className="tabela__numero">{moeda.format(selecionada.valorFechamentoContado ?? 0)}</td></tr>
+                  <tr><th scope="row">Diferença</th>
+                    {selecionada.saldoDesatualizado ? <td>aparece quando o caixa for lido de novo.</td>
+                      : <td className="tabela__numero">
+                        <strong>{comMaiuscula(diferencaEmPalavras(selecionada.diferenca ?? 0))}</strong></td>}</tr>
+                </>}
+              </tbody>
+            </table>
+            {selecionada.saldoDesatualizado && <p>Este caixa mudou com rede depois da última leitura feita neste
+              aparelho. Saldo, diferença e extrato atualizados aparecem quando ele for lido de novo; até lá, a
+              sangria sem rede espera.</p>}
+            {selecionada.status === 'FECHADA' && selecionada.fechamentoSemValores
+              && <p>Fechado no servidor; valor contado e diferença aparecem quando a rede voltar.</p>}
+          </div>
+          <div>
+            <h4 id={`${ids}-vendido`}>Vendido neste caixa</h4>
+            {!vendido ? <p>Carregando vendas...</p>
+              : vendido.vendas === 0 ? <p>Nenhuma venda concluída neste caixa.</p>
+                : <table className="tabela" aria-labelledby={`${ids}-vendido`}>
+                  <thead><tr><th scope="col">Forma</th><th scope="col" className="tabela__numero">Valor</th></tr></thead>
+                  <tbody>
+                    {vendido.porForma.map((daForma) => <tr key={daForma.forma}>
+                      <th scope="row">{ROTULO_DA_FORMA[daForma.forma]}</th>
+                      <td className="tabela__numero">{moeda.format(daForma.valor)}</td>
+                    </tr>)}
+                    {vendido.semForma > 0 && <tr><th scope="row">Forma não informada</th>
+                      <td className="tabela__numero">{moeda.format(vendido.semForma)}</td></tr>}
+                  </tbody>
+                  <tfoot><tr>
+                    <th scope="row">Total de {vendido.vendas} {vendido.vendas === 1 ? 'venda' : 'vendas'}</th>
+                    <td className="tabela__numero">{moeda.format(vendido.total)}</td>
+                  </tr></tfoot>
+                </table>}
+            {notaForaDoTotal && <p className="caixa__nota">{notaForaDoTotal}</p>}
+            {!online && <p className="caixa__nota">Sem conexão, o vendido conta só as vendas guardadas neste aparelho.</p>}
+          </div>
+        </div>
 
         {/* As ações vêm antes do extrato: cada venda acrescenta uma linha a ele, e o fechamento, no
             fim do dia, ficaria depois de todas. */}
@@ -412,7 +631,21 @@ export function TelaDeCaixa() {
         {selecionada.status === 'ABERTA' && <form className="caixa__formulario"
           onSubmit={(evento) => void fechar(evento)}>
           <h4>Fechar caixa</h4>
-          <p>Confira o dinheiro da gaveta contra o saldo esperado acima.</p>
+          <p>Confira o dinheiro da gaveta contra o saldo esperado, e o cartão e o Pix contra o vendido neste caixa.</p>
+          {resumoDasAbertas && <>
+            <p className="mensagem-alerta">{avisoDasAbertas(resumoDasAbertas)}</p>
+            <table className="tabela" aria-label="Vendas abertas">
+              <thead><tr><th scope="col">Hora</th><th scope="col" className="tabela__numero">Valor da venda</th>
+                <th scope="col" className="caixa__recebido">Já recebido</th></tr></thead>
+              <tbody>
+                {vendasAbertas.map((venda) => <tr key={venda.id}>
+                  <td className="tabela__hora">{horaNoDia(new Date(venda.criadoEm), diaDaAbertura)}</td>
+                  <td className="tabela__numero">{moeda.format(venda.total)}</td>
+                  <td className="caixa__recebido">{recebidoEmPalavras(recebidoNaAberta(venda))}</td>
+                </tr>)}
+              </tbody>
+            </table>
+          </>}
           <CampoDeDinheiro rotulo="Valor contado" required valor={valorContado} aoMudar={setValorContado} />
           {diferencaPrevista !== null && <p>Se fechar agora: {diferencaEmPalavras(diferencaPrevista)}</p>}
           <button className="botao" disabled={ocupado !== null}>
@@ -421,42 +654,83 @@ export function TelaDeCaixa() {
           {mostrarEm('fechamento')}
         </form>}
 
-        <details className="caixa__extrato" open>
-          <summary>Movimentos{selecionada.movimentos ? ` (${selecionada.movimentos.length})` : ''}</summary>
+        {/* Recolhido: com um turno cheio, o extrato e as vendas abertos levavam a página a milhares de
+            pixels. O resumo acima já diz o saldo e o vendido; a lista é para conferir uma linha. */}
+        <details className="caixa__extrato">
+          <summary id={`${ids}-movimentos`}>
+            Movimentos{selecionada.movimentos ? ` (${selecionada.movimentos.length})` : ''}
+          </summary>
           {!selecionada.movimentos ? <p>Carregando extrato...</p>
-            : selecionada.movimentos.length === 0 ? <p>Nenhum movimento nesta sessão.</p>
-              : <ul className="caixa__movimentos">
-                {selecionada.movimentos.map((movimento) => <li key={movimento.id}>
-                  <strong>{ROTULO_DO_MOVIMENTO[movimento.tipo]}</strong> · {moeda.format(movimento.valor)}
-                  {' · '}{dataHora.format(new Date(movimento.criadoEm))}
-                  {movimento.motivo && <span> · {movimento.motivo}</span>}
-                  {movimento.vendaId && <span> · Venda {movimento.vendaId.slice(0, 8)}</span>}
-                </li>)}
-              </ul>}
+            : selecionada.movimentos.length === 0 ? <p>Nenhum movimento neste caixa.</p>
+              : <table className="tabela" aria-labelledby={`${ids}-movimentos`}>
+                <thead><tr>
+                  <th scope="col">Hora</th><th scope="col">Tipo</th>
+                  <th scope="col" className="tabela__numero">Valor</th>
+                  {/* O saldo corrido de um extrato que ficou para trás não bateria com o do servidor. */}
+                  {!selecionada.saldoDesatualizado && <th scope="col" className="tabela__numero">Saldo</th>}
+                </tr></thead>
+                <tbody>
+                  {extratoComSaldo(selecionada).map(({ movimento, valor, saldo }) => <tr key={movimento.id}>
+                    <td className="tabela__hora">{horaNoDia(new Date(movimento.criadoEm), diaDaAbertura)}</td>
+                    <td>
+                      {ROTULO_DO_MOVIMENTO[movimento.tipo]}
+                      {movimento.motivo && <span className="caixa__sob">{movimento.motivo}</span>}
+                    </td>
+                    <td className="tabela__numero">{moeda.format(valor)}</td>
+                    {!selecionada.saldoDesatualizado && <td className="tabela__numero">{moeda.format(saldo)}</td>}
+                  </tr>)}
+                </tbody>
+              </table>}
         </details>
 
         {/* O extrato só mostra o dinheiro; aqui ficam todas as vendas, inclusive as canceladas e as
             pagas em Pix, cartão ou fiado. Nenhuma ação de escrita: a lista é para conferir. */}
-        <details className="caixa__extrato" open>
-          <summary>Vendas{listaDaSessao ? ` (${listaDaSessao.length})` : ''}</summary>
+        <details className="caixa__extrato">
+          <summary id={`${ids}-vendas`}>Vendas{listaDaSessao ? ` (${listaDaSessao.length})` : ''}</summary>
           {mostrarEm('vendas')}
           {!online && <p>Sem conexão, a lista mostra as vendas guardadas neste aparelho.</p>}
           {!listaDaSessao ? <p>Carregando vendas...</p>
-            : listaDaSessao.length === 0 ? <p>Nenhuma venda nesta sessão.</p>
-              : <ul className="caixa__lista">
-                {listaDaSessao.map((resumo) => <li key={resumo.id}>
-                  <button className="botao botao--secundario" type="button" onClick={() => void verVenda(resumo)}>
-                    {dataHora.format(new Date(resumo.criadoEm))} · {ROTULO_DA_VENDA[resumo.status]} · {moeda.format(resumo.total)}
-                    {resumo.pendenteSincronizacao && ' · pendente de sincronização'}
-                  </button>
-                </li>)}
-              </ul>}
-          {detalheDaSessao && <DetalheDaVenda {...detalheDaSessao} aoFechar={() => setEmDetalhe(undefined)}
-            aoPedirSegundaVia={() => void pedirSegundaVia(detalheDaSessao.venda)} />}
-          {segundaViaDoDetalhe && identidade && <Comprovante comprovante={segundaViaDoDetalhe.comprovante}
-            negocio={identidade.nomeNegocio} operador={nomeDoOperador(segundaViaDoDetalhe.comprovante.usuarioId)}
-            segundaViaEm={segundaViaDoDetalhe.em}
-            aoFalhar={(texto) => setMensagem({ tipo: 'erro', texto, lugar: 'vendas' })} />}
+            : listaDaSessao.length === 0 ? <p>Nenhuma venda neste caixa.</p>
+              : <table className="tabela" aria-labelledby={`${ids}-vendas`}>
+                <thead><tr>
+                  <th scope="col">Hora</th><th scope="col">Situação</th>
+                  <th scope="col" className="tabela__numero">Valor</th><td />
+                </tr></thead>
+                <tbody>
+                  {vendasEmOrdem.map((resumo) => {
+                    const aberto = detalheDaSessao?.venda.id === resumo.id
+                    const cancelada = resumo.status === 'CANCELADA'
+                    return <Fragment key={resumo.id}>
+                      <tr>
+                        <td className="tabela__hora">{horaNoDia(new Date(resumo.criadoEm), diaDaAbertura)}</td>
+                        <td>
+                          <SituacaoDaVenda status={resumo.status} />
+                          {resumo.formas && resumo.formas.length > 0 && <span className="caixa__sob">
+                            {listaDeFormas.format(resumo.formas.map((forma) => ROTULO_DA_FORMA[forma.forma]))}
+                          </span>}
+                          {resumo.pendenteSincronizacao && <span className="caixa__sob">pendente de sincronização</span>}
+                        </td>
+                        <td className={cancelada ? 'tabela__numero caixa__cancelada' : 'tabela__numero'}>
+                          {cancelada ? <s>{moeda.format(resumo.total)}</s> : moeda.format(resumo.total)}
+                        </td>
+                        <td>
+                          <button id={idDoVer(resumo.id)} className="botao botao--secundario caixa__ver" type="button"
+                            aria-expanded={aberto}
+                            onClick={() => aberto ? setEmDetalhe(undefined) : void verVenda(resumo)}>Ver</button>
+                        </td>
+                      </tr>
+                      {aberto && detalheDaSessao && <tr className="caixa__detalhe-da-linha"><td colSpan={4}>
+                        <DetalheDaVenda {...detalheDaSessao} aoFechar={() => fecharDetalhe(resumo.id)}
+                          aoPedirSegundaVia={() => void pedirSegundaVia(detalheDaSessao.venda)} />
+                        {segundaViaDoDetalhe && identidade && <Comprovante comprovante={segundaViaDoDetalhe.comprovante}
+                          negocio={identidade.nomeNegocio} operador={nomeDoOperador(segundaViaDoDetalhe.comprovante.usuarioId)}
+                          segundaViaEm={segundaViaDoDetalhe.em}
+                          aoFalhar={(texto) => setMensagem({ tipo: 'erro', texto, lugar: 'vendas' })} />}
+                      </td></tr>}
+                    </Fragment>
+                  })}
+                </tbody>
+              </table>}
         </details>
       </section>}
     </>}

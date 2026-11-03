@@ -11,7 +11,7 @@ export const AJUDA = {
   caixa: [
     'Abra o caixa com o dinheiro da gaveta antes da primeira venda do dia.',
     'Sangria é dinheiro que sai da gaveta; suprimento é troco que entra.',
-    'Ao fechar, conte a gaveta: a tela mostra a falta ou a sobra, e as vendas de cada sessão ficam aqui para conferir.',
+    'Ao fechar, conte a gaveta: a tela mostra a falta ou a sobra, e as vendas de cada caixa ficam aqui para conferir.',
   ],
   produtos: [
     'Com estoque é o item comprado pronto, que se conta na prateleira; Sem estoque é serviço ou preparado na hora.',

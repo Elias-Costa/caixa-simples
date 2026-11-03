@@ -1,4 +1,4 @@
-import { FUSO_DO_BALCAO } from './dataDoBalcao'
+import { diaNoBalcao, FUSO_DO_BALCAO } from './dataDoBalcao'
 
 /** Dinheiro como o balcão lê, com separador de milhar e vírgula, igual em toda tela e comprovante. */
 export const moeda = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -13,6 +13,18 @@ export const dataHora = new Intl.DateTimeFormat('pt-BR', {
 
 /** Só a hora, no mesmo fuso: na lista de um caixa, a data se repetiria em toda linha. */
 export const hora = new Intl.DateTimeFormat('pt-BR', { timeStyle: 'short', timeZone: FUSO_DO_BALCAO })
+
+/** O dia e o mês, sem o ano, para dizer de que dia é uma hora numa lista curta. */
+export const diaEMes = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', timeZone: FUSO_DO_BALCAO })
+
+/**
+ * A hora de um instante, com o dia e o mês antes dela quando ele não é do dia dado. Num caixa aberto
+ * desde a véspera, só a hora misturaria as linhas de um dia com as do outro.
+ */
+export function horaNoDia(instante: Date, dia: string): string {
+  return diaNoBalcao(instante) === dia ? hora.format(instante)
+    : `${diaEMes.format(instante)} ${hora.format(instante)}`
+}
 
 /** A quantidade com vírgula e até três casas, as do que se vende por peso, sem zeros sobrando. */
 export const quantidade = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 3 })

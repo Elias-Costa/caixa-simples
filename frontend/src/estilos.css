@@ -676,6 +676,29 @@ main.cadastro {
 .cadastro__atributos { border: 1px solid var(--cor-borda); border-radius: var(--raio); margin: 0 0 var(--espaco); padding: var(--espaco); }
 .cadastro__par { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; margin-bottom: 8px; }
 
+/* Tabela de números, dos relatórios e do caixa: o rótulo à esquerda, os valores à direita com
+   algarismos de largura igual, para as colunas se lerem de cima a baixo. A palavra nunca quebra no
+   meio; só o NSU, que não tem espaço. */
+.tabela { width: 100%; border-collapse: collapse; }
+.tabela caption { margin: 16px 0 8px; text-align: left; font-weight: 700; }
+.tabela th, .tabela td { padding: 6px 8px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--cor-borda); }
+.tabela th:first-child, .tabela td:first-child { padding-left: 0; }
+.tabela th:last-child, .tabela td:last-child { padding-right: 0; }
+.tabela tbody tr:last-child > * { border-bottom: 0; }
+.tabela thead th { color: var(--cor-texto-secundario); font-size: 0.85rem; font-weight: 600; }
+.tabela tbody th { font-weight: 400; }
+.tabela .tabela__numero { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tabela__hora { white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* No celular, a folga curta entre as colunas: o que sobra vai para o texto, como o nome do produto. */
+@media (max-width: 600px) {
+  .tabela th, .tabela td { padding-left: 4px; padding-right: 4px; }
+}
+/* Marca curta sob um nome ou uma situação, como Fiado ou Cancelada: a palavra diz o estado, e a cor
+   do alerta só reforça o que pede atenção. */
+.marcas { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.marca { padding: 0 6px; border: 1px solid var(--cor-borda-controle); border-radius: 999px; font-size: 0.85rem; white-space: nowrap; }
+.marca--alerta { border-color: var(--cor-alerta); color: var(--cor-alerta); font-weight: 700; }
+
 .caixa { max-width: 1100px; margin: 0 auto; }
 .caixa__cartao { background: var(--cor-superficie); border: 1px solid var(--cor-borda); border-radius: var(--raio); padding: var(--espaco); margin-bottom: var(--espaco); }
 .caixa__cartao h3 { margin-top: 0; }
@@ -684,8 +707,30 @@ main.cadastro {
 .caixa__cartao input, .caixa__cartao select { max-width: 320px; }
 .caixa__lista { list-style: none; padding: 0; display: grid; gap: 8px; }
 .caixa__lista .botao { text-align: left; white-space: normal; }
+/* Cada caixa do histórico em duas linhas: de quem é, e embaixo os horários e os valores. */
+.caixa__item { display: grid; gap: 2px; justify-items: start; }
+.caixa__item span { font-weight: 400; }
 .caixa__movimentos { padding-left: 20px; display: grid; gap: 8px; overflow-wrap: anywhere; }
+/* A gaveta e o vendido lado a lado a partir do tablet: no celular, um embaixo do outro. */
+.caixa__resumo { display: grid; gap: 0 calc(var(--espaco) * 2); margin-bottom: var(--espaco); }
+@media (min-width: 760px) {
+  .caixa__resumo { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.caixa__resumo h4 { margin: 12px 0 4px; }
+.caixa__resumo tfoot > tr > * { border-top: 2px solid var(--cor-borda-controle); border-bottom: 0; font-weight: 700; }
+.caixa__nota { margin: 8px 0 0; color: var(--cor-texto-secundario); font-size: 0.85rem; }
+/* O que fica sob o tipo ou a situação, como o motivo da sangria ou as formas da venda. */
+.caixa__sob { display: block; color: var(--cor-texto-secundario); font-size: 0.85rem; }
+/* A venda cancelada não conta: o valor riscado e apagado, além da marca com a palavra. */
+.caixa__cancelada { color: var(--cor-texto-secundario); }
+/* O já recebido é frase, à esquerda, logo depois de um valor alinhado à direita: sem a folga, os dois
+   se leem como um número só. */
+.tabela .caixa__recebido { padding-left: 16px; }
+.caixa__ver { padding-left: 12px; padding-right: 12px; }
+.caixa__detalhe-da-linha > td { padding-top: 0; }
 .caixa__extrato { margin-top: var(--espaco); }
+/* Na largura do desktop, a tabela inteira espalharia as colunas, e a hora ficaria longe do valor. */
+.caixa__extrato .tabela { max-width: 44rem; }
 .caixa__extrato summary { padding: 12px 0; font-weight: 700; cursor: pointer; }
 
 .relatorios { max-width: 1100px; margin: 0 auto; }
@@ -724,18 +769,6 @@ main.cadastro {
 /* O aviso no alto do cartão leva a cor do que pede atenção, e o texto diz o porquê. */
 .relatorios__aviso { margin: 0 0 12px; padding: 8px 12px; border-left: 4px solid var(--cor-alerta); border-radius: 0 var(--raio) var(--raio) 0; background: var(--cor-alerta-fundo); }
 .relatorios__sem-conferencia { margin: 0; padding: 12px var(--espaco); border: 1px dashed var(--cor-borda-controle); border-radius: var(--raio); color: var(--cor-texto-secundario); }
-/* Tabela de números: o rótulo à esquerda, os valores à direita com algarismos de largura igual, para
-   as colunas se lerem de cima a baixo. A palavra nunca quebra no meio; só o NSU, que não tem espaço. */
-.relatorios__tabela { width: 100%; border-collapse: collapse; }
-.relatorios__tabela caption { margin: 16px 0 8px; text-align: left; font-weight: 700; }
-.relatorios__tabela th, .relatorios__tabela td { padding: 6px 8px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--cor-borda); }
-.relatorios__tabela th:first-child, .relatorios__tabela td:first-child { padding-left: 0; }
-.relatorios__tabela th:last-child, .relatorios__tabela td:last-child { padding-right: 0; }
-.relatorios__tabela tbody tr:last-child > * { border-bottom: 0; }
-.relatorios__tabela thead th { color: var(--cor-texto-secundario); font-size: 0.85rem; font-weight: 600; }
-.relatorios__tabela tbody th { font-weight: 400; }
-.relatorios__tabela .relatorios__numero { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.relatorios__hora { white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* O NSU comum, de seis ou sete algarismos, cabe na largura mínima, e o Sem NSU não quebra; só o NSU
    mais longo que isso quebra, e sem ela a tabela estreita espremeria a coluna até um algarismo por
    linha. */
@@ -747,20 +780,15 @@ main.cadastro {
 /* Quatro colunas em pouco mais de 300px, no celular e em cada metade do tablet: a folga entre elas
    é a menor que ainda separa o valor do NSU. */
 .relatorios__rolagem th, .relatorios__rolagem td { padding-left: 4px; padding-right: 4px; }
-.relatorios__rolagem .relatorios__numero { padding-right: 8px; }
-/* No celular, a mesma folga curta nas tabelas dos resumos: o que sobra vai para o nome do produto. */
+.relatorios__rolagem .tabela__numero { padding-right: 8px; }
 @media (max-width: 600px) {
-  .relatorios__tabela th, .relatorios__tabela td,
-  .relatorios__rolagem .relatorios__numero { padding-left: 4px; padding-right: 4px; }
+  .relatorios__rolagem .tabela__numero { padding-left: 4px; padding-right: 4px; }
 }
 .relatorios__rolagem thead th { position: sticky; top: 0; z-index: 1; background: var(--cor-superficie); }
 /* O filtro ligado leva o ciano do item ativo do menu; o aria-pressed diz o estado ao leitor de tela. */
 .relatorios__filtro { margin-top: 8px; }
 .relatorios__filtro[aria-pressed='true'] { background: var(--cor-superficie-realce); box-shadow: inset 0 -3px 0 var(--cor-destaque); }
 .relatorios__cliente { display: block; color: var(--cor-texto-secundario); }
-.relatorios__marcas { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
-.relatorios__marca { padding: 0 6px; border: 1px solid var(--cor-borda-controle); border-radius: 999px; font-size: 0.85rem; white-space: nowrap; }
-.relatorios__marca--alerta { border-color: var(--cor-alerta); color: var(--cor-alerta); font-weight: 700; }
 
 .estoque { max-width: 1100px; margin: 0 auto; }
 .estoque__lista { padding-left: 20px; display: grid; gap: 8px; }

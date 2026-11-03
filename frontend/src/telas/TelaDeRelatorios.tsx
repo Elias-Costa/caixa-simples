@@ -230,17 +230,17 @@ function CartaoDoFaturamento({ consulta }: { consulta: Consulta }) {
     </div>
     <p>{vendas} {vendas === 1 ? 'venda concluída' : 'vendas concluídas'}</p>
     {vendas === 0 && <p>Nenhuma venda concluída neste período.</p>}
-    <table className="relatorios__tabela">
+    <table className="tabela">
       <caption>Por forma de pagamento</caption>
       <thead>
-        <tr><th scope="col">Forma</th><th scope="col" className="relatorios__numero">Valor</th>
-          <th scope="col" className="relatorios__numero">Vendas</th></tr>
+        <tr><th scope="col">Forma</th><th scope="col" className="tabela__numero">Valor</th>
+          <th scope="col" className="tabela__numero">Vendas</th></tr>
       </thead>
       <tbody>
         {porForma.map(({ forma, rotulo, faturamento: daForma }) => <tr key={forma}>
           <th scope="row">{rotulo}</th>
-          <td className="relatorios__numero">{moeda.format(daForma.total)}</td>
-          <td className="relatorios__numero">{daForma.quantidadeDeVendas}</td>
+          <td className="tabela__numero">{moeda.format(daForma.total)}</td>
+          <td className="tabela__numero">{daForma.quantidadeDeVendas}</td>
         </tr>)}
       </tbody>
     </table>
@@ -255,17 +255,17 @@ function CartaoDosMaisVendidos({ consulta }: { consulta: Consulta }) {
     <h3 id={idDoTitulo}>Mais vendidos</h3>
     {posicoes.length === 0
       ? <p>Nenhum produto vendido neste período.</p>
-      : <table className="relatorios__tabela" aria-labelledby={idDoTitulo}>
+      : <table className="tabela" aria-labelledby={idDoTitulo}>
         <thead>
-          <tr><th scope="col">Produto</th><th scope="col" className="relatorios__numero">Quantidade</th>
-            <th scope="col" className="relatorios__numero">Valor</th></tr>
+          <tr><th scope="col">Produto</th><th scope="col" className="tabela__numero">Quantidade</th>
+            <th scope="col" className="tabela__numero">Valor</th></tr>
         </thead>
         <tbody>
           {posicoes.map((posicao) => <tr key={posicao.produtoId}>
             <th scope="row">{posicao.nome}</th>
             {/* A unidade dá sentido à quantidade; o serviço sem unidade mostra só o número. */}
-            <td className="relatorios__numero">{numero.format(posicao.quantidade)}{posicao.unidade ? ` ${posicao.unidade}` : ''}</td>
-            <td className="relatorios__numero">{moeda.format(posicao.valor)}</td>
+            <td className="tabela__numero">{numero.format(posicao.quantidade)}{posicao.unidade ? ` ${posicao.unidade}` : ''}</td>
+            <td className="tabela__numero">{moeda.format(posicao.valor)}</td>
           </tr>)}
         </tbody>
       </table>}
@@ -276,9 +276,9 @@ function CartaoDosMaisVendidos({ consulta }: { consulta: Consulta }) {
 function Marcas({ marcas }: { marcas: (Marca | null)[] }) {
   const presentes = marcas.filter((marca): marca is Marca => marca !== null)
   if (presentes.length === 0) return null
-  return <span className="relatorios__marcas">
+  return <span className="marcas">
     {presentes.map(({ texto, alerta }) => <span key={texto}
-      className={alerta ? 'relatorios__marca relatorios__marca--alerta' : 'relatorios__marca'}>{texto}</span>)}
+      className={alerta ? 'marca marca--alerta' : 'marca'}>{texto}</span>)}
   </span>
 }
 
@@ -307,15 +307,15 @@ function CartaoDaConferencia({ conferencia, nomeDe }: {
         aria-pressed={soSemNsu} onClick={() => setSoSemNsu((antes) => !antes)}>Só sem NSU</button>}
       {/* A região rola por dentro e recebe o foco, para quem usa o teclado também poder rolar. */}
       <div className="relatorios__rolagem" role="region" aria-labelledby={idDoTitulo} tabIndex={0}>
-        <table className="relatorios__tabela" aria-labelledby={idDoTitulo}>
+        <table className="tabela" aria-labelledby={idDoTitulo}>
           <thead>
-            <tr><th scope="col">Hora</th><th scope="col" className="relatorios__numero">Valor</th>
+            <tr><th scope="col">Hora</th><th scope="col" className="tabela__numero">Valor</th>
               <th scope="col">NSU</th><th scope="col">Operador</th></tr>
           </thead>
           <tbody>
             {linhas.map((lancamento) => <tr key={lancamento.id}>
-              <td className="relatorios__hora">{hora.format(new Date(lancamento.lancadoEm))}</td>
-              <td className="relatorios__numero">{moeda.format(lancamento.valor)}</td>
+              <td className="tabela__hora">{hora.format(new Date(lancamento.lancadoEm))}</td>
+              <td className="tabela__numero">{moeda.format(lancamento.valor)}</td>
               <td className="relatorios__nsu">{lancamento.nsu ?? <span className="relatorios__sem-nsu">Sem NSU</span>}</td>
               <td>{nomeDe(lancamento.operadorId)}
                 <Marcas marcas={[
@@ -350,15 +350,15 @@ function CartaoDaConferenciaDoPix({ conferencia, nomeDe, nomeDoCliente }: {
       {aguardando.length > 0 && <p className="relatorios__resumo">{aguardando.length} aguardando confirmação, de
         {' '}{moeda.format(somar(aguardando.map((lancamento) => lancamento.valor)))}, fora do total.</p>}
       <div className="relatorios__rolagem" role="region" aria-labelledby={idDoTitulo} tabIndex={0}>
-        <table className="relatorios__tabela" aria-labelledby={idDoTitulo}>
+        <table className="tabela" aria-labelledby={idDoTitulo}>
           <thead>
-            <tr><th scope="col">Hora</th><th scope="col" className="relatorios__numero">Valor</th>
+            <tr><th scope="col">Hora</th><th scope="col" className="tabela__numero">Valor</th>
               <th scope="col">Operador</th></tr>
           </thead>
           <tbody>
             {lancamentos.map((lancamento) => <tr key={lancamento.id}>
-              <td className="relatorios__hora">{hora.format(new Date(lancamento.lancadoEm))}</td>
-              <td className="relatorios__numero">{moeda.format(lancamento.valor)}</td>
+              <td className="tabela__hora">{hora.format(new Date(lancamento.lancadoEm))}</td>
+              <td className="tabela__numero">{moeda.format(lancamento.valor)}</td>
               <td>{nomeDe(lancamento.operadorId)}
                 {lancamento.clienteId && <span className="relatorios__cliente">Cliente: {nomeDoCliente(lancamento.clienteId)}</span>}
                 <Marcas marcas={[
