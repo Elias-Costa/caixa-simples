@@ -17,9 +17,9 @@ sem corpo.
 |---|---|
 | [`Dockerfile`](../Dockerfile) | Imagem do jar único, com a API e o aplicativo na mesma origem |
 | [`.dockerignore`](../.dockerignore) e [`.dockerignore`](.dockerignore) desta pasta | O que cada build de imagem enxerga: só o que compila o jar, e só os scripts que a imagem da cópia copia |
-| [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) | Testes Java e do front-end, build, lint e avisos de segurança das dependências a cada push no `main` e a cada pull request, e os avisos também uma vez por semana; no push verde, a publicação das imagens; de madrugada ou pelo botão, o deploy |
+| [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) | Testes Java e do front-end, build, lint e avisos de segurança das dependências a cada push no `main` e a cada pull request, e os avisos também uma vez por semana; no push verde, a publicação das imagens; pelo botão, o deploy de urgência |
 | [`.github/dependabot.yml`](../.github/dependabot.yml) | Uma vez por mês, um pull request com as versões novas das Actions do CI e das imagens de terceiros, que ficam [presas](#dependências-presas) pelo SHA do commit e pelo digest |
-| [`vps/`](vps/) | A VPS: o compose da produção, o proxy, o banco com o papel da aplicação sem superusuário, o preparo da máquina, o limite de conexões por origem, a configuração, o deploy, a cópia agendada, o vigia, o alerta de recusas e as tarefas do systemd |
+| [`vps/`](vps/) | A VPS: o compose da produção, o proxy, o banco com o papel da aplicação sem superusuário, o preparo da máquina, o limite de conexões por origem, a configuração, o deploy e o deploy da madrugada, a cópia agendada, o vigia, o alerta de recusas e as tarefas do systemd |
 | [`dependencias/`](dependencias/) | A verificação dos avisos de segurança das dependências e das imagens, e as exceções fundamentadas a ela |
 | [`copia/`](copia/) | Imagem da cópia, a cópia, a restauração e a conferência entre as duas |
 | [`exclusao/`](exclusao/) | O encerramento de uma Conta a pedido |
@@ -38,19 +38,29 @@ sem corpo.
    `publicar` constrói as duas imagens do commit e as publica no registro de contêineres do GitHub,
    em `ghcr.io/elias-costa/ecrx-caixa` e `ghcr.io/elias-costa/ecrx-caixa-copia`, com o SHA como
    tag, pelo token da própria execução. Nada vai ao ar aqui. Sem a variável, o CI testa e não publica.
-3. Toda madrugada, às 3h UTC (0h no fuso America/Bahia, o começo da janela de manutenção), o job
-   `implantar` pega o último commit do `main` cuja execução de push passou inteira e pede à VPS, por
-   SSH, que o ponha no ar; se ele já está no ar, nada acontece. Para uma correção urgente, o botão
-   **Run workflow** do CI, na aba Actions, faz o mesmo na hora.
+3. Toda madrugada, às 3h UTC (0h no fuso America/Bahia, o começo da janela de manutenção), o timer
+   `ecrx-caixa-implantar` da VPS roda o [deploy da madrugada](vps/implantar-agendado.sh): ele
+   pergunta à API pública do GitHub o último commit do `main` cuja execução de push passou inteira e
+   o entrega ao script de deploy; se ele já está no ar, nada acontece. Para uma correção urgente, o
+   botão **Run workflow** do CI, na aba Actions, faz a mesma pergunta e pede o mesmo deploy à VPS,
+   por SSH, na hora.
 4. Na VPS, o [script de deploy](vps/implantar.sh) confere o pedido, põe o clone do repositório no
    commit, baixa as imagens dele e troca a aplicação: a antiga para, e a nova aplica as migrations,
    valida o schema contra as entidades e passa no healthcheck. Enquanto isso, o proxy segura as
    requisições. A versão no ar só é gravada depois de a nova ficar saudável; se ela não ficar em 5
-   minutos, o CI fica vermelho, e o GitHub avisa por e-mail.
+   minutos, o deploy falha: o da madrugada manda o sinal de falha ao [vigia](#vigia), que avisa por
+   e-mail, e o do botão deixa o CI vermelho, e o GitHub avisa.
+
+**Por que um timer na VPS, e não a agenda do CI.** A agenda do GitHub atrasa com carga: o cron das 3h
+UTC disparou entre 7h40 e 10h50 UTC todos os dias de um mês inteiro, depois do fim da janela. O
+relógio da máquina não atrasa, já agenda a cópia e as atualizações, e o repositório público dispensa
+token para a pergunta. O resultado do deploy da madrugada fica no journald
+(`journalctl -u ecrx-caixa-implantar`), não na aba Actions.
 
 A chave SSH do CI, o único segredo do repositório, só roda esse script, e o script só aceita um commit
 que já está no `main`: o GitHub entrega pelo SHA também commits de forks, e quem tivesse a chave
-poderia pedir um deles.
+poderia pedir um deles. O timer não usa a chave: o script dele, como o de deploy, é cópia fora do
+repositório, feita pelo preparo, para um commit não trocar as regras do próprio deploy.
 
 **Por que de madrugada.** As duas versões da aplicação não cabem juntas na memória da VPS, então a
 troca para a aplicação por uns 40 segundos. O proxy segura cada requisição nova até a nova versão
@@ -67,10 +77,11 @@ madrugada leva o commit na noite seguinte. A mesma janela, das 0h às 5h no fuso
 8h UTC), vale para troca de plano da VPS, restauração e qualquer manutenção que possa derrubar o
 serviço.
 
-**A agenda pode parar.** O GitHub desliga a agenda de um repositório público depois de 60 dias sem
-atividade, e um push depois disso não a religa sozinho: o commit espera até alguém religá-la na aba
-Actions, ou até o botão. A agenda também pode atrasar; um commit de migration recusado por ter passado
-das 8h UTC vai na noite seguinte, porque continua sendo o último aprovado.
+**A noite perdida.** Com a máquina desligada às 3h UTC, ou com a API do GitHub fora do ar, o deploy
+daquela noite não acontece, e o check `deploy` do vigia avisa; o commit continua sendo o último
+aprovado e vai na noite seguinte, ou pelo botão. A agenda do GitHub ficou só com a verificação
+semanal das dependências, que pode atrasar sem dano; ela para depois de 60 dias sem atividade num
+repositório público, e é religada na aba Actions.
 
 **Voltar atrás.** O caminho é reverter o commit no `main`: o push verde publica as imagens, e a
 madrugada ou o botão põe no ar. Na VPS, como root, `/usr/local/sbin/ecrx-caixa-implantar <SHA>`
@@ -219,8 +230,10 @@ Na máquina, fora dos contêineres:
 | `/etc/ecrx-caixa/efi.env` e `efi/` | As credenciais e os certificados Pix de cada Conta |
 | `/var/lib/ecrx-caixa/versao.env` | O commit no ar, gravado pelo deploy |
 | `/usr/local/sbin/ecrx-caixa-implantar` | O script de deploy, cópia de [`vps/implantar.sh`](vps/implantar.sh) feita pelo preparo, fora do repositório, para um commit não trocar as regras do próprio deploy |
+| `/usr/local/sbin/ecrx-caixa-implantar-agendado` | O deploy da madrugada, que pergunta ao GitHub o último commit aprovado e chama o script de deploy; cópia de [`vps/implantar-agendado.sh`](vps/implantar-agendado.sh), fora do repositório pelo mesmo motivo |
 | `/etc/nftables/ecrx-caixa-limite.nft` | O [limite de conexões por origem](#borda), cópia de [`vps/limite-de-conexoes.nft`](vps/limite-de-conexoes.nft) feita pelo preparo, fora do repositório, pelo mesmo motivo |
 | `ecrx-caixa-limite.service` | Carrega esse limite a cada boot, depois do firewalld e antes do Docker |
+| `ecrx-caixa-implantar.timer` | O [deploy da madrugada](#do-push-à-produção), às 3h UTC |
 | `ecrx-caixa-copia.timer` | A [cópia](#cópia-de-hora-em-hora-cifrada), toda hora cheia, em UTC |
 | `ecrx-caixa-vigia.timer` | O sinal de vida para o [vigia](#vigia), a cada 5 minutos |
 | `ecrx-caixa-recusas.timer` | O [alerta de recusas](#vigia), a cada 5 minutos |
@@ -260,9 +273,9 @@ de uma Conta suspensa leva o motivo `conta_suspensa`. A [suspensão](#suspensão
 reverso saem da execução avulsa, como `conta.suspensa` e `conta.reativada`, sem origem. O erro
 inesperado sai com o método, o caminho e a pilha, sem as mensagens das exceções.
 
-Rodar o preparo de novo refaz cada passo sem duplicar nada. Mudou o `implantar.sh` ou o
-`limite-de-conexoes.nft`, rode-o de novo: é ele que copia os dois para fora do repositório e recarrega
-o limite.
+Rodar o preparo de novo refaz cada passo sem duplicar nada. Mudou o `implantar.sh`, o
+`implantar-agendado.sh` ou o `limite-de-conexoes.nft`, rode-o de novo: é ele que copia os três para
+fora do repositório e recarrega o limite.
 
 ## Configuração
 
@@ -286,7 +299,7 @@ variáveis que o compose lista para ele.
 | `ECRX_CAIXA_COPIA_DESTINO` e `ECRX_CAIXA_COPIA_DESTINO_DIARIA` | `s3:<bucket>/horaria` e `s3:<bucket>/diaria` | Os dois destinos da cópia |
 | `ECRX_CAIXA_COPIA_HORA_DIARIA` | `6` | A hora UTC da cópia que fica 30 dias |
 | `ECRX_CAIXA_COPIA_AWS_*` | A credencial do usuário do IAM da cópia | Grava objeto novo no bucket, e mais nada |
-| `ECRX_CAIXA_VIGIA_COPIA`, `ECRX_CAIXA_VIGIA_MAQUINA` e `ECRX_CAIXA_VIGIA_RECUSAS` | Os endereços de sinal dos três checks | O [vigia](#vigia) |
+| `ECRX_CAIXA_VIGIA_COPIA`, `ECRX_CAIXA_VIGIA_MAQUINA`, `ECRX_CAIXA_VIGIA_RECUSAS` e `ECRX_CAIXA_VIGIA_DEPLOY` | Os endereços de sinal dos quatro checks | O [vigia](#vigia) |
 
 `/etc/ecrx-caixa/efi.env` guarda, para cada Conta que recebe pelo Pix integrado, com o UUID da
 Conta em maiúsculas e sem hífens, `ECRX_CAIXA_EFI_<UUID>_AMBIENTE`, `_CLIENT_ID`, `_CLIENT_SECRET`,
@@ -353,7 +366,7 @@ o nome dele, e o compose da VPS as busca como `ghcr.io/elias-costa/ecrx-caixa` e
    [Cópia de hora em hora](#cópia-de-hora-em-hora-cifrada), e o bucket separado de remoções, com a
    regra de 45 dias, credencial de gravação para a aplicação e leitura para a restauração, como em
    [Remoção](#remoção-de-dados-e-encerramento-da-conta).
-7. **Vigia:** os três checks, como em [Vigia](#vigia).
+7. **Vigia:** os quatro checks, como em [Vigia](#vigia).
 8. **Configuração:** preencher `/etc/ecrx-caixa/ecrx-caixa.env`.
 9. **GitHub**, nas configurações do repositório:
    - o segredo `VPS_CHAVE_DE_IMPLANTACAO`, com o conteúdo da chave privada do CI;
@@ -381,8 +394,8 @@ o nome dele, e o compose da VPS as busca como `ghcr.io/elias-costa/ecrx-caixa` e
     pacotes do GitHub que os dois são públicos: a VPS os baixa sem credencial.
 12. **Primeiro deploy**, pelo botão **Run workflow**. Sem versão no ar ainda, ele vai a qualquer hora.
     A aplicação sobe, aplica as migrations, e o proxy obtém o certificado do domínio.
-13. **Tarefas agendadas:** `systemctl start ecrx-caixa-copia.timer ecrx-caixa-vigia.timer
-    ecrx-caixa-recusas.timer`.
+13. **Tarefas agendadas:** `systemctl start ecrx-caixa-implantar.timer ecrx-caixa-copia.timer
+    ecrx-caixa-vigia.timer ecrx-caixa-recusas.timer`.
 14. **Memória:** `sh compose.sh exec app cat /sys/fs/cgroup/memory.max` tem de dar 1073741824, o
     limite em que a JVM foi medida.
 15. **Banco:** `sh compose.sh exec banco psql -U postgres -tAc "select rolsuper, rolcreaterole,
@@ -1114,7 +1127,7 @@ perda fica no que foi escrito depois dela, no máximo uma hora.
    chegar à máquina.
 5. No GitHub, atualizar `VPS_ENDERECO`, `VPS_CHAVE_DO_HOST` e, se a porta do SSH mudou,
    `VPS_PORTA_SSH`.
-6. `systemctl start ecrx-caixa-copia.timer ecrx-caixa-vigia.timer ecrx-caixa-recusas.timer`,
+6. `systemctl start ecrx-caixa-implantar.timer ecrx-caixa-copia.timer ecrx-caixa-vigia.timer ecrx-caixa-recusas.timer`,
    e apagar a chave privada da máquina.
 
 No ensaio local, a recriação inteira, num projeto de compose novo com volume vazio, terminou com a
@@ -1324,7 +1337,7 @@ negócio curto pode levar junto linhas que não são dele, o que no histórico n
 
 ## Vigia
 
-Três checks no Healthchecks.io, plano gratuito, com aviso por e-mail ao mantenedor quando um sinal
+Quatro checks no Healthchecks.io, plano gratuito, com aviso por e-mail ao mantenedor quando um sinal
 esperado não chega ou quando chega o de falha:
 
 | Check | Período | Tolerância | Quem manda o sinal |
@@ -1332,11 +1345,13 @@ esperado não chega ou quando chega o de falha:
 | cópia | 1 hora | 30 minutos | [`copia-agendada.sh`](vps/copia-agendada.sh), depois de cada cópia: o sinal, ou o de falha |
 | máquina | 5 minutos | 10 minutos | [`vigia.sh`](vps/vigia.sh), depois de conferir a aplicação pelo domínio, passando pelo proxy e pelo certificado |
 | recusas | 5 minutos | 10 minutos | [`vigia-de-recusas.sh`](vps/vigia-de-recusas.sh), depois de contar as recusas dos últimos 5 minutos no log da aplicação: o sinal, ou o de falha acima de 50 |
+| deploy | 1 dia | 1 hora | [`implantar-agendado.sh`](vps/implantar-agendado.sh), depois do deploy da madrugada: o sinal, inclusive quando o commit já estava no ar, ou o de falha |
 
 O endereço de sinal de cada check vai na [configuração](#configuração). O sinal é um GET sem corpo, só
 com o endereço do check: nenhum log e nada das Contas sai da máquina por ele. Cobrem a hora sem cópia,
 a máquina ou a rede fora do ar, a aplicação parada ou travada, o certificado vencido e a rajada de
-recusas. O deploy que falha aparece no CI, que fica vermelho, e o GitHub avisa por e-mail.
+recusas, e o deploy da madrugada recusado, que não ficou saudável ou que não rodou. O deploy pelo botão
+que falha aparece no CI, que fica vermelho, e o GitHub avisa por e-mail.
 
 **O alerta de recusas** conta os [eventos de segurança](#a-vps) de login recusado, troca recusada da
 senha, do e-mail ou da chave Pix, token recusado, acesso recusado por perfil ou pela senha provisória e aviso Pix recusado. Uma origem sozinha não passa
@@ -1351,8 +1366,9 @@ journalctl CONTAINER_NAME=ecrx-caixa-app-1 --since -30min | grep -E ' evento=[a-
 ```
 
 Sem conseguir ler o log, o script não manda sinal nenhum, e o check só cai depois da tolerância: a troca
-da aplicação no deploy não vira alerta. Numa configuração gerada antes do alerta, a linha
-`ECRX_CAIXA_VIGIA_RECUSAS=` entra à mão, porque o gerador nunca sobrescreve o arquivo.
+da aplicação no deploy não vira alerta. Numa configuração gerada antes do alerta ou do deploy da
+madrugada, as linhas `ECRX_CAIXA_VIGIA_RECUSAS=` e `ECRX_CAIXA_VIGIA_DEPLOY=` entram à mão, porque o
+gerador nunca sobrescreve o arquivo.
 
 ## Ensaio local
 

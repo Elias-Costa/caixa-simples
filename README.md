@@ -410,16 +410,19 @@ hora, para alcançar o tablet que passa o dia aberto no balcão; ela avisa e esp
 atualizar. Com uma venda aberta na tela, o aviso fica sem o botão até a venda sair dela, porque a
 recarga fecharia a comanda e perderia o que foi digitado e ainda não lançado.
 
-**Implantação.** A imagem, o CI que publica as imagens e faz o deploy, a configuração da VPS, com o
-proxy do HTTPS, a aplicação e o PostgreSQL 17 em contêineres na mesma máquina no Brasil, a cópia
-cifrada de hora em hora e a restauração existem e foram ensaiados na máquina local, com os limites de
-memória da VPS (a aplicação com 1 GB, o PostgreSQL com 512 MB, o proxy com 128 MB e a cópia com
-256 MB) e a CPU dividida como no pior caso de lá. A carga de correção passa em três Contas em paralelo
-pelo proxy, mil conexões anônimas simultâneas de uma origem não derrubam o proxy com o limite de
-conexões por origem, a cópia só grava nome novo, a cópia restaurada num PostgreSQL vazio confere com a origem, e
-a recriação da máquina a partir da cópia foi ensaiada. O primeiro deploy público ainda não foi feito,
-e o que só ele confirma, como a cadeia real do endereço de origem, o certificado do domínio e o preparo
-numa máquina nova, está listado junto do passo a passo, em [operacao/README.md](operacao/README.md).
+**Implantação.** A imagem, o CI que publica as imagens, a configuração da VPS, com o proxy do HTTPS,
+a aplicação e o PostgreSQL 17 em contêineres na mesma máquina no Brasil, o deploy da madrugada por um
+timer da própria máquina, a cópia cifrada de hora em hora e a restauração foram ensaiados na máquina
+local, com os limites de memória da VPS (a aplicação com 1 GB, o PostgreSQL com 512 MB, o proxy com
+128 MB e a cópia com 256 MB) e a CPU dividida como no pior caso de lá: mil conexões anônimas
+simultâneas de uma origem não derrubam o proxy com o limite de conexões por origem, e a recriação da
+máquina a partir da cópia foi ensaiada. Tudo isso está no ar, e a instalação publicada confirmou o que
+o ensaio não alcançava: o preparo numa máquina nova, o certificado do domínio, o endereço de origem
+real, com o cabeçalho forjado pelo cliente descartado pelo proxy, a carga de correção em três Contas em
+paralelo sem nenhum erro do servidor, a cópia chegando cifrada ao armazenamento externo sem conseguir
+sobrescrever outra, e a cópia restaurada num PostgreSQL vazio, na máquina local e na própria VPS,
+conferindo com a origem e com as remoções feitas depois dela reaplicadas. O passo a passo está em
+[operacao/README.md](operacao/README.md).
 
 ## Por onde começar a leitura
 
@@ -1200,8 +1203,10 @@ não esgote a memória dele. As imagens de terceiros que vão ao ar, a do proxy 
 aplicação, do banco e da cópia, ficam presas por digest, e a verificação de avisos examina
 exatamente o que está no ar.
 
-O CI publica as imagens no registro do GitHub só no commit em que tudo passou. De madrugada, ou por
-um botão de urgência, ele entra no servidor por uma chave que só roda o script de deploy, e o script
+O CI publica as imagens no registro do GitHub só no commit em que tudo passou. De madrugada, uma
+tarefa agendada da própria máquina pergunta à API pública do GitHub qual é o último commit aprovado e
+chama o script de deploy; a agenda do GitHub atrasou horas todos os dias e cairia fora da janela. Para
+urgência, um botão do CI entra no servidor por uma chave que só roda o script de deploy, e o script
 só aceita um commit que já esteja no `main`. As duas versões da aplicação não cabem juntas na
 memória, então a troca para a aplicação por uns 40 segundos, com o proxy segurando as requisições
 novas; uma requisição em andamento no instante da troca volta com erro, e por isso o deploy de rotina
@@ -1239,7 +1244,7 @@ recebem o e-mail ou o nome de um negócio os leem sem que fiquem no histórico d
 | Build | Maven, via wrapper versionado, que confere o checksum da distribuição |
 | Testes | JUnit 5, AssertJ e Testcontainers |
 | Frontend | PWA em React 19, Vite 8 e TypeScript, com React Router, service worker gerado por Workbox, IndexedDB via `idb` e Vitest; empacotado no jar pelo Maven, com o Node fixado no `pom.xml` |
-| Infraestrutura | Imagem Docker do jar único e uma VPS no Brasil com AlmaLinux 9, com o proxy Caddy, a aplicação e o PostgreSQL 17 em contêineres pelo Docker Compose; CI no GitHub Actions, que publica as imagens no registro do GitHub e faz o deploy por SSH, com os avisos de segurança das dependências e das imagens conferidos pelo Trivy e as versões novas das Actions e das imagens propostas pelo Dependabot; cópia cifrada de hora em hora com age, enviada pelo rclone ao S3 da AWS no Brasil; vigia externo por sinal sem corpo, com alerta de rajada de recusas; ensaiados localmente, com o primeiro deploy público ainda por fazer |
+| Infraestrutura | Imagem Docker do jar único e uma VPS no Brasil com AlmaLinux 9, com o proxy Caddy, a aplicação e o PostgreSQL 17 em contêineres pelo Docker Compose; CI no GitHub Actions, que publica as imagens no registro do GitHub e faz o deploy de urgência por SSH, com os avisos de segurança das dependências e das imagens conferidos pelo Trivy e as versões novas das Actions e das imagens propostas pelo Dependabot; cópia cifrada de hora em hora com age, enviada pelo rclone ao S3 da AWS no Brasil; deploy da madrugada por uma tarefa agendada da máquina; vigia externo por sinal sem corpo, com alerta de rajada de recusas; ensaiados localmente e no ar |
 
 A escolha de versão não é acidental. Spring Boot 3.x perde suporte OSS em junho de 2026, então um
 projeto novo não deveria nascer nele; o Spring Modulith 2.1.x é a linha compatível com o Boot 4.1.
@@ -1248,7 +1253,7 @@ projeto novo não deveria nascer nele; o Spring Modulith 2.1.x é a linha compat
 
 ```
 Dockerfile                  imagem do jar único, com a API e o aplicativo
-.github/workflows/          CI a cada push no main, a cada pull request e uma vez por semana, a publicação das imagens e o deploy
+.github/workflows/          CI a cada push no main, a cada pull request e uma vez por semana, a publicação das imagens e o deploy de urgência
 .github/dependabot.yml      uma vez por mês, as versões novas das Actions e das imagens presas, num pull request
 operacao
 ├── copia/                  imagem da cópia, cópia cifrada de hora em hora, restauração e conferência
@@ -1257,7 +1262,7 @@ operacao
 ├── ensaio/                 a produção em miniatura, por cima do compose do servidor
 ├── exclusao/               encerramento da Conta e remoção dos seus dados
 ├── plano/                  o código de ativação de um pedido de plano, gerado depois do Pix conferido
-└── vps/                    o servidor: compose, proxy, banco, preparo, limite de conexões, configuração, deploy, cópia agendada, vigia e alerta de recusas
+└── vps/                    o servidor: compose, proxy, banco, preparo, limite de conexões, configuração, deploy e deploy da madrugada, cópia agendada, vigia e alerta de recusas
 src
 ├── main
 │   ├── java/br/com/caixasimples

@@ -47,7 +47,8 @@ ECRX_CAIXA_PLANO_SECRET=$(aleatorio)
 # Mensalidade do plano completo em reais, com ponto decimal.
 ECRX_CAIXA_MENSALIDADE_COMPLETO=
 
-# Registro mínimo das remoções, num bucket separado das cópias, sem expiração. A credencial só grava
+# Registro mínimo das remoções, num bucket separado das cópias, apagado pelo próprio bucket depois de
+# 45 dias, mais que a vida da cópia mais antiga. A credencial só grava
 # nele; o destino, no formato s3:<bucket>/remocoes, serve ao encerramento e à restauração.
 ECRX_CAIXA_REMOCOES_BUCKET=
 ECRX_CAIXA_REMOCOES_DESTINO=
@@ -63,10 +64,12 @@ ECRX_CAIXA_COPIA_HORA_DIARIA=6
 ECRX_CAIXA_COPIA_AWS_ACCESS_KEY_ID=
 ECRX_CAIXA_COPIA_AWS_SECRET_ACCESS_KEY=
 
-# Endereços de sinal do vigia, um por check: o da cópia, o da máquina e o das recusas.
+# Endereços de sinal do vigia, um por check: o da cópia, o da máquina, o das recusas e o do deploy
+# da madrugada.
 ECRX_CAIXA_VIGIA_COPIA=
 ECRX_CAIXA_VIGIA_MAQUINA=
 ECRX_CAIXA_VIGIA_RECUSAS=
+ECRX_CAIXA_VIGIA_DEPLOY=
 FIM
 
 cat > "$PASTA/efi.env" <<FIM

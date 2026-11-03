@@ -1,10 +1,11 @@
 #!/bin/sh
-# O deploy de um commit, pedido pelo CI, de madrugada ou pelo botão de urgência, pela chave SSH que
-# só pode rodar este script; o SHA é tudo o que o CI manda. O preparo o instala como root fora do
-# repositório, em /usr/local/sbin/ecrx-caixa-implantar, para que um commit não troque as regras
-# do próprio deploy; mudou este arquivo, o preparo copia de novo.
+# O deploy de um commit, pedido de madrugada pelo timer da máquina, que o recebe do GitHub, ou pelo
+# botão de urgência do CI, pela chave SSH que só pode rodar este script; o SHA é tudo o que o pedido
+# traz. O preparo o instala como root fora do repositório, em /usr/local/sbin/ecrx-caixa-implantar,
+# para que um commit não troque as regras do próprio deploy; mudou este arquivo, o preparo copia de
+# novo.
 #
-# Recusa, e o CI fica vermelho:
+# Recusa, e o vigia avisa ou o CI fica vermelho:
 # - o que não for um SHA completo;
 # - o commit que não está no main: o GitHub entrega pelo SHA também commits de forks, e quem
 #   tivesse a chave poderia pedir um deles;

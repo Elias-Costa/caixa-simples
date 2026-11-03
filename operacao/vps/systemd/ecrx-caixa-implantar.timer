@@ -1,0 +1,13 @@
+# Todo dia às 3h UTC, o começo da janela de manutenção. Uma noite perdida com a máquina desligada fica
+# perdida, e não vira um deploy fora da janela: o vigia avisa da falta, e a noite seguinte leva o
+# commit.
+[Unit]
+Description=Deploy da madrugada do ECRX Caixa, todo dia
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 UTC
+AccuracySec=1s
+Persistent=false
+
+[Install]
+WantedBy=timers.target

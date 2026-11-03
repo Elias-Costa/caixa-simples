@@ -13,22 +13,20 @@ on:
   schedule:
     # Um aviso novo pode surgir para uma dependência que não mudou. Uma vez por semana, só a
     # verificação das dependências roda contra o main, sem publicar; a falha da execução agendada é
-    # avisada pelo GitHub a quem mexeu por último nesta agenda.
+    # avisada pelo GitHub a quem mexeu por último nesta agenda. A agenda do GitHub chega a disparar
+    # horas depois da hora marcada, o que aqui não faz diferença; o deploy da madrugada, que precisa
+    # da hora certa, sai de um timer da própria VPS.
     - cron: '17 9 * * 1'
-    # Toda madrugada, às 3h UTC, 0h no fuso America/Bahia e começo da janela de manutenção, o deploy
-    # do último commit aprovado, se ele ainda não estiver no ar. A troca para a aplicação por uns
-    # 40 s, e uma requisição em andamento nesse instante volta com erro: de dia, ninguém fica
-    # exposto a isso sem querer.
-    - cron: '0 3 * * *'
-  # O mesmo deploy, na hora, para uma correção urgente, aceitando o erro raro da troca.
+  # O deploy na hora, para uma correção urgente, aceitando o erro raro da troca: a aplicação para por
+  # uns 40 s, e uma requisição em andamento nesse instante volta com erro.
   workflow_dispatch:
 
 permissions:
   contents: read
 
 # Um push novo no mesmo ramo torna a execução anterior inútil: o que vai ser publicado é o último
-# commit. O evento e a agenda entram no grupo para uma execução agendada não cancelar a de um push,
-# nem a verificação semanal cancelar o deploy da madrugada.
+# commit. O evento e a agenda entram no grupo para a verificação semanal não cancelar a execução de um
+# push, nem o botão do deploy cancelar uma delas.
 concurrency:
   group: ci-${{ github.event_name }}-${{ github.event.schedule }}-${{ github.ref }}
   cancel-in-progress: true
@@ -110,15 +108,14 @@ jobs:
           docker push "$registro:$GITHUB_SHA"
           docker push "$registro-copia:$GITHUB_SHA"
 
-  # Põe no ar o último commit cuja execução de push passou inteira, publicação das imagens
-  # inclusive. O único segredo guardado é a chave SSH, que na VPS só roda o script de deploy, e o
-  # script só aceita um commit que já esteja no main; commit com migration ou que muda o compose da
-  # VPS ele só aceita na janela de manutenção, inclusive pelo botão.
+  # O botão de urgência: põe no ar o último commit cuja execução de push passou inteira, publicação
+  # das imagens inclusive. O deploy de rotina não passa por aqui; é o timer da VPS, de madrugada, que
+  # faz a mesma pergunta e chama o mesmo script. O único segredo guardado é a chave SSH, que na VPS só
+  # roda o script de deploy, e o script só aceita um commit que já esteja no main; commit com
+  # migration ou que muda o compose da VPS ele só aceita na janela de manutenção, inclusive pelo botão.
   implantar:
     name: Deploy na VPS
-    if: >-
-      (github.event.schedule == '0 3 * * *' || github.event_name == 'workflow_dispatch')
-      && vars.PUBLICAR_NA_VPS == 'true'
+    if: github.event_name == 'workflow_dispatch' && vars.PUBLICAR_NA_VPS == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:

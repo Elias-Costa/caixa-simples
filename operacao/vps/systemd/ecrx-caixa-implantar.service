@@ -1,0 +1,13 @@
+# O deploy da madrugada: o último commit aprovado no CI, se ainda não estiver no ar. Roda a cópia do
+# script instalada pelo preparo, que avisa o vigia do resultado.
+[Unit]
+Description=Deploy da madrugada do ECRX Caixa
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ecrx-caixa-implantar-agendado
+# O script de deploy espera até 10 minutos por outro deploy e até 5 pela versão nova ficar saudável;
+# travado além disto, termina com falha, e o vigia avisa pela falta do sinal.
+TimeoutStartSec=30min

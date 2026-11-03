@@ -17,6 +17,7 @@ REPOSITORIO=/opt/ecrx-caixa/repositorio
 ESTADO=/var/lib/ecrx-caixa
 CONFIGURACAO=/etc/ecrx-caixa
 IMPLANTAR=/usr/local/sbin/ecrx-caixa-implantar
+IMPLANTAR_AGENDADO=/usr/local/sbin/ecrx-caixa-implantar-agendado
 # O usuário da imagem da aplicação, fixo no Dockerfile: é ele que lê os certificados Pix montados.
 UID_DA_APLICACAO=10001
 
@@ -51,7 +52,8 @@ timedatectl set-timezone UTC
 
 passo "Sistema atualizado e pacotes de base"
 dnf -y upgrade
-dnf -y install dnf-automatic dnf-plugins-core firewalld nftables git curl openssl util-linux sudo
+# O jq lê a resposta da API do GitHub no deploy da madrugada.
+dnf -y install dnf-automatic dnf-plugins-core firewalld nftables git curl jq openssl util-linux sudo
 
 passo "Atualização automática só de segurança, aplicada na janela, com reinício quando pedido"
 sed -i \
@@ -155,9 +157,11 @@ systemctl daemon-reload
 systemctl enable ecrx-caixa-limite.service
 systemctl restart ecrx-caixa-limite.service
 
-passo "Usuário do deploy, cuja chave só roda o script de deploy"
+passo "Scripts do deploy fora do repositório, e o usuário do CI, cuja chave só roda o de deploy"
 id implantacao >/dev/null 2>&1 || useradd --system --create-home --shell /bin/sh implantacao
 install -m 700 -o root -g root "$REPOSITORIO/operacao/vps/implantar.sh" "$IMPLANTAR"
+# O do timer da madrugada escolhe o commit que vai ao ar: fica fora do repositório pela mesma razão.
+install -m 700 -o root -g root "$REPOSITORIO/operacao/vps/implantar-agendado.sh" "$IMPLANTAR_AGENDADO"
 casa_implantacao=$(getent passwd implantacao | cut -d: -f6)
 install -d -m 700 -o implantacao -g implantacao "$casa_implantacao/.ssh"
 printf 'restrict,command="sudo %s" %s\n' "$IMPLANTAR" "$(cat "$CHAVE_DO_CI")" \
@@ -180,15 +184,16 @@ fi
 chown "$UID_DA_APLICACAO:$UID_DA_APLICACAO" "$CONFIGURACAO/efi"
 chmod 700 "$CONFIGURACAO/efi"
 
-passo "Tarefas agendadas: a atualização agora; a cópia, o vigia e o alerta de recusas a partir do boot"
+passo "Tarefas agendadas: a atualização agora; o deploy da madrugada, a cópia, o vigia e o alerta de recusas a partir do boot"
 install -m 644 "$REPOSITORIO/operacao/vps/systemd/dnf-automatic.timer.d/janela.conf" \
     /etc/systemd/system/dnf-automatic.timer.d/janela.conf
 install -m 644 "$REPOSITORIO"/operacao/vps/systemd/ecrx-caixa-*.service \
     "$REPOSITORIO"/operacao/vps/systemd/ecrx-caixa-*.timer /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now dnf-automatic.timer
-# Parados até o primeiro deploy, que é quando há versão para copiar, aplicação para conferir e log
-# para ler.
-systemctl enable ecrx-caixa-copia.timer ecrx-caixa-vigia.timer ecrx-caixa-recusas.timer
+# Parados até o primeiro deploy, que é quando a configuração está preenchida e há versão para
+# copiar, aplicação para conferir e log para ler.
+systemctl enable ecrx-caixa-implantar.timer ecrx-caixa-copia.timer ecrx-caixa-vigia.timer \
+    ecrx-caixa-recusas.timer
 
 echo "Pronto. Preencha $CONFIGURACAO/ecrx-caixa.env e siga a primeira publicação."
