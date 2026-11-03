@@ -27,6 +27,7 @@ export type ItemNoDispositivo = Readonly<{
   id: string
   produtoId: string
   nome: string
+  unidade: string | null
   milesimos: number
   precoCentavos: number
   descontoCentavos: number
@@ -62,6 +63,11 @@ export type DadosDoItem = {
   itemId: string
   produtoId: string
   nome: string
+  /**
+   * A unidade vista na busca, como o nome, só para a tela do aparelho. Falta nos gestos gravados
+   * antes de o aparelho guardá-la, e o item aparece só com o número.
+   */
+  unidade?: string | null
   quantidade: number
   precoUnitario: number
   desconto: number
@@ -203,6 +209,7 @@ export function adicionarItem(venda: VendaNoDispositivo, dados: DadosDoItem): Ve
     id: dados.itemId,
     produtoId: dados.produtoId,
     nome: dados.nome,
+    unidade: dados.unidade ?? null,
     milesimos: milesimos(dados.quantidade),
     precoCentavos: centavos(dados.precoUnitario, 'Preço unitário'),
     descontoCentavos: centavos(dados.desconto, 'Desconto do item'),

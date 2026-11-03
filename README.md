@@ -212,8 +212,9 @@ oferece `GET` e `POST /api/produtos`, `PUT /api/produtos/{id}` e
 `POST /api/clientes/{id}/inativar`, `POST /api/clientes/{id}/reativar` e
 `POST /api/clientes/{id}/remover`, esta última só do administrador.
 O PDV busca produto em `GET /api/produtos/busca?termo=...` e usa `GET` e `POST /api/vendas`
-para listar as vendas de uma SessaoCaixa e iniciar uma comanda. `GET /api/vendas/{id}` devolve
-itens, total, parcelas e recebimentos, com o NSU de cada um em cartão; `POST /api/vendas/{id}/itens` e
+para listar as vendas de uma SessaoCaixa, cada uma com o valor de cada forma de pagamento, e iniciar
+uma comanda. `GET /api/vendas/{id}` devolve
+itens com a unidade do cadastro, total, parcelas e recebimentos, com o NSU de cada um em cartão; `POST /api/vendas/{id}/itens` e
 `DELETE /api/vendas/{id}/itens/{itemId}` montam a comanda; SessaoCaixa ou produto que não existe
 na Conta responde 404 ao iniciar a comanda ou lançar o item;
 `PUT /api/vendas/{id}/desconto` é só do administrador;
@@ -354,8 +355,14 @@ rede. O caixa aberto num dia anterior ao de hoje ganha um aviso no alto de toda 
 com ele, e o administrador vê no alto da tela Caixa os de outros usuários, para fechá-los. O valor inicial nasce vazio e é
 obrigatório, mesmo quando é zero. No PDV, a busca aceita nome, sem diferença de acento nem de
 maiúscula, código e multiplicador de quantidade, e o Enter do leitor de código de barras lança o produto do
-código exato ou o resultado único; a comanda admite pagamento dividido, e o total, o que falta
-lançar e o botão de concluir ficam num rodapé preso ao fim da tela. O troco aparece em destaque, com
+código exato ou o resultado único; os resultados trazem primeiro esse produto e depois os nomes que
+começam pelo termo, com o preço pela unidade de venda. A quantidade sai com vírgula e unidade, como
+0,35 kg, na comanda e no comprovante, que aparece logo abaixo da comanda concluída. A comanda admite
+pagamento dividido, e o total, o que falta
+lançar e o botão de concluir ficam num rodapé preso ao fim da tela. A lista das vendas do caixa mostra
+as dez mais recentes, com a hora e as formas de pagamento, e a venda que ficou aberta no caixa é
+avisada na comanda, com o valor, a hora e um botão para retomá-la. No celular, a tela de venda deixa
+no menu só a venda e o Mais, para a busca ficar no alto da tela. O troco aparece em destaque, com
 uma prévia enquanto se digita o valor recebido e botões das notas mais comuns que o preenchem. Uma
 venda simples em dinheiro fecha em até seis toques. Cancelar a venda e fechar o caixa, que não se
 desfazem, pedem confirmação com o valor e a consequência, como as inativações e remoções do
@@ -389,7 +396,8 @@ frase que explica por que o total difere do faturamento em cartão. A do Pix tem
 cadastro do aparelho, o Pix integrado marcado e a cobrança que aguarda confirmação fora do total. A
 origem e a situação da venda aparecem como marcas curtas.
 No primeiro acesso de cada pessoa no aparelho, três cartões de primeiros passos (abrir o caixa,
-vender e fechar) aparecem no alto da tela, podem ser pulados e reabrem pelo menu; cada tela tem um
+vender e fechar) aparecem no alto da tela, menos na tela de venda do celular, podem ser pulados e
+reabrem pelo menu; cada tela tem um
 botão de ajuda ao lado do título, com até três linhas.
 A tela Configuração liga e desliga a exigência do NSU e guarda a mudança na identidade do aparelho.
 Um cliente HTTP só envia o token da sessão aberta nesta aba, troca-o pelo renovado quando a resposta

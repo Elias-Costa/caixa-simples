@@ -221,11 +221,22 @@ class VendaController {
         }
     }
 
+    /**
+     * As formas chegaram depois dos outros campos: o aplicativo instalado antes delas lê a lista sem
+     * elas, e a venda sem parcela que vale responde a lista vazia.
+     */
     record ResumoNaResposta(UUID id, UUID sessaoCaixaId, UUID usuarioId, StatusVenda status,
-            BigDecimal total, Instant criadoEm) {
+            BigDecimal total, Instant criadoEm, List<FormaNaResposta> formas) {
         static ResumoNaResposta de(VendaService.ResumoDaVenda resumo) {
             return new ResumoNaResposta(resumo.id(), resumo.sessaoCaixaId(), resumo.usuarioId(),
-                    resumo.status(), resumo.total().valor(), resumo.criadoEm());
+                    resumo.status(), resumo.total().valor(), resumo.criadoEm(),
+                    resumo.formas().stream().map(FormaNaResposta::de).toList());
+        }
+    }
+
+    record FormaNaResposta(FormaPagamento forma, BigDecimal valor) {
+        static FormaNaResposta de(VendaService.ValorDaForma forma) {
+            return new FormaNaResposta(forma.forma(), forma.valor().valor());
         }
     }
 
@@ -261,11 +272,14 @@ class VendaController {
         }
     }
 
-    record ItemNaResposta(UUID id, UUID produtoId, String nome, BigDecimal quantidade,
-            BigDecimal precoUnitario, BigDecimal desconto, BigDecimal subtotal) {
+    /** Sem unidade no cadastro, a resposta omite o campo nulo, e a tela mostra só o número. */
+    record ItemNaResposta(UUID id, UUID produtoId, String nome, String unidade,
+            BigDecimal quantidade, BigDecimal precoUnitario, BigDecimal desconto,
+            BigDecimal subtotal) {
         static ItemNaResposta de(VendaService.ItemParaTela item) {
-            return new ItemNaResposta(item.id(), item.produtoId(), item.nome(), item.quantidade(),
-                    item.precoUnitario().valor(), item.desconto().valor(), item.subtotal().valor());
+            return new ItemNaResposta(item.id(), item.produtoId(), item.nome(), item.unidade(),
+                    item.quantidade(), item.precoUnitario().valor(), item.desconto().valor(),
+                    item.subtotal().valor());
         }
     }
 

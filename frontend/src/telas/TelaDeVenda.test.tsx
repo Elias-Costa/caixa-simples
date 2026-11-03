@@ -431,6 +431,9 @@ describe('PDV no tablet', () => {
     const cancelar = vi.spyOn(vendas, 'cancelar').mockResolvedValue(undefined)
     mostrar()
 
+    // Aberta em outro dia, a venda diz o dia além da hora, no fuso do balcão.
+    expect(await screen.findByText('Este caixa tem uma venda aberta, de R$ 12,50, iniciada em 22/09, às 09:00.',
+      { normalizer: (texto) => texto.replace(/\s+/g, ' ').trim() })).toBeInTheDocument()
     fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
     expect(await screen.findByText(/1 × Café/)).toBeInTheDocument()
     // Quem desiste na pergunta não cancela nada.
@@ -628,5 +631,135 @@ describe('PDV no tablet', () => {
     } finally {
       Reflect.deleteProperty(navigator, 'share')
     }
+  })
+
+  it('a quantidade sai com vírgula e unidade na comanda, no papel e no texto, e o papel vem antes da lista', async () => {
+    const pao = { id: 'item-pao', produtoId: 'produto-pao', nome: 'Pão francês', unidade: 'kg',
+      quantidade: 0.35, precoUnitario: 16.9, desconto: 0, subtotal: 5.92 }
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([{ id: comanda.id, sessaoCaixaId: aberta.id,
+      usuarioId: aberta.usuarioId, status: 'CONCLUIDA', total: 5.92, criadoEm: comanda.criadoEm }])
+    vi.spyOn(vendas, 'consultar').mockResolvedValue({ ...comanda, status: 'CONCLUIDA', total: 5.92,
+      pago: 5.92, faltaPagar: 0, itens: [pao],
+      parcelas: [{ id: 'parcela-1', forma: 'DINHEIRO', valor: 5.92, status: 'CONFIRMADO', troco: 0 }] })
+    vi.spyOn(vendas, 'comprovante').mockResolvedValue({ ...comprovante, somaDosItens: 5.92, valorTotal: 5.92,
+      linhas: [{ produtoId: 'produto-pao', nome: 'Pão francês', unidade: 'kg', quantidade: 0.35,
+        precoUnitario: 16.9, valorBruto: 5.92, desconto: 0, subtotal: 5.92 }],
+      parcelas: [{ forma: 'DINHEIRO', valor: 5.92, troco: 0 }], troco: 0 })
+    const compartilhar = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'share', { value: compartilhar, configurable: true })
+    try {
+      mostrar()
+
+      fireEvent.click(await screen.findByRole('button', { name: /Concluída.*R\$/ }))
+      expect(await screen.findByText(/^0,35 kg × Pão francês · R\$\s5,92$/)).toBeInTheDocument()
+      const papel = await screen.findByLabelText('Comprovante não fiscal')
+      expect(papel).toHaveTextContent('0,35 kg × Pão francês')
+      // O papel vem logo depois da comanda, antes da lista do caixa, que pode ter milhares de pixels.
+      const lista = screen.getByRole('heading', { name: 'Vendas deste caixa' })
+      expect(papel.compareDocumentPosition(lista) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+      fireEvent.click(within(papel).getByRole('button', { name: 'Compartilhar' }))
+      await waitFor(() => expect(compartilhar).toHaveBeenCalled())
+      expect(compartilhar.mock.calls[0][0].text).toMatch(/0,35 kg × Pão francês: R\$\s5,92/)
+    } finally {
+      Reflect.deleteProperty(navigator, 'share')
+    }
+  })
+
+  it('a busca põe o código igual primeiro e depois o nome que começa pelo termo, com o preço por unidade', async () => {
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([])
+    const buscar = vi.spyOn(cadastro, 'buscarProdutos').mockResolvedValue([
+      { id: 'p-1', tipo: 'PRODUTO', nome: 'Coxinha de pão', preco: 7, codigo: null, categoria: null,
+        unidade: 'un', atributos: {} },
+      { id: 'p-2', tipo: 'PRODUTO', nome: 'Pão francês', preco: 16.9, codigo: '2000004', categoria: null,
+        unidade: 'kg', atributos: {} },
+      { id: 'p-3', tipo: 'PRODUTO', nome: 'Pão de queijo', preco: 3.5, codigo: null, categoria: null,
+        unidade: null, atributos: {} },
+    ])
+    mostrar()
+    const resultados = () => screen.getAllByRole('button', { name: /R\$/ })
+      .map((botao) => botao.textContent?.replace(/\s/g, ' '))
+
+    const busca = await screen.findByLabelText('Produto por nome ou código')
+    fireEvent.change(busca, { target: { value: 'pão' } })
+    await screen.findByRole('button', { name: /Coxinha de pão/ })
+    expect(resultados()).toEqual(['Pão de queijo · R$ 3,50', 'Pão francês · R$ 16,90/kg · 2000004',
+      'Coxinha de pão · R$ 7,00/un'])
+
+    buscar.mockResolvedValue([
+      { id: 'p-4', tipo: 'PRODUTO', nome: 'Café grande', preco: 15, codigo: '7891-2', categoria: null,
+        unidade: null, atributos: {} },
+      { id: 'p-5', tipo: 'PRODUTO', nome: 'Café', preco: 12.5, codigo: '7891', categoria: null,
+        unidade: null, atributos: {} },
+    ])
+    fireEvent.change(busca, { target: { value: '7891' } })
+    await waitFor(() => expect(resultados()).toEqual(['Café · R$ 12,50 · 7891', 'Café grande · R$ 15,00 · 7891-2']))
+  })
+
+  it('a lista do caixa mostra as dez mais recentes, com a hora e as formas, e Ver todas alterna', async () => {
+    const agora = Date.now()
+    const resumos = Array.from({ length: 12 }, (_, indice) => ({
+      id: `venda-${indice}`, sessaoCaixaId: aberta.id, usuarioId: aberta.usuarioId,
+      status: 'CONCLUIDA' as const, total: 12.5, criadoEm: new Date(agora - indice * 1000).toISOString(),
+      formas: [{ forma: 'DINHEIRO' as const, valor: 2.5 }, { forma: 'CARTAO' as const, valor: 10 }],
+    }))
+    // A mais antiga é de outro dia, como num caixa aberto desde ontem, e sem parcela que valha.
+    resumos[11] = { ...resumos[11], criadoEm: new Date(agora - 2 * 24 * 60 * 60 * 1000).toISOString(), formas: [] }
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue(resumos)
+    mostrar()
+
+    const lista = (await screen.findByRole('heading', { name: 'Vendas deste caixa' })).closest('section')!
+    await waitFor(() => expect(within(lista).getAllByRole('listitem')).toHaveLength(10))
+    expect(within(lista).getAllByRole('listitem')[0])
+      .toHaveTextContent(/^\d{2}:\d{2} · Concluída · R\$\s12,50 · Dinheiro e Cartão$/)
+    const verTodas = within(lista).getByRole('button', { name: 'Ver todas (12)' })
+    expect(verTodas).toHaveAttribute('aria-expanded', 'false')
+
+    fireEvent.click(verTodas)
+    expect(within(lista).getAllByRole('listitem')).toHaveLength(12)
+    expect(within(lista).getAllByRole('listitem')[11])
+      .toHaveTextContent(/^\d{2}\/\d{2} \d{2}:\d{2} · Concluída · R\$\s12,50$/)
+    const dezMais = within(lista).getByRole('button', { name: 'Ver só as dez mais recentes' })
+    expect(dezMais).toHaveAttribute('aria-expanded', 'true')
+    fireEvent.click(dezMais)
+    expect(within(lista).getAllByRole('listitem')).toHaveLength(10)
+  })
+
+  it('avisa as vendas abertas do caixa, e o Retomar abre a mais recente com o foco de volta na busca', async () => {
+    const resumo = { sessaoCaixaId: aberta.id, usuarioId: aberta.usuarioId }
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([
+      { ...resumo, id: 'venda-1', status: 'ABERTA', total: 12.5, criadoEm: new Date().toISOString() },
+      { ...resumo, id: 'venda-2', status: 'ABERTA', total: 8, criadoEm: new Date(Date.now() - 1000).toISOString() },
+      { ...resumo, id: 'venda-3', status: 'CONCLUIDA', total: 3, criadoEm: new Date(Date.now() - 2000).toISOString() },
+    ])
+    const consultar = vi.spyOn(vendas, 'consultar').mockResolvedValue(comanda)
+    mostrar()
+
+    const painel = (await screen.findByRole('heading', { name: 'Comanda' })).closest('section')!
+    expect(await within(painel).findByText(
+      /^Este caixa tem 2 vendas abertas\. A mais recente é de R\$\s12,50, iniciada às \d{2}:\d{2}\.$/))
+      .toBeInTheDocument()
+    // Começar outra continua possível.
+    expect(within(painel).getByText('Busque e escolha o primeiro produto para iniciar.')).toBeInTheDocument()
+
+    fireEvent.click(within(painel).getByRole('button', { name: 'Retomar' }))
+    await waitFor(() => expect(consultar).toHaveBeenCalledWith('venda-1'))
+    expect(await within(painel).findByText(/1 × Café/)).toBeInTheDocument()
+    // Com a venda aberta na comanda, o aviso sai: quem vende já escolheu em qual continua.
+    expect(within(painel).queryByRole('button', { name: 'Retomar' })).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByLabelText('Produto por nome ou código')).toHaveFocus())
+  })
+
+  it('sem caixa aberto, Ir ao caixa é um botão', async () => {
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(undefined)
+    mostrar()
+
+    const ir = await screen.findByRole('link', { name: 'Ir ao caixa' })
+    expect(ir).toHaveAttribute('href', '/caixa')
+    expect(ir).toHaveClass('botao')
   })
 })

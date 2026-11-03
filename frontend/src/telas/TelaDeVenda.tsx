@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
 import { QRCodeSVG } from 'qrcode.react'
 import { cadastro, type Cliente, type Produto } from '../api/cadastro'
@@ -8,7 +8,8 @@ import { contas } from '../api/contas'
 import { fiado } from '../api/fiado'
 import { intencaoOnline, type IntencaoOnline } from '../api/intencaoOnline'
 import type { Comprovante as DadosDoComprovante, ConciliacaoPix, FormaPagamento, ResumoDaVenda, Venda } from '../api/vendas'
-import { dataHora, lerDinheiro, moeda, valorNoCampo } from '../formatos'
+import { diaNoBalcao, FUSO_DO_BALCAO, hojeNoBalcao } from '../dataDoBalcao'
+import { dataHora, hora, lerDinheiro, moeda, quantidadeComUnidade, valorNoCampo } from '../formatos'
 import { criarCaixaLocal } from '../offline/caixaLocal'
 import { normalizarNsu } from '../offline/raizDaVenda'
 import { criarVendaLocal } from '../offline/vendaLocal'
@@ -16,6 +17,7 @@ import { useContextoDoShell } from '../shell/ContextoDoShell'
 import { useSincronizacao } from '../shell/sincronizacao'
 import { useOnline } from '../shell/useOnline'
 import { useSessao } from '../sessao/useSessao'
+import { paraBusca } from '../textoDeBusca'
 import { CampoDeDinheiro } from './CampoDeDinheiro'
 import { erroDeCadastro } from './erroDeCadastro'
 import { filtrarPorNome } from './filtroPorNome'
@@ -32,6 +34,13 @@ const vendas = criarVendaLocal()
 const CANCELAR_DEPOIS_DE_SINCRONIZAR = 'O cancelamento fica disponível depois da sincronização com o servidor.'
 /** As notas mais comuns na mão do cliente: um toque preenche o valor recebido sem abrir o teclado. */
 const NOTAS = [10, 20, 50, 100]
+/**
+ * As vendas da lista do caixa antes de Ver todas. Com o turno inteiro, a lista passava de quatro mil
+ * pixels abaixo da comanda; as últimas são as que o balcão procura.
+ */
+const VENDAS_A_VISTA = 10
+const diaEMes = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', timeZone: FUSO_DO_BALCAO })
+const listaDeFormas = new Intl.ListFormat('pt-BR', { style: 'long', type: 'conjunction' })
 
 /**
  * O que o operador escolhe na forma de pagamento. O Pix aparece duas vezes porque chega por dois
@@ -96,6 +105,49 @@ function tentativaPix(vendaId: string, valor: number): string {
   return id
 }
 
+/**
+ * A hora da venda. A de outro dia, no caixa aberto desde ontem, leva também o dia: só a hora
+ * misturaria as vendas de ontem com as de hoje.
+ */
+function quando(criadoEm: string): string {
+  const instante = new Date(criadoEm)
+  return diaNoBalcao(instante) === hojeNoBalcao() ? hora.format(instante)
+    : `${diaEMes.format(instante)} ${hora.format(instante)}`
+}
+
+/** As formas pelas quais a venda entrou, como Dinheiro e Cartão; a venda sem parcela que vale não tem. */
+function formasDaLinha(resumo: ResumoDaVenda): string {
+  const formas = resumo.formas ?? []
+  return formas.length === 0 ? ''
+    : ` · ${listaDeFormas.format(formas.map((forma) => ROTULO_DA_FORMA[forma.forma]))}`
+}
+
+/**
+ * O aviso da venda que ficou aberta no caixa. A lista vem da mais recente para a mais antiga, e o
+ * Retomar abre a primeira.
+ */
+function avisoDasAbertas(abertas: ResumoDaVenda[]): string {
+  const maisRecente = abertas[0]
+  const instante = new Date(maisRecente.criadoEm)
+  const iniciada = diaNoBalcao(instante) === hojeNoBalcao() ? `iniciada às ${hora.format(instante)}`
+    : `iniciada em ${diaEMes.format(instante)}, às ${hora.format(instante)}`
+  const valorEHora = `de ${moeda.format(maisRecente.total)}, ${iniciada}`
+  return abertas.length === 1 ? `Este caixa tem uma venda aberta, ${valorEHora}.`
+    : `Este caixa tem ${abertas.length} vendas abertas. A mais recente é ${valorEHora}.`
+}
+
+/**
+ * Os resultados na ordem em que o balcão procura: o produto do código igual ao termo, o mesmo que o
+ * Enter lança, depois os nomes que começam pelo termo, depois o resto, cada grupo em ordem
+ * alfabética. Na ordem do cadastro, o mais vendido podia vir por último.
+ */
+function ordenarResultados(produtos: Produto[], termo: string): Produto[] {
+  const alvo = paraBusca(termo)
+  const grupo = (produto: Produto) => produto.codigo === termo ? 0
+    : paraBusca(produto.nome).startsWith(alvo) ? 1 : 2
+  return [...produtos].sort((a, b) => grupo(a) - grupo(b) || a.nome.localeCompare(b.nome, 'pt-BR'))
+}
+
 /** O multiplicador na busca usa o mesmo estado do campo visível, para evitar duas quantidades. */
 function separarMultiplicador(texto: string): { termo: string; quantidade?: string } {
   const encontrado = texto.match(/^(\d+(?:[.,]\d{1,3})?)\*(.*)$/)
@@ -137,6 +189,8 @@ export function TelaDeVenda() {
   const [erro, setErro] = useState<{ texto: string; lugar: LugarDoErro }>()
   const [ocupado, setOcupado] = useState(false)
   const [carregando, setCarregando] = useState(true)
+  const [todasAsVendas, setTodasAsVendas] = useState(false)
+  const idDaLista = useId()
   const [confirmar, dialogoDeConfirmacao] = useConfirmacao()
   const online = useOnline()
   const pixPendente = atual?.parcelas.some((parcela) => parcela.pix && parcela.status === 'PENDENTE') ?? false
@@ -167,6 +221,11 @@ export function TelaDeVenda() {
     ? lerDinheiro(valorRecebido) : null
   const previaDoTroco = recebidoNaPrevia !== null && valorDaParcela !== null
     ? (Math.round(recebidoNaPrevia * 100) - Math.round(valorDaParcela * 100)) / 100 : undefined
+  // A venda aberta que ficou para trás no caixa. Com outra aberta na comanda, quem vende já escolheu
+  // em qual continua, e o aviso sai.
+  const abertasNoCaixa = historico.filter((resumo) => resumo.status === 'ABERTA' && resumo.id !== atual?.id)
+  const avisarAbertas = atual?.status !== 'ABERTA' && abertasNoCaixa.length > 0
+  const vendasNaLista = todasAsVendas ? historico : historico.slice(0, VENDAS_A_VISTA)
 
   function falhar(lugar: LugarDoErro, texto: string) { setErro({ texto, lugar }) }
   function erroEm(lugar: LugarDoErro) { return erro?.lugar === lugar ? erro.texto : undefined }
@@ -260,7 +319,7 @@ export function TelaDeVenda() {
     let vivo = true
     const espera = window.setTimeout(() => {
       cadastro.buscarProdutos(procurado).then((produtos) => {
-        if (vivo) { setResultados(produtos); setBuscado(procurado) }
+        if (vivo) { setResultados(ordenarResultados(produtos, procurado)); setBuscado(procurado) }
       }).catch((falha) => {
         if (vivo) setErro({ lugar: 'busca', texto: falha instanceof SemConexao
           ? 'Sem resposta do servidor na busca. Tente de novo.' : erroDeCadastro(falha) })
@@ -480,7 +539,7 @@ export function TelaDeVenda() {
     finally { setOcupado(false) }
   }
 
-  async function selecionar(resumo: ResumoDaVenda) {
+  async function selecionar(resumo: ResumoDaVenda, lugar: LugarDoErro = 'historico') {
     setErro(undefined); setTroco(undefined); setComprovante(undefined); setBuscaCliente('')
     try {
       await atualizar(resumo.id)
@@ -488,7 +547,13 @@ export function TelaDeVenda() {
         setComprovante(await vendas.comprovante(resumo.id))
         setSegundaViaEm(new Date())
       }
-    } catch (falha) { falhar('historico', erroDeCadastro(falha)) }
+    } catch (falha) { falhar(lugar, erroDeCadastro(falha)) }
+  }
+
+  /** A venda retomada pelo aviso continua pela busca, como depois de lançar um item. */
+  async function retomar(resumo: ResumoDaVenda) {
+    await selecionar(resumo, 'comanda')
+    buscaRef.current?.focus()
   }
 
   async function copiarPix(parcelaId: string, codigo: string) {
@@ -518,7 +583,7 @@ export function TelaDeVenda() {
           ? 'Sem resposta do servidor na busca. Tente de novo.' : erroDeCadastro(falha))
         return
       }
-      setResultados(encontrados); setBuscado(procurado)
+      setResultados(ordenarResultados(encontrados, procurado)); setBuscado(procurado)
     }
     // O campo pode ter mudado durante a busca; lançar pelo termo antigo seria lançar outro produto.
     if (buscaRef.current && buscaRef.current.value.trim() !== procurado) return
@@ -558,10 +623,16 @@ export function TelaDeVenda() {
             <li key={parcela.id}>Pix {parcela.pix?.txid}: {moeda.format(parcela.valor)} · {parcela.status.toLowerCase()}</li>)}</ul>
         </div>}
       </section>}
-    {carregando ? <p>Carregando...</p> : !sessao ? <p>Abra o seu caixa para vender. <Link to="/caixa">Ir ao caixa</Link></p>
+    {/* Sem caixa, ir ao caixa é a única ação da tela: um botão, não um link solto no texto. */}
+    {carregando ? <p>Carregando...</p> : !sessao ? <>
+      <p>Abra o seu caixa para vender.</p>
+      <p><Link className="botao" to="/caixa">Ir ao caixa</Link></p>
+    </>
       : <div className="pdv__grade">
-        <section className="pdv__painel">
-          <h3>Busca de produtos</h3>
+        <section className="pdv__painel pdv__painel--busca">
+          {/* No celular o título sai da vista, e a busca sobe para perto do alto da tela, longe do
+              teclado virtual; o leitor de tela continua achando o painel por ele. */}
+          <h3 className="pdv__titulo-da-busca">Busca de produtos</h3>
           <div className="pdv__busca">
             <label>Produto por nome ou código
               <input ref={buscaRef} autoFocus value={busca} onChange={(evento) => mudarBusca(evento.target.value)}
@@ -576,8 +647,8 @@ export function TelaDeVenda() {
               <input type="number" min="0.001" step="0.001" value={quantidade}
                 onChange={(evento) => setQuantidade(evento.target.value)} />
             </label>
+            <p className="pdv__ajuda">Também aceita 3* no início da busca para lançar três unidades.</p>
           </div>
-          <p className="pdv__ajuda">Também aceita 3* no início da busca para lançar três unidades.</p>
           {identidade?.perfil === 'ADMIN' &&
             <CampoDeDinheiro rotulo="Desconto deste item" placeholder="0,00" valor={descontoItem}
               aoMudar={setDescontoItem} />}
@@ -588,17 +659,28 @@ export function TelaDeVenda() {
             {resultados.map((produto) => <li key={produto.id}>
               <button type="button" className="botao botao--secundario" disabled={ocupado}
                 onClick={() => void adicionar(produto)}>
-                {produto.nome} · {moeda.format(produto.preco)}{produto.codigo && ` · ${produto.codigo}`}
+                {/* O preço é o da unidade de venda: 16,90 o quilo não se confunde com o da unidade. */}
+                {produto.nome} · {moeda.format(produto.preco)}{produto.unidade && `/${produto.unidade}`}
+                {produto.codigo && ` · ${produto.codigo}`}
               </button>
             </li>)}
           </ul>}
         </section>
 
+        {/* O comprovante vem logo abaixo da comanda que o gerou: depois da lista do caixa, ficava a
+            milhares de pixels, com o cliente esperando. */}
+        <div className="pdv__coluna">
         <section className="pdv__painel" aria-busy={ocupado}>
           <div className="pdv__topo"><h3>Comanda</h3>
             <span className="pdv__ajuda" aria-live="polite">{ocupado ? 'Registrando...' : ''}</span>
             <button className="botao botao--secundario" type="button" onClick={novaVenda}>Nova venda</button>
           </div>
+          {/* Começar outra continua possível: o aviso só lembra da venda que ficaria para trás. */}
+          {avisarAbertas && <div className="pdv__aberta">
+            <p className="mensagem-info">{avisoDasAbertas(abertasNoCaixa)}</p>
+            <button className="botao botao--secundario" type="button" disabled={ocupado}
+              onClick={() => void retomar(abertasNoCaixa[0])}>Retomar</button>
+          </div>}
           {!atual ? <p>Busque e escolha o primeiro produto para iniciar.</p> : <>
             {/* O cancelamento fica no alto, junto da venda que ele desfaz, e longe dos botões de
                 pagar e concluir: depois de concluir a comanda encolhe, e o toque seguinte cairia nele. */}
@@ -642,7 +724,7 @@ export function TelaDeVenda() {
             </>}
             {atual.itens.length === 0 ? <p>Nenhum item lançado.</p> : <ul className="pdv__itens">
               {atual.itens.map((item) => <li key={item.id}>
-                <span>{item.quantidade} × {item.nome} · {moeda.format(item.subtotal)}
+                <span>{quantidadeComUnidade(item.quantidade, item.unidade)} × {item.nome} · {moeda.format(item.subtotal)}
                   {item.desconto > 0 && ` (desconto ${moeda.format(item.desconto)})`}</span>
                 {atual.status === 'ABERTA' && <button className="botao botao--secundario" type="button"
                   disabled={ocupado} onClick={() => void remover(item.id)}>Remover</button>}
@@ -757,28 +839,35 @@ export function TelaDeVenda() {
           </div> : <Mensagem tipo="erro" texto={erroEm('comanda')} />}
         </section>
 
+        {comprovante && identidade && <Comprovante comprovante={comprovante} negocio={identidade.nomeNegocio}
+          operador={nomeDoOperador(comprovante.usuarioId)} segundaViaEm={segundaViaEm}
+          aoFalhar={(mensagem) => falhar('comprovante', mensagem)} />}
+        {/* Fora do papel branco do comprovante, onde o texto claro da mensagem não se leria. */}
+        <Mensagem tipo="erro" texto={erroEm('comprovante')} />
+        </div>
+
         <section className="pdv__painel pdv__historico">
           <h3>Vendas deste caixa</h3>
           {!online && <p className="pdv__ajuda">Sem conexão, a lista mostra as Vendas registradas neste dispositivo.</p>}
           <Mensagem tipo="erro" texto={erroEm('historico')} />
-          {historico.length === 0 ? <p>Nenhuma venda neste caixa.</p> : <ul>
-            {historico.map((resumo) => <li key={resumo.id}>
+          {historico.length === 0 ? <p>Nenhuma venda neste caixa.</p> : <ul id={idDaLista}>
+            {vendasNaLista.map((resumo) => <li key={resumo.id}>
               <button type="button" className="botao botao--secundario"
                 onClick={() => void selecionar(resumo)}>
-                {dataHora.format(new Date(resumo.criadoEm))} · {ROTULO_DA_VENDA[resumo.status]} · {moeda.format(resumo.total)}
+                {quando(resumo.criadoEm)} · {ROTULO_DA_VENDA[resumo.status]} · {moeda.format(resumo.total)}
+                {formasDaLinha(resumo)}
                 {resumo.status === 'ABERTA' && (resumo.pendenteSincronizacao ? ' · retomar' : ' · retomar ou cancelar')}
                 {resumo.pendenteSincronizacao && ' · pendente de sincronização'}
               </button>
             </li>)}
           </ul>}
+          {historico.length > VENDAS_A_VISTA && <button type="button" className="botao botao--secundario"
+            aria-expanded={todasAsVendas} aria-controls={idDaLista}
+            onClick={() => setTodasAsVendas(!todasAsVendas)}>
+            {todasAsVendas ? 'Ver só as dez mais recentes' : `Ver todas (${historico.length})`}</button>}
         </section>
       </div>}
 
-    {comprovante && identidade && <Comprovante comprovante={comprovante} negocio={identidade.nomeNegocio}
-      operador={nomeDoOperador(comprovante.usuarioId)} segundaViaEm={segundaViaEm}
-      aoFalhar={(mensagem) => falhar('comprovante', mensagem)} />}
-    {/* Fora do papel branco do comprovante, onde o texto claro da mensagem não se leria. */}
-    <Mensagem tipo="erro" texto={erroEm('comprovante')} />
     {dialogoDeConfirmacao}
   </section>
 }

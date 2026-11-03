@@ -4,6 +4,7 @@ import { lerDinheiro, moeda, valorNoCampo } from '../formatos'
 import { useOnline } from '../shell/useOnline'
 import { useSessao } from '../sessao/useSessao'
 import { listarGestos } from '../offline/fila'
+import { paraBusca } from '../textoDeBusca'
 import { erroDeCadastro, errosDosCampos } from './erroDeCadastro'
 import { filtrarPorNome } from './filtroPorNome'
 import { ErroDoCampo, Mensagem } from './Mensagem'
@@ -194,6 +195,13 @@ export function TelaDeProdutos() {
   }
 
   const encontrados = filtrarPorNome(produtos, busca, (produto) => produto.nome)
+  // Dois itens com o mesmo nome aparecem iguais na busca do balcão. Só avisa: o servidor aceita o
+  // nome repetido, e recusar aqui seria regra nova. Compara como a busca, sem acento nem maiúscula.
+  const nomeDigitado = paraBusca(formulario.nome)
+  const nomeRepetido = aberto && nomeDigitado !== '' && produtos.some((produto) =>
+    produto.id !== editando && paraBusca(produto.nome) === nomeDigitado)
+  const descricaoDoNome = [camposComErro.nome ? 'produto-erro-nome' : null,
+    nomeRepetido ? 'produto-aviso-nome' : null].filter(Boolean).join(' ') || undefined
 
   return (
     <section className="cadastro">
@@ -241,7 +249,9 @@ export function TelaDeProdutos() {
           <ErroDoCampo id="produto-erro-tipo" texto={camposComErro.tipo} />
         </div> : <p>Tipo: {ROTULO_DO_TIPO[formulario.tipo]}</p>}
         <div className="cadastro__grade">
-          <div className="campo"><label className="campo__rotulo" htmlFor="produto-nome">Nome</label><input id="produto-nome" className="campo__entrada" value={formulario.nome} onChange={(evento) => campo('nome', evento.target.value)} required maxLength={120} {...marcaDoCampo('nome')} /><ErroDoCampo id="produto-erro-nome" texto={camposComErro.nome} /></div>
+          <div className="campo"><label className="campo__rotulo" htmlFor="produto-nome">Nome</label><input id="produto-nome" className="campo__entrada" value={formulario.nome} onChange={(evento) => campo('nome', evento.target.value)} required maxLength={120} {...marcaDoCampo('nome')} aria-describedby={descricaoDoNome} /><ErroDoCampo id="produto-erro-nome" texto={camposComErro.nome} />
+            {/* Sempre montado, para o leitor de tela anunciar o aviso quando o texto aparece. */}
+            <span id="produto-aviso-nome" className="campo__aviso" role="status">{nomeRepetido ? 'Já existe um item ativo com este nome. Na busca do balcão, os dois aparecem iguais.' : ''}</span></div>
           <div className="campo"><label className="campo__rotulo" htmlFor="produto-preco">Preço (R$)</label><input id="produto-preco" className="campo__entrada" value={formulario.preco} onChange={(evento) => campo('preco', evento.target.value)} inputMode="decimal" required {...marcaDoCampo('preco')} /><ErroDoCampo id="produto-erro-preco" texto={camposComErro.preco} /></div>
           <div className="campo"><label className="campo__rotulo" htmlFor="produto-codigo">Código (opcional)</label><input id="produto-codigo" className="campo__entrada" value={formulario.codigo} onChange={(evento) => campo('codigo', evento.target.value)} maxLength={60} {...marcaDoCampo('codigo')} /><ErroDoCampo id="produto-erro-codigo" texto={camposComErro.codigo} /></div>
           <div className="campo"><label className="campo__rotulo" htmlFor="produto-categoria">Categoria (opcional)</label><input id="produto-categoria" className="campo__entrada" value={formulario.categoria} onChange={(evento) => campo('categoria', evento.target.value)} maxLength={60} {...marcaDoCampo('categoria')} /><ErroDoCampo id="produto-erro-categoria" texto={camposComErro.categoria} /></div>

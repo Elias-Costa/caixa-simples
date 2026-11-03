@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { describe, expect, it } from 'vitest'
 import type { Identidade } from '../sessao/Identidade'
@@ -10,11 +10,16 @@ const administradora: Identidade = {
   estoqueHabilitado: false, recursos: ['RELATORIOS'],
 }
 
-function mostrar(caminho: string) {
+function mostrar(caminho: string, compacta = false) {
   render(<MemoryRouter initialEntries={[caminho]}>
-    <Navegacao itens={itensDoMenu(administradora)} />
+    <Navegacao itens={itensDoMenu(administradora)} compacta={compacta} />
     <Routes><Route path="*" element={null} /></Routes>
   </MemoryRouter>)
+}
+
+function listaDoMais(): HTMLElement {
+  const mais = screen.getByRole('button', { name: 'Mais' })
+  return document.getElementById(mais.getAttribute('aria-controls')!)!
 }
 
 describe('barra de navegação', () => {
@@ -35,6 +40,23 @@ describe('barra de navegação', () => {
     mostrar('/senha')
     expect(screen.getByRole('button', { name: 'Mais' })).toHaveClass('navegacao__item--ativo')
     expect(screen.getByRole('link', { name: 'Minha conta' })).toHaveClass('navegacao__item--ativo')
+  })
+
+  it('compacta, a barra fica com a página atual e o Mais, e os outros itens do balcão vão para o Mais', () => {
+    mostrar('/vender', true)
+    expect(screen.getByRole('navigation', { name: 'Principal' })).toHaveClass('navegacao--compacta')
+    expect(within(listaDoMais()).queryByRole('link', { name: 'Vender' })).not.toBeInTheDocument()
+    // Os do balcão vêm primeiro na lista, antes dos que já moravam no Mais.
+    expect(within(listaDoMais()).getAllByRole('link').map((link) => link.textContent).slice(0, 5))
+      .toEqual(['Caixa', 'Produtos', 'Clientes', 'Fiado', 'Sincronização'])
+    expect(screen.getAllByRole('link', { name: 'Caixa' })).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Mais' })).not.toHaveClass('navegacao__item--ativo')
+  })
+
+  it('sem a barra compacta, os itens do balcão ficam fora do Mais', () => {
+    mostrar('/vender')
+    expect(screen.getByRole('navigation', { name: 'Principal' })).not.toHaveClass('navegacao--compacta')
+    expect(within(listaDoMais()).queryByRole('link', { name: 'Caixa' })).not.toBeInTheDocument()
   })
 
   it('numa página do balcão, o Mais não fica marcado', () => {

@@ -203,11 +203,12 @@ class GestosDaVenda implements AplicadorDeOperacoes {
     }
 
     /**
-     * O conteúdo de {@code venda.adicionarItem}. O nome visto e a versão do produto vêm junto e
-     * ficam só no registro da operação: o nome serve à tela do dispositivo, e a versão deixou de
-     * decidir a revisão, porque toda baixa de estoque a muda.
+     * O conteúdo de {@code venda.adicionarItem}. O nome e a unidade vistos e a versão do produto
+     * vêm junto e ficam só no registro da operação: o nome e a unidade servem à tela do
+     * dispositivo, e a versão deixou de decidir a revisão, porque toda baixa de estoque a muda. A
+     * unidade falta nos gestos gravados antes de o aparelho a guardar, e não faz falta aqui.
      */
-    record Item(UUID itemId, UUID produtoId, String nome, BigDecimal quantidade,
+    record Item(UUID itemId, UUID produtoId, String nome, String unidade, BigDecimal quantidade,
             BigDecimal precoUnitario, BigDecimal desconto, Long versaoProduto) {
     }
 

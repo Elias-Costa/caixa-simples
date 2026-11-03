@@ -40,6 +40,26 @@ describe('cadastro na tela', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('Café salvo.')
   })
 
+  it('avisa o nome repetido de outro item ativo sem impedir o salvar, e não acusa o próprio item', async () => {
+    vi.spyOn(cadastro, 'produtos').mockResolvedValue([{ ...produto, nome: 'Pão de queijo', preco: 3.5 }])
+    const criar = vi.spyOn(cadastro, 'criarProduto').mockResolvedValue({ id: 'item-2' })
+    mostrarProdutos('ADMIN')
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Editar' }))
+    expect(screen.getByLabelText('Nome')).not.toHaveAccessibleDescription()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Novo item' }))
+    const nome = screen.getByLabelText('Nome')
+    // Acento, maiúscula e espaço nas pontas não contam, como na busca do balcão.
+    fireEvent.change(nome, { target: { value: ' PAO DE QUEIJO ' } })
+    expect(nome).toHaveAccessibleDescription(
+      'Já existe um item ativo com este nome. Na busca do balcão, os dois aparecem iguais.')
+    fireEvent.change(screen.getByLabelText('Preço (R$)'), { target: { value: '6,10' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar' }))
+    await waitFor(() => expect(criar).toHaveBeenCalledWith(expect.objectContaining({ preco: 6.1 })))
+  })
+
   it('o preço em edição vem com vírgula, e o erro dele aparece no formulário, perto do botão', async () => {
     vi.spyOn(cadastro, 'produtos').mockResolvedValue([{ ...produto, preco: 6.5 }])
     const editar = vi.spyOn(cadastro, 'editarProduto')

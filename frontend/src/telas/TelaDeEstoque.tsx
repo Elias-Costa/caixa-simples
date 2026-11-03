@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { estoque, type EstoqueDoProduto } from '../api/estoque'
+import { quantidade } from '../formatos'
 import { erroDeCadastro } from './erroDeCadastro'
 import { Mensagem } from './Mensagem'
 import { TituloComAjuda } from './TituloComAjuda'
 import { AJUDA } from './textosDeAjuda'
-
-const quantidade = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 3 })
 
 /** O tamanho da coluna do motivo, o mesmo do servidor. */
 const TAMANHO_DO_MOTIVO = 120

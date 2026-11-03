@@ -4,6 +4,11 @@ import type { ItemDoMenu } from './menu'
 
 type Props = {
   itens: ItemDoMenu[]
+  /**
+   * A barra numa linha só, com o item da página atual e o Mais, e os outros itens do balcão no
+   * começo da lista do Mais. É a da tela de venda no celular, onde a busca precisa do alto da tela.
+   */
+  compacta?: boolean
 }
 
 function Item({ item }: { item: ItemDoMenu }) {
@@ -20,21 +25,22 @@ function Item({ item }: { item: ItemDoMenu }) {
  * moram no botão Mais, e no desktop, onde a barra é uma coluna, aparecem todos. Cada item existe uma
  * vez só no documento: é o CSS que mostra a lista dos outros presa ao Mais ou sempre à vista.
  */
-export function Navegacao({ itens }: Props) {
+export function Navegacao({ itens, compacta = false }: Props) {
   const { pathname } = useLocation()
   // Aberta para a página em que foi aberta: escolhido um item, a página muda e a lista fecha sozinha,
   // sem ficar por cima da tela nova.
   const [abertaEm, setAbertaEm] = useState<string | null>(null)
   const aberta = abertaEm === pathname
   const idDosOutros = useId()
-  const principais = itens.filter((item) => item.principal)
-  const outros = itens.filter((item) => !item.principal)
+  const principais = itens.filter((item) => compacta ? item.caminho === pathname : item.principal)
+  const outros = itens.filter((item) => !principais.includes(item))
   // Numa página de dentro do Mais, o próprio Mais fica marcado, para quem está nela saber onde está.
   const atualNoMais = outros.some((item) =>
     pathname === item.caminho || pathname.startsWith(`${item.caminho}/`))
 
   return (
-    <nav className={aberta ? 'navegacao navegacao--aberta' : 'navegacao'} aria-label="Principal">
+    <nav className={`navegacao${compacta ? ' navegacao--compacta' : ''}${aberta ? ' navegacao--aberta' : ''}`}
+      aria-label="Principal">
       {principais.map((item) => <Item key={item.caminho} item={item} />)}
       {outros.length > 0 && <>
         <button type="button" aria-expanded={aberta} aria-controls={idDosOutros}

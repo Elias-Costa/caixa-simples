@@ -1,5 +1,5 @@
 import type { Comprovante as DadosDoComprovante } from '../api/vendas'
-import { dataHora, moeda } from '../formatos'
+import { dataHora, moeda, quantidadeComUnidade } from '../formatos'
 import { erroDeCadastro } from './erroDeCadastro'
 import { ROTULO_DA_FORMA } from './rotulos'
 
@@ -25,7 +25,7 @@ function textoDoComprovante(comprovante: DadosDoComprovante, negocio: string, op
     ...(comprovante.pendenteSincronizacao ? [PENDENTE_NO_COMPROVANTE] : []),
     dataHora.format(new Date(comprovante.concluidoEm)),
     ...comprovante.linhas.map((linha) =>
-      `${linha.quantidade} × ${linha.nome}: ${moeda.format(linha.subtotal)}`),
+      `${quantidadeComUnidade(linha.quantidade, linha.unidade)} × ${linha.nome}: ${moeda.format(linha.subtotal)}`),
     ...(comprovante.descontoDaVenda > 0
       ? [`Desconto da venda: ${moeda.format(comprovante.descontoDaVenda)}`] : []),
     `Total: ${moeda.format(comprovante.valorTotal)}`,
@@ -79,7 +79,7 @@ export function Comprovante({ comprovante, negocio, operador, segundaViaEm, aoFa
     {comprovante.pendenteSincronizacao && <p><strong>{PENDENTE_NO_COMPROVANTE}</strong></p>}
     <p>{dataHora.format(new Date(comprovante.concluidoEm))}</p>
     <ul>{comprovante.linhas.map((linha, indice) => <li key={`${linha.produtoId}-${indice}`}>
-      {linha.quantidade} × {linha.nome} · {moeda.format(linha.precoUnitario)} · {moeda.format(linha.subtotal)}
+      {quantidadeComUnidade(linha.quantidade, linha.unidade)} × {linha.nome} · {moeda.format(linha.precoUnitario)} · {moeda.format(linha.subtotal)}
       {linha.desconto > 0 && ` · desconto ${moeda.format(linha.desconto)}`}
     </li>)}</ul>
     <p>Soma dos itens: {moeda.format(comprovante.somaDosItens)}</p>

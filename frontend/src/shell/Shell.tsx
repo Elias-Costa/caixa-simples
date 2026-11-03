@@ -9,6 +9,7 @@ import { avisoDoPlano } from './avisoDoPlano'
 import { useAvisoDoCaixaDeOutroDia } from './caixaDeOutroDia'
 import { itensDoMenu } from './menu'
 import { Navegacao } from './Navegacao'
+import { useCelular } from './useCelular'
 import { useOnline } from './useOnline'
 import { ContextoDoShellReact } from './ContextoDoShell'
 import { SincronizacaoContext, useEnvioAutomatico } from './sincronizacao'
@@ -31,6 +32,10 @@ export function Shell() {
   const sincronizacao = useEnvioAutomatico(identidade, sair, pathname)
   const quem = identidade ? `${identidade.contaId}:${identidade.usuarioId}` : null
   const caixaDeOutroDia = useAvisoDoCaixaDeOutroDia(quem, sincronizacao.rodada, pathname)
+  // No celular, a tela de venda fica com a barra numa linha só e sem o tour: com o menu em duas
+  // linhas e o cartão dos primeiros passos, a busca começava perto do fim da tela, onde o teclado
+  // virtual a cobre. As outras telas continuam como estão.
+  const balcaoNoCelular = useCelular() && pathname === '/vender'
   // Quem já viu o tour neste aparelho, por Conta e pessoa. Guardado por quem, para a troca de usuário
   // na mesma aba ler a marca da pessoa nova.
   const [tourFechadoPara, setTourFechadoPara] = useState<string | null>(null)
@@ -65,7 +70,7 @@ export function Shell() {
   const vencimento = avisoDoPlano(identidade)
   // A página dos primeiros passos já os mostra; o painel no alto ficaria repetido.
   const mostrarTour = tourFechadoPara !== quem && pathname !== '/primeiros-passos'
-    && !tourVisto(identidade)
+    && !balcaoNoCelular && !tourVisto(identidade)
 
   function fecharTour() {
     if (!identidade) return
@@ -144,7 +149,7 @@ export function Shell() {
       {faixaDeContexto && <div className="faixa" role="status">{faixaDeContexto}</div>}
       </div>
 
-      <Navegacao itens={itensDoMenu(identidade)} />
+      <Navegacao itens={itensDoMenu(identidade)} compacta={balcaoNoCelular} />
 
       <main className="conteudo">
         {mostrarTour && <PrimeirosPassos aoTerminar={fecharTour} />}

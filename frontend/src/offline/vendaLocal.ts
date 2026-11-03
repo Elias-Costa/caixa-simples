@@ -1,6 +1,8 @@
 import { cadastro, type Produto } from '../api/cadastro'
 import { SemConexao } from '../api/cliente'
-import { vendas, type Comprovante, type ResumoDaVenda, type Venda } from '../api/vendas'
+import {
+  vendas, type Comprovante, type FormaPagamento, type ResumoDaVenda, type ValorDaForma, type Venda,
+} from '../api/vendas'
 import { lerIdentidade } from '../sessao/armazenamento'
 import { criarCaixaLocal, sessaoTemPendencia, ultimoGestoDaGaveta } from './caixaLocal'
 import { reais } from './dinheiro'
@@ -102,10 +104,41 @@ async function sessaoDaVenda(id: string): Promise<string | undefined> {
   return (await lerRetrato<Venda>(`venda:${id}`))?.dados.sessaoCaixaId
 }
 
+/** A ordem em que o servidor declara as formas, a mesma das linhas da lista que ele devolve. */
+const ORDEM_DAS_FORMAS: FormaPagamento[] = ['DINHEIRO', 'PIX', 'CARTAO', 'FIADO']
+
+type ParcelaParaSomar = { forma: FormaPagamento; status: string; centavos: number }
+
+/**
+ * Quanto entrou por forma, pela regra do servidor na lista do caixa: a parcela confirmada e a do
+ * fiado, que fica pendente até o cliente pagar, somadas em centavos. Vale para a Venda feita aqui e
+ * para a do servidor guardada para ler sem rede; o Pix aguardando confirmação fica de fora.
+ */
+function formasDasParcelas(parcelas: readonly ParcelaParaSomar[]): ValorDaForma[] {
+  const porForma = new Map<FormaPagamento, number>()
+  for (const parcela of parcelas) {
+    if (parcela.status !== 'CONFIRMADO' && parcela.forma !== 'FIADO') continue
+    porForma.set(parcela.forma, (porForma.get(parcela.forma) ?? 0) + parcela.centavos)
+  }
+  return ORDEM_DAS_FORMAS.filter((forma) => porForma.has(forma))
+    .map((forma) => ({ forma, valor: reais(porForma.get(forma) ?? 0) }))
+}
+
 function resumo(venda: raiz.VendaNoDispositivo, pendente: boolean): ResumoDaVenda {
   return {
     id: venda.id, sessaoCaixaId: venda.sessaoCaixaId, usuarioId: venda.usuarioId, status: venda.status,
     total: reais(raiz.total(venda)), criadoEm: venda.criadoEm, pendenteSincronizacao: pendente,
+    formas: formasDasParcelas(venda.parcelas.map((parcela) =>
+      ({ forma: parcela.forma, status: parcela.status, centavos: parcela.valorCentavos }))),
+  }
+}
+
+/** A Venda do servidor guardada inteira, na forma da linha da lista, com as formas contadas aqui. */
+function resumoDoRetrato(venda: Venda): ResumoDaVenda {
+  return {
+    ...venda,
+    formas: formasDasParcelas(venda.parcelas.map((parcela) =>
+      ({ forma: parcela.forma, status: parcela.status, centavos: Math.round(parcela.valor * 100) }))),
   }
 }
 
@@ -124,7 +157,8 @@ function paraTela(venda: raiz.VendaNoDispositivo, pendente: boolean): Venda {
     pago: reais(pago),
     faltaPagar: reais(raiz.total(venda) - pago),
     itens: venda.itens.map((item) => ({
-      id: item.id, produtoId: item.produtoId, nome: item.nome, quantidade: item.milesimos / 1000,
+      id: item.id, produtoId: item.produtoId, nome: item.nome, unidade: item.unidade,
+      quantidade: item.milesimos / 1000,
       precoUnitario: reais(item.precoCentavos), desconto: reais(item.descontoCentavos),
       subtotal: reais(raiz.subtotal(item)),
     })),
@@ -150,7 +184,7 @@ function comprovanteDoDispositivo(venda: raiz.VendaNoDispositivo, pendente: bool
     usuarioId: venda.usuarioId,
     concluidoEm: venda.concluidoEm,
     linhas: venda.itens.map((item) => ({
-      produtoId: item.produtoId, nome: item.nome, unidade: null, quantidade: item.milesimos / 1000,
+      produtoId: item.produtoId, nome: item.nome, unidade: item.unidade, quantidade: item.milesimos / 1000,
       precoUnitario: reais(item.precoCentavos), valorBruto: reais(raiz.valorBruto(item)),
       desconto: reais(item.descontoCentavos), subtotal: reais(raiz.subtotal(item)),
     })),
@@ -227,7 +261,7 @@ export function criarVendaLocal(remoto: VendasDaApi = vendas, caixa: CaixaDoDisp
       const porId = new Map(doServidor.map((venda) => [venda.id, venda]))
       for (const guardada of await listarRetratosDeVendas<Venda>()) {
         if (guardada.sessaoCaixaId === sessaoCaixaId && !porId.has(guardada.id)) {
-          porId.set(guardada.id, guardada)
+          porId.set(guardada.id, resumoDoRetrato(guardada))
         }
       }
       for (const venda of doDispositivo) {
@@ -290,8 +324,8 @@ export function criarVendaLocal(remoto: VendasDaApi = vendas, caixa: CaixaDoDisp
       // Produto reajustado ou inativado no servidor antes de a Venda chegar lá vira revisão na
       // sincronização, sem mudar o que foi cobrado.
       const dados: raiz.DadosDoItem = {
-        itemId: crypto.randomUUID(), produtoId: produto.id, nome: produto.nome, quantidade,
-        precoUnitario: produto.preco, desconto,
+        itemId: crypto.randomUUID(), produtoId: produto.id, nome: produto.nome,
+        unidade: produto.unidade, quantidade, precoUnitario: produto.preco, desconto,
         versaoProduto: typeof produto.versao === 'number' ? produto.versao : null,
       }
       raiz.adicionarItem(alvo.venda, dados)

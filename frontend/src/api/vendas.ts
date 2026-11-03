@@ -12,7 +12,14 @@ export type ResumoDaVenda = {
   criadoEm: string
   /** Registrada neste dispositivo e ainda não recebida pelo servidor. */
   pendenteSincronizacao?: boolean
+  /**
+   * Quanto entrou por cada forma, só na lista do caixa: a parcela confirmada e a do fiado, somadas
+   * por forma. Falta na resposta de um servidor anterior a ela.
+   */
+  formas?: ValorDaForma[]
 }
+
+export type ValorDaForma = { forma: FormaPagamento; valor: number }
 
 export type ConciliacaoPix = {
   vendaId: string
@@ -25,6 +32,8 @@ export type ItemDaVenda = {
   id: string
   produtoId: string
   nome: string
+  /** A do cadastro; não vem quando o produto não tem, nem de um servidor anterior a ela. */
+  unidade?: string | null
   quantidade: number
   precoUnitario: number
   desconto: number

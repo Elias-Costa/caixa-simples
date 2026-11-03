@@ -205,6 +205,13 @@ class VendaPixHttpTest extends TesteDeIntegracao {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("ABERTA"))
                 .andExpect(jsonPath("$.parcelas.length()").value(1))
                 .andExpect(jsonPath("$.parcelas[0].pix.copiaECola").value("codigo-pix-de-teste"));
+        // O Pix aguardando confirmação ainda não entrou: a lista do caixa não o conta como forma.
+        UUID sessao = conta.comoUsuario(() -> vendas.consultar(vendaId).sessaoCaixaId());
+        http.perform(get("/api/vendas").param("sessaoCaixaId", sessao.toString())
+                        .with(autenticador.como(conta)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(vendaId.toString()))
+                .andExpect(jsonPath("$[0].formas").isEmpty());
         http.perform(post("/api/vendas/{id}/conclusao", vendaId)
                 .with(autenticador.como(conta))).andExpect(status().isConflict());
         when(gateway.consultar(any())).thenAnswer(chamada -> {

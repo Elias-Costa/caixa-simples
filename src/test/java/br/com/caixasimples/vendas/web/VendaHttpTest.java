@@ -1,6 +1,7 @@
 package br.com.caixasimples.vendas.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -512,6 +513,79 @@ class VendaHttpTest extends TesteDeIntegracao {
         // A recusa não gravou nada com o id: o mesmo pedido, completo, passa como o primeiro.
         pagar(admin, venda, pagamentoId, "DINHEIRO", "12.50", null)
                 .andExpect(status().isOk()).andExpect(jsonPath("$.troco").value(0.0));
+    }
+
+    @Test
+    void listaDoCaixaTrazOValorDeCadaFormaEOItemTrazAUnidadeSoDaPropriaConta() throws Exception {
+        ContaCriada conta = criador.criar("PDV Formas", SENHA);
+        ContaCriada outra = criador.criar("PDV Formas Vizinha", SENHA);
+        RequestPostProcessor admin = autenticador.como(conta);
+        RequestPostProcessor adminDaOutra = autenticador.como(outra);
+        UUID produto = produto(conta);
+        UUID sessao = conta.comoUsuario(() -> caixas.abrir(Money.ZERO));
+        String item = "{\"produtoId\":\"" + produto + "\",\"quantidade\":1,\"desconto\":0}";
+
+        // Duas parcelas no cartão somam numa linha só; a ordem é a das formas, não a do lançamento.
+        UUID dividida = criarVenda(admin, sessao);
+        http.perform(post("/api/vendas/{id}/itens", dividida).with(admin)
+                .contentType(MediaType.APPLICATION_JSON).content(item)).andExpect(status().isCreated());
+        pagar(admin, dividida, UUID.randomUUID(), "CARTAO", "5.00", null).andExpect(status().isOk());
+        pagar(admin, dividida, UUID.randomUUID(), "DINHEIRO", "2.50", null).andExpect(status().isOk());
+        pagar(admin, dividida, UUID.randomUUID(), "CARTAO", "5.00", null).andExpect(status().isOk());
+        http.perform(post("/api/vendas/{id}/conclusao", dividida).with(admin))
+                .andExpect(status().isNoContent());
+
+        // O fiado fica pendente até o cliente pagar, e conta como a forma da venda.
+        UUID cliente = uuidDaResposta(http.perform(post("/api/clientes").with(admin)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"nome\":\"Marta\",\"contato\":null}"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString());
+        UUID fiada = criarVenda(admin, sessao);
+        http.perform(post("/api/vendas/{id}/itens", fiada).with(admin)
+                .contentType(MediaType.APPLICATION_JSON).content(item)).andExpect(status().isCreated());
+        vincular(admin, fiada, cliente).andExpect(status().isNoContent());
+        pagar(admin, fiada, UUID.randomUUID(), "FIADO", "12.50", null).andExpect(status().isOk());
+        http.perform(post("/api/vendas/{id}/conclusao", fiada).with(admin))
+                .andExpect(status().isNoContent());
+
+        UUID aberta = criarVenda(admin, sessao);
+        http.perform(post("/api/vendas/{id}/itens", aberta).with(admin)
+                .contentType(MediaType.APPLICATION_JSON).content(item)).andExpect(status().isCreated());
+
+        http.perform(get("/api/vendas").param("sessaoCaixaId", sessao.toString()).with(admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(3))
+                .andExpect(jsonPath("$[?(@.id == '" + dividida + "')].formas[*].forma",
+                        contains("DINHEIRO", "CARTAO")))
+                .andExpect(jsonPath("$[?(@.id == '" + dividida + "')].formas[*].valor",
+                        contains(2.5, 10.0)))
+                .andExpect(jsonPath("$[?(@.id == '" + fiada + "')].formas[*].forma",
+                        contains("FIADO")))
+                .andExpect(jsonPath("$[?(@.id == '" + fiada + "')].formas[*].valor",
+                        contains(12.5)))
+                .andExpect(jsonPath("$[?(@.id == '" + aberta + "')].formas[*]").isEmpty());
+        http.perform(get("/api/vendas/{id}", aberta).with(admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.itens[0].unidade").value("un"));
+
+        // A sessão da primeira Conta não existe para a vizinha (RNF05), e a lista da vizinha só tem
+        // as formas das vendas dela.
+        http.perform(get("/api/vendas").param("sessaoCaixaId", sessao.toString())
+                .with(adminDaOutra)).andExpect(status().isOk()).andExpect(jsonPath("$").isEmpty());
+        UUID produtoDaOutra = produto(outra);
+        UUID sessaoDaOutra = outra.comoUsuario(() -> caixas.abrir(Money.ZERO));
+        UUID vendaDaOutra = criarVenda(adminDaOutra, sessaoDaOutra);
+        http.perform(post("/api/vendas/{id}/itens", vendaDaOutra).with(adminDaOutra)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"produtoId\":\"" + produtoDaOutra + "\",\"quantidade\":1,\"desconto\":0}"))
+                .andExpect(status().isCreated());
+        pagar(adminDaOutra, vendaDaOutra, UUID.randomUUID(), "PIX", "12.50", null)
+                .andExpect(status().isOk());
+        http.perform(get("/api/vendas").param("sessaoCaixaId", sessaoDaOutra.toString())
+                        .with(adminDaOutra))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].formas[*].forma", contains("PIX")));
     }
 
     @Test

@@ -11,6 +11,20 @@ export const dataHora = new Intl.DateTimeFormat('pt-BR', {
   dateStyle: 'short', timeStyle: 'short', timeZone: FUSO_DO_BALCAO,
 })
 
+/** Só a hora, no mesmo fuso: na lista de um caixa, a data se repetiria em toda linha. */
+export const hora = new Intl.DateTimeFormat('pt-BR', { timeStyle: 'short', timeZone: FUSO_DO_BALCAO })
+
+/** A quantidade com vírgula e até três casas, as do que se vende por peso, sem zeros sobrando. */
+export const quantidade = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 3 })
+
+/**
+ * A quantidade com a unidade do cadastro, como 0,35 kg. O item sem unidade, como o serviço, mostra
+ * só o número.
+ */
+export function quantidadeComUnidade(valor: number, unidade?: string | null): string {
+  return unidade ? `${quantidade.format(valor)} ${unidade}` : quantidade.format(valor)
+}
+
 /** O valor como se digita num campo: vírgula decimal e sem o símbolo, que o campo aceita de volta. */
 export function valorNoCampo(valor: number): string {
   return valor.toFixed(2).replace('.', ',')

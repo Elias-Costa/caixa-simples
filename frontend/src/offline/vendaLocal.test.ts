@@ -73,17 +73,19 @@ describe('Venda no dispositivo', () => {
     const recarregada = criarVendaLocal(api, criarCaixaLocal())
     expect(await recarregada.consultar(id)).toMatchObject({
       status: 'CONCLUIDA', total: 12.5, pago: 12.5, faltaPagar: 0, pendenteSincronizacao: true,
-      itens: [{ nome: 'Café expresso', quantidade: 2, precoUnitario: 6.25, subtotal: 12.5 }],
+      itens: [{ nome: 'Café expresso', unidade: 'un', quantidade: 2, precoUnitario: 6.25, subtotal: 12.5 }],
       parcelas: [{ forma: 'DINHEIRO', valor: 12.5, troco: 7.5, status: 'CONFIRMADO' }],
     })
     const comprovante = await recarregada.comprovante(id)
     expect(comprovante).toMatchObject({
       vendaId: id, valorTotal: 12.5, troco: 7.5, pendenteSincronizacao: true,
-      linhas: [{ nome: 'Café expresso', quantidade: 2, subtotal: 12.5 }],
+      linhas: [{ nome: 'Café expresso', unidade: 'un', quantidade: 2, subtotal: 12.5 }],
     })
     expect(comprovante).not.toHaveProperty('nomeCliente')
+    // A forma vem da projeção do aparelho, como o servidor a daria na lista do caixa.
     expect(await recarregada.daSessao(sessaoId)).toEqual([expect.objectContaining({
       id, status: 'CONCLUIDA', total: 12.5, pendenteSincronizacao: true,
+      formas: [{ forma: 'DINHEIRO', valor: 12.5 }],
     })])
     expect(await criarCaixaLocal().consultar(sessaoId)).toMatchObject({
       valorFechamentoEsperado: 32.5, versao: 1, movimentos: [{ tipo: 'VENDA', valor: 12.5, vendaId: id }],
@@ -99,8 +101,8 @@ describe('Venda no dispositivo', () => {
       payload: { sessaoCaixaId: sessaoId } })
     expect(inicio.versaoBase).toBeUndefined()
     expect(item).toMatchObject({ dependeDe: [inicio.operacaoId], versaoBase: 0, payload: {
-      produtoId: cafe.id, nome: 'Café expresso', quantidade: 2, precoUnitario: 6.25, desconto: 0,
-      versaoProduto: 3 } })
+      produtoId: cafe.id, nome: 'Café expresso', unidade: 'un', quantidade: 2, precoUnitario: 6.25,
+      desconto: 0, versaoProduto: 3 } })
     expect(pagamento).toMatchObject({ dependeDe: [item.operacaoId], versaoBase: 1,
       payload: { forma: 'DINHEIRO', valor: 12.5, valorRecebido: 20 } })
     expect(conclusao).toMatchObject({ dependeDe: [pagamento.operacaoId, abertura.operacaoId], versaoBase: 2 })
@@ -427,7 +429,8 @@ describe('Venda no dispositivo', () => {
     entrar(operadora)
     expect(await local.consultar(venda.id)).toEqual(venda)
     expect(await local.comprovante(venda.id)).toEqual(comprovante)
-    expect(await local.daSessao(sessaoCaixaId)).toEqual([venda])
+    // Na lista, a Venda guardada ganha as formas contadas no aparelho, como o servidor as daria.
+    expect(await local.daSessao(sessaoCaixaId)).toEqual([{ ...venda, formas: [{ forma: 'CARTAO', valor: 6.25 }] }])
   })
 
   it('a exigência do NSU de uma Conta não vale para outra no mesmo aparelho', async () => {

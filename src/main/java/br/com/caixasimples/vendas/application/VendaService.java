@@ -32,6 +32,7 @@ import br.com.caixasimples.vendas.internal.VendaEntity;
 import br.com.caixasimples.vendas.internal.VendaRepository;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -916,8 +917,7 @@ public class VendaService {
                 .reduce(Money.ZERO, Money::somar);
 
         List<Comprovante.Parcela> parcelas = venda.getPagamentos().stream()
-                .filter(parcela -> parcela.status() == StatusPagamento.CONFIRMADO
-                        || parcela.forma() == FormaPagamento.FIADO)
+                .filter(VendaService::valeNaVenda)
                 .map(parcela -> new Comprovante.Parcela(parcela.forma(), parcela.valor(),
                         parcela.troco()))
                 .toList();
@@ -945,7 +945,11 @@ public class VendaService {
         return paraTela(venda);
     }
 
-    /** Vendas da SessaoCaixa, inclusive comandas ABERTA que podem ser retomadas ou canceladas. */
+    /**
+     * Vendas da SessaoCaixa, inclusive comandas ABERTA que podem ser retomadas ou canceladas, cada
+     * uma com o valor de cada forma de pagamento. A venda dividida tem uma linha por forma, com as
+     * parcelas da mesma forma somadas; a soma das formas da venda concluída é o total dela.
+     */
     @Transactional(readOnly = true)
     public List<ResumoDaVenda> vendasDaSessao(UUID sessaoCaixaId) {
         Objects.requireNonNull(sessaoCaixaId, "id da sessao de caixa nao pode ser nulo");
@@ -955,8 +959,29 @@ public class VendaService {
                     UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
                     return new ResumoDaVenda(venda.getId(), venda.getSessaoCaixaId(),
                             venda.getUsuarioId(), venda.getStatus(), venda.getValorTotal(),
-                            venda.getCriadoEm());
+                            venda.getCriadoEm(), formasDa(venda));
                 })
+                .toList();
+    }
+
+    /**
+     * A parcela que conta como paga: a confirmada, e a do fiado, que fica pendente até o cliente
+     * pagar. Pix aguardando confirmação ainda não entrou, e parcela recusada nunca entrou. É a
+     * mesma regra do faturamento por forma nos relatórios, para os números baterem.
+     */
+    private static boolean valeNaVenda(Pagamento parcela) {
+        return parcela.status() == StatusPagamento.CONFIRMADO
+                || parcela.forma() == FormaPagamento.FIADO;
+    }
+
+    /** O valor de cada forma, na ordem em que as formas são declaradas, para a lista não mudar de ordem. */
+    private static List<ValorDaForma> formasDa(Venda venda) {
+        Map<FormaPagamento, Money> porForma = new EnumMap<>(FormaPagamento.class);
+        venda.getPagamentos().stream()
+                .filter(VendaService::valeNaVenda)
+                .forEach(parcela -> porForma.merge(parcela.forma(), parcela.valor(), Money::somar));
+        return porForma.entrySet().stream()
+                .map(forma -> new ValorDaForma(forma.getKey(), forma.getValue()))
                 .toList();
     }
 
@@ -967,8 +992,8 @@ public class VendaService {
                 .collect(Collectors.toMap(ProdutoParaComprovante::id, produto -> produto));
         List<ItemParaTela> itens = venda.getItens().stream()
                 .map(item -> new ItemParaTela(item.id(), item.produtoId(),
-                        porId.get(item.produtoId()).nome(), item.quantidade(),
-                        item.precoUnitario(), item.desconto(), item.subtotal()))
+                        porId.get(item.produtoId()).nome(), porId.get(item.produtoId()).unidade(),
+                        item.quantidade(), item.precoUnitario(), item.desconto(), item.subtotal()))
                 .toList();
         Money pago = venda.getPagamentos().stream()
                 .filter(parcela -> parcela.status() != StatusPagamento.RECUSADO)
@@ -987,7 +1012,11 @@ public class VendaService {
     }
 
     public record ResumoDaVenda(UUID id, UUID sessaoCaixaId, UUID usuarioId,
-            StatusVenda status, Money total, Instant criadoEm) {
+            StatusVenda status, Money total, Instant criadoEm, List<ValorDaForma> formas) {
+    }
+
+    /** Quanto da venda entrou por uma forma de pagamento, somadas as parcelas dela. */
+    public record ValorDaForma(FormaPagamento forma, Money valor) {
     }
 
     public record VendaParaTela(UUID id, UUID sessaoCaixaId, UUID usuarioId, UUID clienteId,
@@ -997,8 +1026,9 @@ public class VendaService {
             List<ParcelaParaTela> parcelas, List<RecebimentoParaTela> recebimentos) {
     }
 
-    public record ItemParaTela(UUID id, UUID produtoId, String nome, BigDecimal quantidade,
-            Money precoUnitario, Money desconto, Money subtotal) {
+    /** A unidade é a do cadastro de hoje, como o nome, e falta no produto cadastrado sem ela. */
+    public record ItemParaTela(UUID id, UUID produtoId, String nome, String unidade,
+            BigDecimal quantidade, Money precoUnitario, Money desconto, Money subtotal) {
     }
 
     /**

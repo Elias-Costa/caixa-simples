@@ -216,6 +216,19 @@ textarea:disabled {
   font-weight: 600;
 }
 
+/* O aviso que não impede salvar, como o nome repetido: a cor do alerta, e não a do erro. Fica sempre
+   montado, para o leitor de tela anunciar, e só ganha espaço quando tem texto. */
+.campo__aviso {
+  display: block;
+  color: var(--cor-alerta);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.campo__aviso:not(:empty) {
+  margin-top: 6px;
+}
+
 .campo__senha {
   display: flex;
   gap: 8px;
@@ -548,6 +561,12 @@ textarea:disabled {
   border-top: 1px solid var(--cor-borda);
 }
 
+/* Na tela de venda do celular, uma linha só, com a página atual e o Mais; a classe só existe abaixo de
+   600px, então as regras do tablet e do desktop continuam valendo sem ela. */
+.navegacao--compacta {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 /* No tablet, a barra é uma linha, e a lista do Mais abre embaixo dela. */
 @media (min-width: 600px) {
   .navegacao {
@@ -758,16 +777,59 @@ main.cadastro {
 .pdv__painel h3 { margin-top: 0; }
 .pdv__painel label { display: grid; gap: 6px; margin-bottom: 12px; }
 .pdv__painel input, .pdv__painel select { max-width: 100%; }
-.pdv__busca { display: grid; grid-template-columns: minmax(0, 1fr) 130px; gap: 12px; align-items: end; }
+.pdv__busca { display: grid; grid-template-columns: minmax(0, 1fr) 130px; gap: 0 12px; align-items: end; }
 /* Sem a largura explícita, o campo sai na largura padrão do navegador, maior que a coluna de 130px
    da quantidade, e invade a comanda no tablet. */
 .pdv__busca label { min-width: 0; }
 .pdv__busca input { width: 100%; }
+.pdv__busca .pdv__ajuda { grid-column: 1 / -1; }
+/* Abaixo de 1024px o painel da busca é estreito, metade do tablet ou o celular inteiro: lado a lado
+   com a quantidade, a busca ficava com 184px, cortava o texto de dentro e quebrava o rótulo em duas
+   linhas. A busca ocupa a linha, e a quantidade desce com a ajuda do 3* ao lado. */
+@media (max-width: 1023px) {
+  .pdv__busca { grid-template-columns: 130px minmax(0, 1fr); }
+  .pdv__busca > label:first-child { grid-column: 1 / -1; }
+  .pdv__busca .pdv__ajuda { grid-column: auto; align-self: center; margin-bottom: 12px; }
+}
+/* Com busca e comanda lado a lado, a busca acompanha a rolagem da comanda longa, em vez de deixar a
+   coluna vazia ao lado dela, e o foco devolvido à busca depois de lançar não rola a página. Mais alto
+   que a tela, com muitos resultados, o painel rola por dentro. */
+@media (min-width: 761px) {
+  .pdv__painel--busca {
+    position: sticky;
+    top: var(--espaco);
+    align-self: start;
+    max-height: calc(100dvh - 2 * var(--espaco));
+    overflow-y: auto;
+  }
+}
+/* No celular o título do painel sai da vista e continua para o leitor de tela: a busca sobe para
+   perto do alto da tela, longe do teclado virtual. */
+@media (max-width: 599px) {
+  .pdv__titulo-da-busca {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
 .pdv__ajuda { margin-top: 0; color: var(--cor-texto-secundario); font-size: 0.85rem; }
 .pdv__resultados, .pdv__itens, .pdv__parcelas, .pdv__historico ul { list-style: none; padding: 0; display: grid; gap: 8px; }
-.pdv__resultados .botao, .pdv__historico .botao { text-align: left; width: 100%; white-space: normal; }
-.pdv__itens li, .pdv__topo, .pdv__acoes { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
-.pdv__itens li { border-bottom: 1px solid var(--cor-borda); padding: 8px 0; }
+.pdv__resultados .botao, .pdv__historico li .botao { text-align: left; width: 100%; white-space: normal; }
+.pdv__topo, .pdv__acoes { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+/* Remover fica sempre na coluna da direita, com o nome curto ou longo: numa linha que quebra, ele
+   descia para baixo do nome longo e mudava de lugar a cada item. */
+.pdv__itens li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; border-bottom: 1px solid var(--cor-borda); padding: 8px 0; }
+/* Comanda e comprovante na mesma coluna: o papel aparece logo abaixo da venda concluída. */
+.pdv__coluna { min-width: 0; display: grid; align-content: start; }
+.pdv__coluna .comprovante { width: 100%; margin: var(--espaco) auto 0; }
+/* A venda aberta que ficou para trás: informação, com o Retomar ao lado, sem impedir a venda nova. O
+   botão fica fora do fundo da informação, onde a borda dele teria 2,70:1; no painel, tem 3,19:1. */
+.pdv__aberta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 12px; }
+.pdv__aberta p { flex: 1 1 200px; margin: 0; }
 .pdv__venda { margin-bottom: 12px; }
 .pdv__painel .dinheiro { max-width: none; }
 .pdv__pagamento { border-top: 1px solid var(--cor-borda); margin-top: var(--espaco); padding-top: var(--espaco); }
@@ -848,7 +910,8 @@ html:has(.pdv__rodape) { scroll-padding-bottom: 240px; }
   html, body { background: #fff; }
   body * { visibility: hidden; }
   .comprovante, .comprovante * { visibility: visible; }
-  .comprovante { position: absolute; inset: 0 auto auto 0; width: 100%; max-width: none; border: 0; border-radius: 0; margin: 0; }
+  /* Também dentro da coluna da comanda, onde a margem de cima o separa dela na tela. */
+  .comprovante, .pdv__coluna .comprovante { position: absolute; inset: 0 auto auto 0; width: 100%; max-width: none; border: 0; border-radius: 0; margin: 0; }
   .comprovante__acoes { display: none; }
 }
 

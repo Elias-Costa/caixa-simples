@@ -53,6 +53,12 @@ describe('raiz da Venda no dispositivo', () => {
     expect(venda.itens).toHaveLength(1)
   })
 
+  it('guarda a unidade vista na busca, e o gesto gravado antes dela fica só com o número', () => {
+    let venda = adicionarItem(nova(), item({ quantidade: 0.35, unidade: 'kg' }))
+    venda = adicionarItem(venda, item())
+    expect(venda.itens.map((guardado) => guardado.unidade)).toEqual(['kg', null])
+  })
+
   it('recusa quantidade e preço fora da regra', () => {
     for (const quantidade of [0, -1, 1.0005, Number.NaN]) {
       expect(() => adicionarItem(nova(), item({ quantidade }))).toThrow('três casas')

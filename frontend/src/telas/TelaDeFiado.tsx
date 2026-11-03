@@ -153,7 +153,11 @@ export function TelaDeFiado() {
     </div></div>
     <Mensagem tipo="erro" texto={erroEm('tela')} />
     {carregando ? <p>Carregando...</p> : <>
-      {!sessao && <p>Abra o seu caixa para registrar recebimentos. <Link to="/caixa">Ir ao caixa</Link></p>}
+      {/* Sem caixa não há recebimento: ir ao caixa é a ação da tela, e vem como botão. */}
+      {!sessao && <>
+        <p>Abra o seu caixa para registrar recebimentos.</p>
+        <p><Link className="botao" to="/caixa">Ir ao caixa</Link></p>
+      </>}
       {dividas.length === 0 ? <p>Nenhuma Venda com saldo devedor.</p> : <>
         <label className="cadastro__busca">Buscar pelo nome do cliente
           <input type="search" value={busca} onChange={(evento) => setBusca(evento.target.value)} />
