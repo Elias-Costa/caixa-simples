@@ -120,15 +120,15 @@ class TratamentoDeErrosHttpTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("versão recusada por alteração simultânea vira 409, sem a mensagem interna")
+    @DisplayName("versão recusada por alteração simultânea vira 409 que pede a repetição sem mandar recarregar, sem a mensagem interna")
     void alteracaoSimultaneaVira409() throws Exception {
         String corpo = http.perform(get("/api/teste/erros/alterado-ao-mesmo-tempo")
                         .with(autenticado))
                 .andExpect(status().isConflict())
                 .andExpect(content().contentTypeCompatibleWith(PROBLEM_JSON))
                 .andExpect(jsonPath("$.status").value(409))
-                .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString(
-                        "tente de novo")))
+                .andExpect(jsonPath("$.detail").value("Outra operação mudou o mesmo registro"
+                        + " neste instante, e esta não foi gravada. Tente de novo."))
                 .andReturn().getResponse().getContentAsString();
 
         assertThat(corpo).doesNotContain(ControllerDeErrosDeTeste.MENSAGEM_INTERNA);

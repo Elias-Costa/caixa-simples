@@ -115,17 +115,19 @@ class TratamentoDeErrosHttp extends ResponseEntityExceptionHandler {
 
     /**
      * Duas operações alteraram a mesma raiz ao mesmo tempo, e a versão gravada recusou a segunda:
-     * por exemplo, duas vendas concluídas juntas que mexem na mesma sessão de caixa ou no mesmo
-     * produto, cujo dinheiro e cuja baixa entram na transação da conclusão.
+     * por exemplo, uma sangria gravada enquanto uma venda concluída lança o dinheiro na mesma
+     * sessão de caixa, ou vendas do mesmo produto concluídas juntas além das tentativas que a
+     * conclusão faz sozinha.
      *
-     * <p>É conflito com o estado atual, como o 409 acima, e a resposta para quem chamou é a mesma:
-     * recarregar e repetir. Nada foi gravado pela operação recusada.
+     * <p>É conflito com o estado atual, como o 409 acima. Nada da operação recusada foi gravado, e
+     * repeti-la lê o que a outra deixou. A frase pede a repetição sem mandar recarregar a página,
+     * que no balcão tiraria da tela a comanda em que se tenta de novo.
      */
     @ExceptionHandler(OptimisticLockingFailureException.class)
     ProblemDetail alteradoAoMesmoTempo() {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT,
-                "O registro foi alterado por outra operação ao mesmo tempo; recarregue e tente"
-                        + " de novo.");
+                "Outra operação mudou o mesmo registro neste instante, e esta não foi gravada."
+                        + " Tente de novo.");
     }
 
     /**

@@ -429,9 +429,11 @@ class EscritasConcorrentesNaVendaTest extends TesteDeIntegracao {
         UUID segundaVenda = vendaPagaEmCartao(conta, sessaoId, produto.segundo(),
                 produto.ultimo(), produto.primeiro());
 
+        // A conclusão sem repetição, a do lote: a com rede repetiria sozinha o conflito, e o que
+        // está em prova é a ordem das travas, que decide entre conflito de versão e impasse.
         List<CompletableFuture<Object>> disputa = comOProdutoPreso(conta, produto.ultimo(),
-                semResultado(() -> vendas.concluir(primeiraVenda)),
-                semResultado(() -> vendas.concluir(segundaVenda)));
+                semResultado(() -> vendas.concluir(primeiraVenda, Instant.now())),
+                semResultado(() -> vendas.concluir(segundaVenda, Instant.now())));
 
         aguardar(disputa);
         assertThat(disputa.get(0)).succeedsWithin(ESPERA);

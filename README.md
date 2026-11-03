@@ -315,7 +315,8 @@ conferidas de qualquer dia e as conferidas no dia pedido, e
 `POST /api/sincronizacao/revisoes/{operacaoId}/conferencia` registra a conferência, que repetida
 mantém a primeira; operador recebe 403, operação aplicada sem pendência 409 e id de outra Conta 404.
 Duas operações que alteram a mesma raiz ao mesmo tempo fazem a segunda responder 409 em qualquer
-rota, sem gravar nada.
+rota, sem gravar nada; a conclusão da venda repete sozinha, até três tentativas, antes de responder
+assim.
 A escrita de produto por operador responde 403; id de outra Conta responde 404.
 Fora da API, `GET /actuator/health/liveness` diz se a instância está de pé, sem consultar o banco,
 e é o que o deploy e o vigia conferem; `GET /actuator/health` consulta também o banco. Nenhum outro endpoint do
@@ -533,8 +534,10 @@ de estoque juntos, e a sangria que vem depois, no mesmo lote enviado pelo dispos
 esse dinheiro. Os da venda cancelada e do fiado recebido fazem o mesmo com o estorno, a devolução
 ao estoque e o recebimento. A sessão de caixa e o produto têm versão: se outra operação alterou a
 mesma raiz no meio, a operação inteira é recusada com 409 e quem operou repete; depois do commit,
-a mesma recusa derrubaria só o efeito, com a venda já cancelada. Cada listener confere que o evento
-é da Conta da transação. Os da conclusão e do cancelamento declaram a ordem em que rodam, o caixa
+a mesma recusa derrubaria só o efeito, com a venda já cancelada. A conclusão com rede repete
+sozinha, numa transação nova, porque a recusa desfez tudo e duas vendas do mesmo produto em caixas
+diferentes são as duas válidas; o lote do aparelho recebe a recusa como erro transitório e reenvia.
+Cada listener confere que o evento é da Conta da transação. Os da conclusão e do cancelamento declaram a ordem em que rodam, o caixa
 antes do estoque, e o estoque grava os produtos em ordem de id: duas transações que disputam os
 mesmos registros param no primeiro deles, e a segunda recebe o 409, em vez de cada uma segurar um
 registro e esperar pelo outro até o banco derrubar uma delas. O primeiro acesso da Conta
@@ -1110,7 +1113,10 @@ fechamento, outra venda do mesmo produto ou um suprimento fica gravado e sem con
 operação sob teste roda em outra thread, e a transação concorrente só confirma quando o PostgreSQL
 mostra uma conexão parada na trava da linha. O cancelamento ou o recebimento é recusado inteiro
 por conflito de versão, sem efeito pela metade, e repetido dá certo, ou esbarra no caixa que já
-fechou.
+fechou. Duas vendas do mesmo produto concluídas ao mesmo tempo, em caixas de operadores diferentes,
+passam pelo mesmo desenho: com rede, a segunda é recusada na primeira tentativa, repete sozinha e
+conclui; pelo lote, volta como erro transitório, sem nada gravado, e o reenvio é aplicado; sem
+controle de estoque, nada é disputado.
 
 Duas escritas na mesma Venda também: uma transação prende a linha da comanda, e as operações
 começam uma depois da outra, cada uma quando a anterior já está parada numa trava. Duas adições

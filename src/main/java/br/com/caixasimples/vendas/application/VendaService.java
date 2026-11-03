@@ -39,9 +39,13 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Casos de uso da venda: iniciar a comanda, lançar e remover item (RF07), aplicar desconto sobre
@@ -104,8 +108,9 @@ import org.springframework.transaction.annotation.Transactional;
  * o do recebimento de fiado: a Venda concluída, o dinheiro na gaveta e a baixa confirmam juntos, e
  * o cancelamento, com o estorno e a devolução ao estoque, também. Se outra operação alterou a
  * mesma sessão de caixa ou o mesmo produto no meio, a operação inteira falha por conflito de
- * versão, e quem chamou repete, em vez de ela confirmar sem o efeito. Os eventos carregam a conta,
- * lida do contexto autenticado no ato, e os ouvintes conferem que rodam nela.
+ * versão, em vez de confirmar sem o efeito. A conclusão com rede repete sozinha esse conflito;
+ * nas outras, quem chamou repete. Os eventos carregam a conta, lida do contexto autenticado no ato,
+ * e os ouvintes conferem que rodam nela.
  *
  * <p><strong>Toda alteração lê a Venda com a trava da linha</strong>, que dura até o fim da
  * transação; só as consultas leem sem ela. A linha não tem versão e grava o estado inteiro da
@@ -160,6 +165,11 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class VendaService {
 
+    private static final Logger log = LoggerFactory.getLogger(VendaService.class);
+
+    /** Quantas vezes a conclusão com rede tenta, contando a primeira, antes de devolver o conflito. */
+    private static final int TENTATIVAS_DA_CONCLUSAO = 3;
+
     private final VendaRepository vendas;
     private final ProdutoService produtos;
     private final ConsultaDeClienteParaVenda clientes;
@@ -168,11 +178,12 @@ public class VendaService {
     private final PixCobrancaService pix;
     private final ContaService contas;
     private final ApplicationEventPublisher eventos;
+    private final TransactionTemplate transacao;
 
     VendaService(VendaRepository vendas, ProdutoService produtos, ConsultaDeClienteParaVenda clientes,
             CaixaParaVenda caixa,
             PaymentService pagamentos, PixCobrancaService pix, ContaService contas,
-            ApplicationEventPublisher eventos) {
+            ApplicationEventPublisher eventos, TransactionTemplate transacao) {
         this.vendas = vendas;
         this.produtos = produtos;
         this.clientes = clientes;
@@ -181,6 +192,7 @@ public class VendaService {
         this.pix = pix;
         this.contas = contas;
         this.eventos = eventos;
+        this.transacao = transacao;
     }
 
     /**
@@ -607,24 +619,59 @@ public class VendaService {
      * na gaveta e a baixa de estoque confirmam junto com a venda. Se a transação não completar,
      * nem a venda nem os efeitos existem.
      *
+     * <p><strong>Repete sozinha o conflito de versão</strong>, até três tentativas ao todo. Duas
+     * vendas do mesmo produto concluídas ao mesmo tempo, em caixas diferentes, dão baixa no mesmo
+     * produto, e a que leu o produto antes de a outra confirmar é recusada pela versão, embora as
+     * duas sejam válidas. A recusa desfaz a transação inteira, então repetir desde a leitura é
+     * seguro: a tentativa seguinte lê a venda, o caixa e o produto como a outra os deixou, e o caixa
+     * fechado no meio vira a recusa do caixa fechado. Não há espera entre as tentativas, porque o
+     * conflito só aparece depois que a outra transação confirmou. Com três tentativas, três
+     * conclusões do mesmo produto no mesmo instante passam todas; esgotadas, o conflito chega a
+     * quem chamou. Todas usam o instante da primeira, o do toque no balcão.
+     *
+     * <p>Por isso este método não é {@code @Transactional}: cada tentativa abre a própria transação,
+     * e repetir só faz sentido fora de uma. O lote do dispositivo, que já roda numa transação, usa
+     * {@link #concluir(UUID, Instant)}, que não repete; o lote devolve o erro transitório, e o
+     * dispositivo reenvia.
+     *
      * @throws VendaNaoEncontradaException se a venda não existe nesta conta
      * @throws br.com.caixasimples.shared.AcessoNegadoException se a venda é de outro operador e
      *                                     quem chama não é ADMIN
      * @throws IllegalStateException       se a sessão de caixa da venda não está ABERTA, se a
      *                                     venda não está ABERTA, não tem item, ou os pagamentos
      *                                     confirmados não cobrem exatamente o total
+     * @throws OptimisticLockingFailureException se outra operação alterou a mesma sessão de caixa
+     *                                     ou o mesmo produto em todas as tentativas
      */
-    @Transactional
     public void concluir(UUID vendaId) {
-        concluir(vendaId, Instant.now());
+        Instant concluidoEm = Instant.now();
+        for (int tentativa = 1; ; tentativa++) {
+            try {
+                transacao.executeWithoutResult(status -> concluirNaTransacao(vendaId, concluidoEm));
+                return;
+            } catch (OptimisticLockingFailureException conflito) {
+                if (tentativa == TENTATIVAS_DA_CONCLUSAO) {
+                    throw conflito;
+                }
+                log.info("conclusao da venda {} recusada por conflito de versao na tentativa {};"
+                        + " repetindo", vendaId, tentativa);
+            }
+        }
     }
 
     /**
      * A mesma conclusão, com o instante do balcão em que a Venda foi concluída sem rede. É esse
      * instante que decide o dia do faturamento e o do dinheiro na gaveta.
+     *
+     * <p>Não repete o conflito de versão: roda na transação do lote, que o devolve como erro
+     * transitório, e o dispositivo reenvia o gesto.
      */
     @Transactional
     public void concluir(UUID vendaId, Instant concluidoEm) {
+        concluirNaTransacao(vendaId, concluidoEm);
+    }
+
+    private void concluirNaTransacao(UUID vendaId, Instant concluidoEm) {
         VendaEntity linha = travar(vendaId);
         Venda venda = linha.paraDominio();
         UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
