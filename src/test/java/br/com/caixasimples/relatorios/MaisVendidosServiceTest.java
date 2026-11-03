@@ -1,5 +1,7 @@
 package br.com.caixasimples.relatorios;
 
+import static br.com.caixasimples.relatorios.application.OrdemDoRanking.QUANTIDADE;
+import static br.com.caixasimples.relatorios.application.OrdemDoRanking.VALOR;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
@@ -97,9 +99,9 @@ class MaisVendidosServiceTest extends TesteDeIntegracao {
                 new ItemDeTeste(queijo, new BigDecimal("1.500"), Money.de("39.90"), Money.ZERO));
 
         MaisVendidos todos = conta.comoUsuario(
-                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ));
+                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, QUANTIDADE));
         MaisVendidos soUm = conta.comoUsuario(
-                () -> maisVendidos.doPeriodo(DIA, DIA, 1));
+                () -> maisVendidos.doPeriodo(DIA, DIA, 1, QUANTIDADE));
 
         assertThat(todos.inicio()).isEqualTo(DIA);
         assertThat(todos.fim()).isEqualTo(DIA);
@@ -120,6 +122,49 @@ class MaisVendidosServiceTest extends TesteDeIntegracao {
 
         // O limite corta no banco: o ranking de um é só o primeiro do ranking de dez.
         assertThat(soUm.posicoes()).containsExactly(primeiro);
+    }
+
+    @Test
+    @DisplayName("pelo valor, o que mais rendeu vem primeiro, o empate vai pelo nome e o limite corta")
+    void rankingPorValor() {
+        ContaCriada conta = criador.criar("Padaria Aurora", SENHA_DE_TESTE);
+        criador.contratar(conta.contaId(), Plano.COMPLETO);
+        Cenario cenario = prepararCenario(conta);
+        UUID cafe = cenario.produto("Cafe coado", "4.50", "un");
+        UUID bolo = cenario.produto("Bolo de laranja", "12.00", "fatia");
+        UUID agua = cenario.produto("Agua mineral", "4.00", "un");
+        UUID queijo = cenario.produto("Queijo da serra", "39.90", "kg");
+
+        // Pela quantidade: cinco cafés, três águas, um quilo e meio de queijo, uma fatia de bolo.
+        // Pelo valor: o queijo rende 59,85, o café 22,50, e a água e o bolo empatam em 12,00.
+        concluida(conta, cenario, noBalcao(DIA, LocalTime.of(9, 0)),
+                new ItemDeTeste(cafe, new BigDecimal("3"), Money.de("4.50"), Money.ZERO),
+                new ItemDeTeste(bolo, BigDecimal.ONE, Money.de("12.00"), Money.ZERO),
+                new ItemDeTeste(agua, new BigDecimal("3"), Money.de("4.00"), Money.ZERO));
+        concluida(conta, cenario, noBalcao(DIA, LocalTime.of(16, 0)),
+                new ItemDeTeste(cafe, new BigDecimal("2"), Money.de("4.50"), Money.ZERO),
+                new ItemDeTeste(queijo, new BigDecimal("1.500"), Money.de("39.90"), Money.ZERO));
+
+        MaisVendidos pelaQuantidade = conta.comoUsuario(
+                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, QUANTIDADE));
+        MaisVendidos peloValor = conta.comoUsuario(
+                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, VALOR));
+        MaisVendidos soUmPeloValor = conta.comoUsuario(
+                () -> maisVendidos.doPeriodo(DIA, DIA, 1, VALOR));
+
+        assertThat(pelaQuantidade.posicoes()).extracting(Posicao::produtoId)
+                .containsExactly(cafe, agua, queijo, bolo);
+        assertThat(peloValor.posicoes()).extracting(Posicao::produtoId)
+                .containsExactly(queijo, cafe, agua, bolo);
+        // A ordem muda, a posição não: cada produto traz a mesma quantidade e o mesmo valor.
+        assertThat(peloValor.posicoes())
+                .containsExactlyInAnyOrderElementsOf(pelaQuantidade.posicoes());
+        Posicao primeiro = peloValor.posicoes().get(0);
+        assertThat(primeiro.unidade()).isEqualTo("kg");
+        assertThat(primeiro.quantidade()).isEqualByComparingTo("1.500");
+        assertThat(primeiro.valor()).isEqualTo(Money.de("59.85"));
+        // Pela quantidade o primeiro seria o café; o limite corta o ranking pelo valor.
+        assertThat(soUmPeloValor.posicoes()).containsExactly(primeiro);
     }
 
     @Test
@@ -144,7 +189,7 @@ class MaisVendidosServiceTest extends TesteDeIntegracao {
                 cenario.usuarioId(), List.of(paes(pao, "100")), noBalcao(DIA, LocalTime.NOON));
 
         MaisVendidos doDia = conta.comoUsuario(
-                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ));
+                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, QUANTIDADE));
 
         assertThat(doDia.posicoes()).hasSize(1);
         assertThat(doDia.posicoes().get(0).quantidade()).isEqualByComparingTo("30");
@@ -171,7 +216,7 @@ class MaisVendidosServiceTest extends TesteDeIntegracao {
                 new ItemDeTeste(queijo, BigDecimal.ONE, Money.de("39.90"), Money.de("2.00")));
 
         MaisVendidos doDia = conta.comoUsuario(
-                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ));
+                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, QUANTIDADE));
 
         assertThat(doDia.posicoes()).hasSize(1);
         assertThat(doDia.posicoes().get(0).quantidade()).isEqualByComparingTo("2.500");
@@ -195,7 +240,7 @@ class MaisVendidosServiceTest extends TesteDeIntegracao {
         });
 
         MaisVendidos doDia = conta.comoUsuario(
-                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ));
+                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, QUANTIDADE));
 
         assertThat(doDia.posicoes()).hasSize(1);
         assertThat(doDia.posicoes().get(0).nome()).isEqualTo("Caneca de ceramica");
@@ -211,11 +256,12 @@ class MaisVendidosServiceTest extends TesteDeIntegracao {
         UsuarioCriado operador = criador.criarOperadorEm(conta.contaId(), "Atendente");
 
         assertThatExceptionOfType(AcessoNegadoException.class)
-                .isThrownBy(() -> operador.comoUsuario(() -> maisVendidos.doPeriodo(DIA, DIA, DEZ)));
+                .isThrownBy(() -> operador.comoUsuario(
+                        () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, QUANTIDADE)));
         assertThatExceptionOfType(AcessoNegadoException.class)
                 .as("o filtro pelo próprio operador não abre a porta")
                 .isThrownBy(() -> operador.comoUsuario(() ->
-                        maisVendidos.doPeriodo(DIA, DIA, DEZ, operador.usuarioId())));
+                        maisVendidos.doPeriodo(DIA, DIA, DEZ, QUANTIDADE, operador.usuarioId())));
     }
 
     @Test
@@ -225,16 +271,16 @@ class MaisVendidosServiceTest extends TesteDeIntegracao {
         criador.contratar(conta.contaId(), Plano.COMPLETO);
 
         MaisVendidos vazio = conta.comoUsuario(
-                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ));
+                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, QUANTIDADE));
 
         assertThat(vazio.posicoes()).isEmpty();
 
         conta.comoUsuario(() -> {
             assertThatIllegalArgumentException()
-                    .isThrownBy(() -> maisVendidos.doPeriodo(DIA, DIA.minusDays(1), DEZ))
+                    .isThrownBy(() -> maisVendidos.doPeriodo(DIA, DIA.minusDays(1), DEZ, QUANTIDADE))
                     .withMessageContaining("não pode vir antes do início");
             assertThatIllegalArgumentException()
-                    .isThrownBy(() -> maisVendidos.doPeriodo(DIA, DIA, 0))
+                    .isThrownBy(() -> maisVendidos.doPeriodo(DIA, DIA, 0, QUANTIDADE))
                     .withMessageContaining("pelo menos 1");
         });
     }
@@ -259,11 +305,11 @@ class MaisVendidosServiceTest extends TesteDeIntegracao {
                 new ItemDeTeste(cafeDeB, new BigDecimal("7"), Money.de("4.50"), Money.ZERO));
 
         MaisVendidos deA = contaA.comoUsuario(
-                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ));
+                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, QUANTIDADE));
         MaisVendidos deB = contaB.comoUsuario(
-                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ));
+                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, QUANTIDADE));
         MaisVendidos deC = contaC.comoUsuario(
-                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ));
+                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, QUANTIDADE));
 
         assertThat(deA.posicoes()).extracting(Posicao::produtoId).containsExactly(cafeDeA);
         assertThat(deA.posicoes().get(0).quantidade()).isEqualByComparingTo("3");
@@ -290,13 +336,13 @@ class MaisVendidosServiceTest extends TesteDeIntegracao {
                 new ItemDeTeste(bolo, new BigDecimal("5"), Money.de("12.00"), Money.ZERO));
 
         MaisVendidos daConta = conta.comoUsuario(
-                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ));
+                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, QUANTIDADE));
         MaisVendidos doTitularSo = conta.comoUsuario(
-                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, doTitular.usuarioId()));
+                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, QUANTIDADE, doTitular.usuarioId()));
         MaisVendidos daColegaSo = conta.comoUsuario(
-                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, daColega.usuarioId()));
+                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, QUANTIDADE, daColega.usuarioId()));
         MaisVendidos deNinguem = conta.comoUsuario(
-                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, UUID.randomUUID()));
+                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, QUANTIDADE, UUID.randomUUID()));
 
         // A conta inteira: o bolo, com seis, passa o café, com quatro.
         assertThat(daConta.posicoes()).extracting(Posicao::produtoId).containsExactly(bolo, cafe);
@@ -315,7 +361,7 @@ class MaisVendidosServiceTest extends TesteDeIntegracao {
 
         conta.comoUsuario(() ->
                 assertThatNullPointerException()
-                        .isThrownBy(() -> maisVendidos.doPeriodo(DIA, DIA, DEZ, null))
+                        .isThrownBy(() -> maisVendidos.doPeriodo(DIA, DIA, DEZ, QUANTIDADE, null))
                         .withMessageContaining("assinatura sem ele"));
     }
 
@@ -337,18 +383,57 @@ class MaisVendidosServiceTest extends TesteDeIntegracao {
                 new ItemDeTeste(cafeDeB, new BigDecimal("7"), Money.de("4.50"), Money.ZERO));
 
         MaisVendidos deAPeloSeuOperador = contaA.comoUsuario(
-                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, cenarioA.usuarioId()));
+                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, QUANTIDADE, cenarioA.usuarioId()));
         MaisVendidos deBPeloSeuOperador = contaB.comoUsuario(
-                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, cenarioB.usuarioId()));
+                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, QUANTIDADE, cenarioB.usuarioId()));
         // B pede pelo operador de A: o id existe, mas não nesta conta.
         MaisVendidos deBPeloOperadorDeA = contaB.comoUsuario(
-                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, cenarioA.usuarioId()));
+                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, QUANTIDADE, cenarioA.usuarioId()));
 
         assertThat(deAPeloSeuOperador.posicoes()).extracting(Posicao::produtoId)
                 .containsExactly(cafeDeA);
         assertThat(deBPeloSeuOperador.posicoes()).extracting(Posicao::produtoId)
                 .containsExactly(cafeDeB);
         assertThat(deBPeloOperadorDeA.posicoes()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("pelo valor, cada conta recebe só o seu ranking, com e sem operador (RNF05)")
+    void rankingPorValorNaoAtravessaContas() {
+        ContaCriada contaA = criador.criar("Loja A", SENHA_DE_TESTE);
+        criador.contratar(contaA.contaId(), Plano.COMPLETO);
+        ContaCriada contaB = criador.criar("Loja B", SENHA_DE_TESTE);
+        criador.contratar(contaB.contaId(), Plano.COMPLETO);
+        ContaCriada contaC = criador.criar("Loja C", SENHA_DE_TESTE);
+        criador.contratar(contaC.contaId(), Plano.COMPLETO);
+        Cenario cenarioA = prepararCenario(contaA);
+        Cenario cenarioB = prepararCenario(contaB);
+        UUID queijoDeA = cenarioA.produto("Queijo da serra", "39.90", "kg");
+        UUID cafeDeB = cenarioB.produto("Cafe coado", "4.50", "un");
+
+        // A conta A tem o produto de maior valor do dia; a B não pode vê-lo no topo do ranking dela.
+        concluida(contaA, cenarioA, noBalcao(DIA, LocalTime.of(10, 0)),
+                new ItemDeTeste(queijoDeA, new BigDecimal("2"), Money.de("39.90"), Money.ZERO));
+        concluida(contaB, cenarioB, noBalcao(DIA, LocalTime.of(10, 0)),
+                new ItemDeTeste(cafeDeB, new BigDecimal("7"), Money.de("4.50"), Money.ZERO));
+
+        MaisVendidos deA = contaA.comoUsuario(() -> maisVendidos.doPeriodo(DIA, DIA, DEZ, VALOR));
+        MaisVendidos deB = contaB.comoUsuario(() -> maisVendidos.doPeriodo(DIA, DIA, DEZ, VALOR));
+        MaisVendidos deC = contaC.comoUsuario(() -> maisVendidos.doPeriodo(DIA, DIA, DEZ, VALOR));
+        // B pede pelo operador de A: o id existe, mas não nesta conta.
+        MaisVendidos deBPeloOperadorDeA = contaB.comoUsuario(
+                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, VALOR, cenarioA.usuarioId()));
+        MaisVendidos deAPeloSeuOperador = contaA.comoUsuario(
+                () -> maisVendidos.doPeriodo(DIA, DIA, DEZ, VALOR, cenarioA.usuarioId()));
+
+        assertThat(deA.posicoes()).extracting(Posicao::produtoId).containsExactly(queijoDeA);
+        assertThat(deA.posicoes().get(0).valor()).isEqualTo(Money.de("79.80"));
+        assertThat(deB.posicoes()).extracting(Posicao::produtoId).containsExactly(cafeDeB);
+        assertThat(deB.posicoes().get(0).valor()).isEqualTo(Money.de("31.50"));
+        assertThat(deC.posicoes()).isEmpty();
+        assertThat(deBPeloOperadorDeA.posicoes()).isEmpty();
+        assertThat(deAPeloSeuOperador.posicoes()).extracting(Posicao::produtoId)
+                .containsExactly(queijoDeA);
     }
 
     /** Um horário local do balcão como o instante gravado no banco, em UTC. */

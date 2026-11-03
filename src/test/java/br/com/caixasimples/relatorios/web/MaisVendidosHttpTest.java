@@ -94,6 +94,55 @@ class MaisVendidosHttpTest extends TesteDeIntegracao {
     }
 
     @Test
+    void ordemPeloValorEhOpcionalESemElaORankingSegueAQuantidade() throws Exception {
+        ContaCriada contaA = criador.criar("Padaria Aurora", SENHA);
+        criador.contratar(contaA.contaId(), Plano.COMPLETO);
+        ContaCriada contaB = criador.criar("Loja da Esquina", SENHA);
+        criador.contratar(contaB.contaId(), Plano.COMPLETO);
+        UUID caixaDeA = caixa(contaA);
+        UUID caixaDeB = caixa(contaB);
+        UUID cafe = produto(contaA, "Cafe coado", "un");
+        UUID queijo = produto(contaA, "Queijo minas", "kg");
+        UUID entrega = produto(contaA, "Taxa de entrega", null);
+        UUID cafeDeB = produto(contaB, "Cafe coado", "un");
+
+        // Pela quantidade: café 5, queijo 1,5, entrega 1. Pelo valor: queijo 59,85, café 22,50,
+        // entrega 5,00. A conta B vende mais café que todos, e não aparece em A.
+        concluida(contaA, caixaDeA, contaA.usuarioId(),
+                item(cafe, "3", "4.50"), item(entrega, "1", "5.00"));
+        concluida(contaA, caixaDeA, contaA.usuarioId(),
+                item(cafe, "2", "4.50"), item(queijo, "1.500", "39.90"));
+        concluida(contaB, caixaDeB, contaB.usuarioId(), item(cafeDeB, "30", "4.50"));
+
+        maisVendidosNaOrdem(contaA, "VALOR", null)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.posicoes.length()").value(3))
+                .andExpect(jsonPath("$.posicoes[0].produtoId").value(queijo.toString()))
+                .andExpect(jsonPath("$.posicoes[0].quantidade").value(1.5))
+                .andExpect(jsonPath("$.posicoes[0].valor").value(59.85))
+                .andExpect(jsonPath("$.posicoes[1].produtoId").value(cafe.toString()))
+                .andExpect(jsonPath("$.posicoes[2].produtoId").value(entrega.toString()));
+        maisVendidosNaOrdem(contaA, "QUANTIDADE", null)
+                .andExpect(jsonPath("$.posicoes[0].produtoId").value(cafe.toString()))
+                .andExpect(jsonPath("$.posicoes[1].produtoId").value(queijo.toString()));
+        // Sem o parâmetro, a ordem de sempre: o aparelho que não atualizou recebe o que espera.
+        maisVendidos(contaA, 10, null)
+                .andExpect(jsonPath("$.posicoes[0].produtoId").value(cafe.toString()))
+                .andExpect(jsonPath("$.posicoes[1].produtoId").value(queijo.toString()));
+        maisVendidosNaOrdem(contaB, "VALOR", null)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.posicoes.length()").value(1))
+                .andExpect(jsonPath("$.posicoes[0].produtoId").value(cafeDeB.toString()));
+        // O operador de A, pedido por B, é lista vazia também na ordem pelo valor (RNF05).
+        maisVendidosNaOrdem(contaB, "VALOR", contaA.usuarioId())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.posicoes.length()").value(0));
+        maisVendidosNaOrdem(contaA, "VALOR", contaA.usuarioId())
+                .andExpect(jsonPath("$.posicoes.length()").value(3))
+                .andExpect(jsonPath("$.posicoes[0].produtoId").value(queijo.toString()));
+    }
+
+    @Test
     void filtroDoOperadorSoContaAsVendasDeleENaoAtravessaContas() throws Exception {
         ContaCriada conta = criador.criar("Cafeteria Aurora", SENHA);
         criador.contratar(conta.contaId(), Plano.COMPLETO);
@@ -148,6 +197,7 @@ class MaisVendidosHttpTest extends TesteDeIntegracao {
                         .param("limite", "10").param("operadorId", "nao-e-um-id")
                         .with(autenticador.como(admin)))
                 .andExpect(status().isBadRequest());
+        maisVendidosNaOrdem(admin, "PRECO", null).andExpect(status().isBadRequest());
     }
 
     /** O ranking do dia, com o operador quando não for nulo. */
@@ -157,6 +207,21 @@ class MaisVendidosHttpTest extends TesteDeIntegracao {
                 .param("inicio", DIA.toString())
                 .param("fim", DIA.toString())
                 .param("limite", Integer.toString(limite))
+                .with(autenticador.como(conta));
+        if (operadorId != null) {
+            pedido.param("operadorId", operadorId.toString());
+        }
+        return http.perform(pedido);
+    }
+
+    /** O ranking de dez do dia na ordem dada, como o aparelho a escreve, com o operador quando houver. */
+    private ResultActions maisVendidosNaOrdem(ContaCriada conta, String ordem, UUID operadorId)
+            throws Exception {
+        MockHttpServletRequestBuilder pedido = get("/api/relatorios/mais-vendidos")
+                .param("inicio", DIA.toString())
+                .param("fim", DIA.toString())
+                .param("limite", "10")
+                .param("ordem", ordem)
                 .with(autenticador.como(conta));
         if (operadorId != null) {
             pedido.param("operadorId", operadorId.toString());

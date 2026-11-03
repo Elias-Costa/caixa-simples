@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { contas, type UsuarioDaConta } from '../api/contas'
 import {
   relatorios, type ConferenciaDoCartao, type ConferenciaDoPix, type Faturamento, type FluxoDeCaixa,
@@ -29,18 +29,28 @@ const FORMAS: { forma: FormaPagamento; rotulo: string }[] = [
 
 type FaturamentoDaForma = { forma: FormaPagamento; rotulo: string; faturamento: Faturamento }
 
-// O Pix de venda cancelada já entrou no banco: o dono confere se devolveu ao cliente.
-const SITUACAO_NA_CONFERENCIA_DO_PIX: Record<StatusVenda, string> = {
-  CONCLUIDA: '',
-  ABERTA: ' · venda ainda aberta',
-  CANCELADA: ' · venda cancelada: confira a devolução ao cliente',
+/** O dia AAAA-MM-DD contado para trás no calendário, sem passar pelo fuso do aparelho. */
+function diasAntes(dia: string, quantos: number): string {
+  const [ano, mes, data] = dia.split('-').map(Number)
+  return new Date(Date.UTC(ano, mes - 1, data - quantos)).toISOString().slice(0, 10)
 }
 
-// A venda cancelada lembra o estorno que deve haver na maquininha; a concluída é o caso comum.
-const SITUACAO_NA_CONFERENCIA: Record<StatusVenda, string> = {
-  CONCLUIDA: '',
-  ABERTA: ' · venda ainda aberta',
-  CANCELADA: ' · venda cancelada: confira o estorno na maquininha',
+// Cada atalho parte do dia do balcão. Sete dias são hoje e os seis anteriores, e não a semana do
+// calendário: a pergunta é como foi a última semana, em qualquer dia em que ela for feita.
+const ATALHOS: { rotulo: string; periodo: (hoje: string) => [string, string] }[] = [
+  { rotulo: 'Hoje', periodo: (hoje) => [hoje, hoje] },
+  { rotulo: 'Ontem', periodo: (hoje) => [diasAntes(hoje, 1), diasAntes(hoje, 1)] },
+  { rotulo: '7 dias', periodo: (hoje) => [diasAntes(hoje, 6), hoje] },
+  { rotulo: 'Este mês', periodo: (hoje) => [`${hoje.slice(0, 8)}01`, hoje] },
+]
+
+type Marca = { texto: string; alerta?: boolean }
+
+// A venda cancelada pede uma ação do dono, o estorno ou a devolução; a aberta só avisa.
+const MARCA_DA_SITUACAO: Record<StatusVenda, Marca | null> = {
+  CONCLUIDA: null,
+  ABERTA: { texto: 'Aberta' },
+  CANCELADA: { texto: 'Cancelada', alerta: true },
 }
 
 type Consulta = {
@@ -62,8 +72,13 @@ function mostrarData(dia: string): string {
   return `${data}/${mes}/${ano}`
 }
 
-function doPeriodo(inicio: string, fim: string): string {
-  return inicio === fim ? `de ${mostrarData(inicio)}` : `de ${mostrarData(inicio)} a ${mostrarData(fim)}`
+function mostrarPeriodo(inicio: string, fim: string): string {
+  return inicio === fim ? mostrarData(inicio) : `${mostrarData(inicio)} a ${mostrarData(fim)}`
+}
+
+/** A soma feita em centavos: somar os reais direto acumula o erro do ponto flutuante. */
+function somar(valores: number[]): number {
+  return valores.reduce((centavos, valor) => centavos + Math.round(valor * 100), 0) / 100
 }
 
 /**
@@ -74,7 +89,11 @@ function doPeriodo(inicio: string, fim: string): string {
  * para a tela inteira. A quebra por forma é o faturamento pedido uma vez por forma, com o filtro do
  * servidor. O operador escolhido vale para o faturamento, o ranking e a conferência; o fluxo de
  * caixa é a gaveta da Conta inteira e não tem esse filtro. A conferência não é soma, e por isso é
- * de um dia só: a tela abre em hoje, e com um período maior o cartão pede um dia.
+ * de um dia só: a tela abre em hoje, e com um período maior uma linha diz que ela pede um dia.
+ *
+ * Os resumos vêm em cima, curtos e de altura parecida; as conferências, que têm uma linha por
+ * pagamento, vêm embaixo, lado a lado e cada uma rolando por dentro, para a do Pix não ir parar
+ * depois de todos os pagamentos em cartão.
  */
 export function TelaDeRelatorios() {
   const [inicio, setInicio] = useState(hojeNoBalcao)
@@ -90,7 +109,7 @@ export function TelaDeRelatorios() {
     const pedido = ++pedidoAtual.current
     setCarregando(true)
     setErro(null)
-    setResultado(null)
+    // O resultado anterior fica à vista, esmaecido, até o novo chegar: a página não encolhe e volta.
     const id = operador?.id
     try {
       const [faturamento, porForma, maisVendidos, fluxo, conferencia, conferenciaDoPix, nomeDoCliente] = await Promise.all([
@@ -98,7 +117,8 @@ export function TelaDeRelatorios() {
         Promise.all(FORMAS.map(async ({ forma, rotulo }) => ({
           forma, rotulo, faturamento: await relatorios.faturamento(de, ate, { forma, operadorId: id }),
         }))),
-        relatorios.maisVendidos(de, ate, TAMANHO_DO_RANKING, id),
+        // Pelo valor: pela quantidade, o que se vende a peso nunca chegaria aos primeiros.
+        relatorios.maisVendidos(de, ate, TAMANHO_DO_RANKING, id, 'VALOR'),
         relatorios.fluxoDeCaixa(de, ate),
         de === ate ? relatorios.conferenciaDoCartao(de, id) : Promise.resolve(null),
         de === ate ? relatorios.conferenciaDoPix(de, id) : Promise.resolve(null),
@@ -110,7 +130,11 @@ export function TelaDeRelatorios() {
         })
       }
     } catch (falha) {
-      if (pedido === pedidoAtual.current) setErro(erroDeCadastro(falha))
+      if (pedido === pedidoAtual.current) {
+        // O resultado anterior é de outro período: ao lado do erro, ele passaria pelo que foi pedido.
+        setResultado(null)
+        setErro(erroDeCadastro(falha))
+      }
     } finally {
       if (pedido === pedidoAtual.current) setCarregando(false)
     }
@@ -129,22 +153,28 @@ export function TelaDeRelatorios() {
   }, [])
 
   const operadorEscolhido = usuarios.find((usuario) => usuario.id === operadorId) ?? null
+  // O nome vem da lista de usuários; sem ela, a linha mostra o começo do id de quem lançou.
+  const nomeDe = (id: string) => usuarios.find((usuario) => usuario.id === id)?.nome ?? `operador ${id.slice(0, 8)}`
 
   function consultarPeriodo(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault()
     void consultar(inicio, fim, operadorEscolhido)
   }
 
-  function consultarHoje() {
-    const hoje = hojeNoBalcao()
-    setInicio(hoje)
-    setFim(hoje)
-    void consultar(hoje, hoje, operadorEscolhido)
+  function consultarAtalho(periodo: (hoje: string) => [string, string]) {
+    const [de, ate] = periodo(hojeNoBalcao())
+    setInicio(de)
+    setFim(ate)
+    void consultar(de, ate, operadorEscolhido)
   }
 
   return <section className="relatorios">
     <TituloComAjuda titulo="Relatórios" ajuda={AJUDA.relatorios} />
     <section className="relatorios__cartao">
+      <div className="relatorios__atalhos">
+        {ATALHOS.map(({ rotulo, periodo }) => <button key={rotulo} className="botao botao--secundario" type="button"
+          disabled={carregando} onClick={() => consultarAtalho(periodo)}>{rotulo}</button>)}
+      </div>
       <form className="relatorios__formulario" onSubmit={consultarPeriodo}>
         <label>Início
           <input type="date" required value={inicio}
@@ -163,135 +193,204 @@ export function TelaDeRelatorios() {
             </option>)}
           </select>
         </label>}
-        <button className="botao" disabled={carregando}>Consultar período</button>
-        <button className="botao botao--secundario" type="button" disabled={carregando}
-          onClick={consultarHoje}>Hoje</button>
+        <button className="botao" disabled={carregando}>{carregando ? 'Consultando' : 'Consultar período'}</button>
       </form>
     </section>
 
     {erro && <p className="mensagem-erro" role="alert">{erro}</p>}
-    {carregando ? <p>Carregando relatórios...</p> : resultado && <div className="relatorios__cartoes" aria-live="polite">
-      <CartaoDoFaturamento consulta={resultado} />
-      <CartaoDosMaisVendidos consulta={resultado} />
-      <CartaoDoFluxoDeCaixa consulta={resultado} />
-      <CartaoDaConferencia consulta={resultado} usuarios={usuarios} />
-      <CartaoDaConferenciaDoPix consulta={resultado} usuarios={usuarios} />
+    {!resultado && carregando && <p>Carregando relatórios...</p>}
+    {resultado && <div className="relatorios__resultado" aria-live="polite" aria-busy={carregando}>
+      <p className="relatorios__periodo">
+        {mostrarPeriodo(resultado.faturamento.inicio, resultado.faturamento.fim)}
+        {' · '}{resultado.operador ? resultado.operador.nome : 'todos os operadores'}
+      </p>
+      <div className="relatorios__resumos">
+        <CartaoDoFaturamento consulta={resultado} />
+        <CartaoDoFluxoDeCaixa consulta={resultado} />
+        <CartaoDosMaisVendidos consulta={resultado} />
+      </div>
+      {resultado.conferencia && resultado.conferenciaDoPix
+        ? <div className="relatorios__conferencias">
+          <CartaoDaConferencia conferencia={resultado.conferencia} nomeDe={nomeDe} />
+          <CartaoDaConferenciaDoPix conferencia={resultado.conferenciaDoPix} nomeDe={nomeDe}
+            nomeDoCliente={resultado.nomeDoCliente} />
+        </div>
+        : <p className="relatorios__sem-conferencia">As conferências do cartão e do Pix são de um dia só,
+          como os extratos: escolha o mesmo dia no início e no fim.</p>}
     </div>}
   </section>
 }
 
 function CartaoDoFaturamento({ consulta }: { consulta: Consulta }) {
-  const { faturamento, porForma, operador } = consulta
+  const { faturamento, porForma } = consulta
+  const vendas = faturamento.quantidadeDeVendas
   return <section className="relatorios__cartao">
-    <h3>Faturamento {doPeriodo(faturamento.inicio, faturamento.fim)}</h3>
-    {operador && <p>Vendas de {operador.nome}</p>}
-    <p className="relatorios__total">{moeda.format(faturamento.total)}</p>
-    <p>{faturamento.quantidadeDeVendas} {faturamento.quantidadeDeVendas === 1 ? 'venda concluída' : 'vendas concluídas'}</p>
-    {faturamento.quantidadeDeVendas === 0 && <p>Nenhuma venda concluída neste período.</p>}
-    <h4>Por forma de pagamento</h4>
-    <ul className="relatorios__linhas">
-      {porForma.map(({ forma, rotulo, faturamento: daForma }) => <li key={forma}>
-        <span>{rotulo}</span>
-        <span>{moeda.format(daForma.total)} em {daForma.quantidadeDeVendas} {daForma.quantidadeDeVendas === 1 ? 'venda' : 'vendas'}</span>
-      </li>)}
-    </ul>
+    <h3>Faturamento</h3>
+    <div className="relatorios__numeros">
+      <p><span className="relatorios__rotulo">Total</span>
+        <strong className="relatorios__total">{moeda.format(faturamento.total)}</strong></p>
+      {/* Sem venda não há média, e um zero passaria por uma média de verdade. */}
+      {vendas > 0 && <p><span className="relatorios__rotulo">Ticket médio</span>
+        <strong className="relatorios__medio">{moeda.format(faturamento.total / vendas)}</strong></p>}
+    </div>
+    <p>{vendas} {vendas === 1 ? 'venda concluída' : 'vendas concluídas'}</p>
+    {vendas === 0 && <p>Nenhuma venda concluída neste período.</p>}
+    <table className="relatorios__tabela">
+      <caption>Por forma de pagamento</caption>
+      <thead>
+        <tr><th scope="col">Forma</th><th scope="col" className="relatorios__numero">Valor</th>
+          <th scope="col" className="relatorios__numero">Vendas</th></tr>
+      </thead>
+      <tbody>
+        {porForma.map(({ forma, rotulo, faturamento: daForma }) => <tr key={forma}>
+          <th scope="row">{rotulo}</th>
+          <td className="relatorios__numero">{moeda.format(daForma.total)}</td>
+          <td className="relatorios__numero">{daForma.quantidadeDeVendas}</td>
+        </tr>)}
+      </tbody>
+    </table>
     <p className="relatorios__nota">A venda paga em mais de uma forma conta em cada uma delas.</p>
   </section>
 }
 
 function CartaoDosMaisVendidos({ consulta }: { consulta: Consulta }) {
-  const { maisVendidos, operador } = consulta
-  return <section className="relatorios__cartao">
-    <h3>Mais vendidos {doPeriodo(maisVendidos.inicio, maisVendidos.fim)}</h3>
-    {operador && <p>Vendas de {operador.nome}</p>}
-    {maisVendidos.posicoes.length === 0
+  const { posicoes } = consulta.maisVendidos
+  const idDoTitulo = useId()
+  return <section className="relatorios__cartao relatorios__cartao--largo">
+    <h3 id={idDoTitulo}>Mais vendidos</h3>
+    {posicoes.length === 0
       ? <p>Nenhum produto vendido neste período.</p>
-      : <ol className="relatorios__ranking">
-        {maisVendidos.posicoes.map((posicao) => <li key={posicao.produtoId}>
-          <span className="relatorios__linha">
-            <span>{posicao.nome}</span>
-            <span>{numero.format(posicao.quantidade)}{posicao.unidade ? ` ${posicao.unidade}` : ''}, {moeda.format(posicao.valor)}</span>
-          </span>
-        </li>)}
-      </ol>}
-    <p className="relatorios__nota">Os {TAMANHO_DO_RANKING} primeiros, pela quantidade que saiu.</p>
+      : <table className="relatorios__tabela" aria-labelledby={idDoTitulo}>
+        <thead>
+          <tr><th scope="col">Produto</th><th scope="col" className="relatorios__numero">Quantidade</th>
+            <th scope="col" className="relatorios__numero">Valor</th></tr>
+        </thead>
+        <tbody>
+          {posicoes.map((posicao) => <tr key={posicao.produtoId}>
+            <th scope="row">{posicao.nome}</th>
+            {/* A unidade dá sentido à quantidade; o serviço sem unidade mostra só o número. */}
+            <td className="relatorios__numero">{numero.format(posicao.quantidade)}{posicao.unidade ? ` ${posicao.unidade}` : ''}</td>
+            <td className="relatorios__numero">{moeda.format(posicao.valor)}</td>
+          </tr>)}
+        </tbody>
+      </table>}
+    <p className="relatorios__nota">Os dez que mais faturaram no período.</p>
   </section>
 }
 
-function CartaoDaConferencia({ consulta, usuarios }: { consulta: Consulta; usuarios: UsuarioDaConta[] }) {
-  const { conferencia, operador } = consulta
-  if (!conferencia) {
-    return <section className="relatorios__cartao">
-      <h3>Conferência do cartão</h3>
-      <p>A conferência é de um dia só, como o extrato da maquininha. Escolha o mesmo dia no início e no
-        fim para ver os pagamentos em cartão com o NSU de cada um.</p>
-    </section>
-  }
+function Marcas({ marcas }: { marcas: (Marca | null)[] }) {
+  const presentes = marcas.filter((marca): marca is Marca => marca !== null)
+  if (presentes.length === 0) return null
+  return <span className="relatorios__marcas">
+    {presentes.map(({ texto, alerta }) => <span key={texto}
+      className={alerta ? 'relatorios__marca relatorios__marca--alerta' : 'relatorios__marca'}>{texto}</span>)}
+  </span>
+}
+
+const MARCA_DO_FIADO: Marca = { texto: 'Fiado' }
+
+function CartaoDaConferencia({ conferencia, nomeDe }: {
+  conferencia: ConferenciaDoCartao
+  nomeDe: (id: string) => string
+}) {
+  const [soSemNsu, setSoSemNsu] = useState(false)
+  const idDoTitulo = useId()
   const { lancamentos } = conferencia
-  const semNsu = lancamentos.filter((lancamento) => !lancamento.nsu).length
-  // O nome vem da lista de usuários; sem ela, a linha mostra o começo do id de quem lançou.
-  const nomeDe = (id: string) => usuarios.find((usuario) => usuario.id === id)?.nome ?? `operador ${id.slice(0, 8)}`
+  const semNsu = lancamentos.filter((lancamento) => !lancamento.nsu)
+  // O filtro só vale com algum sem NSU; num dia em que todos têm, o botão some e a lista é a inteira.
+  const linhas = soSemNsu && semNsu.length > 0 ? semNsu : lancamentos
   return <section className="relatorios__cartao">
-    <h3>Conferência do cartão {doPeriodo(conferencia.dia, conferencia.dia)}</h3>
-    {operador && <p>Lançamentos de {operador.nome}</p>}
+    <h3 id={idDoTitulo}>Conferência do cartão</h3>
     {lancamentos.length === 0 ? <p>Nenhum pagamento em cartão neste dia.</p> : <>
-      <p>{lancamentos.length} {lancamentos.length === 1 ? 'pagamento' : 'pagamentos'} em cartão
-        {semNsu > 0 && `, ${semNsu} sem NSU`}</p>
-      <ul className="relatorios__conferencia">
-        {lancamentos.map((lancamento) => <li key={lancamento.id}>
-          <span><strong>{hora.format(new Date(lancamento.lancadoEm))}</strong> · {moeda.format(lancamento.valor)}
-            {' · '}{lancamento.nsu ? `NSU ${lancamento.nsu}` : <span className="relatorios__sem-nsu">sem NSU</span>}</span>
-          <span>{nomeDe(lancamento.operadorId)}
-            {' · '}{lancamento.origem === 'RECEBIMENTO' ? 'fiado recebido' : 'venda'} {lancamento.vendaId.slice(0, 8)}
-            {SITUACAO_NA_CONFERENCIA[lancamento.situacaoDaVenda]}</span>
-        </li>)}
-      </ul>
+      <p className="relatorios__resumo"><strong>{moeda.format(somar(lancamentos.map((lancamento) => lancamento.valor)))}</strong>
+        {' '}em {lancamentos.length} {lancamentos.length === 1 ? 'pagamento' : 'pagamentos'}
+        {semNsu.length > 0 && `, ${semNsu.length} sem NSU`}.</p>
+      <p className="relatorios__nota">Este total não é o faturamento em cartão: aqui entram também o fiado
+        recebido em cartão e a venda cancelada ou ainda aberta, e a venda dividida aparece uma vez por
+        parcela. Cada pagamento fica na hora em que foi lançado, como no extrato da maquininha.</p>
+      {semNsu.length > 0 && <button type="button" className="botao botao--secundario relatorios__filtro"
+        aria-pressed={soSemNsu} onClick={() => setSoSemNsu((antes) => !antes)}>Só sem NSU</button>}
+      {/* A região rola por dentro e recebe o foco, para quem usa o teclado também poder rolar. */}
+      <div className="relatorios__rolagem" role="region" aria-labelledby={idDoTitulo} tabIndex={0}>
+        <table className="relatorios__tabela" aria-labelledby={idDoTitulo}>
+          <thead>
+            <tr><th scope="col">Hora</th><th scope="col" className="relatorios__numero">Valor</th>
+              <th scope="col">NSU</th><th scope="col">Operador</th></tr>
+          </thead>
+          <tbody>
+            {linhas.map((lancamento) => <tr key={lancamento.id}>
+              <td className="relatorios__hora">{hora.format(new Date(lancamento.lancadoEm))}</td>
+              <td className="relatorios__numero">{moeda.format(lancamento.valor)}</td>
+              <td className="relatorios__nsu">{lancamento.nsu ?? <span className="relatorios__sem-nsu">Sem NSU</span>}</td>
+              <td>{nomeDe(lancamento.operadorId)}
+                <Marcas marcas={[
+                  lancamento.origem === 'RECEBIMENTO' ? MARCA_DO_FIADO : null,
+                  MARCA_DA_SITUACAO[lancamento.situacaoDaVenda],
+                ]} /></td>
+            </tr>)}
+          </tbody>
+        </table>
+      </div>
+      <p className="relatorios__nota">Fiado é o recebimento de um fiado. Na venda cancelada, confira o
+        estorno na maquininha.</p>
     </>}
-    <p className="relatorios__nota">Cada pagamento fica no dia e na hora em que foi lançado, como no
-      extrato da maquininha, mesmo de venda aberta ou cancelada depois.</p>
   </section>
 }
 
-function CartaoDaConferenciaDoPix({ consulta, usuarios }: { consulta: Consulta; usuarios: UsuarioDaConta[] }) {
-  const { conferenciaDoPix, nomeDoCliente, operador } = consulta
-  if (!conferenciaDoPix) {
-    return <section className="relatorios__cartao">
-      <h3>Conferência do Pix</h3>
-      <p>A conferência é de um dia só, como o extrato do banco. Escolha o mesmo dia no início e no fim
-        para ver cada Pix das vendas e do fiado recebido.</p>
-    </section>
-  }
-  const { lancamentos } = conferenciaDoPix
-  const aguardando = lancamentos.filter((lancamento) => lancamento.aguardandoConfirmacao).length
-  const nomeDe = (id: string) => usuarios.find((usuario) => usuario.id === id)?.nome ?? `operador ${id.slice(0, 8)}`
+function CartaoDaConferenciaDoPix({ conferencia, nomeDe, nomeDoCliente }: {
+  conferencia: ConferenciaDoPix
+  nomeDe: (id: string) => string
+  nomeDoCliente: (clienteId: string) => string
+}) {
+  const idDoTitulo = useId()
+  const { lancamentos } = conferencia
+  // A cobrança que aguarda confirmação ainda não está no extrato do banco: fica fora do total.
+  const confirmados = lancamentos.filter((lancamento) => !lancamento.aguardandoConfirmacao)
+  const aguardando = lancamentos.filter((lancamento) => lancamento.aguardandoConfirmacao)
   return <section className="relatorios__cartao">
-    <h3>Conferência do Pix {doPeriodo(conferenciaDoPix.dia, conferenciaDoPix.dia)}</h3>
-    {operador && <p>Lançamentos de {operador.nome}</p>}
+    <h3 id={idDoTitulo}>Conferência do Pix</h3>
     {lancamentos.length === 0 ? <p>Nenhum Pix neste dia.</p> : <>
-      <p>{lancamentos.length} Pix
-        {aguardando > 0 && `, ${aguardando} aguardando confirmação`}</p>
-      <ul className="relatorios__conferencia">
-        {lancamentos.map((lancamento) => <li key={lancamento.id}>
-          <span><strong>{hora.format(new Date(lancamento.lancadoEm))}</strong> · {moeda.format(lancamento.valor)}
-            {' · '}{lancamento.integrado ? 'integrado' : 'lançado à mão'}
-            {lancamento.aguardandoConfirmacao && <span className="relatorios__sem-nsu"> · aguardando confirmação</span>}</span>
-          <span>{nomeDe(lancamento.operadorId)}
-            {lancamento.clienteId && ` · ${nomeDoCliente(lancamento.clienteId)}`}
-            {' · '}{lancamento.origem === 'RECEBIMENTO' ? 'recebimento de fiado' : 'venda'} {lancamento.vendaId.slice(0, 8)}
-            {SITUACAO_NA_CONFERENCIA_DO_PIX[lancamento.situacaoDaVenda]}</span>
-        </li>)}
-      </ul>
+      <p className="relatorios__resumo"><strong>{moeda.format(somar(confirmados.map((lancamento) => lancamento.valor)))}</strong>
+        {' '}em {confirmados.length} Pix.</p>
+      {aguardando.length > 0 && <p className="relatorios__resumo">{aguardando.length} aguardando confirmação, de
+        {' '}{moeda.format(somar(aguardando.map((lancamento) => lancamento.valor)))}, fora do total.</p>}
+      <div className="relatorios__rolagem" role="region" aria-labelledby={idDoTitulo} tabIndex={0}>
+        <table className="relatorios__tabela" aria-labelledby={idDoTitulo}>
+          <thead>
+            <tr><th scope="col">Hora</th><th scope="col" className="relatorios__numero">Valor</th>
+              <th scope="col">Operador</th></tr>
+          </thead>
+          <tbody>
+            {lancamentos.map((lancamento) => <tr key={lancamento.id}>
+              <td className="relatorios__hora">{hora.format(new Date(lancamento.lancadoEm))}</td>
+              <td className="relatorios__numero">{moeda.format(lancamento.valor)}</td>
+              <td>{nomeDe(lancamento.operadorId)}
+                {lancamento.clienteId && <span className="relatorios__cliente">Cliente: {nomeDoCliente(lancamento.clienteId)}</span>}
+                <Marcas marcas={[
+                  lancamento.integrado ? { texto: 'Integrado' } : null,
+                  lancamento.aguardandoConfirmacao ? { texto: 'Aguardando', alerta: true } : null,
+                  lancamento.origem === 'RECEBIMENTO' ? MARCA_DO_FIADO : null,
+                  MARCA_DA_SITUACAO[lancamento.situacaoDaVenda],
+                ]} /></td>
+            </tr>)}
+          </tbody>
+        </table>
+      </div>
+      <p className="relatorios__nota">O Pix lançado à mão não tem identificador: confira pelo valor e pela
+        hora. Aguardando é a cobrança integrada ainda não paga; se o banco já tem o crédito, confira a
+        conciliação na tela de venda. Fiado é o recebimento de um fiado. Na venda cancelada, confira a
+        devolução ao cliente.</p>
     </>}
-    <p className="relatorios__nota">O Pix lançado à mão não tem identificador: confira pelo valor e pela
-      hora. A cobrança integrada ainda não paga aparece marcada; se o banco já tem o crédito, confira a
-      conciliação na tela de venda.</p>
   </section>
 }
 
 function CartaoDoFluxoDeCaixa({ consulta }: { consulta: Consulta }) {
   const { fluxo, operador } = consulta
   return <section className="relatorios__cartao">
-    <h3>Fluxo de caixa {doPeriodo(fluxo.inicio, fluxo.fim)}</h3>
+    <h3>Fluxo de caixa</h3>
+    {/* No alto, e não no rodapé: ao lado do faturamento filtrado, o número da Conta inteira engana. */}
+    {operador && <p className="relatorios__aviso">O fluxo de caixa é da gaveta da Conta inteira: o filtro de
+      operador não vale para ele.</p>}
     <ul className="relatorios__linhas">
       <li className="relatorios__soma"><span>Entradas</span><span>{moeda.format(fluxo.entradas)}</span></li>
       <li><span>Vendas em dinheiro</span><span>{moeda.format(fluxo.vendas)}</span></li>
@@ -304,7 +403,5 @@ function CartaoDoFluxoDeCaixa({ consulta }: { consulta: Consulta }) {
     </ul>
     <p className="relatorios__nota">Só o dinheiro em espécie que passou pela gaveta; Pix e cartão estão no
       faturamento. O valor de abertura não entra.</p>
-    {operador && <p className="relatorios__nota">O fluxo de caixa é da gaveta da Conta inteira: o filtro de
-      operador não vale para ele.</p>}
   </section>
 }

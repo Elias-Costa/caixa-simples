@@ -19,11 +19,12 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Os produtos e serviços mais vendidos num período (RF22).
  *
- * <p><strong>Mais vendido é o que mais saiu, em quantidade</strong>, e não o que mais rendeu. É o
- * que a expressão diz no balcão: o café que vendeu cem vezes é o mais vendido, mesmo que o bolo,
- * que vendeu dez, tenha rendido mais. O valor vendido de cada produto sai ao lado, para a tela
- * mostrar as duas leituras sem uma segunda pergunta. O custo de somar quantidade é misturar
- * unidades, três quilos ao lado de três unidades, e por isso a unidade de cada produto vai junto.
+ * <p><strong>Quem pergunta diz a ordem</strong>, pelo que mais saiu ou pelo que mais rendeu, e as
+ * duas trazem a quantidade, a unidade e o valor de cada produto. A quantidade é o que a expressão
+ * diz no balcão: o café que vendeu cem vezes é o mais vendido, mesmo que o bolo, que vendeu dez,
+ * tenha rendido mais. Mas somar quantidade mistura unidades, três quilos ao lado de três unidades,
+ * e o que se vende a peso, alguns gramas por vez, não chega aos primeiros. Pelo valor, todos ficam
+ * na mesma régua, e é por ele que a tela do administrador pergunta.
  *
  * <p><strong>Contam as mesmas vendas do faturamento</strong>: só as CONCLUIDA, no dia em que
  * concluíram. Um ranking que incluísse a comanda ABERTA contaria o que ainda não foi vendido, e
@@ -59,24 +60,30 @@ public class MaisVendidosService {
 
     /**
      * Os produtos mais vendidos de um período de dias do balcão, <strong>com os dois extremos
-     * incluídos</strong>, do mais vendido para o menos, no máximo {@code limite} deles, contando
-     * as vendas de todos os operadores.
+     * incluídos</strong>, do primeiro para o último na ordem pedida, no máximo {@code limite}
+     * deles, contando as vendas de todos os operadores.
+     *
+     * <p>A ordem não tem padrão aqui: a pergunta é de quem chama, e a rota HTTP é que guarda a
+     * ordem de antes para o aparelho que não a manda.
      *
      * @param inicio o primeiro dia, obrigatório
      * @param fim    o último dia, obrigatório; pode ser o mesmo que o primeiro
      * @param limite quantas posições no máximo, pelo menos uma; um ranking sem tamanho seria o
      *               catálogo inteiro ordenado, que ninguém pediu
+     * @param ordem  pela quantidade que saiu ou pelo valor vendido, obrigatória
      * @throws IllegalArgumentException se {@code fim} vem antes de {@code inicio}, ou se o limite
      *                                  não é positivo
      */
     @Transactional(readOnly = true)
-    public MaisVendidos doPeriodo(LocalDate inicio, LocalDate fim, int limite) {
-        return consultar(inicio, fim, limite, null);
+    public MaisVendidos doPeriodo(LocalDate inicio, LocalDate fim, int limite,
+            OrdemDoRanking ordem) {
+        return consultar(inicio, fim, limite, ordem, null);
     }
 
     /**
-     * Os produtos mais vendidos de um período, como {@link #doPeriodo(LocalDate, LocalDate, int)},
-     * contando <strong>só as vendas de um operador</strong> (RF24).
+     * Os produtos mais vendidos de um período, como
+     * {@link #doPeriodo(LocalDate, LocalDate, int, OrdemDoRanking)}, contando <strong>só as vendas
+     * de um operador</strong> (RF24).
      *
      * <p>Duas assinaturas, e não um parâmetro que aceita nulo, porque o operador é o único filtro
      * do ranking além do período, e quem chama diz qual das duas perguntas está fazendo. Não há
@@ -90,28 +97,38 @@ public class MaisVendidosService {
      * @param inicio     o primeiro dia, obrigatório
      * @param fim        o último dia, obrigatório; pode ser o mesmo que o primeiro
      * @param limite     quantas posições no máximo, pelo menos uma
+     * @param ordem      pela quantidade que saiu ou pelo valor vendido, obrigatória
      * @param operadorId o operador cujas vendas contam, obrigatório nesta assinatura
      * @throws IllegalArgumentException se {@code fim} vem antes de {@code inicio}, ou se o limite
      *                                  não é positivo
      */
     @Transactional(readOnly = true)
-    public MaisVendidos doPeriodo(LocalDate inicio, LocalDate fim, int limite, UUID operadorId) {
+    public MaisVendidos doPeriodo(LocalDate inicio, LocalDate fim, int limite,
+            OrdemDoRanking ordem, UUID operadorId) {
         Objects.requireNonNull(operadorId,
                 "operadorId nao pode ser nulo; sem operador, use a assinatura sem ele");
-        return consultar(inicio, fim, limite, operadorId);
+        return consultar(inicio, fim, limite, ordem, operadorId);
     }
 
     /** O ranking em si; {@code operadorId} nulo é a conta inteira, e só as duas públicas chamam. */
-    private MaisVendidos consultar(LocalDate inicio, LocalDate fim, int limite, UUID operadorId) {
+    private MaisVendidos consultar(LocalDate inicio, LocalDate fim, int limite,
+            OrdemDoRanking ordem, UUID operadorId) {
         UsuarioContext.exigirAdmin();
         contas.exigirRecurso(RecursoDoPlano.RELATORIOS);
+        Objects.requireNonNull(ordem,
+                "ordem não pode ser nula; diga se o ranking é pela quantidade ou pelo valor");
         Periodo periodo = new Periodo(inicio, fim);
         if (limite < 1) {
             throw new IllegalArgumentException("O limite do ranking tem de ser pelo menos 1.");
         }
 
-        List<ProdutoVendido> linhas = itens.maisVendidosEntre(StatusVenda.CONCLUIDA,
-                periodo.inicioInclusivo(), periodo.fimExclusivo(), operadorId, Limit.of(limite));
+        // As duas consultas têm o mesmo filtro e a mesma resposta; só a ordem muda.
+        List<ProdutoVendido> linhas = switch (ordem) {
+            case QUANTIDADE -> itens.maisVendidosPorQuantidadeEntre(StatusVenda.CONCLUIDA,
+                    periodo.inicioInclusivo(), periodo.fimExclusivo(), operadorId, Limit.of(limite));
+            case VALOR -> itens.maisVendidosPorValorEntre(StatusVenda.CONCLUIDA,
+                    periodo.inicioInclusivo(), periodo.fimExclusivo(), operadorId, Limit.of(limite));
+        };
 
         List<Posicao> posicoes = linhas.stream()
                 .map(linha -> new Posicao(linha.produtoId(), linha.nome(), linha.unidade(),
@@ -127,7 +144,8 @@ public class MaisVendidosService {
      *
      * @param inicio   o primeiro dia do período, no fuso do balcão
      * @param fim      o último dia do período, incluído
-     * @param posicoes do mais vendido para o menos; vazia quando nada foi vendido, nunca nula
+     * @param posicoes do primeiro para o último na ordem pedida; vazia quando nada foi vendido,
+     *                 nunca nula
      */
     public record MaisVendidos(LocalDate inicio, LocalDate fim, List<Posicao> posicoes) {
     }

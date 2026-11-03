@@ -3,6 +3,7 @@ package br.com.caixasimples.relatorios.web;
 import br.com.caixasimples.relatorios.application.MaisVendidosService;
 import br.com.caixasimples.relatorios.application.MaisVendidosService.MaisVendidos;
 import br.com.caixasimples.relatorios.application.MaisVendidosService.Posicao;
+import br.com.caixasimples.relatorios.application.OrdemDoRanking;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -19,6 +20,10 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>O limite é obrigatório, como no caso de uso: um ranking tem tamanho, e é quem pergunta que diz
  * quantas posições quer. Não há filtro por forma de pagamento, porque um item não pertence a uma
  * parcela.
+ *
+ * <p>A ordem é opcional e, sem ela, é a quantidade, a ordem que a rota sempre teve: o aplicativo
+ * instalado num aparelho que ainda não atualizou continua recebendo o ranking que ele espera. O
+ * valor fora da lista responde 400, pelo tratador do Spring.
  */
 @RestController
 @RequestMapping("/api/relatorios/mais-vendidos")
@@ -32,13 +37,14 @@ class MaisVendidosController {
 
     @GetMapping
     MaisVendidosNaResposta doPeriodo(@RequestParam LocalDate inicio, @RequestParam LocalDate fim,
-            @RequestParam int limite, @RequestParam(required = false) UUID operadorId) {
+            @RequestParam int limite, @RequestParam(required = false) UUID operadorId,
+            @RequestParam(defaultValue = "QUANTIDADE") OrdemDoRanking ordem) {
         // O caso de uso tem uma assinatura para cada pergunta; sem operador, é a da Conta inteira.
         MaisVendidos resultado;
         if (operadorId == null) {
-            resultado = maisVendidos.doPeriodo(inicio, fim, limite);
+            resultado = maisVendidos.doPeriodo(inicio, fim, limite, ordem);
         } else {
-            resultado = maisVendidos.doPeriodo(inicio, fim, limite, operadorId);
+            resultado = maisVendidos.doPeriodo(inicio, fim, limite, ordem, operadorId);
         }
         return MaisVendidosNaResposta.de(resultado);
     }

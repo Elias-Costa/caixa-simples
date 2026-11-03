@@ -74,7 +74,36 @@ public interface ItemVendaParaRelatorioRepository extends Repository<ItemVendaPa
             group by p.id, p.nome, p.unidade
             order by sum(i.quantidade) desc, p.nome asc, p.id asc
             """)
-    List<ProdutoVendido> maisVendidosEntre(@Param("status") StatusVenda status,
+    List<ProdutoVendido> maisVendidosPorQuantidadeEntre(@Param("status") StatusVenda status,
+            @Param("inicio") Instant inicio, @Param("fim") Instant fim,
+            @Param("usuarioId") UUID usuarioId, Limit limite);
+
+    /**
+     * Os mesmos produtos, das mesmas vendas, ordenados pelo valor vendido em vez da quantidade.
+     *
+     * <p>É a consulta de {@link #maisVendidosPorQuantidadeEntre} com outra ordem, escrita inteira
+     * em vez de montada com a ordem como parâmetro: cada uma se lê sozinha, e a ordem por uma soma
+     * não cabe num {@code Sort} do Spring Data sem um apelido que a JPQL de construtor não dá. A
+     * ordem repete a expressão do valor do {@code select}, com o mesmo arredondamento por item, para
+     * o ranking sair na ordem dos números que ele mostra. O empate fica com o nome e o id, como lá.
+     */
+    @Query("""
+            select new br.com.caixasimples.relatorios.internal.ProdutoVendido(
+                p.id, p.nome, p.unidade,
+                sum(i.quantidade),
+                sum(round(i.quantidade * i.precoUnitario, 2) - i.desconto))
+            from ItemVendaParaRelatorio i
+              join VendaParaRelatorio v on v.id = i.vendaId
+              join ProdutoParaRelatorio p on p.id = i.produtoId
+            where v.status = :status
+              and v.concluidoEm >= :inicio
+              and v.concluidoEm < :fim
+              and (:usuarioId is null or v.usuarioId = :usuarioId)
+            group by p.id, p.nome, p.unidade
+            order by sum(round(i.quantidade * i.precoUnitario, 2) - i.desconto) desc,
+              p.nome asc, p.id asc
+            """)
+    List<ProdutoVendido> maisVendidosPorValorEntre(@Param("status") StatusVenda status,
             @Param("inicio") Instant inicio, @Param("fim") Instant fim,
             @Param("usuarioId") UUID usuarioId, Limit limite);
 }

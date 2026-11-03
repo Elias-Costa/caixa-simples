@@ -25,7 +25,7 @@ describe('chamadas dos relatórios', () => {
       .toBe('/api/relatorios/faturamento?inicio=2026-09-01&fim=2026-09-15&forma=PIX&operadorId=usuario-1')
   })
 
-  it('o ranking leva o limite e, quando houver, o operador; o fluxo, só o período', async () => {
+  it('o ranking leva o limite e, quando houver, o operador e a ordem; o fluxo, só o período', async () => {
     gravarToken('token-de-teste')
     const daConta = vi.fn().mockResolvedValue(respostaVazia())
     vi.stubGlobal('fetch', daConta)
@@ -37,6 +37,13 @@ describe('chamadas dos relatórios', () => {
     await relatorios.maisVendidos('2026-09-15', '2026-09-15', 10, 'usuario-1')
     expect(caminhoPedido(doOperador))
       .toBe('/api/relatorios/mais-vendidos?inicio=2026-09-15&fim=2026-09-15&limite=10&operadorId=usuario-1')
+
+    // Sem operador, a ordem vai sozinha, sem um operadorId vazio antes dela.
+    const peloValor = vi.fn().mockResolvedValue(respostaVazia())
+    vi.stubGlobal('fetch', peloValor)
+    await relatorios.maisVendidos('2026-09-15', '2026-09-15', 10, undefined, 'VALOR')
+    expect(caminhoPedido(peloValor))
+      .toBe('/api/relatorios/mais-vendidos?inicio=2026-09-15&fim=2026-09-15&limite=10&ordem=VALOR')
 
     const fluxo = vi.fn().mockResolvedValue(respostaVazia())
     vi.stubGlobal('fetch', fluxo)

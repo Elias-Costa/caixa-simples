@@ -30,6 +30,9 @@ export type MaisVendidos = {
   posicoes: PosicaoMaisVendida[]
 }
 
+/** Pelo que mais saiu ou pelo que mais rendeu; sem ela, o servidor ordena pela quantidade. */
+export type OrdemDoRanking = 'QUANTIDADE' | 'VALOR'
+
 /** Só o dinheiro em espécie da gaveta: entradas são vendas, recebimentos e suprimentos. */
 export type FluxoDeCaixa = {
   inicio: string
@@ -107,9 +110,9 @@ export const relatorios = {
     chamarApi<Faturamento>(comParametros('/api/relatorios/faturamento', {
       inicio, fim, forma: filtros.forma, operadorId: filtros.operadorId,
     })),
-  maisVendidos: (inicio: string, fim: string, limite: number, operadorId?: string) =>
+  maisVendidos: (inicio: string, fim: string, limite: number, operadorId?: string, ordem?: OrdemDoRanking) =>
     chamarApi<MaisVendidos>(comParametros('/api/relatorios/mais-vendidos', {
-      inicio, fim, limite, operadorId,
+      inicio, fim, limite, operadorId, ordem,
     })),
   fluxoDeCaixa: (inicio: string, fim: string) =>
     chamarApi<FluxoDeCaixa>(comParametros('/api/relatorios/fluxo-de-caixa', { inicio, fim })),
