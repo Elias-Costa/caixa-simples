@@ -534,6 +534,66 @@ describe('PDV no tablet', () => {
     expect(screen.queryByRole('button', { name: 'Tirar o cliente' })).not.toBeInTheDocument()
   })
 
+  it('com o Fiado escolhido, tirar o cliente volta a forma para dinheiro, e o rodapé acompanha', async () => {
+    let comCliente = true
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(cadastro, 'clientes').mockResolvedValue([{ id: 'cliente-1', nome: 'Lia', contato: null }])
+    vi.spyOn(fiado, 'saldo').mockResolvedValue({ clienteId: 'cliente-1', saldoDevedor: 0 })
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([{ id: comanda.id,
+      sessaoCaixaId: comanda.sessaoCaixaId, usuarioId: comanda.usuarioId,
+      status: 'ABERTA', total: comanda.total, criadoEm: comanda.criadoEm }])
+    vi.spyOn(vendas, 'consultar').mockImplementation(async () => ({ ...comanda,
+      clienteId: comCliente ? 'cliente-1' : null }))
+    vi.spyOn(vendas, 'desvincularCliente').mockImplementation(async () => { comCliente = false })
+    const pagar = vi.spyOn(vendas, 'pagar').mockResolvedValue({ troco: 0 })
+    vi.spyOn(vendas, 'concluir').mockResolvedValue(undefined)
+    vi.spyOn(vendas, 'comprovante').mockResolvedValue(comprovante)
+    mostrar('ADMIN')
+
+    fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
+    fireEvent.change(await screen.findByLabelText('Forma'), { target: { value: 'FIADO' } })
+    expect(screen.getByRole('button', { name: 'Registrar fiado e concluir' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tirar o cliente' }))
+    await waitFor(() => expect(screen.queryByText('Cliente: Lia')).not.toBeInTheDocument())
+    expect(screen.queryByRole('option', { name: 'Fiado' })).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Forma')).toHaveValue('DINHEIRO')
+    expect(screen.getByLabelText('Valor recebido em dinheiro')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Registrar fiado e concluir' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Receber e concluir' }))
+    await waitFor(() => expect(pagar).toHaveBeenCalledWith('venda-1', 'DINHEIRO', 12.5, 12.5,
+      expect.any(String), undefined))
+  })
+
+  it('com a parcela fiado lançada, o Fiado sai do seletor e a parcela seguinte vai em dinheiro', async () => {
+    let fiada = false
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(cadastro, 'clientes').mockResolvedValue([{ id: 'cliente-1', nome: 'Lia', contato: null }])
+    vi.spyOn(fiado, 'saldo').mockResolvedValue({ clienteId: 'cliente-1', saldoDevedor: 0 })
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([{ id: comanda.id,
+      sessaoCaixaId: comanda.sessaoCaixaId, usuarioId: comanda.usuarioId,
+      status: 'ABERTA', total: comanda.total, criadoEm: comanda.criadoEm }])
+    vi.spyOn(vendas, 'consultar').mockImplementation(async () => ({ ...comanda, clienteId: 'cliente-1',
+      parcelas: fiada ? [{ id: 'parcela-1', forma: 'FIADO', valor: 5, status: 'PENDENTE', troco: 0 }] : [],
+      pago: fiada ? 5 : 0, faltaPagar: fiada ? 7.5 : 12.5 }))
+    const pagar = vi.spyOn(vendas, 'pagar').mockImplementation(async () => { fiada = true; return { troco: 0 } })
+    mostrar('ADMIN')
+
+    fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
+    fireEvent.change(await screen.findByLabelText('Forma'), { target: { value: 'FIADO' } })
+    fireEvent.change(screen.getByLabelText('Valor da parcela'), { target: { value: '5' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Registrar parcela' }))
+    await waitFor(() => expect(pagar).toHaveBeenCalledWith('venda-1', 'FIADO', 5, undefined,
+      expect.any(String), undefined))
+
+    expect(await screen.findByText('Com parcela fiado, o cliente só pode ser trocado.')).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'Fiado' })).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Forma')).toHaveValue('DINHEIRO')
+    fireEvent.click(screen.getByRole('button', { name: 'Registrar parcela' }))
+    await waitFor(() => expect(pagar).toHaveBeenLastCalledWith('venda-1', 'DINHEIRO', 7.5, 7.5,
+      expect.any(String), undefined))
+  })
+
   it('o Enter não lança quando o nome digitado acha vários produtos', async () => {
     vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
     vi.spyOn(vendas, 'daSessao').mockResolvedValue([])

@@ -197,8 +197,12 @@ export function TelaDeVenda() {
   // hoje; a Venda registrada sem rede não o recebe. A opção escolhida antes de a rede cair volta
   // para dinheiro, sem esperar outro toque. O Pix manual vale com e sem rede, em todo plano.
   const pixIntegradoPermitido = online && !doDispositivo && identidade?.pixIntegrado === true
-  const opcaoEscolhida: OpcaoDePagamento = forma === 'PIX_INTEGRADO' && !pixIntegradoPermitido
-    ? 'DINHEIRO' : forma
+  // O fiado é do administrador, pede cliente e entra uma vez por venda. Tirado o cliente, ou com a
+  // venda relida sem ele, o Fiado sai do seletor e a forma volta para dinheiro, como o Pix integrado:
+  // o rodapé não pode oferecer o fiado com outra forma à vista.
+  const fiadoPermitido = identidade?.perfil === 'ADMIN' && !!atual?.clienteId && !comFiado
+  const opcaoEscolhida: OpcaoDePagamento = (forma === 'PIX_INTEGRADO' && !pixIntegradoPermitido)
+    || (forma === 'FIADO' && !fiadoPermitido) ? 'DINHEIRO' : forma
   const formaEscolhida = formaDa(opcaoEscolhida)
   const termo = busca.trim()
   const termoCliente = buscaCliente.trim()
@@ -777,9 +781,7 @@ export function TelaDeVenda() {
                   <option value="PIX_MANUAL">Pix manual</option>
                   {pixIntegradoPermitido && <option value="PIX_INTEGRADO">Pix integrado</option>}
                   <option value="CARTAO">Cartão manual</option>
-                  {identidade?.perfil === 'ADMIN' && atual.clienteId &&
-                    !atual.parcelas.some((parcela) => parcela.forma === 'FIADO') &&
-                    <option value="FIADO">Fiado</option>}
+                  {fiadoPermitido && <option value="FIADO">Fiado</option>}
                 </select>
               </label>
               <CampoDeDinheiro rotulo="Valor da parcela" valor={valorPagamento} aoMudar={setValorPagamento}

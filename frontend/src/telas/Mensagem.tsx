@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react'
 
 type Props = {
-  tipo: 'erro' | 'sucesso'
+  /** Sucesso só para o que o servidor confirmou; informação para o que ficou guardado no aparelho. */
+  tipo: 'erro' | 'sucesso' | 'info'
   texto: string | null | undefined
 }
 
@@ -17,9 +18,8 @@ export function Mensagem({ tipo, texto }: Props) {
     if (texto) ref.current?.scrollIntoView?.({ block: 'nearest' })
   }, [texto])
   if (!texto) return null
-  return tipo === 'erro'
-    ? <p ref={ref} className="mensagem-erro" role="alert">{texto}</p>
-    : <p ref={ref} className="mensagem-sucesso" role="status">{texto}</p>
+  if (tipo === 'erro') return <p ref={ref} className="mensagem-erro" role="alert">{texto}</p>
+  return <p ref={ref} className={tipo === 'info' ? 'mensagem-info' : 'mensagem-sucesso'} role="status">{texto}</p>
 }
 
 /** A mensagem do servidor para um campo, ligada a ele pelo aria-describedby do próprio campo. */

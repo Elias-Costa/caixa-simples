@@ -124,7 +124,9 @@ describe('caixa na tela', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Registrar sangria' }))
 
     await waitFor(() => expect(sangrar).toHaveBeenCalledWith('s-1', 5, 'Retirada', expect.any(String)))
+    // Com rede e o servidor respondendo, o sucesso é verde.
     expect(await screen.findByRole('status')).toHaveTextContent('Sangria registrada.')
+    expect(screen.getByRole('status')).toHaveClass('mensagem-sucesso')
   })
 
   it('o histórico diz de quem é cada caixa, os horários, o valor inicial com rótulo e a diferença do fechamento', async () => {
@@ -541,6 +543,45 @@ describe('caixa na tela', () => {
     expect(await screen.findByText('Falta de R$ 2,00')).toBeInTheDocument()
     expect(remoto).not.toHaveBeenCalled()
     expect(fecharRemoto).not.toHaveBeenCalled()
+  })
+
+  it('o que fica na fila deste aparelho não sai em verde: abertura, sangria, suprimento e fechamento dizem onde ficaram', async () => {
+    const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+    const suprirRemoto = vi.spyOn(caixa, 'suprir')
+    mostrar()
+
+    fireEvent.change(await screen.findByLabelText('Valor inicial'), { target: { value: '10' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir caixa' }))
+    const meuCaixa = screen.getByRole('heading', { name: 'Meu caixa' }).closest('section')!
+    const abertura = await within(meuCaixa).findByRole('status')
+    expect(abertura).toHaveTextContent('Caixa aberto neste aparelho. Aguardando sincronização com o servidor.')
+    expect(abertura).toHaveClass('mensagem-info')
+
+    fireEvent.change(await screen.findByLabelText('Valor'), { target: { value: '3' } })
+    fireEvent.change(screen.getByLabelText('Motivo'), { target: { value: 'Depósito' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Registrar sangria' }))
+    const sangria = await screen.findByText('Sangria registrada neste aparelho. Aguardando sincronização com o servidor.')
+    expect(sangria).toHaveClass('mensagem-info')
+
+    // Com a rede de volta e a abertura ainda na fila, o suprimento entra atrás dela, também no aparelho.
+    onLine.mockReturnValue(true)
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(undefined)
+    vi.spyOn(caixa, 'historico').mockResolvedValue([])
+    fireEvent.change(screen.getByLabelText('Tipo'), { target: { value: 'SUPRIMENTO' } })
+    fireEvent.change(screen.getByLabelText('Valor'), { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText('Motivo'), { target: { value: 'Troco' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Registrar suprimento' }))
+    const suprimento = await screen.findByText('Suprimento registrado neste aparelho. Aguardando sincronização com o servidor.')
+    expect(suprimento).toHaveClass('mensagem-info')
+    expect(suprirRemoto).not.toHaveBeenCalled()
+
+    onLine.mockReturnValue(false)
+    fireEvent.change(screen.getByLabelText('Valor contado'), { target: { value: '9' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Fechar e registrar diferença' }))
+    await responderConfirmacao('Fechar caixa')
+    const fechamento = await screen.findByText('Caixa fechado neste aparelho. Aguardando sincronização com o servidor.')
+    expect(fechamento).toHaveClass('mensagem-info')
+    expect(document.querySelector('.mensagem-sucesso')).toBeNull()
   })
 
   it('mostra fechado, sem valores nem formulários, o caixa que o servidor fechou fora do aparelho', async () => {

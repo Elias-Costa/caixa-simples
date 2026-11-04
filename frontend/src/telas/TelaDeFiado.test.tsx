@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { MemoryRouter } from 'react-router'
 import { afterEach, expect, it, vi } from 'vitest'
 import { caixa } from '../api/caixa'
-import { SemConexao } from '../api/cliente'
+import { ErroDaApi, SemConexao } from '../api/cliente'
 import { fiado } from '../api/fiado'
 import { vendas } from '../api/vendas'
 import { SessaoContext } from '../sessao/contexto'
@@ -210,4 +210,51 @@ it('a busca filtra as Vendas com saldo pelo nome do cliente e recusa o valor aci
   const formulario = screen.getByRole('heading', { name: 'Receber de Dona Marta' }).closest('form')!
   expect(await within(formulario).findByRole('alert')).toHaveTextContent('O valor recebido passa do saldo desta venda.')
   expect(receber).not.toHaveBeenCalled()
+})
+
+function mostrarFiado() {
+  render(<MemoryRouter><SessaoContext.Provider value={{
+    identidade: { usuarioId: 'operador-1', nome: 'Ana', perfil: 'OPERADOR',
+      contaId: 'conta-1', nomeNegocio: 'Loja', estoqueHabilitado: false },
+    entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(),
+  }}><TelaDeFiado /></SessaoContext.Provider></MemoryRouter>)
+}
+
+it('com a lista lida, sem caixa e sem dívida, a tela diz que ninguém deve e leva ao caixa', async () => {
+  vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(undefined)
+  vi.spyOn(fiado, 'dividas').mockResolvedValue([])
+  mostrarFiado()
+
+  expect(await screen.findByText('Nenhuma venda com saldo devedor.')).toBeInTheDocument()
+  expect(screen.getByText('Abra o seu caixa para registrar recebimentos.')).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: 'Ir ao caixa' })).toBeInTheDocument()
+})
+
+it('sem conexão, a tela diz que o fiado precisa de rede e não diz que ninguém deve nem que falta o caixa', async () => {
+  vi.spyOn(caixa, 'abertaDoOperadorAtual').mockRejectedValue(new SemConexao())
+  vi.spyOn(fiado, 'dividas').mockRejectedValue(new SemConexao())
+  mostrarFiado()
+
+  const aviso = await screen.findByRole('status')
+  expect(aviso).toHaveTextContent('Sem conexão. O fiado precisa de rede para mostrar quem deve e registrar '
+    + 'recebimentos. Quando a rede voltar, abra o Fiado de novo.')
+  expect(aviso).toHaveClass('mensagem-info')
+  // A frase da escrita sem resposta não cabe numa leitura, e o vazio seria falso.
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  expect(screen.queryByText(/Reabra a lista/)).not.toBeInTheDocument()
+  expect(screen.queryByText('Nenhuma venda com saldo devedor.')).not.toBeInTheDocument()
+  expect(screen.queryByText('Abra o seu caixa para registrar recebimentos.')).not.toBeInTheDocument()
+  expect(screen.queryByRole('link', { name: 'Ir ao caixa' })).not.toBeInTheDocument()
+  expect(screen.queryByText('Carregando...')).not.toBeInTheDocument()
+})
+
+it('a leitura recusada pelo servidor mostra a recusa, sem as frases de vazio', async () => {
+  vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(undefined)
+  vi.spyOn(fiado, 'dividas').mockRejectedValue(new ErroDaApi(403, 'Forbidden', undefined, {}))
+  mostrarFiado()
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('Seu perfil não permite esta operação.')
+  expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  expect(screen.queryByText('Nenhuma venda com saldo devedor.')).not.toBeInTheDocument()
+  expect(screen.queryByText('Abra o seu caixa para registrar recebimentos.')).not.toBeInTheDocument()
 })

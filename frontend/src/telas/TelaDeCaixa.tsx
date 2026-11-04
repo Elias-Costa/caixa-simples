@@ -43,7 +43,19 @@ const SAI_DA_GAVETA: ReadonlySet<MovimentoCaixa['tipo']> = new Set(['SANGRIA', '
 
 /** O cartão em que a resposta de uma ação aparece: o mesmo em que ela foi tocada. */
 type LugarDaMensagem = 'tela' | 'abertura' | 'sessao' | 'movimento' | 'fechamento' | 'vendas'
-type MensagemNaTela = { tipo: 'erro' | 'sucesso'; texto: string; lugar: LugarDaMensagem }
+type MensagemNaTela = { tipo: 'erro' | 'sucesso' | 'info'; texto: string; lugar: LugarDaMensagem }
+
+/**
+ * A resposta da abertura, do movimento ou do fechamento, pelo caixa relido depois dele. Sem rede, ou
+ * com outro gesto deste caixa ainda na fila, a ação ficou guardada neste aparelho e a tela diz isso,
+ * em vez de um sucesso que o servidor ainda não viu.
+ */
+function respostaDaAcao(relida: SessaoCaixa | undefined, lugar: LugarDaMensagem,
+  textos: { noServidor: string; noAparelho: string }): MensagemNaTela {
+  return relida?.pendenteSincronizacao
+    ? { tipo: 'info', texto: textos.noAparelho, lugar }
+    : { tipo: 'sucesso', texto: textos.noServidor, lugar }
+}
 
 /** A lista guarda de qual sessão é: trocada a sessão, a lista anterior some antes da nova chegar. */
 type VendasDaSessao = { sessaoId: string; lista: ResumoDaVenda[] }
@@ -313,7 +325,8 @@ export function TelaDeCaixa() {
     && selecionada.usuarioId !== identidade?.usuarioId && selecionada.status === 'ABERTA'
     && !abertaAntesDeHoje(selecionada.abertaEm)
 
-  const carregar = useCallback(async () => {
+  /** Relê a tela e devolve o caixa aberto do operador, que a abertura usa para dizer onde ficou. */
+  const carregar = useCallback(async (): Promise<SessaoCaixa | undefined> => {
     try {
       const [sessaoAberta, sessoesDoDia] = await Promise.all([
         caixa.abertaDoOperadorAtual(), caixa.historico(dia),
@@ -327,8 +340,10 @@ export function TelaDeCaixa() {
       })
       // A releitura só apaga o erro da própria leitura: a resposta de uma ação continua à vista.
       setMensagem((atual) => atual?.lugar === 'tela' ? undefined : atual)
+      return sessaoAberta
     } catch (falha) {
       setMensagem({ tipo: 'erro', texto: erroDeCadastro(falha), lugar: 'tela' })
+      return undefined
     } finally {
       setCarregando(false)
     }
@@ -429,8 +444,8 @@ export function TelaDeCaixa() {
     setMensagem(undefined)
     try {
       await caixa.abrir(dinheiroDoCampo(valorAbertura, 'o valor inicial'))
-      await carregar()
-      setMensagem({ tipo: 'sucesso', texto: 'Caixa aberto.', lugar: 'abertura' })
+      setMensagem(respostaDaAcao(await carregar(), 'abertura', { noServidor: 'Caixa aberto.',
+        noAparelho: 'Caixa aberto neste aparelho. Aguardando sincronização com o servidor.' }))
     } catch (falha) {
       setMensagem({ tipo: 'erro', texto: erroDeCadastro(falha), lugar: 'abertura' })
     } finally {
@@ -452,12 +467,16 @@ export function TelaDeCaixa() {
       if (tipo === 'SANGRIA') await caixa.sangrar(selecionada.id, valor, motivo, intencao.id)
       else await caixa.suprir(selecionada.id, valor, motivo, intencao.id)
       await carregar()
-      setSelecionada(await caixa.consultar(selecionada.id))
+      const relida = await caixa.consultar(selecionada.id)
+      setSelecionada(relida)
       intencao.confirmar()
       setValorMovimento('')
       setMotivo('')
-      setMensagem({ tipo: 'sucesso', lugar: 'movimento',
-        texto: tipo === 'SANGRIA' ? 'Sangria registrada.' : 'Suprimento registrado.' })
+      setMensagem(respostaDaAcao(relida, 'movimento', tipo === 'SANGRIA'
+        ? { noServidor: 'Sangria registrada.',
+          noAparelho: 'Sangria registrada neste aparelho. Aguardando sincronização com o servidor.' }
+        : { noServidor: 'Suprimento registrado.',
+          noAparelho: 'Suprimento registrado neste aparelho. Aguardando sincronização com o servidor.' }))
     } catch (falha) {
       setMensagem({ tipo: 'erro', lugar: 'movimento', texto: falha instanceof SemConexao
         ? 'Sem conexão. Tente registrar o mesmo movimento quando a rede voltar.'
@@ -482,9 +501,11 @@ export function TelaDeCaixa() {
       await caixa.fechar(selecionada.id, contado)
       setValorContado('')
       await carregar()
-      setSelecionada(await caixa.consultar(selecionada.id))
+      const relida = await caixa.consultar(selecionada.id)
+      setSelecionada(relida)
       // Os formulários somem com o caixa fechado; o aviso vai para o alto do cartão da sessão.
-      setMensagem({ tipo: 'sucesso', texto: 'Caixa fechado.', lugar: 'sessao' })
+      setMensagem(respostaDaAcao(relida, 'sessao', { noServidor: 'Caixa fechado.',
+        noAparelho: 'Caixa fechado neste aparelho. Aguardando sincronização com o servidor.' }))
     } catch (falha) {
       setMensagem({ tipo: 'erro', texto: erroDeCadastro(falha), lugar: 'fechamento' })
     } finally {

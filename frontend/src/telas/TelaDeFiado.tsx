@@ -83,6 +83,10 @@ export function TelaDeFiado() {
   const [erro, setErro] = useState<{ texto: string; lugar: LugarDoErro }>()
   const [ocupado, setOcupado] = useState(false)
   const [carregando, setCarregando] = useState(true)
+  // Sem a lista lida, a tela não sabe se há caixa aberto nem quem deve: as frases de vazio diriam
+  // que ninguém deve. O fiado não é guardado no aparelho, e sem rede a leitura não chega.
+  const [lida, setLida] = useState(false)
+  const [semConexao, setSemConexao] = useState(false)
   const formularioRef = useRef<HTMLFormElement>(null)
 
   const carregar = useCallback(async () => {
@@ -95,9 +99,13 @@ export function TelaDeFiado() {
   useEffect(() => {
     let vivo = true
     Promise.all([caixa.abertaDoOperadorAtual(), fiado.dividas()]).then(([aberta, lista]) => {
-      if (vivo) { setSessao(aberta); setDividas(lista) }
-    }).catch((falha) => { if (vivo) setErro({ texto: erroDeCadastro(falha), lugar: 'tela' }) })
-      .finally(() => { if (vivo) setCarregando(false) })
+      if (vivo) { setSessao(aberta); setDividas(lista); setLida(true) }
+    }).catch((falha) => {
+      if (!vivo) return
+      // A frase do erro sem resposta fala de escrita a conferir; aqui só a leitura não chegou.
+      if (falha instanceof SemConexao) setSemConexao(true)
+      else setErro({ texto: erroDeCadastro(falha), lugar: 'tela' })
+    }).finally(() => { if (vivo) setCarregando(false) })
     return () => { vivo = false }
   }, [])
 
@@ -175,9 +183,11 @@ export function TelaDeFiado() {
       <p>Quem deve, com o saldo de cada venda. Cada recebimento entra no caixa de quem o registra.</p>
     </div></div>
     <Mensagem tipo="erro" texto={erroEm('tela')} />
+    <Mensagem tipo="info" texto={semConexao ? 'Sem conexão. O fiado precisa de rede para mostrar quem deve '
+      + 'e registrar recebimentos. Quando a rede voltar, abra o Fiado de novo.' : undefined} />
     {!carregando && devedores.length > 0 && <p className="fiado__total">Total em aberto:{' '}
       <strong>{moeda.format(totalCentavos / 100)}</strong>, de {devedores.length === 1 ? '1 cliente' : `${devedores.length} clientes`}.</p>}
-    {carregando ? <p>Carregando...</p> : <>
+    {carregando ? <p>Carregando...</p> : lida && <>
       {/* Sem caixa não há recebimento: ir ao caixa é a ação da tela, e vem como botão. */}
       {!sessao && <>
         <p>Abra o seu caixa para registrar recebimentos.</p>
