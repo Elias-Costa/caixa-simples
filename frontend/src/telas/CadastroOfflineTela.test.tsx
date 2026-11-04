@@ -66,7 +66,7 @@ describe('telas de cadastro sem rede', () => {
       nome: 'Café expresso', preco: 0, codigo: null, categoria: 'Bebidas',
       unidade: 'un', atributos: {},
     }], 0)
-    const sessao = { identidade, entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn() }
+    const sessao = { identidade, entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(), relerIdentidade: vi.fn() }
     const tela = render(<SessaoContext.Provider value={sessao}><TelaDeProdutos /></SessaoContext.Provider>)
     expect(await screen.findByText('Café expresso')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Editar' }))

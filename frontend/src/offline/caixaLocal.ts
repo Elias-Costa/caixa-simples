@@ -1,5 +1,6 @@
 import { caixa, type MovimentoCaixa, type SessaoCaixa } from '../api/caixa'
 import { SemConexao } from '../api/cliente'
+import { comServidor } from '../api/conexao'
 import { lerIdentidade, sessaoAtual, sessaoDaAba } from '../sessao/armazenamento'
 import { centavos, centavosDoSaldo, reais } from './dinheiro'
 import {
@@ -12,7 +13,9 @@ import { dinheiroNaGaveta, projetarVendas, type DadosDoInicio } from './raizDaVe
 type CaixaRemoto = typeof caixa
 // As sessões abertas da Conta são pergunta do administrador com rede: o aparelho guarda só o caixa
 // de quem está nele, e a tela as pede direto à API.
-type CaixaNoDispositivo = Omit<CaixaRemoto, 'sangrar' | 'suprir' | 'fechar' | 'abertas'> & {
+type CaixaNoDispositivo = Omit<CaixaRemoto, 'abrir' | 'sangrar' | 'suprir' | 'fechar' | 'abertas'> & {
+  /** O id do caixa nasce no aparelho, com ou sem rede. */
+  abrir(valorAbertura: number): Promise<{ id: string }>
   sangrar(id: string, valor: number, motivo: string, movimentoId?: string): Promise<void>
   suprir(id: string, valor: number, motivo: string, movimentoId?: string): Promise<void>
   /** Sem rede e com o saldo desatualizado, a diferença fica para o servidor calcular. */
@@ -28,7 +31,7 @@ const SANGRIA_ESPERA_A_LEITURA = 'Este caixa mudou com rede e o aparelho ainda n
 
 function semBanco(): boolean {
   if ('indexedDB' in globalThis) return false
-  if (!navigator.onLine) throw new Error('O armazenamento local não está disponível para operar sem rede.')
+  if (!comServidor()) throw new Error('O armazenamento local não está disponível para operar sem rede.')
   return true
 }
 
@@ -213,9 +216,14 @@ function projetar(base: SessaoGuardada | undefined, gestos: GestoNaFila[], id: s
     }
     if (!sessao) continue
     if (gesto.tipo === 'caixa.sangrar' || gesto.tipo === 'caixa.suprir') {
-      const dados = gesto.payload as { valor: number; motivo: string; criadoEm: string }
+      const dados = gesto.payload as { valor: number; motivo: string; criadoEm: string; movimentoId?: string }
+      // O gesto gravado antes de levar o id do movimento usa o da operação, só para a lista.
+      const idDoMovimento = dados.movimentoId ?? gesto.operacaoId
+      // A chamada com rede que ficou sem resposta pode ter gravado este mesmo movimento, e uma
+      // leitura feita depois dela já o traz: contá-lo de novo dobraria a sangria.
+      if (sessao.movimentos?.some((existente) => existente.id === idDoMovimento)) continue
       const tipo = gesto.tipo === 'caixa.sangrar' ? 'SANGRIA' : 'SUPRIMENTO'
-      const movimento: MovimentoCaixa = { id: gesto.operacaoId, tipo, valor: dados.valor,
+      const movimento: MovimentoCaixa = { id: idDoMovimento, tipo, valor: dados.valor,
         motivo: dados.motivo, vendaId: null, recebimentoId: null, criadoEm: dados.criadoEm }
       const esperado = centavosDoSaldo(sessao.valorFechamentoEsperado)
       const quantia = centavos(dados.valor, 'Valor do movimento')
@@ -282,7 +290,7 @@ async function enfileirar(tipo: string, id: string, dados: object, dependeDe: st
 async function consultarLocalOuRemoto(remoto: CaixaRemoto, id: string): Promise<SessaoCaixa> {
   if (semBanco()) return remoto.consultar(id)
   const gestos = gestosDaSessao(await listarGestos(), id)
-  if (!navigator.onLine || pendente(gestos)) return local(id)
+  if (!comServidor() || pendente(gestos)) return local(id)
   try {
     // Sem gesto pendente, o servidor já tem tudo desta sessão, e a resposta vale como está.
     return await lerDoServidor(() => remoto.consultar(id), (sessao, ordem) => guardar([sessao], ordem))
@@ -341,7 +349,7 @@ export function criarCaixaLocal(remoto: CaixaRemoto = caixa): CaixaNoDispositivo
   return {
     async abertaDoOperadorAtual() {
       if (semBanco()) return remoto.abertaDoOperadorAtual()
-      if (navigator.onLine) {
+      if (comServidor()) {
         try {
           const recebida = await lerDoServidor(() => remoto.abertaDoOperadorAtual(),
             (sessao, ordem) => guardarSessaoAberta(sessao, ordem))
@@ -360,7 +368,7 @@ export function criarCaixaLocal(remoto: CaixaRemoto = caixa): CaixaNoDispositivo
     async consultar(id) { return consultarLocalOuRemoto(remoto, id) },
     async historico(dia, operadorId) {
       if (semBanco()) return remoto.historico(dia, operadorId)
-      if (navigator.onLine) {
+      if (comServidor()) {
         try {
           const recebidas = await lerDoServidor(() => remoto.historico(dia, operadorId),
             (sessoes, ordem) => guardar(sessoes, ordem))
@@ -379,16 +387,23 @@ export function criarCaixaLocal(remoto: CaixaRemoto = caixa): CaixaNoDispositivo
         && (!operadorId || operadorId === usuarioAtual()))
     },
     async abrir(valorAbertura) {
-      if (semBanco()) return remoto.abrir(valorAbertura)
+      // O id nasce aqui também com rede: sem resposta, a abertura vai à fila com ele, e o servidor a
+      // reconhece como a mesma se a chamada perdida já a tinha gravado. Com outro id, ela seria um
+      // segundo caixa aberto, recusado na volta junto com as vendas feitas nele.
+      const id = crypto.randomUUID()
+      if (semBanco()) return remoto.abrir(valorAbertura, id)
       centavos(valorAbertura, 'Valor de abertura')
       const gestos = await listarGestos()
-      if (navigator.onLine && !algumGestoDeCaixaPendente(gestos)) {
-        return remoto.abrir(valorAbertura)
+      if (comServidor() && !algumGestoDeCaixaPendente(gestos)) {
+        try {
+          return await remoto.abrir(valorAbertura, id)
+        } catch (falha) {
+          if (!(falha instanceof SemConexao)) throw falha
+        }
       }
       if ((await locais()).some((sessao) => sessao.status === 'ABERTA')) {
         throw new Error('Você já tem um caixa aberto neste aparelho; feche o anterior antes de abrir outro.')
       }
-      const id = crypto.randomUUID()
       const ultimo = ordenarPorDependencia(gestos.filter((gesto) => gesto.tipo.startsWith(prefixo))).at(-1)
       await enfileirar('caixa.abrir', id, { valorAbertura,
         abertaEm: new Date().toISOString() }, ultimo ? [ultimo.operacaoId] : [])
@@ -397,7 +412,7 @@ export function criarCaixaLocal(remoto: CaixaRemoto = caixa): CaixaNoDispositivo
     async sangrar(id, valorMovimento, motivo, movimentoId?: string) {
       if (semBanco()) return remoto.sangrar(id, valorMovimento, motivo,
         movimentoId ?? crypto.randomUUID())
-      if (navigator.onLine && (await retratos()).every((sessao) => sessao.id !== id)
+      if (comServidor() && (await retratos()).every((sessao) => sessao.id !== id)
         && lerIdentidade()?.perfil === 'ADMIN') return remoto.sangrar(id, valorMovimento, motivo,
           movimentoId ?? crypto.randomUUID())
       return movimentar(remoto, id, valorMovimento, motivo, 'caixa.sangrar', movimentoId)
@@ -405,7 +420,7 @@ export function criarCaixaLocal(remoto: CaixaRemoto = caixa): CaixaNoDispositivo
     async suprir(id, valorMovimento, motivo, movimentoId?: string) {
       if (semBanco()) return remoto.suprir(id, valorMovimento, motivo,
         movimentoId ?? crypto.randomUUID())
-      if (navigator.onLine && (await retratos()).every((sessao) => sessao.id !== id)
+      if (comServidor() && (await retratos()).every((sessao) => sessao.id !== id)
         && lerIdentidade()?.perfil === 'ADMIN') return remoto.suprir(id, valorMovimento, motivo,
           movimentoId ?? crypto.randomUUID())
       return movimentar(remoto, id, valorMovimento, motivo, 'caixa.suprir', movimentoId)
@@ -413,16 +428,23 @@ export function criarCaixaLocal(remoto: CaixaRemoto = caixa): CaixaNoDispositivo
     async fechar(id, valorContado) {
       if (semBanco()) return remoto.fechar(id, valorContado)
       const contado = centavos(valorContado, 'Valor contado')
-      if (navigator.onLine && (await retratos()).every((sessao) => sessao.id !== id)
+      if (comServidor() && (await retratos()).every((sessao) => sessao.id !== id)
         && lerIdentidade()?.perfil === 'ADMIN') return remoto.fechar(id, valorContado)
       const sessao = await local(id)
       if (sessao.status !== 'ABERTA') throw new Error('Este caixa já foi fechado e não fecha de novo.')
       const gestos = gestosDaSessao(await listarGestos(), id)
-      if (navigator.onLine && !pendente(gestos)) {
-        const fechada = await remoto.fechar(id, valorContado)
-        // Se a rede cair antes de a sessão ser lida de novo, a guardada ainda diria ABERTA.
-        await marcarFechadaNoServidor(id)
-        return fechada
+      if (comServidor() && !pendente(gestos)) {
+        try {
+          const fechada = await remoto.fechar(id, valorContado)
+          // Se a rede cair antes de a sessão ser lida de novo, a guardada ainda diria ABERTA.
+          await marcarFechadaNoServidor(id)
+          return fechada
+        } catch (falha) {
+          // Sem resposta, o fechamento vai à fila. Se a chamada perdida já tinha fechado, o gesto
+          // volta em revisão dizendo que o caixa já foi fechado: nada depende dele, e nenhum
+          // dinheiro muda.
+          if (!(falha instanceof SemConexao)) throw falha
+        }
       }
       // Todas as operações conhecidas desta sessão, inclusive cada gesto das Vendas registradas
       // nela, precisam chegar ao servidor antes do fechamento.
@@ -446,7 +468,7 @@ async function movimentar(remoto: CaixaRemoto, id: string, quantia: number, moti
     throw new Error(tipo === 'caixa.sangrar' ? 'Informe o motivo da sangria.' : 'Informe o motivo do suprimento.')
   }
   const gestos = await listarGestos()
-  const comRede = navigator.onLine && !pendente(gestosDaSessao(gestos, id))
+  const comRede = comServidor() && !pendente(gestosDaSessao(gestos, id))
   if (tipo === 'caixa.sangrar') {
     // Com o saldo guardado desatualizado, só o servidor sabe se a sangria cabe na gaveta: com rede
     // e sem pendência ela vai direto a ele, e a que entraria na fila é recusada até a releitura.
@@ -457,12 +479,24 @@ async function movimentar(remoto: CaixaRemoto, id: string, quantia: number, moti
       throw new Error('Sangria maior que o saldo esperado da gaveta.')
     }
   }
+  // O mesmo id vai ao servidor e, sem resposta, à fila: se a chamada perdida tinha gravado, o
+  // servidor não grava de novo.
+  const movimento = movimentoId ?? crypto.randomUUID()
   if (comRede) {
-    const movimento = movimentoId ?? crypto.randomUUID()
-    return escreverNaGavetaComRede(remoto, id, () => tipo === 'caixa.sangrar'
-      ? remoto.sangrar(id, quantia, motivo, movimento) : remoto.suprir(id, quantia, motivo, movimento))
+    try {
+      return await escreverNaGavetaComRede(remoto, id, () => tipo === 'caixa.sangrar'
+        ? remoto.sangrar(id, quantia, motivo, movimento) : remoto.suprir(id, quantia, motivo, movimento))
+    } catch (falha) {
+      if (!(falha instanceof SemConexao)) throw falha
+      // Com o saldo já desatualizado antes, só o servidor sabia se a sangria cabia, e ela não vai
+      // à fila sem essa conta. A intenção guarda o id, e repetir quando ele responder não dobra.
+      if (tipo === 'caixa.sangrar' && sessao.saldoDesatualizado) throw falha
+    }
   }
-  const ultimo = ultimoGestoDaGaveta(gestos, id)
-  await enfileirar(tipo, id, { valor: quantia, motivo: motivo.trim(), criadoEm: new Date().toISOString() },
-    ultimo ? [ultimo.operacaoId] : [], versaoLida(sessao))
+  // Depois de uma escrita sem resposta, o caixa fica marcado como desatualizado: o saldo aparece
+  // indisponível e a próxima sangria sem servidor espera a releitura, porque a chamada perdida pode
+  // ter gravado.
+  const ultimo = ultimoGestoDaGaveta(await listarGestos(), id)
+  await enfileirar(tipo, id, { valor: quantia, motivo: motivo.trim(), criadoEm: new Date().toISOString(),
+    movimentoId: movimento }, ultimo ? [ultimo.operacaoId] : [], versaoLida(sessao))
 }

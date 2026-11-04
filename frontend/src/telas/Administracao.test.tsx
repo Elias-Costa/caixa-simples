@@ -63,14 +63,14 @@ function ConfiguracaoComProvedorReal() {
 /** A tela dentro de uma sessão da Ana, com a atualização da identidade observável pelo teste. */
 function comSessao(tela: ReactNode, atualizarIdentidade = vi.fn()) {
   return <SessaoContext.Provider value={{
-    identidade: admin, entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade,
+    identidade: admin, entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade, relerIdentidade: vi.fn(),
   }}>{tela}</SessaoContext.Provider>
 }
 
 function ComSessaoEConfig() {
   const [identidade, atualizarIdentidade] = useState(admin)
   return <SessaoContext.Provider value={{
-    identidade, entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade,
+    identidade, entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade, relerIdentidade: vi.fn(),
   }}>
     <p>Menu: {itensDoMenu(identidade).map((item) => item.rotulo).join(', ')}</p>
     <TelaDeConfiguracao />
@@ -353,7 +353,7 @@ describe('administração na tela', () => {
     render(<MemoryRouter>
       <SessaoContext.Provider value={{
         identidade: { ...admin, plano: 'GRATIS', recursos: [] },
-        entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(),
+        entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(), relerIdentidade: vi.fn(),
       }}>
         <TelaDeConfiguracao />
       </SessaoContext.Provider>
@@ -374,7 +374,7 @@ describe('administração na tela', () => {
     render(<MemoryRouter>
       <SessaoContext.Provider value={{
         identidade: { ...admin, plano: 'GRATIS', recursos: [] },
-        entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade,
+        entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade, relerIdentidade: vi.fn(),
       }}>
         <TelaDeConfiguracao />
       </SessaoContext.Provider>

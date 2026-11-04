@@ -3,6 +3,7 @@ import { deleteDB } from 'idb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Cliente, DadosDoCliente, DadosDoProduto, Produto } from '../api/cadastro'
 import { SemConexao } from '../api/cliente'
+import { registrarSemResposta } from '../api/conexao'
 import type { OperacaoDoLote } from '../api/sincronizacao'
 import { gravarIdentidade, gravarToken } from '../sessao/armazenamento'
 import type { Identidade } from '../sessao/Identidade'
@@ -266,5 +267,32 @@ describe('cadastro local', () => {
     expect(servidor.clientes).toHaveBeenCalledTimes(1)
     expect(servidor.clientesInativos).toHaveBeenCalledTimes(1)
     expect(await lerRetrato('clientesInativos')).toEqual({ dados: [], ordemDaLeitura: 0 })
+  })
+})
+
+describe('cadastro com o servidor fora e o Wi-Fi ligado', () => {
+  it('o produto cuja criação ficou sem resposta é guardado na fila, e o seguinte nem tenta o servidor', async () => {
+    entrar(ana)
+    rede(true)
+    await guardarRetrato('produtos', [], 0)
+    await guardarRetrato('produtosInativos', [], 0)
+    const api = remoto()
+    api.criarProduto.mockImplementation(async () => {
+      registrarSemResposta()
+      throw new SemConexao()
+    })
+    const local = criarCadastroLocal(api)
+    const dados: DadosDoProduto = { tipo: 'PRODUTO', nome: 'Pão de queijo', preco: 4, codigo: null,
+      categoria: null, unidade: 'un', atributos: {} }
+
+    const { id } = await local.criarProduto(dados)
+    await local.criarProduto({ ...dados, nome: 'Bolo de milho' })
+
+    expect(api.criarProduto).toHaveBeenCalledTimes(1)
+    expect((await listarGestos()).map((gesto) => [gesto.tipo, gesto.payload])).toEqual([
+      ['produto.criar', expect.objectContaining({ nome: 'Pão de queijo' })],
+      ['produto.criar', expect.objectContaining({ nome: 'Bolo de milho' })],
+    ])
+    expect((await listarGestos())[0].registroId).toBe(id)
   })
 })

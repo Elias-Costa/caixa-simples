@@ -425,6 +425,53 @@ class SincronizacaoHttpTest extends TesteDeIntegracao {
                 .andExpect(jsonPath("$").isEmpty());
     }
 
+    @Test
+    @DisplayName("abertura e sangria com rede que ficaram sem resposta, repetidas pelo lote com os mesmos ids, valem uma vez")
+    void chamadaSemRespostaRepetidaPeloLote() throws Exception {
+        ContaCriada conta = criador.criar("Mercadinho Aurora", SENHA);
+        criador.contratar(conta.contaId(), Plano.COMPLETO);
+        RequestPostProcessor admin = autenticador.como(conta);
+        UUID sessaoId = UUID.randomUUID();
+        UUID movimentoId = UUID.randomUUID();
+        UUID vendaId = UUID.randomUUID();
+        // As duas chamadas chegaram e gravaram; o aparelho não viu a resposta.
+        http.perform(post("/api/caixa/sessoes").with(admin).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"valorAbertura\":50.00,\"sessaoId\":\"" + sessaoId + "\"}"))
+                .andExpect(status().isCreated());
+        http.perform(post("/api/caixa/sessoes/{id}/sangrias", sessaoId).with(admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"movimentoId\":\"" + movimentoId
+                                + "\",\"valor\":10.00,\"motivo\":\"Deposito\"}"))
+                .andExpect(status().isNoContent());
+
+        GestoDeTeste abertura = GestoDeTeste.abertura(sessaoId, "50.00");
+        GestoDeTeste sangria = GestoDeTeste.de("caixa.sangrar", sessaoId,
+                conteudo("valor", new BigDecimal("10.00"), "motivo", "Deposito",
+                        "criadoEm", Instant.now().toString(), "movimentoId", movimentoId),
+                abertura).comVersaoBase(0);
+        GestoDeTeste inicio = GestoDeTeste.inicio(vendaId, sessaoId, abertura);
+        JsonNode resposta = enviar(admin, List.of(abertura, sangria, inicio));
+
+        assertThat(resultadoDe(resposta, abertura).path("resultado").asText()).isEqualTo("APLICADA");
+        assertThat(resultadoDe(resposta, sangria).path("resultado").asText()).isEqualTo("APLICADA");
+        assertThat(resultadoDe(resposta, inicio).path("resultado").asText()).isEqualTo("APLICADA");
+        http.perform(get("/api/caixa/sessoes/{id}", sessaoId).with(admin))
+                .andExpect(jsonPath("$.status").value("ABERTA"))
+                .andExpect(jsonPath("$.valorFechamentoEsperado").value(40.0))
+                .andExpect(jsonPath("$.movimentos.length()").value(1))
+                .andExpect(jsonPath("$.movimentos[0].id").value(movimentoId.toString()));
+        http.perform(get("/api/vendas/{id}", vendaId).with(admin))
+                .andExpect(jsonPath("$.sessaoCaixaId").value(sessaoId.toString()));
+
+        GestoDeTeste adulterada = GestoDeTeste.de("caixa.sangrar", sessaoId,
+                conteudo("valor", new BigDecimal("11.00"), "motivo", "Deposito",
+                        "criadoEm", Instant.now().toString(), "movimentoId", movimentoId));
+        assertThat(resultadoDe(enviar(admin, List.of(adulterada)), adulterada)
+                .path("resultado").asText()).isEqualTo("NAO_APLICADA");
+        http.perform(get("/api/caixa/sessoes/{id}", sessaoId).with(admin))
+                .andExpect(jsonPath("$.valorFechamentoEsperado").value(40.0));
+    }
+
     /** Os gestos de um expediente inteiro sem rede, na ordem e com as dependências do PWA. */
     private static final class DiaSemRede {
 

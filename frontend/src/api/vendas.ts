@@ -1,4 +1,4 @@
-import { chamarApi } from './cliente'
+import { chamarApi, TEMPO_LIMITE_LONGO } from './cliente'
 
 export type FormaPagamento = 'DINHEIRO' | 'PIX' | 'CARTAO' | 'FIADO'
 export type StatusVenda = 'ABERTA' | 'CONCLUIDA' | 'CANCELADA'
@@ -125,12 +125,13 @@ export const vendas = {
     }),
   cobrarPix: (id: string, tentativaId: string, valor: number) =>
     chamarApi<ParcelaDaVenda>(`/api/vendas/${id}/pagamentos/pix`, {
-      metodo: 'POST', corpo: { tentativaId, valor },
+      metodo: 'POST', corpo: { tentativaId, valor }, tempoLimite: TEMPO_LIMITE_LONGO,
     }),
   concluir: (id: string) =>
     chamarApi<void>(`/api/vendas/${id}/conclusao`, { metodo: 'POST' }),
+  /** Com Pix integrado, o servidor espera o provedor remover a cobrança antes de responder. */
   cancelar: (id: string) =>
-    chamarApi<void>(`/api/vendas/${id}/cancelamento`, { metodo: 'POST' }),
+    chamarApi<void>(`/api/vendas/${id}/cancelamento`, { metodo: 'POST', tempoLimite: TEMPO_LIMITE_LONGO }),
   comprovante: (id: string) => chamarApi<Comprovante>(`/api/vendas/${id}/comprovante`),
   receber: (id: string, valor: number, forma: FormaPagamento, recebimentoId: string, nsu?: string) =>
     chamarApi<{ id: string; saldoDevedor: number }>(`/api/vendas/${id}/recebimentos`, {

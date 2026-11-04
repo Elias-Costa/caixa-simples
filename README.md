@@ -91,8 +91,10 @@ mostra a Venda como pendente de sincronização, com um comprovante que diz isso
 recebe a fila em lote: aplica cada gesto uma vez, na ordem das dependências, com os ids e os
 instantes do balcão, e grava o resultado de cada um na mesma transação do efeito, para o reenvio
 devolver o que foi gravado em vez de aplicar de novo. O PWA envia a fila sozinho: ao abrir, na
-volta da rede, a cada gesto gravado com rede e a cada meio minuto enquanto houver gesto sem
-resultado, uma rodada por vez entre as abas. Cada gesto recebe o seu desfecho, aplicado, em
+volta do servidor, a cada gesto gravado com ele respondendo e a cada meio minuto enquanto houver
+gesto sem resultado, uma rodada por vez entre as abas; depois de cada envio respondido, relê a
+identidade, para a venda sem rede conhecer logo o que a Conta passou a exigir, como o NSU no
+cartão. Cada gesto recebe o seu desfecho, aplicado, em
 revisão, recusado ou com falha, que é repetida com o mesmo id. A projeção local deixa de somar de
 novo o que o retrato do servidor já contém, e o gesto enviado só sai do aparelho quando todo
 retrato que o usa já contém o efeito dele: a Venda em dinheiro continua na gaveta sem rede até o
@@ -101,7 +103,14 @@ operação sem rede e aparece fechada, sem os valores do fechamento até a próx
 a abertura feita no aparelho e ainda não enviada continua valendo. Depois de cada lançamento com
 rede que mexe na gaveta, o aparelho relê o caixa; se a rede cair antes da releitura, o saldo
 esperado aparece como indisponível sem rede e a sangria espera a próxima leitura, em vez de partir
-de um saldo antigo. O cabeçalho mostra o
+de um saldo antigo. Para o aparelho, o servidor fora com o Wi-Fi ligado vale como falta de rede: a
+chamada que falha, que passa de oito segundos sem começar a responder ou que volta do proxy sem a
+aplicação põe o aparelho a operar pela fila, o cabeçalho diz que o servidor não responde, e uma
+pergunta leve a cada quinze segundos descobre a volta, quando a fila sai e a tela Caixa relê
+sozinha. A abertura, a sangria e o suprimento cuja resposta se perdeu vão à fila com o mesmo id que
+a chamada levou, e o servidor não os grava de novo. A comanda que existe no servidor fica só para
+leitura enquanto ele não responde, e o próximo item começa outra venda no aparelho. O cabeçalho
+mostra o
 que falta enviar e o que está em revisão, e a tela de sincronização mostra cada gesto com o
 detalhe do servidor, para quem operou conferir. O administrador vê também as revisões e recusas
 de todos os aparelhos da Conta e registra no servidor que as conferiu. Sair não apaga o que o
@@ -252,7 +261,11 @@ O caixa oferece `GET` e `POST /api/caixa/sessoes`,
 as sessões abertas da Conta, `GET /api/caixa/sessoes/{id}`,
 `POST /api/caixa/sessoes/{id}/sangrias`,
 `POST /api/caixa/sessoes/{id}/suprimentos`, ambos com `movimentoId` obrigatório no corpo, e
-`POST /api/caixa/sessoes/{id}/fechamento`. O histórico recebe o dia e, opcionalmente, o operador;
+`POST /api/caixa/sessoes/{id}/fechamento`. A abertura aceita no corpo o `sessaoId` gerado no
+aparelho, e repeti-la com o mesmo id e o mesmo valor devolve o mesmo caixa; o gesto de sangria e de
+suprimento que chega no lote com o `movimentoId` segue a regra das rotas com rede, e a abertura do
+lote com o id de um caixa que já é do mesmo operador conta como aplicada. O histórico recebe o dia
+e, opcionalmente, o operador;
 a consulta por id devolve o extrato, e as listas carregam só os totais. As quatro rotas online de
 dinheiro aceitam o mesmo id e conteúdo sem repetir o efeito; conteúdo diferente para o id recebe
 409, inclusive quando só o NSU muda; o reenvio igual responde como da primeira vez mesmo que a
@@ -412,7 +425,9 @@ diz a quem pedir a senha esquecida.
 A tela Configuração liga e desliga a exigência do NSU e guarda a mudança na identidade do aparelho;
 depois do primeiro movimento de estoque, ela diz que o controle não desliga mais e não oferece o botão.
 Um cliente HTTP só envia o token da sessão aberta nesta aba, troca-o pelo renovado quando a resposta
-pertence à mesma sessão e traduz todo erro no mesmo objeto, lido do Problem Details. Respostas de
+pertence à mesma sessão e traduz todo erro no mesmo objeto, lido do Problem Details. Toda chamada
+tem tempo-limite: oito segundos, ou 45 nas que esperam o provedor do Pix, a consulta de senhas
+vazadas ou o lote da fila. Respostas de
 uma Conta anterior são descartadas depois de uma troca de sessão, inclusive entre abas.
 Com token guardado e ainda válido, o aplicativo
 abre sem rede no shell, com a identidade guardada, e pergunta ao servidor quem está operando assim
@@ -458,7 +473,7 @@ Atalhos para avaliar o código sem percorrer o repositório inteiro.
 | Cadastro HTTP consumido pelas telas | [ProdutoController.java](src/main/java/br/com/caixasimples/cadastro/web/ProdutoController.java) e [ClienteController.java](src/main/java/br/com/caixasimples/cadastro/web/ClienteController.java) | A API conserva a Conta e o perfil fora do corpo, faz inativação lógica, com reativação, e devolve 404 para id de outra Conta; o ADMIN também remove dados pessoais do Cliente sem apagar sua linha; [TelaDeProdutos.tsx](frontend/src/telas/TelaDeProdutos.tsx) e [TelaDeClientes.tsx](frontend/src/telas/TelaDeClientes.tsx) exercitam o contrato no PWA |
 | Caixa HTTP e conferência no PWA | [SessaoCaixaController.java](src/main/java/br/com/caixasimples/caixa/web/SessaoCaixaController.java) e [TelaDeCaixa.tsx](frontend/src/telas/TelaDeCaixa.tsx) | A sessão aberta vem do usuário autenticado, o histórico preserva o filtro por perfil, e só a consulta de uma sessão carrega os movimentos com a Venda de origem |
 | Venda HTTP e PDV | [VendaController.java](src/main/java/br/com/caixasimples/vendas/web/VendaController.java) e [TelaDeVenda.tsx](frontend/src/telas/TelaDeVenda.tsx) | A comanda é recuperada após recarga, o pagamento dividido mostra o troco e a tela apresenta o comprovante não fiscal para imprimir ou compartilhar |
-| As regras da Venda conferidas sem rede | [raizDaVenda.ts](frontend/src/offline/raizDaVenda.ts) e [vendaLocal.ts](frontend/src/offline/vendaLocal.ts) | O dispositivo aplica as regras da raiz antes de gravar cada gesto, em centavos inteiros e com o arredondamento por item do servidor; a Venda nova fica na fila quando falta rede ou quando o caixa já tem gesto pendente, e a Venda aberta com rede não é copiada para o dispositivo |
+| As regras da Venda conferidas sem rede | [raizDaVenda.ts](frontend/src/offline/raizDaVenda.ts) e [vendaLocal.ts](frontend/src/offline/vendaLocal.ts) | O dispositivo aplica as regras da raiz antes de gravar cada gesto, em centavos inteiros e com o arredondamento por item do servidor; a Venda nova fica na fila quando falta rede, quando o servidor não responde ou quando o caixa já tem gesto pendente, e a Venda aberta com rede não é copiada para o dispositivo |
 | Sincronização idempotente por operação | [SincronizacaoService.java](src/main/java/br/com/caixasimples/sincronizacao/application/SincronizacaoService.java) e [AplicadorDeOperacoes.java](src/main/java/br/com/caixasimples/sincronizacao/AplicadorDeOperacoes.java) | Uma transação por gesto, com o resultado gravado junto e um índice único pela Conta e pelo id da operação: o reenvio devolve o gravado e o envio simultâneo não aplica duas vezes. A ordem vem das dependências, e o que repete ou vai para revisão está escrito no lugar. Cada módulo aplica os próprios gestos pela porta, como em [GestosDaVenda.java](src/main/java/br/com/caixasimples/vendas/internal/GestosDaVenda.java), sem expor os casos de uso |
 | O envio da fila e a projeção que não conta duas vezes | [envio.ts](frontend/src/offline/envio.ts) e [fila.ts](frontend/src/offline/fila.ts) | Uma rodada por vez com a trava do navegador, lotes em ordem de dependência, e cada resposta vira um estado com o porquê: sem resposta é falha, porque o servidor pode ter aplicado. O número de ordem de cada resultado, comparado ao guardado com o retrato, diz o que o servidor já contém, e o retrato lido com gesto incerto não é guardado |
 | Callback Pix e conciliação | [WebhookPixController.java](src/main/java/br/com/caixasimples/vendas/web/WebhookPixController.java) e [VendaPixService.java](src/main/java/br/com/caixasimples/vendas/application/VendaPixService.java) | O aviso autenticado localiza a parcela da Conta, reconsulta o PSP e deixa a raiz confirmar uma vez; a lista de conciliação mostra ao ADMIN dinheiro recebido após fechamento ou cancelamento |
@@ -1301,10 +1316,10 @@ src
 │   └── ...                 testes por módulo, incluindo isolamento entre contas
 frontend
 ├── src
-│   ├── api/                o cliente HTTP e as chamadas de cadastro, caixa, vendas, relatórios, estoque e sincronização
+│   ├── api/                o cliente HTTP, com o tempo-limite e o estado da conexão, e as chamadas de cadastro, caixa, vendas, relatórios, estoque e sincronização
 │   ├── offline/            fila, retratos locais, envio da fila, cadastro, caixa e Venda no dispositivo, pedido de armazenamento persistente
 │   ├── sessao/             token e identidade no dispositivo, provedor de sessão
-│   ├── shell/              cabeçalho com os avisos da fila e do vencimento do plano, envio automático, navegação por perfil e plano com o botão Mais, rodapé com o aviso de privacidade e os termos, guardas de rota
+│   ├── shell/              cabeçalho com os avisos de rede e de servidor, da fila e do vencimento do plano, envio automático e sondagem do servidor, navegação por perfil e plano com o botão Mais, rodapé com o aviso de privacidade e os termos, guardas de rota
 │   └── telas/              login, privacidade, termos de uso, dados do aparelho, produto, cliente, caixa, Venda, relatórios, usuários, configuração, estoque e sincronização, e o que elas dividem: rótulos, mensagens, o campo de senha e o diálogo de confirmação
 ├── public/                 ícones e manifest
 └── vite.config.ts          build, service worker e o proxy de desenvolvimento para a API

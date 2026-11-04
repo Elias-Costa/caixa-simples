@@ -1,5 +1,6 @@
 import { cadastro, type Produto } from '../api/cadastro'
 import { SemConexao } from '../api/cliente'
+import { comServidor } from '../api/conexao'
 import {
   vendas, type Comprovante, type FormaPagamento, type ResumoDaVenda, type ValorDaForma, type Venda,
 } from '../api/vendas'
@@ -78,9 +79,9 @@ async function enfileirar(tipo: string, id: string, dados: object, dependeDe: st
 /**
  * Onde uma Venda existente continua. A que nasceu neste dispositivo e ainda tem gesto sem resultado
  * continua aqui, com ou sem rede, porque o servidor ainda não sabe tudo o que aconteceu com ela.
- * Qualquer outra é do servidor e só continua com rede: a comanda aberta com conexão não é copiada
- * para o dispositivo quando a rede cai. A leitura sem rede de uma Venda nascida aqui usa os gestos
- * guardados, mesmo depois de enviados.
+ * Qualquer outra é do servidor e só continua com ele respondendo: a comanda aberta com conexão não
+ * é copiada para o dispositivo quando a rede cai ou o servidor para de responder. A leitura sem
+ * servidor de uma Venda nascida aqui usa os gestos guardados, mesmo depois de enviados.
  */
 async function localizar(id: string, leitura: boolean): Promise<NoDispositivo | 'servidor'> {
   if (!temBanco()) return 'servidor'
@@ -88,11 +89,11 @@ async function localizar(id: string, leitura: boolean): Promise<NoDispositivo | 
   const daVenda = gestos.filter((gesto) => gesto.tipo.startsWith('venda.') && gesto.registroId === id)
   const nasceuAqui = daVenda.some((gesto) => gesto.tipo === 'venda.iniciar')
   const pendente = daVenda.some(gestoPendente)
-  if (nasceuAqui && (pendente || (leitura && !navigator.onLine))) {
+  if (nasceuAqui && (pendente || (leitura && !comServidor()))) {
     const venda = raiz.projetarVendas(gestos, usuarioAtual()).get(id)
     if (venda) return { gestos, venda, pendente }
   }
-  if (!navigator.onLine) throw new Error(VENDA_DO_SERVIDOR_SEM_REDE)
+  if (!comServidor()) throw new Error(VENDA_DO_SERVIDOR_SEM_REDE)
   return 'servidor'
 }
 
@@ -219,9 +220,10 @@ async function nomeDoClienteDoFiado(venda: raiz.VendaNoDispositivo,
 }
 
 /**
- * O PDV sem rede. Uma Venda nova fica no dispositivo quando não há rede ou quando a SessaoCaixa já
- * tem gesto pendente: nesse caso o que vem depois também precisa entrar na fila, ou o servidor
- * receberia os fatos fora da ordem em que aconteceram no balcão. Cada gesto é conferido pela raiz
+ * O PDV sem rede. Uma Venda nova fica no dispositivo quando o servidor não responde, por falta de
+ * rede ou pela chamada que ficou sem resposta, ou quando a SessaoCaixa já tem gesto pendente: nesse
+ * caso o que vem depois também precisa entrar na fila, ou o servidor receberia os fatos fora da
+ * ordem em que aconteceram no balcão. Cada gesto é conferido pela raiz
  * local e gravado antes de a promessa terminar, e só então a tela avança.
  */
 export function criarVendaLocal(remoto: VendasDaApi = vendas, caixa: CaixaDoDispositivo = criarCaixaLocal(),
@@ -230,8 +232,15 @@ export function criarVendaLocal(remoto: VendasDaApi = vendas, caixa: CaixaDoDisp
     async iniciar(sessaoCaixaId) {
       if (!temBanco()) return remoto.iniciar(sessaoCaixaId)
       const gestos = await listarGestos()
-      if (navigator.onLine && !sessaoTemPendencia(gestos, sessaoCaixaId)) {
-        return remoto.iniciar(sessaoCaixaId)
+      if (comServidor() && !sessaoTemPendencia(gestos, sessaoCaixaId)) {
+        try {
+          return await remoto.iniciar(sessaoCaixaId)
+        } catch (falha) {
+          // Sem resposta, o aparelho passa a operar pela fila, e a venda começa nele. Se a chamada
+          // perdida chegou a criar a venda no servidor, ela fica lá aberta e vazia, sem dinheiro, e
+          // se cancela a qualquer hora.
+          if (!(falha instanceof SemConexao)) throw falha
+        }
       }
       const sessao = await caixa.consultar(sessaoCaixaId)
       if (sessao.status !== 'ABERTA') {
@@ -251,7 +260,7 @@ export function criarVendaLocal(remoto: VendasDaApi = vendas, caixa: CaixaDoDisp
         .map((venda) => resumo(venda, gestos.some((gesto) =>
           gesto.tipo.startsWith('venda.') && gesto.registroId === venda.id && gestoPendente(gesto))))
       let doServidor: ResumoDaVenda[] = []
-      if (navigator.onLine) {
+      if (comServidor()) {
         try {
           doServidor = await remoto.daSessao(sessaoCaixaId)
         } catch (falha) {
@@ -270,7 +279,7 @@ export function criarVendaLocal(remoto: VendasDaApi = vendas, caixa: CaixaDoDisp
       return [...porId.values()].sort((a, b) => b.criadoEm.localeCompare(a.criadoEm))
     },
     async conciliacoesPix() {
-      if (!navigator.onLine) return []
+      if (!comServidor()) return []
       try {
         return await remoto.conciliacoesPix()
       } catch (falha) {
@@ -279,7 +288,7 @@ export function criarVendaLocal(remoto: VendasDaApi = vendas, caixa: CaixaDoDisp
       }
     },
     async consultar(id) {
-      if (!navigator.onLine && temBanco()) {
+      if (!comServidor() && temBanco()) {
         const gestos = await listarGestos()
         if (!gestos.some((gesto) => gesto.tipo.startsWith('venda.')
           && gesto.registroId === id && gestoPendente(gesto))) {
@@ -405,7 +414,7 @@ export function criarVendaLocal(remoto: VendasDaApi = vendas, caixa: CaixaDoDisp
       return caixa.escreverNaGavetaComRede(await sessaoDaVenda(id), () => remoto.cancelar(id))
     },
     async comprovante(id) {
-      if (!navigator.onLine && temBanco()) {
+      if (!comServidor() && temBanco()) {
         const guardado = await lerRetrato<Comprovante>(`comprovante:${id}`)
         if (guardado) return guardado.dados
       }

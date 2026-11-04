@@ -74,7 +74,7 @@ describe('envio da fila', () => {
     for (let i = 1; i < 150; i++) criados.push(await cliente(`Cliente ${i}`, [criados[i - 1]]))
     const servidor = servidorFalso()
 
-    expect(await enviarFila(servidor.enviar)).toEqual({ desfecho: 'concluida', resolvidos: 150 })
+    expect(await enviarFila(servidor.enviar)).toEqual({ desfecho: 'concluida', resolvidos: 150, respondida: true })
 
     expect(servidor.enviar).toHaveBeenCalledTimes(2)
     const [primeiro, segundo] = servidor.enviar.mock.calls.map(([operacoes]) => operacoes)
@@ -100,7 +100,7 @@ describe('envio da fila', () => {
     }
     const servidor = servidorFalso((operacao) => (operacao.payload as { nome: ResultadoNoServidor }).nome)
 
-    expect(await enviarFila(servidor.enviar)).toEqual({ desfecho: 'concluida', resolvidos: 3 })
+    expect(await enviarFila(servidor.enviar)).toEqual({ desfecho: 'concluida', resolvidos: 3, respondida: true })
 
     const porId = new Map((await listarGestos()).map((gesto) => [gesto.operacaoId, gesto]))
     expect(porId.get(gestos[0].operacaoId)).toMatchObject({ estado: 'sent',
@@ -127,7 +127,7 @@ describe('envio da fila', () => {
     expect((await enviarFila(servidor.enviar)).desfecho).toBe('interrompida')
     expect(await estados()).toEqual({ [criacao.operacaoId]: 'failed', [edicao.operacaoId]: 'failed' })
     expect((await enviarFila(servidor.enviar)).desfecho).toBe('interrompida')
-    expect(await enviarFila(servidor.enviar)).toEqual({ desfecho: 'concluida', resolvidos: 2 })
+    expect(await enviarFila(servidor.enviar)).toEqual({ desfecho: 'concluida', resolvidos: 2, respondida: true })
 
     expect(await estados()).toEqual({ [criacao.operacaoId]: 'sent', [edicao.operacaoId]: 'sent' })
     for (const [operacoes] of servidor.enviar.mock.calls) {
@@ -152,7 +152,7 @@ describe('envio da fila', () => {
     expect((await listarGestos())[0]).toMatchObject({ estado: 'failed',
       falha: expect.stringContaining('Sem conexão') })
 
-    expect(await enviarFila(servidor.enviar)).toEqual({ desfecho: 'concluida', resolvidos: 1 })
+    expect(await enviarFila(servidor.enviar)).toEqual({ desfecho: 'concluida', resolvidos: 1, respondida: true })
     expect(await estados()).toEqual({ [gesto.operacaoId]: 'sent' })
   })
 
@@ -164,7 +164,7 @@ describe('envio da fila', () => {
       throw new ErroDaApi(413, 'Content Too Large', 'O pedido tem mais de 512 KB, o limite desta rota.', {})
     })
 
-    expect(await enviarFila(grandeDemais)).toEqual({ desfecho: 'interrompida', resolvidos: 0 })
+    expect(await enviarFila(grandeDemais)).toEqual({ desfecho: 'interrompida', resolvidos: 0, respondida: true })
     const recusados = await listarGestos()
     expect(recusados).toHaveLength(2)
     for (const gesto of recusados) {
@@ -173,7 +173,7 @@ describe('envio da fila', () => {
     }
 
     const servidor = servidorFalso()
-    expect(await enviarFila(servidor.enviar)).toEqual({ desfecho: 'concluida', resolvidos: 2 })
+    expect(await enviarFila(servidor.enviar)).toEqual({ desfecho: 'concluida', resolvidos: 2, respondida: true })
     expect(servidor.enviar.mock.calls[0][0].map((operacao) => operacao.operacaoId))
       .toEqual([primeiro.operacaoId, segundo.operacaoId])
     expect(await estados()).toEqual({ [primeiro.operacaoId]: 'sent', [segundo.operacaoId]: 'sent' })
@@ -184,12 +184,12 @@ describe('envio da fila', () => {
     const gesto = await cliente('Carla')
     const recusado = vi.fn(async () => { throw new ErroDaApi(401, 'Não autorizado', undefined, {}) })
 
-    expect(await enviarFila(recusado)).toEqual({ desfecho: 'sessao-recusada', resolvidos: 0 })
+    expect(await enviarFila(recusado)).toEqual({ desfecho: 'sessao-recusada', resolvidos: 0, respondida: true })
     expect(await estados()).toEqual({ [gesto.operacaoId]: 'queued' })
 
     entrar(ana)
     const servidor = servidorFalso()
-    expect(await enviarFila(servidor.enviar)).toEqual({ desfecho: 'concluida', resolvidos: 1 })
+    expect(await enviarFila(servidor.enviar)).toEqual({ desfecho: 'concluida', resolvidos: 1, respondida: true })
   })
 
   it('o 403 da senha provisória devolve o lote à fila, sem sair, e a fila sai depois da troca', async () => {
@@ -199,11 +199,11 @@ describe('envio da fila', () => {
       throw new ErroDaApi(403, 'Forbidden', 'Troque a senha provisória para continuar.', {})
     })
 
-    expect(await enviarFila(recusado)).toEqual({ desfecho: 'interrompida', resolvidos: 0 })
+    expect(await enviarFila(recusado)).toEqual({ desfecho: 'interrompida', resolvidos: 0, respondida: true })
     expect(await estados()).toEqual({ [gesto.operacaoId]: 'queued' })
 
     const servidor = servidorFalso()
-    expect(await enviarFila(servidor.enviar)).toEqual({ desfecho: 'concluida', resolvidos: 1 })
+    expect(await enviarFila(servidor.enviar)).toEqual({ desfecho: 'concluida', resolvidos: 1, respondida: true })
   })
 
   it('com o token expirado não lê nem envia a fila, que continua para o próximo login', async () => {
@@ -213,7 +213,7 @@ describe('envio da fila', () => {
     gravarIdentidade(ana)
     const servidor = servidorFalso()
 
-    expect(await enviarFila(servidor.enviar)).toEqual({ desfecho: 'sem-fila', resolvidos: 0 })
+    expect(await enviarFila(servidor.enviar)).toEqual({ desfecho: 'sem-fila', resolvidos: 0, respondida: false })
     expect(servidor.enviar).not.toHaveBeenCalled()
 
     entrar(ana)
@@ -226,7 +226,7 @@ describe('envio da fila', () => {
     entrar({ ...ana, contaId: 'conta-b', nomeNegocio: 'Loja da Esquina' })
     const servidor = servidorFalso()
 
-    expect(await enviarFila(servidor.enviar)).toEqual({ desfecho: 'concluida', resolvidos: 0 })
+    expect(await enviarFila(servidor.enviar)).toEqual({ desfecho: 'concluida', resolvidos: 0, respondida: false })
     expect(servidor.enviar).not.toHaveBeenCalled()
 
     entrar(ana)
@@ -242,7 +242,7 @@ describe('envio da fila', () => {
     await iniciarEnvio([gesto.operacaoId])
     const servidor = servidorFalso()
 
-    expect(await enviarFila(servidor.enviar)).toEqual({ desfecho: 'concluida', resolvidos: 1 })
+    expect(await enviarFila(servidor.enviar)).toEqual({ desfecho: 'concluida', resolvidos: 1, respondida: true })
     expect(servidor.enviar.mock.calls[0][0][0].operacaoId).toBe(gesto.operacaoId)
     expect(await estados()).toEqual({ [gesto.operacaoId]: 'sent' })
   })
@@ -258,9 +258,9 @@ describe('envio da fila', () => {
 
     const primeira = enviarFila(lento)
     await vi.waitFor(() => expect(lento).toHaveBeenCalled())
-    expect(await enviarFila(lento)).toEqual({ desfecho: 'ocupada', resolvidos: 0 })
+    expect(await enviarFila(lento)).toEqual({ desfecho: 'ocupada', resolvidos: 0, respondida: false })
     liberar()
-    expect(await primeira).toEqual({ desfecho: 'concluida', resolvidos: 1 })
+    expect(await primeira).toEqual({ desfecho: 'concluida', resolvidos: 1, respondida: true })
     expect(lento).toHaveBeenCalledTimes(1)
   })
 })

@@ -1,4 +1,5 @@
 import { lerTokenDaSessao, renovarTokenDaSessao, sessaoAtual, sessaoDaAba } from '../sessao/armazenamento'
+import { registrarResposta, registrarSemResposta } from './conexao'
 
 /** Cabeçalho pelo qual toda resposta autenticada devolve um token novo. */
 export const CABECALHO_DO_TOKEN_RENOVADO = 'X-Ecrx-Caixa-Token'
@@ -33,7 +34,11 @@ export class ErroDaApi extends Error {
   }
 }
 
-/** A requisição não chegou ao servidor: sem rede, ou o servidor fora do ar. */
+/**
+ * A chamada ficou sem resposta da aplicação: sem rede, o servidor fora do ar, o proxy sem a
+ * aplicação atrás dele ou o tempo-limite esgotado. O pedido pode ter chegado e gravado; quem repete
+ * precisa do mesmo id, ou de conferir antes.
+ */
 export class SemConexao extends Error {
   constructor() {
     super('Sem conexão com o servidor')
@@ -49,11 +54,27 @@ export class SessaoAlterada extends Error {
   }
 }
 
+/**
+ * Quanto a chamada espera o começo da resposta antes de dar o servidor como fora. Pelo proxy, a
+ * resposta comum sai em menos de um quinto de segundo; com a aplicação parada, ele segura o pedido
+ * por até um minuto e meio, e o balcão não pode esperar isso para passar a vender pela fila.
+ */
+export const TEMPO_LIMITE = 8_000
+
+/**
+ * Para a chamada cujo servidor espera um terceiro, como o provedor do Pix ou a consulta de senhas
+ * vazadas, e para o lote da fila, que leva até cem gestos: com o limite curto, elas dariam o
+ * servidor como fora enquanto ele ainda trabalha.
+ */
+export const TEMPO_LIMITE_LONGO = 45_000
+
 export type OpcoesDaChamada = {
   metodo?: 'GET' | 'POST' | 'PUT' | 'DELETE'
   corpo?: unknown
   /** Falso só no login, que ainda não tem token para enviar. */
   autenticado?: boolean
+  /** Em milissegundos; sem ele, {@link TEMPO_LIMITE}. */
+  tempoLimite?: number
 }
 
 /**
@@ -76,16 +97,29 @@ export async function chamarApi<T>(caminho: string, opcoes: OpcoesDaChamada = {}
   if (autenticado && sessao && !token) throw new SessaoAlterada()
   if (autenticado && token) cabecalhos.set('Authorization', `Bearer ${token}`)
 
+  // O prazo vale até o cabeçalho da resposta: a aplicação só responde depois de gravar, e o corpo
+  // que demora a chegar já é de uma resposta.
+  const prazo = new AbortController()
+  const relogio = setTimeout(() => prazo.abort(), opcoes.tempoLimite ?? TEMPO_LIMITE)
   let resposta: Response
   try {
     resposta = await fetch(caminho, {
       method: opcoes.metodo ?? 'GET',
       headers: cabecalhos,
       body: opcoes.corpo === undefined ? undefined : JSON.stringify(opcoes.corpo),
+      signal: prazo.signal,
     })
   } catch {
+    registrarSemResposta()
+    throw new SemConexao()
+  } finally {
+    clearTimeout(relogio)
+  }
+  if (respostaDoProxySemAplicacao(resposta)) {
+    registrarSemResposta()
     throw new SemConexao()
   }
+  registrarResposta()
 
   const exigirSessaoDaChamada = () => {
     if (autenticado && sessaoAtual() !== sessao) throw new SessaoAlterada()
@@ -103,6 +137,16 @@ export async function chamarApi<T>(caminho: string, opcoes: OpcoesDaChamada = {}
   const corpo = (await resposta.json()) as T
   exigirSessaoDaChamada()
   return corpo
+}
+
+/**
+ * O 502, o 503 e o 504 que o proxy devolve quando a aplicação não está atrás dele. A aplicação
+ * também responde 503, no Pix e no registro de remoções, mas sempre em Problem Details: esse é
+ * resposta dela, e a tela mostra o detalhe.
+ */
+function respostaDoProxySemAplicacao(resposta: Response): boolean {
+  if (resposta.status !== 502 && resposta.status !== 503 && resposta.status !== 504) return false
+  return !(resposta.headers.get('Content-Type') ?? '').includes('application/problem+json')
 }
 
 type ProblemDetails = {

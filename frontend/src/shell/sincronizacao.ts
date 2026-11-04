@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { aoMudarConexao, comServidor, estadoDaConexao } from '../api/conexao'
 import { sincronizacao } from '../api/sincronizacao'
 import { hojeNoBalcao } from '../dataDoBalcao'
 import { enviarFila } from '../offline/envio'
@@ -6,8 +7,15 @@ import { aoMudarFila, gestoPendente, listarGestos, sessaoPodeUsarAFila } from '.
 import { marcarSessaoEncerrada } from '../sessao/armazenamento'
 import type { Identidade } from '../sessao/Identidade'
 
-/** Enquanto houver gesto sem resultado e o navegador indicar rede, a fila é tentada de novo. */
+/** Enquanto houver gesto sem resultado e o servidor responder, a fila é tentada de novo. */
 export const INTERVALO_DE_REPETICAO = 30_000
+
+/**
+ * Enquanto o navegador tem rede e o servidor não responde, o aparelho pergunta de novo a cada
+ * intervalo: sem nenhuma chamada, nada diria que ele voltou. A pergunta é a identidade, que já
+ * existe, é leve e renova o token.
+ */
+export const INTERVALO_DA_SONDAGEM = 15_000
 
 export type Sincronizacao = {
   /** Uma rodada de envio está em curso nesta aba. */
@@ -38,14 +46,18 @@ type ContagemLocal = { porEnviar: number; comFalha: number; emRevisao: string[] 
 /**
  * O envio automático da fila e as contagens do cabeçalho, montados uma vez no shell.
  *
- * A fila sai sozinha ao abrir o aplicativo, na volta da rede, a cada gesto gravado com rede e a
- * cada {@link INTERVALO_DE_REPETICAO} enquanto houver gesto sem resultado; "Enviar agora" dispara
- * na hora. Se o servidor recusa o token, a sessão local termina como na abertura do aplicativo, e
- * a fila fica para o próximo login. O administrador vê também a lista de revisões da Conta,
- * relida ao abrir, na volta da rede, depois de cada envio e a cada troca de tela.
+ * A fila sai sozinha ao abrir o aplicativo, quando o servidor volta a responder, a cada gesto
+ * gravado com servidor e a cada {@link INTERVALO_DE_REPETICAO} enquanto houver gesto sem resultado;
+ * "Enviar agora" dispara na hora. Sem resposta do servidor, a sondagem pergunta por ele a cada
+ * {@link INTERVALO_DA_SONDAGEM} e logo que a rede do navegador volta. Toda rodada que o servidor
+ * respondeu relê a identidade, porque a Conta pode ter passado a exigir algo, como o NSU no cartão,
+ * que a venda sem rede confere antes de gravar. Se o servidor recusa o token, a sessão local
+ * termina como na abertura do aplicativo, e a fila fica para o próximo login. O administrador vê
+ * também a lista de revisões da Conta, relida ao abrir, na volta do servidor, depois de cada envio
+ * e a cada troca de tela.
  */
 export function useEnvioAutomatico(identidade: Identidade | null, sair: () => void,
-  caminho: string): Sincronizacao {
+  caminho: string, relerIdentidade: () => Promise<unknown>): Sincronizacao {
   const [enviando, setEnviando] = useState(false)
   const [local, setLocal] = useState<ContagemLocal>({ porEnviar: 0, comFalha: 0, emRevisao: [] })
   const [daConta, setDaConta] = useState<string[]>([])
@@ -73,7 +85,7 @@ export function useEnvioAutomatico(identidade: Identidade | null, sair: () => vo
   }, [])
 
   const lerDaConta = useCallback(async () => {
-    if (!administrador || !navigator.onLine) return
+    if (!administrador || !comServidor()) return
     try {
       const { pendentes } = await sincronizacao.revisoes(hojeNoBalcao())
       setDaConta(pendentes.map((revisao) => revisao.operacaoId))
@@ -90,17 +102,21 @@ export function useEnvioAutomatico(identidade: Identidade | null, sair: () => vo
     }
     emCurso.current = true
     setEnviando(true)
+    let respondida = false
+    let recusada = false
     try {
       do {
         deNovo.current = false
-        const { desfecho, resolvidos } = await enviarFila()
-        if (resolvidos > 0) setRodada((anterior) => anterior + 1)
-        if (desfecho === 'sessao-recusada') {
+        const rodadaDeEnvio = await enviarFila()
+        if (rodadaDeEnvio.respondida) respondida = true
+        if (rodadaDeEnvio.resolvidos > 0) setRodada((anterior) => anterior + 1)
+        if (rodadaDeEnvio.desfecho === 'sessao-recusada') {
+          recusada = true
           marcarSessaoEncerrada()
           sair()
           return
         }
-      } while (deNovo.current && navigator.onLine)
+      } while (deNovo.current && comServidor())
     } catch {
       // A sessão mudou durante a rodada; o que ficou em envio vira falha na próxima.
     } finally {
@@ -108,34 +124,47 @@ export function useEnvioAutomatico(identidade: Identidade | null, sair: () => vo
       setEnviando(false)
       void contar()
       void lerDaConta()
+      if (respondida && !recusada) void relerIdentidade()
     }
-  }, [contar, lerDaConta, sair])
+  }, [contar, lerDaConta, sair, relerIdentidade])
 
   useEffect(() => {
     if (!quem) return
     queueMicrotask(() => {
       void contar()
-      if (navigator.onLine) void enviar()
+      if (comServidor()) void enviar()
     })
   }, [quem, contar, enviar])
 
+  // A volta do servidor, pela rede do navegador ou pela primeira chamada que respondeu.
+  useEffect(() => aoMudarConexao(() => {
+    if (!comServidor()) return
+    void enviar()
+    void lerDaConta()
+  }), [enviar, lerDaConta])
+
   useEffect(() => {
     const voltouARede = () => {
-      void enviar()
-      void lerDaConta()
+      if (estadoDaConexao() === 'sem-servidor') void relerIdentidade()
     }
     window.addEventListener('online', voltouARede)
-    return () => window.removeEventListener('online', voltouARede)
-  }, [enviar, lerDaConta])
+    const sondagem = window.setInterval(() => {
+      if (estadoDaConexao() === 'sem-servidor') void relerIdentidade()
+    }, INTERVALO_DA_SONDAGEM)
+    return () => {
+      window.removeEventListener('online', voltouARede)
+      window.clearInterval(sondagem)
+    }
+  }, [relerIdentidade])
 
   useEffect(() => aoMudarFila((mudanca) => {
     void contar()
-    if (mudanca === 'gesto-novo' && navigator.onLine) void enviar()
+    if (mudanca === 'gesto-novo' && comServidor()) void enviar()
   }), [contar, enviar])
 
   useEffect(() => {
     const repeticao = window.setInterval(() => {
-      if (navigator.onLine && temPendencia.current) void enviar()
+      if (comServidor() && temPendencia.current) void enviar()
     }, INTERVALO_DE_REPETICAO)
     return () => window.clearInterval(repeticao)
   }, [enviar])

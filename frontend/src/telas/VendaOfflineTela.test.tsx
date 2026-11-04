@@ -43,7 +43,7 @@ afterEach(() => {
 
 function mostrar() {
   return render(<MemoryRouter><SessaoContext.Provider value={{
-    identidade, entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(),
+    identidade, entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(), relerIdentidade: vi.fn(),
   }}><TelaDeVenda /></SessaoContext.Provider></MemoryRouter>)
 }
 
@@ -51,7 +51,9 @@ describe('PDV sem rede', () => {
   it('conclui a Venda no dispositivo com troco e comprovante pendente e a mostra de novo ao reabrir', async () => {
     await criarCaixaLocal().abrir(20)
     const tela = mostrar()
-    expect(await screen.findByText(/lista mostra as vendas registradas neste aparelho/)).toBeInTheDocument()
+    // Sem venda guardada aqui, a lista não afirma que o caixa não vendeu.
+    expect(await screen.findByText('Sem conexão. As vendas deste caixa aparecem quando a rede voltar.'))
+      .toBeInTheDocument()
 
     const busca = await screen.findByLabelText('Produto por nome ou código')
     let toques = 0
@@ -90,6 +92,7 @@ describe('PDV sem rede', () => {
     tela.unmount()
     mostrar()
     fireEvent.click(await screen.findByRole('button', { name: /Concluída.*pendente de sincronização/ }, espera))
+    expect(screen.getByText('Sem conexão, a lista mostra as vendas registradas neste aparelho.')).toBeInTheDocument()
     expect(await screen.findByLabelText('Comprovante não fiscal', undefined, espera))
       .toHaveTextContent('Troco: R$ 7,50')
     expect(screen.getByText('Registrada neste aparelho. Aguardando sincronização com o servidor.'))
@@ -102,7 +105,7 @@ describe('PDV sem rede', () => {
     gravarIdentidade(comChave)
     await criarCaixaLocal().abrir(0)
     render(<MemoryRouter><SessaoContext.Provider value={{
-      identidade: comChave, entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(),
+      identidade: comChave, entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(), relerIdentidade: vi.fn(),
     }}><TelaDeVenda /></SessaoContext.Provider></MemoryRouter>)
 
     const busca = await screen.findByLabelText('Produto por nome ou código')

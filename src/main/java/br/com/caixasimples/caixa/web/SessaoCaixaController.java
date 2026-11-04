@@ -38,9 +38,16 @@ class SessaoCaixaController {
         this.sessoes = sessoes;
     }
 
+    /**
+     * O aparelho manda o id do caixa que vai abrir; o pedido sem ele, de uma versão anterior do
+     * aplicativo, recebe um id gerado aqui. Com o id, repetir a abertura cuja resposta se perdeu
+     * devolve o mesmo caixa em vez de ser recusada.
+     */
     @PostMapping
     ResponseEntity<Criada> abrir(@Valid @RequestBody PedidoDeAbertura pedido) {
-        UUID id = sessoes.abrir(Money.de(pedido.valorAbertura()));
+        Money valor = Money.de(pedido.valorAbertura());
+        UUID id = pedido.sessaoId() == null ? sessoes.abrir(valor)
+                : sessoes.abrir(pedido.sessaoId(), valor, Instant.now());
         return ResponseEntity.created(URI.create("/api/caixa/sessoes/" + id)).body(new Criada(id));
     }
 
@@ -90,7 +97,7 @@ class SessaoCaixaController {
     }
 
     record PedidoDeAbertura(@NotNull @DecimalMin("0.00") @Digits(integer = 10, fraction = 2)
-            BigDecimal valorAbertura) {
+            BigDecimal valorAbertura, UUID sessaoId) {
     }
 
     record PedidoDeMovimento(@NotNull UUID movimentoId,

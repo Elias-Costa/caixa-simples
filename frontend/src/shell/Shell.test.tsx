@@ -4,6 +4,7 @@ import type { RegisterSWOptions } from 'virtual:pwa-register/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cadastro } from '../api/cadastro'
 import { caixa } from '../api/caixa'
+import { registrarResposta, registrarSemResposta } from '../api/conexao'
 import { vendas, type Comprovante, type Venda } from '../api/vendas'
 import { SessaoContext } from '../sessao/contexto'
 import type { Identidade } from '../sessao/Identidade'
@@ -73,7 +74,7 @@ function abrir(caminho: string) {
   return render(
     <MemoryRouter initialEntries={[caminho]}>
       <SessaoContext.Provider value={{
-        identidade: ana, entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(),
+        identidade: ana, entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(), relerIdentidade: vi.fn(),
       }}>
         <Routes>
           <Route element={<Shell />}>
@@ -240,3 +241,25 @@ describe('caixa aberto desde outro dia no Shell', () => {
   })
 })
 
+
+describe('aviso de conexão no cabeçalho', () => {
+  it('diz Sem resposta do servidor com o Wi-Fi ligado, Sem conexão sem rede, e some quando o servidor responde', () => {
+    abrir('/caixa')
+    const cabecalho = screen.getByRole('banner')
+    expect(within(cabecalho).queryByText(/Sem conexão|Sem resposta do servidor/)).not.toBeInTheDocument()
+
+    act(() => registrarSemResposta())
+    expect(within(cabecalho).getByRole('status')).toHaveTextContent('Sem resposta do servidor')
+
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+    act(() => { window.dispatchEvent(new Event('offline')) })
+    expect(within(cabecalho).getByRole('status')).toHaveTextContent('Sem conexão')
+
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
+    act(() => { window.dispatchEvent(new Event('online')) })
+    expect(within(cabecalho).getByRole('status')).toHaveTextContent('Sem resposta do servidor')
+
+    act(() => registrarResposta())
+    expect(within(cabecalho).queryByText(/Sem conexão|Sem resposta do servidor/)).not.toBeInTheDocument()
+  })
+})

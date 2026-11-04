@@ -242,6 +242,54 @@ class CaixaHttpTest extends TesteDeIntegracao {
         assertThat(log).doesNotContain("Erro inesperado");
     }
 
+    @Test
+    void aberturaRepetidaComOIdDoAparelhoDevolveOMesmoCaixa() throws Exception {
+        ContaCriada conta = criador.criar("Banca do Mercado", SENHA, Perfil.OPERADOR, true);
+        RequestPostProcessor operador = autenticador.como(conta);
+        UUID id = UUID.randomUUID();
+        String pedido = "{\"valorAbertura\":30.00,\"sessaoId\":\"" + id + "\"}";
+
+        // A segunda é a repetição da abertura cuja resposta se perdeu: o mesmo caixa, e não a
+        // recusa de um segundo caixa aberto.
+        for (int vez = 0; vez < 2; vez++) {
+            http.perform(post("/api/caixa/sessoes").with(operador)
+                            .contentType(MediaType.APPLICATION_JSON).content(pedido))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.id").value(id.toString()));
+        }
+        http.perform(get("/api/caixa/sessoes").param("dia",
+                        LocalDate.now(FusoDeReferencia.DO_BALCAO).toString()).with(operador))
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value(id.toString()));
+        http.perform(post("/api/caixa/sessoes").with(operador)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"valorAbertura\":31.00,\"sessaoId\":\"" + id + "\"}"))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void outraContaNaoAbreCaixaComOIdDeOutraNemOVe() throws Exception {
+        ContaCriada contaA = criador.criar("Quiosque A", SENHA);
+        ContaCriada contaB = criador.criar("Quiosque B", SENHA);
+        UUID id = UUID.randomUUID();
+        String pedido = "{\"valorAbertura\":12.00,\"sessaoId\":\"" + id + "\"}";
+        http.perform(post("/api/caixa/sessoes").with(autenticador.como(contaA))
+                        .contentType(MediaType.APPLICATION_JSON).content(pedido))
+                .andExpect(status().isCreated());
+
+        RequestPostProcessor outraConta = autenticador.como(contaB);
+        http.perform(post("/api/caixa/sessoes").with(outraConta)
+                        .contentType(MediaType.APPLICATION_JSON).content(pedido))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.containsString("12"))));
+        http.perform(get("/api/caixa/sessoes/aberta").with(outraConta))
+                .andExpect(status().isNoContent());
+        http.perform(get("/api/caixa/sessoes/{id}", id).with(autenticador.como(contaA)))
+                .andExpect(jsonPath("$.valorAbertura").value(12.0))
+                .andExpect(jsonPath("$.status").value("ABERTA"));
+    }
+
     private String movimento(String valor, String motivo) {
         return json.writeValueAsString(Map.of("movimentoId", UUID.randomUUID(),
                 "valor", new BigDecimal(valor), "motivo", motivo));

@@ -1,4 +1,4 @@
-import { chamarApi } from './cliente'
+import { chamarApi, TEMPO_LIMITE_LONGO } from './cliente'
 import type { ValorJson } from '../offline/fila'
 
 /** Um gesto da fila local como o servidor o recebe. */
@@ -41,7 +41,7 @@ export type RevisoesDaConta = { pendentes: RevisaoDaConta[]; conferidas: Revisao
 export const sincronizacao = {
   enviarLote: async (operacoes: OperacaoDoLote[]) =>
     (await chamarApi<{ resultados: ResultadoDaOperacao[] }>('/api/sincronizacao', {
-      metodo: 'POST', corpo: { operacoes },
+      metodo: 'POST', corpo: { operacoes }, tempoLimite: TEMPO_LIMITE_LONGO,
     })).resultados,
   revisoes: (dia: string) =>
     chamarApi<RevisoesDaConta>(`/api/sincronizacao/revisoes?dia=${encodeURIComponent(dia)}`),

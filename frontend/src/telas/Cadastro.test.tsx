@@ -24,7 +24,7 @@ function mostrarProdutos(perfil: 'ADMIN' | 'OPERADOR') {
       usuarioId: 'u-1', nome: 'Ana', perfil, contaId: 'c-1',
       nomeNegocio: 'Cafeteria', estoqueHabilitado: false,
     },
-    entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(),
+    entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(), relerIdentidade: vi.fn(),
   }}><TelaDeProdutos /></SessaoContext.Provider>)
 }
 

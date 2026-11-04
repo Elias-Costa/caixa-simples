@@ -39,8 +39,12 @@ export const caixa = {
   consultar: (id: string) => chamarApi<SessaoCaixa>(`/api/caixa/sessoes/${id}`),
   historico: (dia: string, operadorId?: string) =>
     chamarApi<SessaoCaixa[]>(`/api/caixa/sessoes?dia=${encodeURIComponent(dia)}${operadorId ? `&operadorId=${encodeURIComponent(operadorId)}` : ''}`),
-  abrir: (valorAbertura: number) =>
-    chamarApi<{ id: string }>('/api/caixa/sessoes', { metodo: 'POST', corpo: { valorAbertura } }),
+  /**
+   * Com o id gerado no aparelho, repetir a abertura cuja resposta se perdeu devolve o mesmo caixa,
+   * e a abertura guardada na fila com esse id não vira um segundo caixa.
+   */
+  abrir: (valorAbertura: number, sessaoId: string) =>
+    chamarApi<{ id: string }>('/api/caixa/sessoes', { metodo: 'POST', corpo: { valorAbertura, sessaoId } }),
   sangrar: (id: string, valor: number, motivo: string, movimentoId: string) =>
     chamarApi<void>(`/api/caixa/sessoes/${id}/sangrias`, {
       metodo: 'POST', corpo: { movimentoId, valor, motivo },

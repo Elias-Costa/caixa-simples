@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { fixarSessaoDaAba, gravarToken, lerToken, sessaoAtual } from '../sessao/armazenamento'
-import { CABECALHO_DO_TOKEN_RENOVADO, chamarApi, ErroDaApi, SemConexao, SessaoAlterada } from './cliente'
+import { CABECALHO_DO_TOKEN_RENOVADO, chamarApi, ErroDaApi, SemConexao, SessaoAlterada, TEMPO_LIMITE } from './cliente'
+import { estadoDaConexao } from './conexao'
 
 function respostaJson(status: number, corpo: unknown, cabecalhos: Record<string, string> = {}) {
   return new Response(JSON.stringify(corpo), {
@@ -162,5 +163,48 @@ describe('chamarApi', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
 
     await expect(chamarApi('/api/auth/eu')).rejects.toBeInstanceOf(SemConexao)
+  })
+})
+
+describe('chamada sem resposta', () => {
+  it('a chamada que não começa a responder no tempo-limite deixa o aparelho sem servidor, e a próxima resposta desfaz', async () => {
+    gravarToken('token-guardado')
+    vi.useFakeTimers()
+    try {
+      vi.stubGlobal('fetch', vi.fn((_caminho: string, opcoes: RequestInit) => new Promise<Response>((_, rejeitar) => {
+        opcoes.signal?.addEventListener('abort', () => rejeitar(new DOMException('Abortada', 'AbortError')))
+      })))
+      const chamada = chamarApi('/api/vendas')
+      const recusada = expect(chamada).rejects.toBeInstanceOf(SemConexao)
+      await vi.advanceTimersByTimeAsync(TEMPO_LIMITE - 1)
+      expect(estadoDaConexao()).toBe('com-servidor')
+      await vi.advanceTimersByTimeAsync(1)
+      await recusada
+      expect(estadoDaConexao()).toBe('sem-servidor')
+    } finally {
+      vi.useRealTimers()
+    }
+
+    // Qualquer resposta da aplicação, mesmo de erro, diz que ela voltou.
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respostaJson(409, { title: 'Conflito' })))
+    await expect(chamarApi('/api/vendas')).rejects.toBeInstanceOf(ErroDaApi)
+    expect(estadoDaConexao()).toBe('com-servidor')
+  })
+
+  it('o 502, o 503 e o 504 do proxy são sem resposta; o 503 da aplicação, em Problem Details, é erro dela', async () => {
+    gravarToken('token-guardado')
+    for (const status of [502, 503, 504]) {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status })))
+      await expect(chamarApi('/api/vendas')).rejects.toBeInstanceOf(SemConexao)
+      expect(estadoDaConexao()).toBe('sem-servidor')
+    }
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      title: 'Service Unavailable', detail: 'Não foi possível confirmar a remoção da cobrança Pix. Tente cancelar de novo.',
+    }), { status: 503, headers: { 'Content-Type': 'application/problem+json' } })))
+    const falha = await chamarApi('/api/vendas/venda-1/cancelamento', { metodo: 'POST' }).catch((erro: unknown) => erro)
+    expect(falha).toBeInstanceOf(ErroDaApi)
+    expect((falha as ErroDaApi).detalhe).toMatch(/cobrança Pix/)
+    expect(estadoDaConexao()).toBe('com-servidor')
   })
 })

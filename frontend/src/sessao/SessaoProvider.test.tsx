@@ -163,6 +163,8 @@ describe('SessaoProvider', () => {
     }))
 
     render(<SessaoProvider><TrocarDeConta /></SessaoProvider>)
+    // A revalidação da abertura sai logo depois da montagem; a troca de Conta acontece com ela em curso.
+    await waitFor(() => expect(consultasEu).toBe(1))
     fireEvent.click(screen.getByRole('button', { name: 'Sair' }))
     fireEvent.click(screen.getByRole('button', { name: 'Entrar na Conta B' }))
     expect(await screen.findByText('Bia em Mercado B')).toBeInTheDocument()
@@ -246,5 +248,31 @@ describe('SessaoProvider', () => {
     limparSessao()
 
     expect(lerToken()).toBe('token-conta-b')
+  })
+})
+
+describe('releitura da identidade', () => {
+  function ExigenciaDoNsu() {
+    const { identidade, relerIdentidade } = useSessao()
+    return <>
+      <p>{identidade?.nsuObrigatorio ? 'NSU exigido' : 'NSU opcional'}</p>
+      <button onClick={() => void relerIdentidade()}>Reler</button>
+    </>
+  }
+
+  it('troca a identidade guardada pela que o servidor devolve, como a exigência do NSU', async () => {
+    gravarToken(tokenComExpiracao(daquiAUmDia()))
+    gravarIdentidade(guardada)
+    let consultas = 0
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(
+      consultas++ === 0 ? guardada : { ...guardada, nsuObrigatorio: true }), { status: 200 })))
+    render(<SessaoProvider><ExigenciaDoNsu /></SessaoProvider>)
+    await waitFor(() => expect(consultas).toBe(1))
+    expect(screen.getByText('NSU opcional')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reler' }))
+
+    expect(await screen.findByText('NSU exigido')).toBeInTheDocument()
+    expect(lerIdentidade()?.nsuObrigatorio).toBe(true)
   })
 })

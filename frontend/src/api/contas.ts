@@ -1,4 +1,4 @@
-import { chamarApi } from './cliente'
+import { chamarApi, TEMPO_LIMITE_LONGO } from './cliente'
 import type {
   Identidade, Perfil, Plano, RecursoDoPlano, SituacaoDoPlano,
 } from '../sessao/Identidade'
@@ -75,7 +75,7 @@ export type EstadoDoPlano = {
 export const contas = {
   usuarios: () => chamarApi<UsuarioDaConta[]>('/api/usuarios'),
   criarUsuario: (dados: NovoUsuario) =>
-    chamarApi<{ id: string }>('/api/usuarios', { metodo: 'POST', corpo: dados }),
+    chamarApi<{ id: string }>('/api/usuarios', { metodo: 'POST', corpo: dados, tempoLimite: TEMPO_LIMITE_LONGO }),
   /** Com o registro de remoções fora do ar, o acesso termina e o login fica: `loginRemovido` falso. */
   inativarUsuario: (id: string) =>
     chamarApi<{ loginRemovido: boolean }>(`/api/usuarios/${id}/inativar`, { metodo: 'POST' }),
@@ -86,14 +86,16 @@ export const contas = {
     chamarApi<void>(`/api/usuarios/${id}/nome`, { metodo: 'PUT', corpo: { nome } }),
   /** A senha nova é provisória: o operador a troca na próxima entrada. */
   redefinirSenha: (id: string, senha: string) =>
-    chamarApi<void>(`/api/usuarios/${id}/redefinir-senha`, { metodo: 'POST', corpo: { senha } }),
+    chamarApi<void>(`/api/usuarios/${id}/redefinir-senha`, {
+      metodo: 'POST', corpo: { senha }, tempoLimite: TEMPO_LIMITE_LONGO,
+    }),
   /**
    * O token deste aparelho volta no corpo: o do cabeçalho de renovação saiu antes da troca, com a
    * versão de acesso anterior, e já não vale.
    */
   trocarSenha: (senhaAtual: string, senhaNova: string) =>
     chamarApi<{ token: string }>('/api/auth/senha', {
-      metodo: 'POST', corpo: { senhaAtual, senhaNova },
+      metodo: 'POST', corpo: { senhaAtual, senhaNova }, tempoLimite: TEMPO_LIMITE_LONGO,
     }),
   sairDeTodosOsAparelhos: () => chamarApi<void>('/api/auth/sair-de-todos', { metodo: 'POST' }),
   meusDados: () => chamarApi<MeusDados>('/api/auth/meus-dados'),

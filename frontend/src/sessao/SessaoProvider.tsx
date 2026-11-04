@@ -94,36 +94,45 @@ export function SessaoProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('storage', outraAbaMudouSessao)
   }, [])
 
-  // Ao abrir com sessão guardada, pergunta ao servidor quem está operando: a resposta renova o
-  // token, atualiza nome e perfil e derruba quem foi inativado, porque o servidor responde 401.
-  // Sem rede, fica o que estava guardado. Roda uma vez, na abertura; o login faz a mesma
-  // pergunta por conta própria.
-  useEffect(() => {
-    if (!lerToken()) return
-    let descartado = false
+  // Pergunta ao servidor quem está operando: a resposta renova o token, atualiza nome, perfil e o
+  // que a Conta exige, como o NSU no cartão, e derruba quem foi inativado, porque o servidor
+  // responde 401. Sem rede, fica o que estava guardado. A resposta que chega depois de outro login
+  // ou de outra Conta nesta aba é descartada.
+  const relerIdentidade = useCallback(async (): Promise<Identidade | undefined> => {
+    if (!lerToken()) return undefined
     const tentativa = tentativaDeEntrada.current
     const sessao = sessaoAtual()
-    chamarApi<Identidade>('/api/auth/eu')
-      .then((atual) => {
-        if (descartado || tentativa !== tentativaDeEntrada.current || sessaoAtual() !== sessao) return
-        if (sessao) atualizarIdentidade(atual, sessao)
-        void prepararCadastroLocal(atual).catch(() => undefined)
-      })
-      .catch((falha: unknown) => {
-        if (descartado || tentativa !== tentativaDeEntrada.current || sessaoAtual() !== sessao) return
-        if (falha instanceof ErroDaApi && falha.status === 401) {
-          marcarSessaoEncerrada()
-          sair()
-        }
-      })
-    return () => {
-      descartado = true
+    const mesmaSessao = () => tentativa === tentativaDeEntrada.current && sessaoAtual() === sessao
+    try {
+      const atual = await chamarApi<Identidade>('/api/auth/eu')
+      if (!mesmaSessao() || !sessao) return undefined
+      atualizarIdentidade(atual, sessao)
+      return atual
+    } catch (falha) {
+      if (mesmaSessao() && falha instanceof ErroDaApi && falha.status === 401) {
+        marcarSessaoEncerrada()
+        sair()
+      }
+      return undefined
     }
   }, [sair, atualizarIdentidade])
 
+  // Na abertura com sessão guardada, a pergunta acima, e a cópia local do cadastro com a resposta.
+  // Depois, o envio da fila e a sondagem do servidor a repetem; o login faz a mesma pergunta por
+  // conta própria.
+  useEffect(() => {
+    let descartado = false
+    queueMicrotask(() => void relerIdentidade().then((atual) => {
+      if (!descartado && atual) void prepararCadastroLocal(atual).catch(() => undefined)
+    }))
+    return () => {
+      descartado = true
+    }
+  }, [relerIdentidade])
+
   const sessao = useMemo<Sessao>(
-    () => ({ identidade, entrar, sair, atualizarIdentidade }),
-    [identidade, entrar, sair, atualizarIdentidade],
+    () => ({ identidade, entrar, sair, atualizarIdentidade, relerIdentidade }),
+    [identidade, entrar, sair, atualizarIdentidade, relerIdentidade],
   )
 
   return <SessaoContext.Provider value={sessao}>{children}</SessaoContext.Provider>

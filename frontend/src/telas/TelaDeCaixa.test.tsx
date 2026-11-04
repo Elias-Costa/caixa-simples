@@ -1,10 +1,11 @@
 import 'fake-indexeddb/auto'
 import { deleteDB } from 'idb'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cadastro } from '../api/cadastro'
 import { caixa, type SessaoCaixa } from '../api/caixa'
 import { SemConexao } from '../api/cliente'
+import { registrarResposta, registrarSemResposta } from '../api/conexao'
 import { contas } from '../api/contas'
 import { vendas, type Comprovante, type ResumoDaVenda, type Venda } from '../api/vendas'
 import { criarCaixaLocal } from '../offline/caixaLocal'
@@ -46,7 +47,7 @@ function mostrar(perfil: 'ADMIN' | 'OPERADOR' = 'OPERADOR') {
       usuarioId: 'u-1', nome: 'Ana', perfil, contaId: 'c-1',
       nomeNegocio: 'Loja da Esquina', estoqueHabilitado: false,
     },
-    entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(),
+    entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(), relerIdentidade: vi.fn(),
   }}><TelaDeCaixa /></SessaoContext.Provider>)
 }
 
@@ -77,7 +78,7 @@ describe('caixa na tela', () => {
     fireEvent.change(screen.getByLabelText('Valor inicial'), { target: { value: '20.00' } })
     fireEvent.click(screen.getByRole('button', { name: 'Abrir caixa' }))
 
-    await waitFor(() => expect(abrir).toHaveBeenCalledWith(20))
+    await waitFor(() => expect(abrir).toHaveBeenCalledWith(20, expect.any(String)))
     expect(await screen.findByRole('heading', { name: 'Caixa de Ana' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Ver meu caixa' })).not.toBeInTheDocument()
     // O próprio caixa não está em uso por outra pessoa.
@@ -108,7 +109,7 @@ describe('caixa na tela', () => {
 
     fireEvent.change(campo, { target: { value: '150,50' } })
     fireEvent.click(screen.getByRole('button', { name: 'Abrir caixa' }))
-    await waitFor(() => expect(abrir).toHaveBeenCalledWith(150.5))
+    await waitFor(() => expect(abrir).toHaveBeenCalledWith(150.5, expect.any(String)))
   })
 
   it('lança sangria com motivo e valor informado', async () => {
@@ -530,8 +531,11 @@ describe('caixa na tela', () => {
     fireEvent.change(screen.getByLabelText('Valor inicial'), { target: { value: '10.00' } })
     fireEvent.click(screen.getByRole('button', { name: 'Abrir caixa' }))
     expect((await screen.findAllByText('Pendente de sincronização com o servidor.')).length).toBeGreaterThan(0)
-    // Sem rede, o vendido é o das vendas guardadas aqui, e a tela diz isso.
-    expect(screen.getByText('Sem conexão, o vendido conta só as vendas guardadas neste aparelho.')).toBeInTheDocument()
+    // Sem rede e sem venda guardada aqui, o vendido não afirma que o caixa não vendeu.
+    // O cartão do vendido e a lista recolhida das vendas dizem o mesmo.
+    expect(await screen.findAllByText('Sem conexão. As vendas deste caixa aparecem quando a rede voltar.'))
+      .toHaveLength(2)
+    expect(screen.queryByText('Nenhuma venda concluída neste caixa.')).not.toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Valor contado'), { target: { value: '12.00' } })
     expect(screen.getByText(/Se fechar agora:/)).toHaveTextContent('Se fechar agora: sobra de R$ 2,00')
     fireEvent.change(screen.getByLabelText('Valor contado'), { target: { value: '10.00' } })
@@ -736,5 +740,40 @@ describe('primeiros passos na tela Caixa', () => {
     fireEvent.click(within(tour).getByRole('button', { name: 'Pular' }))
     expect(screen.queryByRole('region', { name: 'Primeiros passos' })).not.toBeInTheDocument()
     expect(localStorage.getItem(TOUR_DA_ANA)).toBe('1')
+  })
+})
+
+describe('caixa com o servidor fora e o Wi-Fi ligado', () => {
+  it('a lista que não pôde ser lida não diz que o caixa não vendeu', async () => {
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(caixa, 'historico').mockResolvedValue([aberta])
+    vi.spyOn(caixa, 'consultar').mockResolvedValue({ ...aberta, movimentos: [] })
+    vi.spyOn(vendas, 'daSessao').mockImplementation(async () => {
+      registrarSemResposta()
+      throw new SemConexao()
+    })
+    mostrar()
+
+    expect(await screen.findAllByText('Sem resposta do servidor. As vendas deste caixa aparecem quando ele responder.'))
+      .toHaveLength(2)
+    expect(screen.queryByText('Nenhuma venda concluída neste caixa.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Nenhuma venda neste caixa.')).not.toBeInTheDocument()
+  })
+
+  it('quando o servidor volta a responder, a tela relê sem trocar de tela', async () => {
+    registrarSemResposta()
+    const lerAberta = vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(caixa, 'historico').mockResolvedValue([aberta])
+    vi.spyOn(caixa, 'consultar').mockResolvedValue({ ...aberta, movimentos: [] })
+    mostrar()
+
+    // Sem servidor e sem caixa guardado aqui, a tela mostra o que o aparelho sabe.
+    expect(await screen.findByText('Nenhum caixa aberto para você.')).toBeInTheDocument()
+    expect(lerAberta).not.toHaveBeenCalled()
+
+    act(() => registrarResposta())
+
+    expect(await screen.findByRole('heading', { name: 'Caixa de Ana' })).toBeInTheDocument()
+    expect(lerAberta).toHaveBeenCalled()
   })
 })

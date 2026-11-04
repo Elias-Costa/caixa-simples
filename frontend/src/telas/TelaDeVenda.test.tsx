@@ -1,9 +1,10 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cadastro } from '../api/cadastro'
 import { caixa } from '../api/caixa'
 import { ErroDaApi } from '../api/cliente'
+import { registrarSemResposta } from '../api/conexao'
 import { fiado } from '../api/fiado'
 import { vendas, type Comprovante, type Venda } from '../api/vendas'
 import { SessaoContext } from '../sessao/contexto'
@@ -12,7 +13,12 @@ import { confirmacaoAberta, responderConfirmacao } from './confirmacaoDeTeste'
 import { TelaDeVenda } from './TelaDeVenda'
 
 afterEach(() => { vi.restoreAllMocks(); sessionStorage.clear() })
-beforeEach(() => { vi.spyOn(vendas, 'conciliacoesPix').mockResolvedValue([]) })
+// A lista de clientes vem do servidor; sem a resposta simulada, a chamada falharia, e o aparelho
+// passaria a operar como sem servidor, com a comanda só para leitura.
+beforeEach(() => {
+  vi.spyOn(vendas, 'conciliacoesPix').mockResolvedValue([])
+  vi.spyOn(cadastro, 'clientes').mockResolvedValue([])
+})
 
 const aberta = {
   id: 'sessao-1', usuarioId: 'usuario-1', valorAbertura: 0, valorFechamentoEsperado: 0,
@@ -41,7 +47,7 @@ function mostrar(perfil: 'ADMIN' | 'OPERADOR' = 'OPERADOR', extra: Partial<Ident
   render(<MemoryRouter><SessaoContext.Provider value={{
     identidade: { usuarioId: 'usuario-1', nome: 'Ana', perfil,
       contaId: 'conta-1', nomeNegocio: 'Loja da Esquina', estoqueHabilitado: false, ...extra },
-    entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(),
+    entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(), relerIdentidade: vi.fn(),
   }}><TelaDeVenda /></SessaoContext.Provider></MemoryRouter>)
 }
 
@@ -140,7 +146,7 @@ describe('PDV no tablet', () => {
     const primeira = render(<MemoryRouter><SessaoContext.Provider value={{
       identidade: { usuarioId: 'usuario-1', nome: 'Ana', perfil: 'OPERADOR',
         contaId: 'conta-1', nomeNegocio: 'Loja da Esquina', estoqueHabilitado: false },
-      entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(),
+      entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(), relerIdentidade: vi.fn(),
     }}><TelaDeVenda /></SessaoContext.Provider></MemoryRouter>)
 
     fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
@@ -862,5 +868,63 @@ describe('PDV no tablet', () => {
     const ir = await screen.findByRole('link', { name: 'Ir ao caixa' })
     expect(ir).toHaveAttribute('href', '/caixa')
     expect(ir).toHaveClass('botao')
+  })
+})
+
+describe('comanda do servidor sem servidor', () => {
+  it('fica só para leitura, com a frase e Nova venda no rodapé como única ação', async () => {
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([{ id: comanda.id,
+      sessaoCaixaId: comanda.sessaoCaixaId, usuarioId: comanda.usuarioId,
+      status: 'ABERTA', total: comanda.total, criadoEm: comanda.criadoEm }])
+    vi.spyOn(vendas, 'consultar').mockResolvedValue(comanda)
+    const cancelar = vi.spyOn(vendas, 'cancelar')
+    mostrar('ADMIN')
+    fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
+    expect(await screen.findByRole('button', { name: 'Receber e concluir' })).toBeInTheDocument()
+
+    act(() => registrarSemResposta())
+
+    const frase = 'Esta venda está no servidor e continua quando a rede voltar. Para vender agora, comece uma nova venda.'
+    expect(await screen.findAllByText(frase)).toHaveLength(1)
+    expect(screen.getByText(/1 × Café/)).toBeInTheDocument()
+    for (const nome of ['Cancelar venda', 'Remover', 'Registrar parcela', 'Receber e concluir',
+      'Concluir venda', 'Aplicar']) {
+      expect(screen.queryByRole('button', { name: nome })).not.toBeInTheDocument()
+    }
+    expect(screen.queryByLabelText('Cliente (opcional)')).not.toBeInTheDocument()
+    const novas = screen.getAllByRole('button', { name: 'Nova venda' })
+    expect(novas).toHaveLength(1)
+    expect(novas[0]).toHaveClass('botao--largo')
+
+    fireEvent.click(novas[0])
+    expect(await screen.findByText('Busque e escolha o primeiro produto para iniciar.')).toBeInTheDocument()
+    expect(screen.getByLabelText('Produto por nome ou código')).toHaveFocus()
+    expect(cancelar).not.toHaveBeenCalled()
+  })
+
+  it('o produto tocado começa outra venda, e a comanda do servidor fica para retomar', async () => {
+    const nova: Venda = { ...comanda, id: 'venda-2', itens: [{ ...comanda.itens[0], id: 'item-2', nome: 'Pão' }] }
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([{ id: comanda.id,
+      sessaoCaixaId: comanda.sessaoCaixaId, usuarioId: comanda.usuarioId,
+      status: 'ABERTA', total: comanda.total, criadoEm: comanda.criadoEm }])
+    vi.spyOn(vendas, 'consultar').mockImplementation(async (id: string) => id === nova.id ? nova : comanda)
+    vi.spyOn(cadastro, 'buscarProdutos').mockResolvedValue([{ id: 'produto-2', tipo: 'PRODUTO',
+      nome: 'Pão', preco: 12.5, codigo: 'PA-1', categoria: null, unidade: 'un', atributos: {} }])
+    const iniciar = vi.spyOn(vendas, 'iniciar').mockResolvedValue({ id: nova.id })
+    const adicionar = vi.spyOn(vendas, 'adicionarItem').mockResolvedValue({ id: 'item-2' })
+    mostrar()
+    fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
+    await screen.findByRole('button', { name: 'Receber e concluir' })
+    act(() => registrarSemResposta())
+
+    fireEvent.change(screen.getByLabelText('Produto por nome ou código'), { target: { value: 'PA-1' } })
+    fireEvent.click(await screen.findByRole('button', { name: /Pão · R\$\s*12,50/ }))
+
+    await waitFor(() => expect(adicionar).toHaveBeenCalledWith('venda-2', 'produto-2', 1, 0))
+    expect(iniciar).toHaveBeenCalledWith('sessao-1')
+    expect(adicionar).not.toHaveBeenCalledWith('venda-1', expect.anything(), expect.anything(), expect.anything())
+    expect(await screen.findByText(/Venda venda-2/)).toBeInTheDocument()
   })
 })

@@ -25,7 +25,7 @@ describe('estoque na tela', () => {
       nomeNegocio: 'Loja', estoqueHabilitado,
     }
     render(<SessaoContext.Provider value={{
-      identidade, entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(),
+      identidade, entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(), relerIdentidade: vi.fn(),
     }}><MemoryRouter initialEntries={['/estoque']}><Routes>
       <Route path="/" element={<p>Início</p>} />
       <Route element={<ExigeAdmin comEstoque />}>

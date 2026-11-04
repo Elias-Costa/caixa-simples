@@ -3,6 +3,7 @@ package br.com.caixasimples.caixa.internal;
 import br.com.caixasimples.caixa.application.OperadorJaTemCaixaAbertoException;
 import br.com.caixasimples.caixa.application.SessaoCaixaNaoEncontradaException;
 import br.com.caixasimples.caixa.application.SessaoCaixaService;
+import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.sincronizacao.Aplicacao;
 import br.com.caixasimples.sincronizacao.AplicadorDeOperacoes;
 import br.com.caixasimples.sincronizacao.OperacaoRecebida;
@@ -21,7 +22,12 @@ import tools.jackson.databind.ObjectMapper;
  * <p>Cada gesto é o caso de uso com rede de mesmo nome, com o instante do balcão: a abertura com o
  * id que o dispositivo gerou, a sangria e o suprimento com o motivo obrigatório, o fechamento com
  * o valor contado. As regras são as da raiz e do serviço de sempre, inclusive uma sessão aberta
- * por operador e a sangria que não passa do esperado. O instante vem do conteúdo do gesto e volta
+ * por operador e a sangria que não passa do esperado.
+ *
+ * <p>A abertura, a sangria e o suprimento podem ser a repetição de uma chamada com rede que chegou
+ * ao servidor e ficou sem resposta no aparelho, que então os guardou na fila com o mesmo id. Por
+ * isso a abertura com o id de um caixa que já é do mesmo operador, e o movimento com o id de um que
+ * já existe com o mesmo conteúdo, contam como aplicados sem gravar de novo. O instante vem do conteúdo do gesto e volta
  * ao lote, que o confere contra o relógio do servidor, porque é ele que decide o dia do caixa e
  * do fluxo de caixa.
  *
@@ -61,16 +67,27 @@ class GestosDoCaixa implements AplicadorDeOperacoes {
                 }
                 case "caixa.sangrar" -> {
                     Movimento sangria = operacao.payloadComo(json, Movimento.class);
-                    sessoes.registrarSangria(id, operacao.dinheiro(sangria.valor(), "valor"),
-                            sangria.motivo(), operacao.exigir(sangria.criadoEm(), "criadoEm"));
-                    yield sangria.criadoEm();
+                    Money valor = operacao.dinheiro(sangria.valor(), "valor");
+                    Instant criadoEm = operacao.exigir(sangria.criadoEm(), "criadoEm");
+                    if (sangria.movimentoId() == null) {
+                        sessoes.registrarSangria(id, valor, sangria.motivo(), criadoEm);
+                    } else {
+                        sessoes.registrarSangria(id, sangria.movimentoId(), valor,
+                                sangria.motivo(), criadoEm);
+                    }
+                    yield criadoEm;
                 }
                 case "caixa.suprir" -> {
                     Movimento suprimento = operacao.payloadComo(json, Movimento.class);
-                    sessoes.registrarSuprimento(id, operacao.dinheiro(suprimento.valor(), "valor"),
-                            suprimento.motivo(),
-                            operacao.exigir(suprimento.criadoEm(), "criadoEm"));
-                    yield suprimento.criadoEm();
+                    Money valor = operacao.dinheiro(suprimento.valor(), "valor");
+                    Instant criadoEm = operacao.exigir(suprimento.criadoEm(), "criadoEm");
+                    if (suprimento.movimentoId() == null) {
+                        sessoes.registrarSuprimento(id, valor, suprimento.motivo(), criadoEm);
+                    } else {
+                        sessoes.registrarSuprimento(id, suprimento.movimentoId(), valor,
+                                suprimento.motivo(), criadoEm);
+                    }
+                    yield criadoEm;
                 }
                 case "caixa.fechar" -> {
                     Fechamento fechamento = operacao.payloadComo(json, Fechamento.class);
@@ -96,8 +113,11 @@ class GestosDoCaixa implements AplicadorDeOperacoes {
     record Abertura(BigDecimal valorAbertura, Instant abertaEm) {
     }
 
-    /** O conteúdo de {@code caixa.sangrar} e de {@code caixa.suprir}. */
-    record Movimento(BigDecimal valor, String motivo, Instant criadoEm) {
+    /**
+     * O conteúdo de {@code caixa.sangrar} e de {@code caixa.suprir}. O id do movimento falta no
+     * gesto gravado por uma versão anterior do aplicativo, e aí o servidor gera um.
+     */
+    record Movimento(BigDecimal valor, String motivo, Instant criadoEm, UUID movimentoId) {
     }
 
     /** O conteúdo de {@code caixa.fechar}. */

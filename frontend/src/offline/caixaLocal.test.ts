@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Produto } from '../api/cadastro'
 import { caixa, type MovimentoCaixa, type SessaoCaixa } from '../api/caixa'
 import { SemConexao, SessaoAlterada } from '../api/cliente'
+import { comServidor, registrarResposta, registrarSemResposta } from '../api/conexao'
 import type { OperacaoDoLote } from '../api/sincronizacao'
 import { vendas, type Venda } from '../api/vendas'
 import { hojeNoBalcao } from '../dataDoBalcao'
@@ -244,37 +245,115 @@ describe('SessaoCaixa local', () => {
     expect((await listarGestos()).map((gesto) => gesto.registroId)).toEqual([primeiro.id])
   })
 
-  it('usa extrato guardado para continuar offline e não duplica gesto em falha incerta de escrita online', async () => {
-    entrar(ana)
-    rede(true)
-    const id = crypto.randomUUID()
-    const aberta: SessaoCaixa = {
+  // A chamada sem resposta pode ter gravado. O cliente HTTP marca o aparelho como sem servidor, e o
+  // gesto vai à fila com o id que a chamada usou, que o servidor reconhece se já o tinha.
+  function semResposta(): never {
+    registrarSemResposta()
+    throw new SemConexao()
+  }
+
+  function abertaComVenda(id: string): SessaoCaixa {
+    return {
       id, usuarioId: ana.usuarioId, versao: 4, valorAbertura: 10, valorFechamentoEsperado: 12,
       valorFechamentoContado: null, diferenca: null, abertaEm: new Date().toISOString(),
       fechadaEm: null, status: 'ABERTA', movimentos: [{ id: crypto.randomUUID(),
         tipo: 'VENDA', valor: 2, motivo: null, vendaId: crypto.randomUUID(),
         recebimentoId: null, criadoEm: new Date().toISOString() }],
     }
+  }
+
+  it('a sangria com rede sem resposta vai à fila com o mesmo id, e a seguinte espera a releitura', async () => {
+    entrar(ana)
+    rede(true)
+    const id = crypto.randomUUID()
+    const aberta = abertaComVenda(id)
     const remoto = { ...caixa,
       abertaDoOperadorAtual: vi.fn(async () => aberta),
       historico: vi.fn(async () => [aberta]),
       consultar: vi.fn(async () => aberta),
-      abrir: vi.fn(async () => { throw new SemConexao() }),
-      sangrar: vi.fn(async () => { throw new SemConexao() }),
+      sangrar: vi.fn(async () => semResposta()),
     }
     const local = criarCaixaLocal(remoto)
     await local.abertaDoOperadorAtual()
     await local.consultar(id)
-    await expect(local.sangrar(id, 1, 'Retirada')).rejects.toBeInstanceOf(SemConexao)
-    expect(await listarGestos()).toEqual([])
+    const movimento = crypto.randomUUID()
 
-    rede(false)
-    await local.sangrar(id, 1, 'Retirada')
-    expect(await criarCaixaLocal(remoto).consultar(id)).toMatchObject({
-      versao: 5, valorFechamentoEsperado: 11,
-      movimentos: [{ tipo: 'VENDA' }, { tipo: 'SANGRIA' }],
-    })
-    expect((await listarGestos())[0].versaoBase).toBe(4)
+    await local.sangrar(id, 1, 'Retirada', movimento)
+
+    expect(remoto.sangrar).toHaveBeenCalledWith(id, 1, 'Retirada', movimento)
+    expect(comServidor()).toBe(false)
+    const gestos = await listarGestos()
+    expect(gestos).toHaveLength(1)
+    expect(gestos[0]).toMatchObject({ tipo: 'caixa.sangrar', registroId: id, versaoBase: 4,
+      payload: { valor: 1, motivo: 'Retirada', movimentoId: movimento } })
+    // A chamada perdida pode ter mudado a gaveta: o saldo fica indisponível até a releitura, e a
+    // sangria seguinte, que só o servidor saberia se cabe, espera.
+    expect(await local.consultar(id)).toMatchObject({ saldoDesatualizado: true, valorFechamentoEsperado: 11,
+      movimentos: [{ tipo: 'VENDA' }, { tipo: 'SANGRIA', id: movimento }] })
+    await expect(local.sangrar(id, 1, 'Outra retirada')).rejects.toThrow('a sangria espera a próxima leitura')
+    expect(remoto.sangrar).toHaveBeenCalledTimes(1)
+  })
+
+  it('a leitura que já traz a sangria perdida não a conta de novo com o gesto ainda na fila', async () => {
+    entrar(ana)
+    rede(true)
+    const id = crypto.randomUUID()
+    const aberta = abertaComVenda(id)
+    const movimento = crypto.randomUUID()
+    // A chamada perdida tinha gravado: o servidor já tem a sangria.
+    const comASangria: SessaoCaixa = { ...aberta, versao: 5, valorFechamentoEsperado: 11,
+      movimentos: [...(aberta.movimentos ?? []), { id: movimento, tipo: 'SANGRIA', valor: 1,
+        motivo: 'Retirada', vendaId: null, recebimentoId: null, criadoEm: new Date().toISOString() }] }
+    let gravou = false
+    const remoto = { ...caixa,
+      abertaDoOperadorAtual: vi.fn(async () => gravou ? comASangria : aberta),
+      consultar: vi.fn(async () => gravou ? comASangria : aberta),
+      sangrar: vi.fn(async () => { gravou = true; return semResposta() }),
+    }
+    const local = criarCaixaLocal(remoto)
+    await local.consultar(id)
+    await local.sangrar(id, 1, 'Retirada', movimento)
+
+    registrarResposta()
+    await local.abertaDoOperadorAtual()
+
+    expect((await listarGestos()).map((gesto) => gesto.estado)).toEqual(['queued'])
+    const projetada = await local.consultar(id)
+    expect(projetada.valorFechamentoEsperado).toBe(11)
+    expect(projetada.movimentos?.filter((linha) => linha.tipo === 'SANGRIA').map((linha) => linha.id))
+      .toEqual([movimento])
+  })
+
+  it('a abertura com rede sem resposta vai à fila com o id mandado ao servidor', async () => {
+    entrar(ana)
+    rede(true)
+    const remoto = { ...caixa, abrir: vi.fn(async (_valor: number, _id: string) => semResposta()) }
+    const local = criarCaixaLocal(remoto)
+
+    const { id } = await local.abrir(20)
+
+    expect(remoto.abrir).toHaveBeenCalledWith(20, id)
+    expect(await listarGestos()).toMatchObject([{ tipo: 'caixa.abrir', registroId: id,
+      payload: { valorAbertura: 20 } }])
+    expect(await local.abertaDoOperadorAtual()).toMatchObject({ id, status: 'ABERTA',
+      pendenteSincronizacao: true })
+  })
+
+  it('o fechamento com rede sem resposta vai à fila', async () => {
+    entrar(ana)
+    rede(true)
+    const id = crypto.randomUUID()
+    const aberta = abertaComVenda(id)
+    const remoto = { ...caixa, consultar: vi.fn(async () => aberta),
+      fechar: vi.fn(async () => semResposta()) }
+    const local = criarCaixaLocal(remoto)
+    await local.consultar(id)
+
+    await local.fechar(id, 12)
+
+    expect(remoto.fechar).toHaveBeenCalledWith(id, 12)
+    expect(await listarGestos()).toMatchObject([{ tipo: 'caixa.fechar', registroId: id,
+      payload: { valorContado: 12 } }])
   })
 
   it('opera e fecha sem rede a sessão cujo esperado ficou negativo no servidor', async () => {

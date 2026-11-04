@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { cadastro, type DadosDoProduto, type Produto, type TipoProduto } from '../api/cadastro'
+import { comServidor } from '../api/conexao'
 import { lerDinheiro, moeda, valorNoCampo } from '../formatos'
-import { useOnline } from '../shell/useOnline'
 import { useSessao } from '../sessao/useSessao'
 import { listarGestos } from '../offline/fila'
 import { paraBusca } from '../textoDeBusca'
@@ -106,7 +106,6 @@ export function TelaDeProdutos() {
   const [pendentes, setPendentes] = useState(0)
   const formularioRef = useRef<HTMLFormElement>(null)
   const [confirmar, dialogoDeConfirmacao] = useConfirmacao()
-  const online = useOnline()
 
   const carregar = useCallback(async () => {
     try {
@@ -196,8 +195,9 @@ export function TelaDeProdutos() {
       else await cadastro.criarProduto(dados)
       setAberto(false)
       await carregar()
-      // Sem rede, quem avisa é a contagem do que ficou guardado no aparelho, logo abaixo.
-      if (online) setAviso(`${dados.nome.trim()} salvo.`)
+      // Sem servidor, quem avisa é a contagem do que ficou guardado no aparelho, logo abaixo. O
+      // sinal é lido agora, depois da gravação: a que ficou sem resposta foi para a fila.
+      if (comServidor()) setAviso(`${dados.nome.trim()} salvo.`)
     } catch (falha) {
       setErroDoFormulario(erroDeCadastro(falha))
       setCamposComErro(errosDosCampos(falha))
@@ -218,7 +218,7 @@ export function TelaDeProdutos() {
     try {
       await cadastro.inativarProduto(produto.id)
       await carregar()
-      if (online) setAviso(`${produto.nome} inativado.`)
+      if (comServidor()) setAviso(`${produto.nome} inativado.`)
     } catch (falha) {
       setErro(erroDeCadastro(falha))
     }
@@ -229,7 +229,7 @@ export function TelaDeProdutos() {
     try {
       await cadastro.reativarProduto(produto.id)
       await carregar()
-      if (online) setAviso(`${produto.nome} reativado.`)
+      if (comServidor()) setAviso(`${produto.nome} reativado.`)
     } catch (falha) {
       setErroDoInativo({ id: produto.id, texto: erroDeCadastro(falha) })
     }

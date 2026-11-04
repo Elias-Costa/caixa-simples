@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { cadastro, type Cliente, type DadosDoCliente } from '../api/cadastro'
+import { comServidor } from '../api/conexao'
 import { listarGestos } from '../offline/fila'
 import { lerIdentidade } from '../sessao/armazenamento'
-import { useOnline } from '../shell/useOnline'
 import { erroDeCadastro, errosDosCampos } from './erroDeCadastro'
 import { filtrarPorNome } from './filtroPorNome'
 import { ErroDoCampo, Mensagem } from './Mensagem'
@@ -20,7 +20,6 @@ function emOrdem(clientes: Cliente[]): Cliente[] {
 
 export function TelaDeClientes() {
   const podeRemover = lerIdentidade()?.perfil === 'ADMIN'
-  const online = useOnline()
   const [ativos, setAtivos] = useState<Cliente[]>([])
   const [inativos, setInativos] = useState<Cliente[]>([])
   const [busca, setBusca] = useState('')
@@ -82,9 +81,12 @@ export function TelaDeClientes() {
       ? { 'aria-invalid': true, 'aria-describedby': `cliente-erro-${campo}` } : {}
   }
 
-  /** Sem rede, quem avisa é a contagem do que ficou guardado no aparelho, logo abaixo. */
+  /**
+   * Sem servidor, quem avisa é a contagem do que ficou guardado no aparelho, logo abaixo. O sinal é
+   * lido na hora, depois da gravação: a que ficou sem resposta foi para a fila.
+   */
   function avisar(texto: string) {
-    if (online) setAviso(texto)
+    if (comServidor()) setAviso(texto)
   }
 
   function novo() {

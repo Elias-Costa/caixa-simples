@@ -11,7 +11,7 @@ import { dataHora, diaEMes, hora, horaNoDia, lerDinheiro, moeda } from '../forma
 import { criarCaixaLocal } from '../offline/caixaLocal'
 import { criarVendaLocal } from '../offline/vendaLocal'
 import { useSincronizacao } from '../shell/sincronizacao'
-import { useOnline } from '../shell/useOnline'
+import { useConexao } from '../shell/useConexao'
 import { useSessao } from '../sessao/useSessao'
 import { CampoDeDinheiro } from './CampoDeDinheiro'
 import { nomesDosClientesNoAparelho } from './clientesNoAparelho'
@@ -22,6 +22,7 @@ import { PrimeirosPassos } from './PrimeirosPassos'
 import { ROTULO_DA_FORMA, ROTULO_DA_VENDA, ROTULO_DO_CAIXA, ROTULO_DO_MOVIMENTO } from './rotulos'
 import { useConfirmacao, type Pergunta } from './useConfirmacao'
 import { TituloComAjuda } from './TituloComAjuda'
+import { motivoSemServidor, vendasSemServidor } from './semServidor'
 import { AJUDA } from './textosDeAjuda'
 import { useTourDoCaixa } from './tourDoCaixa'
 
@@ -274,7 +275,8 @@ function idDoVer(vendaId: string): string {
 export function TelaDeCaixa() {
   const { identidade } = useSessao()
   const { rodada } = useSincronizacao()
-  const online = useOnline()
+  const conexao = useConexao()
+  const comServidor = conexao === 'com-servidor'
   const ids = useId()
   const administrador = identidade?.perfil === 'ADMIN'
   const [aberta, setAberta] = useState<SessaoCaixa | undefined>()
@@ -349,8 +351,9 @@ export function TelaDeCaixa() {
     }
   }, [dia])
 
-  // A rodada de envio que grava resultado muda o que o servidor sabe da sessão: a tela relê.
-  useEffect(() => { queueMicrotask(() => void carregar()) }, [carregar, rodada])
+  // A rodada de envio que grava resultado muda o que o servidor sabe da sessão, e a volta do servidor
+  // traz o que a escrita com rede mudou: nos dois casos, a tela relê, sem esperar outra tela.
+  useEffect(() => { queueMicrotask(() => void carregar()) }, [carregar, rodada, comServidor])
   useEffect(() => {
     if (!selecionada || selecionada.movimentos) return
     let ativo = true
@@ -364,7 +367,7 @@ export function TelaDeCaixa() {
 
   // As vendas da sessão, abertas, concluídas e canceladas: o administrador vê as de qualquer operador,
   // e o operador, as das próprias sessões. A rodada de envio relê, porque a venda feita sem rede deixa
-  // de estar pendente.
+  // de estar pendente, e a volta do servidor também, porque sem ele a lista é só a do aparelho.
   useEffect(() => {
     if (!sessaoSelecionada) return
     let ativo = true
@@ -374,28 +377,28 @@ export function TelaDeCaixa() {
       if (ativo) setMensagem({ tipo: 'erro', texto: erroDeCadastro(falha), lugar: 'vendas' })
     })
     return () => { ativo = false }
-  }, [sessaoSelecionada, rodada])
+  }, [sessaoSelecionada, rodada, comServidor])
 
   // A sessão fechada aqui sai do cartão na releitura seguinte, que a rodada da fila e o carregar fazem.
   useEffect(() => {
-    if (!administrador || !online) return
+    if (!administrador || !comServidor) return
     let ativo = true
     caixaNoServidor.abertas().then((abertas) => {
       if (ativo) setDeOutroDia(abertas.filter((sessao) => sessao.usuarioId !== identidade?.usuarioId
         && abertaAntesDeHoje(sessao.abertaEm)))
     }).catch(() => { /* o cartão é um atalho; o histórico continua chegando a essas sessões */ })
     return () => { ativo = false }
-  }, [administrador, online, identidade?.usuarioId, rodada, historico])
+  }, [administrador, comServidor, identidade?.usuarioId, rodada, historico])
 
   // O administrador vê os caixas de todos; o nome de quem abriu vem da lista de usuários da Conta.
   useEffect(() => {
-    if (!administrador || !online) return
+    if (!administrador || !comServidor) return
     let ativo = true
     contas.usuarios().then((lista) => {
       if (ativo) setNomes(new Map(lista.map((usuario) => [usuario.id, usuario.nome])))
     }).catch(() => { /* fica o começo do id, como nos relatórios */ })
     return () => { ativo = false }
-  }, [administrador, online])
+  }, [administrador, comServidor])
 
   function nomeDoOperador(usuarioId: string): string {
     if (identidade && usuarioId === identidade.usuarioId) return identidade.nome
@@ -558,7 +561,7 @@ export function TelaDeCaixa() {
         <label>Dia
           <input type="date" value={dia} onChange={(evento) => setDia(evento.target.value)} />
         </label>
-        <p>{!online ? 'Caixas deste operador guardados no aparelho.'
+        <p>{!comServidor ? 'Caixas deste operador guardados no aparelho.'
           : administrador ? 'Caixas de todos os operadores.' : 'Seus caixas.'}</p>
         {historico.length === 0 ? <p>Nenhum caixa neste dia.</p> : <ul className="caixa__lista">
           {historico.map((sessao) => <li key={sessao.id}>
@@ -614,7 +617,8 @@ export function TelaDeCaixa() {
           <div>
             <h4 id={`${ids}-vendido`}>Vendido neste caixa</h4>
             {!vendido ? <p>Carregando vendas...</p>
-              : vendido.vendas === 0 ? <p>Nenhuma venda concluída neste caixa.</p>
+              : vendido.vendas === 0 ? <p>{conexao === 'com-servidor' ? 'Nenhuma venda concluída neste caixa.'
+                : vendasSemServidor(conexao)}</p>
                 : <table className="tabela" aria-labelledby={`${ids}-vendido`}>
                   <thead><tr><th scope="col">Forma</th><th scope="col" className="tabela__numero">Valor</th></tr></thead>
                   <tbody>
@@ -631,7 +635,8 @@ export function TelaDeCaixa() {
                   </tr></tfoot>
                 </table>}
             {notaForaDoTotal && <p className="caixa__nota">{notaForaDoTotal}</p>}
-            {!online && <p className="caixa__nota">Sem conexão, o vendido conta só as vendas guardadas neste aparelho.</p>}
+            {conexao !== 'com-servidor' && vendido && vendido.vendas > 0 && <p className="caixa__nota">
+              {motivoSemServidor(conexao)}, o vendido conta só as vendas guardadas neste aparelho.</p>}
           </div>
         </div>
 
@@ -716,9 +721,11 @@ export function TelaDeCaixa() {
         <details className="caixa__extrato">
           <summary id={`${ids}-vendas`}>Vendas{listaDaSessao ? ` (${listaDaSessao.length})` : ''}</summary>
           {mostrarEm('vendas')}
-          {!online && <p>Sem conexão, a lista mostra as vendas guardadas neste aparelho.</p>}
+          {conexao !== 'com-servidor' && listaDaSessao && listaDaSessao.length > 0
+            && <p>{motivoSemServidor(conexao)}, a lista mostra as vendas guardadas neste aparelho.</p>}
           {!listaDaSessao ? <p>Carregando vendas...</p>
-            : listaDaSessao.length === 0 ? <p>Nenhuma venda neste caixa.</p>
+            : listaDaSessao.length === 0 ? <p>{conexao === 'com-servidor' ? 'Nenhuma venda neste caixa.'
+              : vendasSemServidor(conexao)}</p>
               : <table className="tabela" aria-labelledby={`${ids}-vendas`}>
                 <thead><tr>
                   <th scope="col">Hora</th><th scope="col">Situação</th>

@@ -86,16 +86,38 @@ public class SessaoCaixaService {
     }
 
     /**
-     * A mesma abertura, com o id e o instante que o dispositivo gravou ao abrir o caixa sem rede
-     * (RNF01). A regra de uma sessão aberta por operador vale igual: se o operador abriu outro
-     * caixa com rede enquanto este estava no dispositivo, esta abertura é recusada. Um id que já
-     * existe é recusado pela chave primária, porque a linha nova é inserida e nunca mesclada.
+     * A mesma abertura, com o id que o dispositivo gerou: o do caixa aberto sem rede (RNF01), com o
+     * instante do balcão, ou o que ele mandou na abertura com rede. A regra de uma sessão aberta
+     * por operador vale igual: se o operador abriu outro caixa com rede enquanto este estava no
+     * dispositivo, esta abertura é recusada.
      *
-     * @throws OperadorJaTemCaixaAbertoException se o operador já tem uma sessão ABERTA
+     * <p><strong>O mesmo id do mesmo operador, com o mesmo valor, é a mesma abertura</strong>, e
+     * volta o id sem gravar nada, mesmo que a sessão já tenha fechado. É o que acontece quando a
+     * abertura com rede chegou e a resposta se perdeu: o aparelho guarda a abertura na fila com o
+     * id que mandou, e repeti-la como nova seria recusada pela regra acima, levando junto as vendas
+     * feitas nela. Outro valor ou outro operador com o mesmo id só sairia de um defeito, e é
+     * recusado. Um id de outra Conta não é encontrado aqui, por causa do filtro da Conta, e esbarra
+     * na chave primária, sem revelar nada da sessão de lá.
+     *
+     * @throws OperadorJaTemCaixaAbertoException se o operador já tem outra sessão ABERTA
+     * @throws IllegalStateException             se o id já é de uma abertura com outro valor ou de
+     *                                           outro operador
      */
     @Transactional
     public UUID abrir(UUID id, Money valorAbertura, Instant abertaEm) {
+        Objects.requireNonNull(id, "id da sessao nao pode ser nulo");
         UUID usuarioId = UsuarioContext.exigirAtual().usuarioId();
+
+        Optional<SessaoCaixaEntity> mesmoId = sessoes.findById(id);
+        if (mesmoId.isPresent()) {
+            SessaoCaixa existente = mesmoId.get().paraDominio();
+            if (existente.getUsuarioId().equals(usuarioId)
+                    && existente.getValorAbertura().equals(valorAbertura)) {
+                return id;
+            }
+            throw new IllegalStateException(
+                    "Esta abertura já foi registrada com outro valor ou por outro operador.");
+        }
 
         if (sessoes.existsByUsuarioIdAndStatus(usuarioId, StatusSessaoCaixa.ABERTA)) {
             throw new OperadorJaTemCaixaAbertoException(usuarioId);
@@ -123,7 +145,8 @@ public class SessaoCaixaService {
     @Transactional
     public void registrarSangriaOnline(UUID sessaoId, UUID movimentoId, Money valor,
             String motivo) {
-        registrarMovimentoOnline(sessaoId, movimentoId, TipoMovimentoCaixa.SANGRIA, valor, motivo);
+        registrarMovimentoComId(sessaoId, movimentoId, TipoMovimentoCaixa.SANGRIA, valor, motivo,
+                Instant.now());
     }
 
     /** A mesma sangria, com o instante do balcão em que ela foi registrada sem rede. */
@@ -156,12 +179,38 @@ public class SessaoCaixaService {
     @Transactional
     public void registrarSuprimentoOnline(UUID sessaoId, UUID movimentoId, Money valor,
             String motivo) {
-        registrarMovimentoOnline(sessaoId, movimentoId, TipoMovimentoCaixa.SUPRIMENTO, valor,
-                motivo);
+        registrarMovimentoComId(sessaoId, movimentoId, TipoMovimentoCaixa.SUPRIMENTO, valor,
+                motivo, Instant.now());
     }
 
-    private void registrarMovimentoOnline(UUID sessaoId, UUID movimentoId,
-            TipoMovimentoCaixa tipo, Money valor, String motivo) {
+    /**
+     * A sangria do gesto sem rede que traz o id do movimento, com o instante do balcão. O aparelho
+     * manda o id quando a sangria com rede ficou sem resposta e foi guardada na fila: se a chamada
+     * perdida tinha gravado, o gesto não grava de novo, pela mesma regra da rota com rede.
+     */
+    @Transactional
+    public void registrarSangria(UUID sessaoId, UUID movimentoId, Money valor, String motivo,
+            Instant criadoEm) {
+        registrarMovimentoComId(sessaoId, movimentoId, TipoMovimentoCaixa.SANGRIA, valor, motivo,
+                criadoEm);
+    }
+
+    /** O suprimento do gesto sem rede que traz o id do movimento: ver a sangria acima. */
+    @Transactional
+    public void registrarSuprimento(UUID sessaoId, UUID movimentoId, Money valor, String motivo,
+            Instant criadoEm) {
+        registrarMovimentoComId(sessaoId, movimentoId, TipoMovimentoCaixa.SUPRIMENTO, valor,
+                motivo, criadoEm);
+    }
+
+    /**
+     * O movimento com o id que o aparelho gerou. O mesmo id com o mesmo conteúdo é o mesmo
+     * movimento, e nada é gravado de novo; com outro conteúdo, é recusado. O instante só vale para
+     * o movimento novo e não entra na comparação: o da rota com rede é o do servidor, e o do gesto,
+     * o do balcão.
+     */
+    private void registrarMovimentoComId(UUID sessaoId, UUID movimentoId,
+            TipoMovimentoCaixa tipo, Money valor, String motivo, Instant criadoEm) {
         Objects.requireNonNull(movimentoId, "id do movimento nao pode ser nulo");
         SessaoCaixaEntity linha = sessoes.findLockedById(sessaoId)
                 .orElseThrow(() -> new SessaoCaixaNaoEncontradaException(sessaoId));
@@ -180,9 +229,9 @@ public class SessaoCaixaService {
             return;
         }
         if (tipo == TipoMovimentoCaixa.SANGRIA) {
-            sessao.sangrar(movimentoId, valor, motivo, Instant.now());
+            sessao.sangrar(movimentoId, valor, motivo, criadoEm);
         } else {
-            sessao.suprir(movimentoId, valor, motivo, Instant.now());
+            sessao.suprir(movimentoId, valor, motivo, criadoEm);
         }
         linha.atualizarCom(sessao);
         sessoes.save(linha);

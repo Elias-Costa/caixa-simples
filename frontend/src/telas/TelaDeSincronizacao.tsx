@@ -8,7 +8,7 @@ import {
   aoMudarFila, conferirGesto, gestoPendente, listarGestos, type GestoNaFila, type ValorJson,
 } from '../offline/fila'
 import { useSincronizacao } from '../shell/sincronizacao'
-import { useOnline } from '../shell/useOnline'
+import { useConexao } from '../shell/useConexao'
 import { useSessao } from '../sessao/useSessao'
 import { erroDeCadastro } from './erroDeCadastro'
 import { ROTULO_DA_FORMA } from './rotulos'
@@ -141,7 +141,8 @@ function ItemDaConta({ revisao, nome, conferir }: {
 export function TelaDeSincronizacao() {
   const { identidade } = useSessao()
   const { rodada, enviando, enviarAgora, atualizar } = useSincronizacao()
-  const online = useOnline()
+  // Enviar agora vale também sem resposta do servidor: é uma tentativa a mais, e não custa nada.
+  const online = useConexao() !== 'sem-rede'
   const administrador = identidade?.perfil === 'ADMIN'
   const [gestos, setGestos] = useState<GestoNaFila[]>([])
   const [dia, setDia] = useState(hojeNoBalcao)

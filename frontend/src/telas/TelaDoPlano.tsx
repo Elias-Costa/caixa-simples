@@ -7,7 +7,7 @@ import { moeda } from '../formatos'
 import { sessaoAtual } from '../sessao/armazenamento'
 import type { Plano, SituacaoDoPlano } from '../sessao/Identidade'
 import { useSessao } from '../sessao/useSessao'
-import { useOnline } from '../shell/useOnline'
+import { useConexao } from '../shell/useConexao'
 import { erroDeCadastro } from './erroDeCadastro'
 import { useConfirmacao } from './useConfirmacao'
 import { TituloComAjuda } from './TituloComAjuda'
@@ -48,7 +48,8 @@ const NOME_DA_SITUACAO: Record<SituacaoDoPlano, string> = {
  */
 export function TelaDoPlano() {
   const { atualizarIdentidade } = useSessao()
-  const online = useOnline()
+  // Pedir plano e aplicar código dependem do servidor responder, não só da rede do navegador.
+  const online = useConexao() === 'com-servidor'
   const [estado, setEstado] = useState<EstadoDoPlano | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [aviso, setAviso] = useState<string | null>(null)

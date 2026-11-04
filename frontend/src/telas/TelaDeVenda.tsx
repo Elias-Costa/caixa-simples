@@ -4,6 +4,7 @@ import { QRCodeSVG } from 'qrcode.react'
 import { cadastro, type Cliente, type Produto } from '../api/cadastro'
 import type { SessaoCaixa } from '../api/caixa'
 import { ErroDaApi, SemConexao } from '../api/cliente'
+import { comServidor as alcancaOServidor } from '../api/conexao'
 import { contas } from '../api/contas'
 import { fiado } from '../api/fiado'
 import { intencaoOnline, type IntencaoOnline } from '../api/intencaoOnline'
@@ -15,7 +16,7 @@ import { normalizarNsu } from '../offline/raizDaVenda'
 import { criarVendaLocal } from '../offline/vendaLocal'
 import { useContextoDoShell } from '../shell/ContextoDoShell'
 import { useSincronizacao } from '../shell/sincronizacao'
-import { useOnline } from '../shell/useOnline'
+import { useConexao } from '../shell/useConexao'
 import { useSessao } from '../sessao/useSessao'
 import { paraBusca } from '../textoDeBusca'
 import { CampoDeDinheiro } from './CampoDeDinheiro'
@@ -24,6 +25,7 @@ import { filtrarPorNome } from './filtroPorNome'
 import { Mensagem } from './Mensagem'
 import { PixManual } from './QrDoPix'
 import { ROTULO_DA_COBRANCA_PIX, ROTULO_DA_FORMA, ROTULO_DA_VENDA } from './rotulos'
+import { motivoSemServidor, vendasSemServidor } from './semServidor'
 import { useConfirmacao, type Pergunta } from './useConfirmacao'
 import { TituloComAjuda } from './TituloComAjuda'
 import { AJUDA } from './textosDeAjuda'
@@ -189,14 +191,20 @@ export function TelaDeVenda() {
   const [todasAsVendas, setTodasAsVendas] = useState(false)
   const idDaLista = useId()
   const [confirmar, dialogoDeConfirmacao] = useConfirmacao()
-  const online = useOnline()
+  const conexao = useConexao()
+  const comServidor = conexao === 'com-servidor'
   const pixPendente = atual?.parcelas.some((parcela) => parcela.pix && parcela.status === 'PENDENTE') ?? false
   const doDispositivo = atual?.pendenteSincronizacao === true
+  // A comanda que existe no servidor só continua com ele respondendo, e o aparelho não a copia.
+  // Sem servidor, ela fica para ler: o botão que só responderia com a recusa ensinaria o operador a
+  // não confiar nos botões, e a ação que resta é começar outra venda, que fica no aparelho.
+  const comandaSoLeitura = atual?.status === 'ABERTA' && !doDispositivo && !comServidor
+  const editavel = atual?.status === 'ABERTA' && !comandaSoLeitura
   const comFiado = atual?.parcelas.some((parcela) => parcela.forma === 'FIADO') ?? false
   // O Pix integrado depende do provedor, com o cliente presente, e de a Conta poder cobrar por ele
   // hoje; a Venda registrada sem rede não o recebe. A opção escolhida antes de a rede cair volta
   // para dinheiro, sem esperar outro toque. O Pix manual vale com e sem rede, em todo plano.
-  const pixIntegradoPermitido = online && !doDispositivo && identidade?.pixIntegrado === true
+  const pixIntegradoPermitido = comServidor && !doDispositivo && identidade?.pixIntegrado === true
   // O fiado é do administrador, pede cliente e entra uma vez por venda. Tirado o cliente, ou com a
   // venda relida sem ele, o Fiado sai do seletor e a forma volta para dinheiro, como o Pix integrado:
   // o rodapé não pode oferecer o fiado com outra forma à vista.
@@ -210,11 +218,10 @@ export function TelaDeVenda() {
   const clientesEncontrados = termoCliente ? filtrarPorNome(clientes, termoCliente, (cliente) => cliente.nome) : []
   // Com o campo vazio, a parcela é tudo o que falta lançar.
   const valorDaParcela = !atual ? null : valorPagamento ? lerDinheiro(valorPagamento) : atual.faltaPagar
-  const lancando = atual !== undefined && atual.status === 'ABERTA' && atual.itens.length > 0
-    && atual.faltaPagar > 0
+  const lancando = atual !== undefined && editavel && atual.itens.length > 0 && atual.faltaPagar > 0
   const receberEConcluir = lancando && opcaoEscolhida !== 'PIX_INTEGRADO' && atual.parcelas.length === 0
     && valorDaParcela === atual.faltaPagar
-  const concluirSemPagar = atual !== undefined && atual.status === 'ABERTA' && atual.itens.length > 0
+  const concluirSemPagar = atual !== undefined && editavel && atual.itens.length > 0
     && atual.faltaPagar === 0 && !pixPendente
   // A prévia conta em centavos, como o servidor: subtrair em ponto flutuante erraria o último centavo.
   // O troco que vale continua sendo o que o registro da parcela devolve.
@@ -237,7 +244,8 @@ export function TelaDeVenda() {
   function erroEm(lugar: LugarDoErro) { return erro?.lugar === lugar ? erro.texto : undefined }
 
   // Relê também quando uma rodada de envio grava resultado: a Venda feita sem rede deixa de estar
-  // pendente, e a lista precisa mostrar isso.
+  // pendente, e a lista precisa mostrar isso. E quando o servidor volta: sem ele, a lista era só a
+  // do aparelho.
   useEffect(() => {
     let vivo = true
     caixa.abertaDoOperadorAtual().then(async (aberta) => {
@@ -247,7 +255,7 @@ export function TelaDeVenda() {
     }).catch((falha) => { if (vivo) setErro({ texto: erroDeCadastro(falha), lugar: 'tela' }) })
       .finally(() => { if (vivo) setCarregando(false) })
     return () => { vivo = false }
-  }, [rodada])
+  }, [rodada, comServidor])
 
   const vendaDoDispositivo = useRef<string | undefined>(undefined)
   useEffect(() => { vendaDoDispositivo.current = atual?.pendenteSincronizacao ? atual.id : undefined }, [atual])
@@ -296,7 +304,7 @@ export function TelaDeVenda() {
     // O saldo devedor é calculado no servidor, com todas as Vendas do Cliente. Sem ele, a faixa
     // mostra quem é o Cliente e não inventa um saldo a partir do que está no dispositivo.
     const semSaldo = `Cliente: ${nome} · Saldo devedor indisponível até sincronizar`
-    if (!online || atual?.pendenteSincronizacao) {
+    if (!comServidor || atual?.pendenteSincronizacao) {
       definirFaixa(semSaldo)
       return () => definirFaixa(null)
     }
@@ -309,7 +317,7 @@ export function TelaDeVenda() {
       else setErro({ texto: erroDeCadastro(falha), lugar: 'comanda' })
     })
     return () => { vivo = false; definirFaixa(null) }
-  }, [atual?.clienteId, atual?.saldoDevedor, atual?.pendenteSincronizacao, clientes, definirFaixa, online])
+  }, [atual?.clienteId, atual?.saldoDevedor, atual?.pendenteSincronizacao, clientes, definirFaixa, comServidor])
 
   // Enquanto a venda aberta está na tela, o Shell não oferece a versão nova: a recarga fecharia a
   // comanda. Concluída, cancelada, deixada pela próxima ou com a tela fechada, o botão volta.
@@ -339,7 +347,7 @@ export function TelaDeVenda() {
     const vendaId = atual.id
     let vivo = true
     const intervalo = window.setInterval(() => {
-      if (!navigator.onLine || document.visibilityState !== 'visible') return
+      if (!alcancaOServidor() || document.visibilityState !== 'visible') return
       vendas.consultar(vendaId).then((venda) => {
         if (!vivo) return
         setAtual((anterior) => anterior?.id === vendaId ? venda : anterior)
@@ -382,10 +390,13 @@ export function TelaDeVenda() {
       return
     }
     setOcupado(true); setErro(undefined)
-    if (atual?.status !== 'ABERTA') { setComprovante(undefined); setTroco(undefined) }
+    // A comanda do servidor só para leitura é como a concluída: o item começa outra venda, que fica
+    // no aparelho, e ela continua na lista para retomar quando o servidor responder.
+    const continua = atual?.status === 'ABERTA' && !comandaSoLeitura
+    if (!continua) { setComprovante(undefined); setTroco(undefined) }
     let id: string | undefined
     try {
-      id = atual?.status === 'ABERTA' ? atual.id : (await vendas.iniciar(sessao.id)).id
+      id = continua ? atual.id : (await vendas.iniciar(sessao.id)).id
       await vendas.adicionarItem(id, produto, numero(quantidade), desconto)
       await atualizar(id)
       // O termo buscado sai junto com os resultados: guardado, o mesmo código passado de novo pareceria
@@ -679,7 +690,9 @@ export function TelaDeVenda() {
         <section className="pdv__painel" aria-busy={ocupado}>
           <div className="pdv__topo"><h3>Comanda</h3>
             <span className="pdv__ajuda" aria-live="polite">{ocupado ? 'Registrando...' : ''}</span>
-            <button className="botao botao--secundario" type="button" onClick={novaVenda}>Nova venda</button>
+            {/* Com a comanda só para leitura, Nova venda é a ação principal e fica no rodapé. */}
+            {!comandaSoLeitura &&
+              <button className="botao botao--secundario" type="button" onClick={novaVenda}>Nova venda</button>}
           </div>
           {/* Começar outra continua possível: o aviso só lembra da venda que ficaria para trás. */}
           {avisarAbertas && <div className="pdv__aberta">
@@ -692,27 +705,25 @@ export function TelaDeVenda() {
                 pagar e concluir: depois de concluir a comanda encolhe, e o toque seguinte cairia nele. */}
             <div className="pdv__topo pdv__venda">
               <p>Venda {atual.id.slice(0, 8)} · {ROTULO_DA_VENDA[atual.status]}</p>
-              {atual.status !== 'CANCELADA' && !doDispositivo && <button className="botao botao--perigo"
+              {atual.status !== 'CANCELADA' && !doDispositivo && comServidor && <button className="botao botao--perigo"
                 type="button" disabled={ocupado} onClick={() => void cancelar()}>Cancelar venda</button>}
             </div>
             {atual.status !== 'CANCELADA' && doDispositivo && <p className="pdv__ajuda">{CANCELAR_DEPOIS_DE_SINCRONIZAR}</p>}
             {doDispositivo && <p className="mensagem-info" role="status">Registrada neste aparelho. Aguardando sincronização com o servidor.</p>}
-            {!online && !doDispositivo && atual.status === 'ABERTA' &&
-              <p className="mensagem-info" role="status">Esta venda está no servidor e continua quando a rede voltar. Para vender agora, comece uma nova venda.</p>}
             {atual.status === 'CANCELADA' && atual.parcelas.some((p) => p.pix && p.status === 'CONFIRMADO') &&
               <p className="mensagem-info" role="status">Pix integrado recebido. A devolução precisa ser feita fora do sistema e ainda exige conciliação; este aplicativo não verifica se ela aconteceu.</p>}
             {/* O cliente se acha pelo nome, como o produto: uma lista com todos não cabe no balcão,
                 e a tela virada para o cliente mostraria o nome de cada um. */}
             {atual.clienteId && <div className="pdv__topo">
               <p>Cliente: {nomeDoCliente(atual.clienteId)}</p>
-              {atual.status === 'ABERTA' && !comFiado && <button className="botao botao--secundario"
+              {editavel && !comFiado && <button className="botao botao--secundario"
                 type="button" disabled={ocupado} onClick={() => void tirarCliente()}>Tirar o cliente</button>}
             </div>}
             {/* A conclusão com fiado exige cliente, e a parcela lançada não se desfaz: sem ele, a
                 venda ficaria sem como concluir. */}
-            {atual.clienteId && atual.status === 'ABERTA' && comFiado &&
+            {atual.clienteId && editavel && comFiado &&
               <p className="pdv__ajuda">Com parcela fiado, o cliente só pode ser trocado.</p>}
-            {atual.status === 'ABERTA' && <>
+            {editavel && <>
               {/* Opcional para os dois perfis: o operador não vende fiado, e o cliente se vincula
                   também sem ele. A conclusão no fiado sem cliente já é recusada com mensagem. */}
               <label>{atual.clienteId ? 'Trocar o cliente' : 'Cliente (opcional)'}
@@ -732,11 +743,11 @@ export function TelaDeVenda() {
               {atual.itens.map((item) => <li key={item.id}>
                 <span>{quantidadeComUnidade(item.quantidade, item.unidade)} × {item.nome} · {moeda.format(item.subtotal)}
                   {item.desconto > 0 && ` (desconto ${moeda.format(item.desconto)})`}</span>
-                {atual.status === 'ABERTA' && <button className="botao botao--secundario" type="button"
+                {editavel && <button className="botao botao--secundario" type="button"
                   disabled={ocupado} onClick={() => void remover(item.id)}>Remover</button>}
               </li>)}
             </ul>}
-            {identidade?.perfil === 'ADMIN' && atual.status === 'ABERTA' && <form onSubmit={(evento) => void descontar(evento)} className="pdv__desconto">
+            {identidade?.perfil === 'ADMIN' && editavel && <form onSubmit={(evento) => void descontar(evento)} className="pdv__desconto">
               <div className="pdv__desconto-campo">
                 <CampoDeDinheiro rotulo="Desconto da venda" placeholder="0,00" valor={descontoVenda}
                   aoMudar={setDescontoVenda} />
@@ -766,7 +777,7 @@ export function TelaDeVenda() {
                           onClick={() => void copiarPix(parcela.id, parcela.pix?.copiaECola ?? '')}>
                           {copiado === parcela.id ? 'Copiado' : 'Copiar'}</button></p>
                     </>}
-                  {parcela.status === 'PENDENTE' && parcela.pix.estado !== 'DISPONIVEL' &&
+                  {parcela.status === 'PENDENTE' && parcela.pix.estado !== 'DISPONIVEL' && editavel &&
                     <button type="button" className="botao botao--secundario" disabled={ocupado}
                       onClick={() => void retentarPix(parcela.id, parcela.valor)}>Retentar cobrança</button>}
                 </div>}
@@ -816,6 +827,7 @@ export function TelaDeVenda() {
               parcela. A mensagem de erro fica aqui também, onde o rodapé não a cobre. */}
           {atual ? <div className="pdv__rodape">
             <Mensagem tipo="erro" texto={erroEm('comanda')} />
+            {comandaSoLeitura && <p className="mensagem-info" role="status">Esta venda está no servidor e continua quando a rede voltar. Para vender agora, comece uma nova venda.</p>}
             <p className="pdv__linha pdv__total"><span>Total:</span> <span>{moeda.format(atual.total)}</span></p>
             {/* Sem parcela, o lançado é zero e o que falta é o total: a linha a menos deixa o rodapé
                 mais baixo no celular, onde ele divide a tela com a comanda. */}
@@ -840,6 +852,8 @@ export function TelaDeVenda() {
               {formaEscolhida === 'FIADO' ? 'Registrar fiado e concluir' : 'Receber e concluir'}</button>}
             {concluirSemPagar && <button className="botao botao--largo" type="button" disabled={ocupado}
               onClick={() => void concluirPendente()}>Concluir venda</button>}
+            {comandaSoLeitura && <button className="botao botao--largo" type="button" onClick={novaVenda}>
+              Nova venda</button>}
           </div> : <Mensagem tipo="erro" texto={erroEm('comanda')} />}
         </section>
 
@@ -852,9 +866,11 @@ export function TelaDeVenda() {
 
         <section className="pdv__painel pdv__historico">
           <h3>Vendas deste caixa</h3>
-          {!online && <p className="pdv__ajuda">Sem conexão, a lista mostra as vendas registradas neste aparelho.</p>}
+          {conexao !== 'com-servidor' && historico.length > 0 && <p className="pdv__ajuda">
+            {motivoSemServidor(conexao)}, a lista mostra as vendas registradas neste aparelho.</p>}
           <Mensagem tipo="erro" texto={erroEm('historico')} />
-          {historico.length === 0 ? <p>Nenhuma venda neste caixa.</p> : <ul id={idDaLista}>
+          {historico.length === 0 ? <p>{conexao === 'com-servidor' ? 'Nenhuma venda neste caixa.'
+            : vendasSemServidor(conexao)}</p> : <ul id={idDaLista}>
             {vendasNaLista.map((resumo) => <li key={resumo.id}>
               {abreAVenda(resumo) ? <button type="button" className="botao botao--secundario"
                 onClick={() => void selecionar(resumo)}>

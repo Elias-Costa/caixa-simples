@@ -19,7 +19,11 @@ export const LIMITE_DO_LOTE = 100
  */
 export type DesfechoDaRodada = 'sem-fila' | 'ocupada' | 'concluida' | 'interrompida' | 'sessao-recusada'
 
-export type RodadaDeEnvio = { desfecho: DesfechoDaRodada; resolvidos: number }
+/**
+ * Como terminou a rodada, quantos gestos ganharam resultado e se o servidor respondeu a algum lote,
+ * mesmo que recusando: a resposta diz que ele está de pé e que vale reler o que a Conta exige.
+ */
+export type RodadaDeEnvio = { desfecho: DesfechoDaRodada; resolvidos: number; respondida: boolean }
 
 type EnviarLote = (operacoes: OperacaoDoLote[]) => Promise<ResultadoDaOperacao[]>
 
@@ -36,11 +40,14 @@ let rodadaNestaAba = false
  * mesmo id de operação.
  */
 export async function enviarFila(enviar: EnviarLote = sincronizacao.enviarLote): Promise<RodadaDeEnvio> {
-  if (!('indexedDB' in globalThis) || !sessaoPodeUsarAFila()) return { desfecho: 'sem-fila', resolvidos: 0 }
-  if (rodadaNestaAba) return { desfecho: 'ocupada', resolvidos: 0 }
+  if (!('indexedDB' in globalThis) || !sessaoPodeUsarAFila()) {
+    return { desfecho: 'sem-fila', resolvidos: 0, respondida: false }
+  }
+  if (rodadaNestaAba) return { desfecho: 'ocupada', resolvidos: 0, respondida: false }
   rodadaNestaAba = true
   try {
-    return await comTravaDoAparelho(() => rodada(enviar)) ?? { desfecho: 'ocupada', resolvidos: 0 }
+    return await comTravaDoAparelho(() => rodada(enviar))
+      ?? { desfecho: 'ocupada', resolvidos: 0, respondida: false }
   } finally {
     rodadaNestaAba = false
   }
@@ -60,6 +67,7 @@ async function rodada(enviar: EnviarLote): Promise<RodadaDeEnvio> {
   const candidatos = ordenarPorDependencia((await listarGestos())
     .filter((gesto) => gesto.estado === 'queued' || gesto.estado === 'failed'))
   let resolvidos = 0
+  let respondida = false
   for (let inicio = 0; inicio < candidatos.length; inicio += LIMITE_DO_LOTE) {
     const lote = await iniciarEnvio(candidatos.slice(inicio, inicio + LIMITE_DO_LOTE)
       .map((gesto) => gesto.operacaoId))
@@ -68,14 +76,16 @@ async function rodada(enviar: EnviarLote): Promise<RodadaDeEnvio> {
     try {
       resposta = await enviar(lote.map(paraOperacao))
     } catch (falha) {
-      return { desfecho: await depoisDaFalha(lote, falha), resolvidos }
+      return { desfecho: await depoisDaFalha(lote, falha), resolvidos,
+        respondida: respondida || falha instanceof ErroDaApi }
     }
+    respondida = true
     const desfechos = lote.map((gesto) => desfechoDe(gesto, resposta))
     await registrarDesfechos(desfechos)
     resolvidos += desfechos.filter((desfecho) => desfecho.estado === 'sent'
       || desfecho.estado === 'needs_review').length
   }
-  return { desfecho: 'concluida', resolvidos }
+  return { desfecho: 'concluida', resolvidos, respondida }
 }
 
 function paraOperacao(gesto: GestoNaFila): OperacaoDoLote {

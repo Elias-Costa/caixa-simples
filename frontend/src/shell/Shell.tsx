@@ -8,7 +8,7 @@ import { useAvisoDoCaixaDeOutroDia } from './caixaDeOutroDia'
 import { itensDoMenu } from './menu'
 import { Navegacao } from './Navegacao'
 import { useCelular } from './useCelular'
-import { useOnline } from './useOnline'
+import { useConexao } from './useConexao'
 import { ContextoDoShellReact } from './ContextoDoShell'
 import { SincronizacaoContext, useEnvioAutomatico } from './sincronizacao'
 
@@ -17,18 +17,18 @@ const INTERVALO_DA_PROCURA_DE_VERSAO = 60 * 60 * 1000
 
 /**
  * A moldura de toda tela: quem está operando e em que negócio, a navegação e os avisos que
- * valem para o aplicativo inteiro (sem rede, fila por enviar, revisão por conferir, versão nova,
- * vencimento do plano, caixa aberto desde outro dia), e o rodapé com o aviso de privacidade e os
- * termos de uso. É também onde a fila do aparelho é enviada sozinha, uma vez para o aplicativo
+ * valem para o aplicativo inteiro (sem rede ou sem resposta do servidor, fila por enviar, revisão
+ * por conferir, versão nova, vencimento do plano, caixa aberto desde outro dia), e o rodapé com o
+ * aviso de privacidade e os termos de uso. É também onde a fila do aparelho é enviada sozinha, uma vez para o aplicativo
  * inteiro. Os primeiros passos não ficam aqui: só a tela Caixa os mostra, porque é ela que sabe o
  * que a pessoa já fez.
  */
 export function Shell() {
-  const { identidade, sair } = useSessao()
+  const { identidade, sair, relerIdentidade } = useSessao()
   const navegar = useNavigate()
   const { pathname } = useLocation()
-  const online = useOnline()
-  const sincronizacao = useEnvioAutomatico(identidade, sair, pathname)
+  const conexao = useConexao()
+  const sincronizacao = useEnvioAutomatico(identidade, sair, pathname, relerIdentidade)
   const quem = identidade ? `${identidade.contaId}:${identidade.usuarioId}` : null
   const caixaDeOutroDia = useAvisoDoCaixaDeOutroDia(quem, sincronizacao.rodada, pathname)
   // No celular, a tela de venda fica com a barra numa linha só: com o menu em duas linhas, a busca
@@ -78,9 +78,9 @@ export function Shell() {
             {identidade.nome} ({rotuloDoPerfil(identidade.perfil)})
           </p>
         </div>
-        {!online && (
+        {conexao !== 'com-servidor' && (
           <span className="cabecalho__aviso" role="status">
-            Sem conexão
+            {conexao === 'sem-rede' ? 'Sem conexão' : 'Sem resposta do servidor'}
           </span>
         )}
         {sincronizacao.enviando && (

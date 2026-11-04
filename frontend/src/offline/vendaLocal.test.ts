@@ -3,6 +3,8 @@ import { deleteDB } from 'idb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cadastro, type Produto } from '../api/cadastro'
 import { caixa, type SessaoCaixa } from '../api/caixa'
+import { SemConexao } from '../api/cliente'
+import { comServidor, registrarSemResposta } from '../api/conexao'
 import type { OperacaoDoLote } from '../api/sincronizacao'
 import { vendas, type Comprovante, type Venda } from '../api/vendas'
 import { gravarIdentidade, gravarToken } from '../sessao/armazenamento'
@@ -481,5 +483,38 @@ describe('Venda no dispositivo', () => {
     expect(await caixaLocal.consultar(sessaoId)).toMatchObject({ valorFechamentoEsperado: 26.25,
       pendenteSincronizacao: false })
     expect(api.comprovante).not.toHaveBeenCalled()
+  })
+})
+
+describe('Venda nova com o servidor fora e o Wi-Fi ligado', () => {
+  it('a venda cuja chamada ficou sem resposta começa no aparelho, e o resto dela segue na fila', async () => {
+    entrar(operadora)
+    rede(true)
+    await prepararCadastro()
+    const sessaoId = crypto.randomUUID()
+    const aberta: SessaoCaixa = {
+      id: sessaoId, usuarioId: operadora.usuarioId, versao: 0, valorAbertura: 20,
+      valorFechamentoEsperado: 20, valorFechamentoContado: null, diferenca: null,
+      abertaEm: new Date().toISOString(), fechadaEm: null, status: 'ABERTA', movimentos: [],
+    }
+    const caixaLocal = criarCaixaLocal({ ...caixa, consultar: vi.fn(async () => aberta) })
+    await caixaLocal.consultar(sessaoId)
+    const api = apiDeVendas()
+    api.iniciar.mockImplementation(async () => {
+      registrarSemResposta()
+      throw new SemConexao()
+    })
+    const local = criarVendaLocal(api, caixaLocal)
+
+    const { id } = await local.iniciar(sessaoId)
+    await local.adicionarItem(id, cafe, 1, 0)
+
+    expect(api.iniciar).toHaveBeenCalledTimes(1)
+    expect(api.adicionarItem).not.toHaveBeenCalled()
+    expect(comServidor()).toBe(false)
+    const gestos = await listarGestos()
+    expect(doTipo(gestos, 'venda.iniciar')).toMatchObject({ registroId: id, payload: { sessaoCaixaId: sessaoId } })
+    expect(doTipo(gestos, 'venda.adicionarItem').registroId).toBe(id)
+    expect(await local.consultar(id)).toMatchObject({ total: 6.25, pendenteSincronizacao: true })
   })
 })

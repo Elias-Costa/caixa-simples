@@ -28,7 +28,7 @@ it('operador registra recebimento parcial e vê comprovante com saldo restante',
   render(<MemoryRouter><SessaoContext.Provider value={{
     identidade: { usuarioId: 'operador-1', nome: 'Ana', perfil: 'OPERADOR',
       contaId: 'conta-1', nomeNegocio: 'Loja', estoqueHabilitado: false },
-    entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(),
+    entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(), relerIdentidade: vi.fn(),
   }}><TelaDeFiado /></SessaoContext.Provider></MemoryRouter>)
 
   fireEvent.click(await screen.findByRole('button', { name: 'Receber' }))
@@ -60,7 +60,7 @@ it('o Pix manual do recebimento mostra o QR do valor digitado com a chave da Con
     identidade: { usuarioId: 'operador-1', nome: 'Ana', perfil: 'OPERADOR',
       contaId: 'conta-1', nomeNegocio: 'Loja', estoqueHabilitado: false,
       chavePix: 'loja@exemplo.com', cidadePix: 'Salvador' },
-    entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(),
+    entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(), relerIdentidade: vi.fn(),
   }}><TelaDeFiado /></SessaoContext.Provider></MemoryRouter>)
 
   fireEvent.click(await screen.findByRole('button', { name: 'Receber' }))
@@ -90,7 +90,7 @@ it('o recebimento em cartão leva o NSU, exigido quando a identidade traz a exig
   render(<MemoryRouter><SessaoContext.Provider value={{
     identidade: { usuarioId: 'operador-1', nome: 'Ana', perfil: 'OPERADOR',
       contaId: 'conta-1', nomeNegocio: 'Loja', estoqueHabilitado: false, nsuObrigatorio: true },
-    entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(),
+    entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(), relerIdentidade: vi.fn(),
   }}><TelaDeFiado /></SessaoContext.Provider></MemoryRouter>)
 
   fireEvent.click(await screen.findByRole('button', { name: 'Receber' }))
@@ -126,7 +126,7 @@ it('quem deve em duas vendas aparece numa linha só, com o total, e as vendas ab
   render(<MemoryRouter><SessaoContext.Provider value={{
     identidade: { usuarioId: 'operador-1', nome: 'Ana', perfil: 'OPERADOR',
       contaId: 'conta-1', nomeNegocio: 'Loja', estoqueHabilitado: false },
-    entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(),
+    entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(), relerIdentidade: vi.fn(),
   }}><TelaDeFiado /></SessaoContext.Provider></MemoryRouter>)
 
   expect(await screen.findAllByText('Lia')).toHaveLength(1)
@@ -161,7 +161,7 @@ it('o total da Conta no topo, quem deve mais primeiro e cada venda pela data, co
     render(<MemoryRouter><SessaoContext.Provider value={{
       identidade: { usuarioId: 'operador-1', nome: 'Ana', perfil: 'OPERADOR',
         contaId: 'conta-1', nomeNegocio: 'Loja', estoqueHabilitado: false },
-      entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(),
+      entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(), relerIdentidade: vi.fn(),
     }}><TelaDeFiado /></SessaoContext.Provider></MemoryRouter>)
 
     expect(await screen.findByText(/Total em aberto/)).toHaveTextContent('Total em aberto: R$ 58,30, de 3 clientes.')
@@ -199,7 +199,7 @@ it('a busca filtra as Vendas com saldo pelo nome do cliente e recusa o valor aci
   render(<MemoryRouter><SessaoContext.Provider value={{
     identidade: { usuarioId: 'operador-1', nome: 'Ana', perfil: 'OPERADOR',
       contaId: 'conta-1', nomeNegocio: 'Loja', estoqueHabilitado: false },
-    entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(),
+    entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(), relerIdentidade: vi.fn(),
   }}><TelaDeFiado /></SessaoContext.Provider></MemoryRouter>)
 
   fireEvent.change(await screen.findByLabelText('Buscar pelo nome do cliente'), { target: { value: 'marta' } })
@@ -216,7 +216,7 @@ function mostrarFiado() {
   render(<MemoryRouter><SessaoContext.Provider value={{
     identidade: { usuarioId: 'operador-1', nome: 'Ana', perfil: 'OPERADOR',
       contaId: 'conta-1', nomeNegocio: 'Loja', estoqueHabilitado: false },
-    entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(),
+    entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(), relerIdentidade: vi.fn(),
   }}><TelaDeFiado /></SessaoContext.Provider></MemoryRouter>)
 }
 

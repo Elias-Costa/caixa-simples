@@ -1,5 +1,6 @@
 import type { Cliente, DadosDoCliente, DadosDoProduto, Produto } from '../api/cadastro'
 import { SemConexao } from '../api/cliente'
+import { comServidor } from '../api/conexao'
 import { lerIdentidade } from '../sessao/armazenamento'
 import { paraBusca } from '../textoDeBusca'
 import {
@@ -30,6 +31,21 @@ type ProdutoLocal = Produto & { ativo: boolean }
 type ClienteLocal = Cliente & { ativo: boolean }
 const GESTOS_PRODUTO = 'produto.'
 const GESTOS_CLIENTE = 'cliente.'
+
+/**
+ * A escrita direta no servidor. Sem resposta, o aparelho passa a operar pela fila, e quem chamou
+ * grava o gesto: por isso volta nulo, e não a resposta. A criação perdida que tinha gravado deixa
+ * um registro repetido, que aparece na lista e se inativa; editar, inativar e reativar gravam um
+ * valor, e repetir não soma nada.
+ */
+async function noServidor<T>(chamar: () => Promise<T>): Promise<{ resposta: T } | null> {
+  try {
+    return { resposta: await chamar() }
+  } catch (falha) {
+    if (falha instanceof SemConexao) return null
+    throw falha
+  }
+}
 
 function exigirAdmin(): void {
   if (lerIdentidade()?.perfil !== 'ADMIN') throw new Error('Só ADMIN pode alterar produtos.')
@@ -244,7 +260,7 @@ export function criarCadastroLocal<T extends Remoto>(remoto: T): T {
     ...remoto,
     async produtos() {
       if (!('indexedDB' in globalThis)) return remoto.produtos()
-      if (navigator.onLine) {
+      if (comServidor()) {
         try {
           await lerProdutosDoServidor()
         } catch (falha) {
@@ -255,7 +271,7 @@ export function criarCadastroLocal<T extends Remoto>(remoto: T): T {
     },
     async produtosInativos() {
       if (!('indexedDB' in globalThis)) return remoto.produtosInativos()
-      if (navigator.onLine) {
+      if (comServidor()) {
         try {
           await lerProdutosDoServidor()
         } catch (falha) {
@@ -270,7 +286,7 @@ export function criarCadastroLocal<T extends Remoto>(remoto: T): T {
       // a edição que ainda não chegou ao servidor.
       const produtoPendente = (await listarGestos()).some((gesto) =>
         gesto.tipo.startsWith(GESTOS_PRODUTO) && gestoPendente(gesto))
-      if (navigator.onLine && !produtoPendente) {
+      if (comServidor() && !produtoPendente) {
         try {
           return await remoto.buscarProdutos(termo)
         } catch (falha) {
@@ -281,7 +297,7 @@ export function criarCadastroLocal<T extends Remoto>(remoto: T): T {
     },
     async clientes() {
       if (!('indexedDB' in globalThis)) return remoto.clientes()
-      if (navigator.onLine) {
+      if (comServidor()) {
         try {
           await lerClientesDoServidor()
         } catch (falha) {
@@ -292,7 +308,7 @@ export function criarCadastroLocal<T extends Remoto>(remoto: T): T {
     },
     async clientesInativos() {
       if (!('indexedDB' in globalThis)) return remoto.clientesInativos()
-      if (navigator.onLine) {
+      if (comServidor()) {
         try {
           await lerClientesDoServidor()
         } catch (falha) {
@@ -302,7 +318,10 @@ export function criarCadastroLocal<T extends Remoto>(remoto: T): T {
       return (await locaisClientes()).filter((cliente) => !cliente.ativo)
     },
     async criarProduto(dados) {
-      if (navigator.onLine) return remoto.criarProduto(dados)
+      if (comServidor()) {
+        const feito = await noServidor(() => remoto.criarProduto(dados))
+        if (feito) return feito.resposta
+      }
       exigirArmazenamento()
       exigirAdmin()
       validarProduto(dados)
@@ -314,10 +333,13 @@ export function criarCadastroLocal<T extends Remoto>(remoto: T): T {
       return { id }
     },
     async editarProduto(id, dados) {
-      if (navigator.onLine && !('indexedDB' in globalThis)) return remoto.editarProduto(id, dados)
+      if (comServidor() && !('indexedDB' in globalThis)) return remoto.editarProduto(id, dados)
       exigirArmazenamento()
       const { dependeDe, pendente } = await dependencias(GESTOS_PRODUTO, id)
-      if (navigator.onLine && !pendente) return remoto.editarProduto(id, dados)
+      if (comServidor() && !pendente) {
+        const feito = await noServidor(() => remoto.editarProduto(id, dados))
+        if (feito) return feito.resposta
+      }
       exigirAdmin()
       validarProduto(dados)
       const itens = await locaisProdutos()
@@ -330,20 +352,26 @@ export function criarCadastroLocal<T extends Remoto>(remoto: T): T {
       await enfileirar('produto.editar', id, camposDeEdicaoDoProduto(dados), dependeDe, versaoLida(atual))
     },
     async inativarProduto(id) {
-      if (navigator.onLine && !('indexedDB' in globalThis)) return remoto.inativarProduto(id)
+      if (comServidor() && !('indexedDB' in globalThis)) return remoto.inativarProduto(id)
       exigirArmazenamento()
       const { dependeDe, pendente } = await dependencias(GESTOS_PRODUTO, id)
-      if (navigator.onLine && !pendente) return remoto.inativarProduto(id)
+      if (comServidor() && !pendente) {
+        const feito = await noServidor(() => remoto.inativarProduto(id))
+        if (feito) return feito.resposta
+      }
       exigirAdmin()
       const atual = (await locaisProdutos()).find((item) => item.id === id)
       if (!atual) throw new Error('Item não encontrado no catálogo local.')
       await enfileirar('produto.inativar', id, {}, dependeDe, versaoLida(atual))
     },
     async reativarProduto(id) {
-      if (navigator.onLine && !('indexedDB' in globalThis)) return remoto.reativarProduto(id)
+      if (comServidor() && !('indexedDB' in globalThis)) return remoto.reativarProduto(id)
       exigirArmazenamento()
       const { dependeDe, pendente } = await dependencias(GESTOS_PRODUTO, id)
-      if (navigator.onLine && !pendente) return remoto.reativarProduto(id)
+      if (comServidor() && !pendente) {
+        const feito = await noServidor(() => remoto.reativarProduto(id))
+        if (feito) return feito.resposta
+      }
       exigirAdmin()
       const itens = await locaisProdutos()
       const atual = itens.find((item) => item.id === id)
@@ -358,7 +386,10 @@ export function criarCadastroLocal<T extends Remoto>(remoto: T): T {
       await enfileirar('produto.reativar', id, {}, dependeDe, versaoLida(atual))
     },
     async criarCliente(dados) {
-      if (navigator.onLine) return remoto.criarCliente(dados)
+      if (comServidor()) {
+        const feito = await noServidor(() => remoto.criarCliente(dados))
+        if (feito) return feito.resposta
+      }
       exigirArmazenamento()
       validarCliente(dados)
       const id = crypto.randomUUID()
@@ -366,35 +397,44 @@ export function criarCadastroLocal<T extends Remoto>(remoto: T): T {
       return { id }
     },
     async editarCliente(id, dados) {
-      if (navigator.onLine && !('indexedDB' in globalThis)) return remoto.editarCliente(id, dados)
+      if (comServidor() && !('indexedDB' in globalThis)) return remoto.editarCliente(id, dados)
       exigirArmazenamento()
       const { dependeDe, pendente } = await dependencias(GESTOS_CLIENTE, id)
-      if (navigator.onLine && !pendente) return remoto.editarCliente(id, dados)
+      if (comServidor() && !pendente) {
+        const feito = await noServidor(() => remoto.editarCliente(id, dados))
+        if (feito) return feito.resposta
+      }
       validarCliente(dados)
       const atual = (await locaisClientes()).find((item) => item.id === id && item.ativo)
       if (!atual) throw new Error('Cliente ativo não encontrado no cadastro local.')
       await enfileirar('cliente.editar', id, camposDoCliente(dados), dependeDe, versaoLida(atual))
     },
     async inativarCliente(id) {
-      if (navigator.onLine && !('indexedDB' in globalThis)) return remoto.inativarCliente(id)
+      if (comServidor() && !('indexedDB' in globalThis)) return remoto.inativarCliente(id)
       exigirArmazenamento()
       const { dependeDe, pendente } = await dependencias(GESTOS_CLIENTE, id)
-      if (navigator.onLine && !pendente) return remoto.inativarCliente(id)
+      if (comServidor() && !pendente) {
+        const feito = await noServidor(() => remoto.inativarCliente(id))
+        if (feito) return feito.resposta
+      }
       const atual = (await locaisClientes()).find((item) => item.id === id)
       if (!atual) throw new Error('Cliente não encontrado no cadastro local.')
       await enfileirar('cliente.inativar', id, {}, dependeDe, versaoLida(atual))
     },
     async reativarCliente(id) {
-      if (navigator.onLine && !('indexedDB' in globalThis)) return remoto.reativarCliente(id)
+      if (comServidor() && !('indexedDB' in globalThis)) return remoto.reativarCliente(id)
       exigirArmazenamento()
       const { dependeDe, pendente } = await dependencias(GESTOS_CLIENTE, id)
-      if (navigator.onLine && !pendente) return remoto.reativarCliente(id)
+      if (comServidor() && !pendente) {
+        const feito = await noServidor(() => remoto.reativarCliente(id))
+        if (feito) return feito.resposta
+      }
       const atual = (await locaisClientes()).find((item) => item.id === id)
       if (!atual) throw new Error('Cliente não encontrado no cadastro local.')
       await enfileirar('cliente.reativar', id, {}, dependeDe, versaoLida(atual))
     },
     async removerCliente(id) {
-      if (!navigator.onLine) throw new Error('Entre online para remover um Cliente.')
+      if (!comServidor()) throw new Error('Entre online para remover um Cliente.')
       if (lerIdentidade()?.perfil !== 'ADMIN') throw new Error('Só ADMIN pode remover Cliente.')
       await remoto.removerCliente(id)
       if ('indexedDB' in globalThis) await guardarClienteRemovido(id)

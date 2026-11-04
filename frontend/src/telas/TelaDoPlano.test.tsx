@@ -61,7 +61,7 @@ const pedirCompleto = /^Pedir o Completo \(R\$\s70,00 por mês\)$/
 function ComSessao() {
   const [identidade, atualizarIdentidade] = useState(admin)
   return <SessaoContext.Provider value={{
-    identidade, entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade,
+    identidade, entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade, relerIdentidade: vi.fn(),
   }}>
     <p>Menu: {itensDoMenu(identidade).map((item) => item.rotulo).join(', ')}</p>
     <TelaDoPlano />

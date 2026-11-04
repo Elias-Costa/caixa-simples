@@ -30,7 +30,7 @@ function mostrar(perfil: Perfil) {
     enviarAgora: vi.fn(), atualizar: vi.fn() }
   render(
     <SessaoContext.Provider value={{ identidade: identidade(perfil), entrar: vi.fn(), sair: vi.fn(),
-      atualizarIdentidade: vi.fn() }}>
+      atualizarIdentidade: vi.fn(), relerIdentidade: vi.fn() }}>
       <SincronizacaoContext.Provider value={estado}><TelaDeSincronizacao /></SincronizacaoContext.Provider>
     </SessaoContext.Provider>,
   )

@@ -26,6 +26,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -494,6 +495,105 @@ class SessaoCaixaServiceTest extends TesteDeIntegracao {
         });
         assertThatExceptionOfType(AcessoNegadoException.class).isThrownBy(() ->
                 atendente.comoUsuario(() -> sessoesDeCaixa.abertasDaConta()));
+    }
+
+    @Test
+    @DisplayName("a abertura repetida com o mesmo id do mesmo operador é a mesma, aberta ou já fechada")
+    void aberturaComOMesmoIdEAMesma() {
+        ContaCriada conta = criador.criar("Padaria do Largo", SENHA_DE_TESTE);
+        UUID id = UUID.randomUUID();
+
+        conta.comoUsuario(() -> sessoesDeCaixa.abrir(id, Money.de("40.00"), Instant.now()));
+        // A repetição é a abertura com rede cuja resposta se perdeu, guardada na fila com o mesmo
+        // id: recusá-la como segundo caixa levaria junto as vendas feitas nela.
+        assertThat(conta.comoUsuario(() ->
+                sessoesDeCaixa.abrir(id, Money.de("40.00"), Instant.now()))).isEqualTo(id);
+        conta.comoUsuario(() -> sessoesDeCaixa.fechar(id, Money.de("40.00")));
+        assertThat(conta.comoUsuario(() ->
+                sessoesDeCaixa.abrir(id, Money.de("40.00"), Instant.now()))).isEqualTo(id);
+
+        conta.comoUsuario(() -> {
+            assertThat(sessoes.findById(id).orElseThrow().paraDominio().getStatus())
+                    .as("repetir a abertura não reabre o caixa fechado")
+                    .isEqualTo(StatusSessaoCaixa.FECHADA);
+            assertThat(sessoesDeCaixa.abertaDoOperadorAtual()).isEmpty();
+        });
+    }
+
+    @Test
+    @DisplayName("o mesmo id com outro valor ou de outro operador é recusado sem mexer no caixa")
+    void aberturaComOMesmoIdEOutroConteudoERecusada() {
+        ContaCriada conta = criador.criar("Feira do Sabado", SENHA_DE_TESTE);
+        UsuarioCriado colega = criador.criarOperadorEm(conta.contaId(), "Atendente da feira");
+        UUID id = UUID.randomUUID();
+        conta.comoUsuario(() -> sessoesDeCaixa.abrir(id, Money.de("40.00"), Instant.now()));
+
+        assertThatIllegalStateException().isThrownBy(() -> conta.comoUsuario(() ->
+                sessoesDeCaixa.abrir(id, Money.de("41.00"), Instant.now())));
+        assertThatIllegalStateException().isThrownBy(() -> colega.comoUsuario(() ->
+                sessoesDeCaixa.abrir(id, Money.de("40.00"), Instant.now())));
+
+        conta.comoUsuario(() -> assertThat(sessoes.findById(id).orElseThrow().paraDominio()
+                .getValorAbertura()).isEqualTo(Money.de("40.00")));
+    }
+
+    @Test
+    @DisplayName("a conta B não abre caixa com o id de um caixa da conta A")
+    void aberturaComOIdDeOutraContaEsbarraNaChave() {
+        ContaCriada contaA = criador.criar("Armarinho A", SENHA_DE_TESTE);
+        ContaCriada contaB = criador.criar("Armarinho B", SENHA_DE_TESTE);
+        UUID id = UUID.randomUUID();
+        contaA.comoUsuario(() -> sessoesDeCaixa.abrir(id, Money.de("70.00"), Instant.now()));
+
+        // O filtro da Conta não deixa a B achar o caixa da A como o mesmo; a chave primária recusa.
+        assertThatExceptionOfType(DataIntegrityViolationException.class).isThrownBy(() ->
+                contaB.comoUsuario(() -> sessoesDeCaixa.abrir(id, Money.de("70.00"), Instant.now())));
+        assertThat(contaB.comoUsuario(() -> sessoesDeCaixa.abertaDoOperadorAtual())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a sangria com rede repetida pelo gesto com o mesmo id do movimento conta uma vez")
+    void movimentoComIdRepetidoPeloGestoContaUmaVez() {
+        ContaCriada conta = criador.criar("Sorveteria Aurora", SENHA_DE_TESTE);
+        UUID sessaoId = conta.comoUsuario(() -> sessoesDeCaixa.abrir(Money.de("100.00")));
+        UUID sangria = UUID.randomUUID();
+        UUID suprimento = UUID.randomUUID();
+
+        conta.comoUsuario(() -> sessoesDeCaixa.registrarSangriaOnline(sessaoId, sangria,
+                Money.de("30.00"), "Deposito"));
+        conta.comoUsuario(() -> sessoesDeCaixa.registrarSuprimentoOnline(sessaoId, suprimento,
+                Money.de("5.00"), "Troco"));
+        // O gesto da fila, com o instante do balcão: a chamada com rede tinha gravado.
+        conta.comoUsuario(() -> sessoesDeCaixa.registrarSangria(sessaoId, sangria,
+                Money.de("30.00"), " Deposito ", Instant.now()));
+        conta.comoUsuario(() -> sessoesDeCaixa.registrarSuprimento(sessaoId, suprimento,
+                Money.de("5.00"), "Troco", Instant.now()));
+        assertThatIllegalStateException().isThrownBy(() -> conta.comoUsuario(() ->
+                sessoesDeCaixa.registrarSangria(sessaoId, sangria, Money.de("31.00"), "Deposito",
+                        Instant.now())));
+
+        conta.comoUsuario(() -> {
+            SessaoCaixa gravada = sessoes.findById(sessaoId).orElseThrow().paraDominio();
+            assertThat(gravada.getMovimentos()).extracting(MovimentoCaixa::id)
+                    .containsExactlyInAnyOrder(sangria, suprimento);
+            assertThat(gravada.getValorFechamentoEsperado()).isEqualTo(Money.de("75.00"));
+        });
+    }
+
+    @Test
+    @DisplayName("o gesto com o id do movimento grava o movimento novo com esse id e o instante do balcão")
+    void movimentoNovoDoGestoLevaOIdEOInstante() {
+        ContaCriada conta = criador.criar("Banca Aurora", SENHA_DE_TESTE);
+        UUID sessaoId = conta.comoUsuario(() -> sessoesDeCaixa.abrir(Money.de("50.00")));
+        UUID sangria = UUID.randomUUID();
+        Instant noBalcao = Instant.now().minusSeconds(600).truncatedTo(ChronoUnit.MILLIS);
+
+        conta.comoUsuario(() -> sessoesDeCaixa.registrarSangria(sessaoId, sangria,
+                Money.de("20.00"), "Deposito", noBalcao));
+
+        conta.comoUsuario(() -> assertThat(sessoes.findById(sessaoId).orElseThrow().paraDominio()
+                .getMovimentos()).extracting(MovimentoCaixa::id, MovimentoCaixa::criadoEm)
+                .containsExactly(tuple(sangria, noBalcao)));
     }
 
     private static Instant instanteLocal(LocalDate dia, LocalTime hora) {
