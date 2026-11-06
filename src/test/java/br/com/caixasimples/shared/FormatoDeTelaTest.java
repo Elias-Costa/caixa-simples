@@ -3,6 +3,7 @@ package br.com.caixasimples.shared;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDate;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -32,5 +33,23 @@ class FormatoDeTelaTest {
     @DisplayName("data com dia, mês e ano, como o balcão escreve")
     void dataComoOBalcaoEscreve() {
         assertThat(FormatoDeTela.data(LocalDate.of(2026, 10, 3))).isEqualTo("03/10/2026");
+    }
+
+    @Test
+    @DisplayName("intervalo arredondado ao minuto, nas duas maiores unidades, com singular e plural")
+    void intervaloComoSeDizNoBalcao() {
+        assertThat(FormatoDeTela.duracao(Duration.ofMinutes(10).minusMillis(40)))
+                .as("o relógio dez minutos adiantado chega uns milissegundos abaixo")
+                .isEqualTo("10 minutos");
+        assertThat(FormatoDeTela.duracao(Duration.ofSeconds(7 * 60 + 29))).isEqualTo("7 minutos");
+        assertThat(FormatoDeTela.duracao(Duration.ofSeconds(7 * 60 + 30))).isEqualTo("8 minutos");
+        assertThat(FormatoDeTela.duracao(Duration.ofMinutes(1))).isEqualTo("1 minuto");
+        assertThat(FormatoDeTela.duracao(Duration.ofMinutes(60))).isEqualTo("1 hora");
+        assertThat(FormatoDeTela.duracao(Duration.ofMinutes(65))).isEqualTo("1 hora e 5 minutos");
+        assertThat(FormatoDeTela.duracao(Duration.ofMinutes(121))).isEqualTo("2 horas e 1 minuto");
+        assertThat(FormatoDeTela.duracao(Duration.ofHours(24))).isEqualTo("1 dia");
+        assertThat(FormatoDeTela.duracao(Duration.ofHours(51).plusMinutes(40)))
+                .as("com dias, os minutos ficam de fora").isEqualTo("2 dias e 3 horas");
+        assertThat(FormatoDeTela.duracao(Duration.ofDays(365).minusMillis(5))).isEqualTo("365 dias");
     }
 }

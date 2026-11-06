@@ -7,8 +7,10 @@ import { ErroDaApi } from '../api/cliente'
 import { registrarSemResposta } from '../api/conexao'
 import { fiado } from '../api/fiado'
 import { vendas, type Comprovante, type Venda } from '../api/vendas'
+import type { VendaDaFila } from '../offline/registrosDaFila'
 import { SessaoContext } from '../sessao/contexto'
 import type { Identidade } from '../sessao/Identidade'
+import { SincronizacaoContext, type Sincronizacao } from '../shell/sincronizacao'
 import { confirmacaoAberta, responderConfirmacao } from './confirmacaoDeTeste'
 import { TelaDeVenda } from './TelaDeVenda'
 
@@ -50,6 +52,111 @@ function mostrar(perfil: 'ADMIN' | 'OPERADOR' = 'OPERADOR', extra: Partial<Ident
     entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(), relerIdentidade: vi.fn(),
   }}><TelaDeVenda /></SessaoContext.Provider></MemoryRouter>)
 }
+
+describe('venda feita sem rede e recusada na volta', () => {
+  const recusada: VendaDaFila = {
+    vendaId: comanda.id, criadoEm: comanda.criadoEm, totalCentavos: 1250, formas: [], dinheiroCentavos: 0,
+    situacao: 'recusada', recusadaNoInicio: false, conferida: false,
+    motivo: 'O cliente estava inativo quando a venda chegou ao servidor, e a venda ficou aberta, sem cliente.'
+      + ' Reative o cliente em Clientes e vincule-o de novo à venda.',
+  }
+  const contexto = (parcial: Partial<Sincronizacao>): Sincronizacao => ({
+    enviando: false, porEnviar: 0, comFalha: 0, emRevisao: 0, vendasRecusadas: [], rodada: 0,
+    enviarAgora: vi.fn(), atualizar: vi.fn(), ...parcial,
+  })
+  const tela = (sincronizacao: Sincronizacao) => <MemoryRouter><SessaoContext.Provider value={{
+    identidade: { usuarioId: 'usuario-1', nome: 'Ana', perfil: 'OPERADOR', contaId: 'conta-1',
+      nomeNegocio: 'Loja da Esquina', estoqueHabilitado: false },
+    entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(), relerIdentidade: vi.fn(),
+  }}><SincronizacaoContext.Provider value={sincronizacao}><TelaDeVenda /></SincronizacaoContext.Provider>
+  </SessaoContext.Provider></MemoryRouter>
+
+  function comUmaVendaNaLista(venda: Venda = comanda) {
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([{ id: venda.id, sessaoCaixaId: venda.sessaoCaixaId,
+      usuarioId: venda.usuarioId, status: venda.status, total: venda.total, criadoEm: venda.criadoEm }])
+    vi.spyOn(vendas, 'consultar').mockResolvedValue(venda)
+  }
+
+  it('a comanda da venda que voltou aberta diz por que voltou', async () => {
+    comUmaVendaNaLista()
+    render(tela(contexto({ vendasRecusadas: [recusada] })))
+
+    fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
+
+    const frase = await screen.findByText(/^Feita sem rede, esta venda não foi concluída no servidor\./)
+    expect(frase).toHaveTextContent(recusada.motivo ?? '')
+    expect(frase).toHaveClass('mensagem-alerta')
+  })
+
+  it('a venda conferida continua aberta, e a comanda continua dizendo por que voltou', async () => {
+    comUmaVendaNaLista()
+    render(tela(contexto({ vendasRecusadas: [{ ...recusada, conferida: true }] })))
+
+    fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
+
+    expect(await screen.findByText(/^Feita sem rede, esta venda não foi concluída no servidor\./)).toBeInTheDocument()
+  })
+
+  it('a comanda de outra venda e a venda que não está aberta seguem como eram', async () => {
+    comUmaVendaNaLista()
+    const { unmount } = render(tela(contexto({ vendasRecusadas: [{ ...recusada, vendaId: 'outra-venda' }] })))
+    fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
+    expect(await screen.findByText(/Venda venda-1/)).toBeInTheDocument()
+    expect(screen.queryByText(/Feita sem rede/)).not.toBeInTheDocument()
+    unmount()
+
+    vi.restoreAllMocks()
+    vi.spyOn(vendas, 'conciliacoesPix').mockResolvedValue([])
+    vi.spyOn(cadastro, 'clientes').mockResolvedValue([])
+    comUmaVendaNaLista({ ...comanda, status: 'CANCELADA' })
+    render(tela(contexto({ vendasRecusadas: [recusada] })))
+    fireEvent.click(await screen.findByRole('button', { name: /Cancelada/ }))
+    expect(await screen.findByText(/Venda venda-1/)).toBeInTheDocument()
+    expect(screen.queryByText(/Feita sem rede/)).not.toBeInTheDocument()
+  })
+
+  it('a comanda da venda que o servidor recusou no início fecha, sem ficar aguardando a sincronização', async () => {
+    comUmaVendaNaLista({ ...comanda, pendenteSincronizacao: true })
+    const { rerender } = render(tela(contexto({})))
+    fireEvent.click(await screen.findByRole('button', { name: /Aberta/ }))
+    expect(await screen.findByText('Registrada neste aparelho. Aguardando sincronização com o servidor.'))
+      .toBeInTheDocument()
+    vi.spyOn(vendas, 'consultar').mockRejectedValue(
+      new ErroDaApi(404, 'Não encontrado', 'Venda não encontrada nesta Conta.', {}))
+
+    rerender(tela(contexto({ rodada: 1, vendasRecusadas: [{ ...recusada, recusadaNoInicio: true }] })))
+
+    expect(await screen.findByText('Busque e escolha o primeiro produto para iniciar.')).toBeInTheDocument()
+    expect(screen.queryByText(/Aguardando sincronização/)).not.toBeInTheDocument()
+    expect(document.activeElement).toBe(screen.getByLabelText('Produto por nome ou código'))
+  })
+
+  it('outra falha na releitura deixa a comanda como está', async () => {
+    comUmaVendaNaLista({ ...comanda, pendenteSincronizacao: true })
+    const { rerender } = render(tela(contexto({})))
+    fireEvent.click(await screen.findByRole('button', { name: /Aberta/ }))
+    expect(await screen.findByText(/Aguardando sincronização/)).toBeInTheDocument()
+    vi.spyOn(vendas, 'consultar').mockRejectedValue(new ErroDaApi(500, 'Erro', undefined, {}))
+
+    rerender(tela(contexto({ rodada: 1 })))
+
+    await waitFor(() => expect(vendas.consultar).toHaveBeenCalledTimes(1))
+    expect(await screen.findByText(/Aguardando sincronização/)).toBeInTheDocument()
+  })
+
+  it('conferida a última venda da faixa, o foco volta à busca, onde o leitor de código escreve', async () => {
+    comUmaVendaNaLista()
+    const { rerender } = render(tela(contexto({ vendasRecusadas: [recusada] })))
+    const busca = await screen.findByLabelText('Produto por nome ou código')
+    busca.blur()
+    expect(document.activeElement).not.toBe(busca)
+
+    rerender(tela(contexto({ vendasRecusadas: [{ ...recusada, conferida: true }] })))
+
+    await waitFor(() => expect(document.activeElement).toBe(busca))
+  })
+})
 
 describe('PDV no tablet', () => {
   it('mostra ao ADMIN o Pix tardio que exige conciliação', async () => {

@@ -54,6 +54,11 @@ class GestosDoCaixa implements AplicadorDeOperacoes {
     }
 
     @Override
+    public String recusaEmCascata(String tipo) {
+        return "O caixa parou no passo anterior, que foi recusado.";
+    }
+
+    @Override
     public Aplicacao aplicar(OperacaoRecebida operacao) {
         UUID id = operacao.registroId();
         Instant gravadoEm;

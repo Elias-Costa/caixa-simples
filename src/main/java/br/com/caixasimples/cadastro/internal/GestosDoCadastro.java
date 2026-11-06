@@ -56,6 +56,13 @@ class GestosDoCadastro implements AplicadorDeOperacoes {
     }
 
     @Override
+    public String recusaEmCascata(String tipo) {
+        return tipo.startsWith("produto.")
+                ? "O cadastro do produto parou no passo anterior, que foi recusado."
+                : "O cadastro do cliente parou no passo anterior, que foi recusado.";
+    }
+
+    @Override
     public Aplicacao aplicar(OperacaoRecebida operacao) {
         UUID id = operacao.registroId();
         try {

@@ -64,11 +64,19 @@ class SincronizacaoController {
     record RespostaDoLote(List<ResultadoNaResposta> resultados) {
     }
 
-    record ResultadoNaResposta(UUID operacaoId, String resultado, Long versao, String detalhe) {
+    /**
+     * O resultado de uma operação. Os tipos da revisão vêm só na revisão que os tem, e faltam nos
+     * outros resultados: o aparelho que não os conhece lê os mesmos campos de sempre.
+     */
+    record ResultadoNaResposta(UUID operacaoId, String resultado, Long versao, String detalhe,
+            List<String> tiposDaRevisao) {
 
         static ResultadoNaResposta de(ResultadoDaOperacao resultado) {
+            // Nulo sai da resposta, porque a aplicação escreve JSON sem os campos nulos.
+            List<String> tipos = resultado.tiposDaRevisao().isEmpty() ? null
+                    : resultado.tiposDaRevisao().stream().map(Enum::name).toList();
             return new ResultadoNaResposta(resultado.operacaoId(), resultado.resultado().name(),
-                    resultado.versao(), resultado.detalhe());
+                    resultado.versao(), resultado.detalhe(), tipos);
         }
     }
 }

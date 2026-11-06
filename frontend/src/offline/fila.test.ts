@@ -5,7 +5,7 @@ import { gravarIdentidade, gravarToken, lerIdentidade, limparSessao } from '../s
 import type { Identidade } from '../sessao/Identidade'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
 import {
-  apagarDadosDoAparelho, atualizarRetratoDoCaixa, conferirGesto, contarGestosSemResultado, enfileirarGesto,
+  aoMudarFila, apagarDadosDoAparelho, atualizarRetratoDoCaixa, conferirGesto, conferirRegistro, contarGestosSemResultado, enfileirarGesto,
   guardarRetrato, guardarRetratoDaVenda, guardarRetratos, iniciarEnvio, jaEstaNoRetrato, lerCaixaNoAparelho, lerDoServidor,
   lerRetrato, listarGestos, mudarEstadoDoGesto, recuperarEnviosInterrompidos, registrarDesfechos,
   SessaoAbertaNoAparelho, type GestoNaFila,
@@ -123,6 +123,59 @@ describe('fila local de gestos', () => {
     expect((await listarGestos()).map((gesto) => gesto.operacaoId).sort()).toEqual([
       emRevisao.conclusao.operacaoId, semResultado.operacaoId, comFalha.operacaoId,
     ].sort())
+  })
+
+  it('a Venda com gesto recusado guarda os enviados, que dizem a hora e o valor dela', async () => {
+    entrar(ana)
+    const recusada = await vendaConcluida('00000000-0000-4000-8000-000000000035')
+    await iniciarEnvio([recusada.inicio.operacaoId, recusada.conclusao.operacaoId])
+    await registrarDesfechos([
+      { operacaoId: recusada.inicio.operacaoId, estado: 'sent', resultado: { aplicada: true } },
+      { operacaoId: recusada.conclusao.operacaoId, estado: 'needs_review',
+        resultado: { aplicada: false, detalhe: 'Esta venda já está cancelada.' } },
+    ])
+
+    await guardarRetratoDaVenda(recusada.inicio.registroId, { id: recusada.inicio.registroId })
+    await caixaLido(10)
+
+    expect((await listarGestos()).map((gesto) => gesto.operacaoId).sort())
+      .toEqual([recusada.inicio.operacaoId, recusada.conclusao.operacaoId].sort())
+  })
+
+  it('confere de uma vez o que está em revisão no registro, sem tocar nos outros, e avisa quem conta', async () => {
+    entrar(ana)
+    const venda = await vendaConcluida('00000000-0000-4000-8000-000000000036')
+    const outra = await vendaConcluida('00000000-0000-4000-8000-000000000037')
+    const gestos = [venda.inicio, venda.conclusao, outra.inicio, outra.conclusao]
+    await iniciarEnvio(gestos.map((gesto) => gesto.operacaoId))
+    await registrarDesfechos([
+      { operacaoId: venda.inicio.operacaoId, estado: 'sent', resultado: { aplicada: true } },
+      { operacaoId: venda.conclusao.operacaoId, estado: 'needs_review', resultado: { aplicada: false } },
+      { operacaoId: outra.inicio.operacaoId, estado: 'sent', resultado: { aplicada: true } },
+      { operacaoId: outra.conclusao.operacaoId, estado: 'needs_review', resultado: { aplicada: false } },
+    ])
+    const mudancas: string[] = []
+    const parar = aoMudarFila((mudanca) => mudancas.push(mudanca))
+
+    await conferirRegistro(venda.inicio.registroId)
+    parar()
+
+    const porId = new Map((await listarGestos()).map((gesto) => [gesto.operacaoId, gesto]))
+    const conferidoEm = porId.get(venda.conclusao.operacaoId)?.conferidoEm
+    expect(conferidoEm).toEqual(expect.any(String))
+    expect(porId.get(venda.conclusao.operacaoId)?.estado).toBe('needs_review')
+    expect(porId.get(venda.inicio.operacaoId)?.conferidoEm).toBeUndefined()
+    expect(porId.get(outra.conclusao.operacaoId)?.conferidoEm).toBeUndefined()
+    expect(mudancas).toEqual(['conferencia'])
+
+    // Conferir de novo mantém a primeira vez, e não há o que avisar.
+    const denovo: string[] = []
+    const pararDeNovo = aoMudarFila((mudanca) => denovo.push(mudanca))
+    await conferirRegistro(venda.inicio.registroId)
+    pararDeNovo()
+    expect((await listarGestos()).find((gesto) => gesto.operacaoId === venda.conclusao.operacaoId)?.conferidoEm)
+      .toBe(conferidoEm)
+    expect(denovo).toEqual([])
   })
 
   it('o descarte de outra Conta ou de outro usuário não toca os gestos enviados da Ana', async () => {

@@ -206,7 +206,7 @@ public class VendaService {
      *         não existe nesta conta
      * @throws br.com.caixasimples.shared.AcessoNegadoException se a sessão é de outro operador e
      *         quem chama não é ADMIN
-     * @throws IllegalStateException se a sessão não está ABERTA
+     * @throws CaixaFechadoParaVendaNovaException se a sessão não está ABERTA
      */
     @Transactional
     public UUID iniciar(UUID sessaoCaixaId) {
@@ -226,8 +226,7 @@ public class VendaService {
         UUID usuarioId = UsuarioContext.exigirAtual().usuarioId();
 
         if (!caixa.estaAberto(sessaoCaixaId)) {
-            throw new IllegalStateException(
-                    "Este caixa já foi fechado e não aceita venda nova; abra um caixa antes de vender.");
+            throw new CaixaFechadoParaVendaNovaException();
         }
         if (vendas.existsById(vendaId)) {
             throw new IllegalStateException(

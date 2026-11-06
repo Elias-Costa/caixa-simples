@@ -517,6 +517,11 @@ textarea:disabled {
   background: var(--cor-alerta-fundo);
 }
 
+/* A frase longa, ao lado do botão, ficava com oito linhas no celular e empurrava a busca do PDV: com
+   pouca largura, o botão desce para baixo do texto. */
+.faixa--longa { flex-wrap: wrap; }
+.faixa--longa > span { flex: 1 1 18rem; }
+
 /* No celular, os cinco itens do balcão e o Mais numa grade de três colunas, em duas linhas: numa
    linha só não cabem, e a rolagem lateral escondia itens sem aviso. Os outros ficam presos ao Mais. */
 .navegacao {

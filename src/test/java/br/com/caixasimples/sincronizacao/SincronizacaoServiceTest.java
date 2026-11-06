@@ -8,10 +8,12 @@ import static br.com.caixasimples.sincronizacao.GestoDeTeste.item;
 import static br.com.caixasimples.sincronizacao.GestoDeTeste.parcelaNoCartao;
 import static br.com.caixasimples.sincronizacao.GestoDeTeste.sangria;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import br.com.caixasimples.TesteDeIntegracao;
 import br.com.caixasimples.cadastro.TipoProduto;
 import br.com.caixasimples.cadastro.internal.ClienteService;
+import br.com.caixasimples.cadastro.internal.ClienteService.DadosDoCliente;
 import br.com.caixasimples.cadastro.application.CatalogoInicialService;
 import br.com.caixasimples.cadastro.application.ProdutoService;
 import br.com.caixasimples.cadastro.application.ProdutoService.DadosDoProduto;
@@ -264,9 +266,104 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
 
         assertThat(resultados).extracting(ResultadoDaOperacao::resultado)
                 .containsOnly(Resultado.NAO_APLICADA);
-        assertThat(resultados.get(0).detalhe()).contains("já foi fechado");
-        assertThat(resultados.get(1).detalhe()).contains("gesto anterior deste mesmo registro");
+        assertThat(resultados.get(0).detalhe()).as("a venda já aconteceu: a saída não é abrir um caixa")
+                .isEqualTo("O caixa foi fechado antes de esta venda chegar ao servidor, e ela não foi"
+                        + " registrada. O administrador decide o que fazer com ela.");
+        assertThat(resultados.subList(1, 4)).extracting(ResultadoDaOperacao::detalhe)
+                .containsOnly("A venda parou no passo anterior, que foi recusado.");
         conta.comoUsuario(() -> assertThat(linhasDeVenda.findById(vendaId)).isEmpty());
+    }
+
+    @Test
+    @DisplayName("com rede, a venda nova no caixa fechado continua com a frase de quem ainda vai vender")
+    void vendaNovaComRedeNoCaixaFechado() {
+        ContaCriada conta = criador.criar("Mercearia da Esquina", SENHA);
+        UUID sessaoId = conta.comoUsuario(() -> sessoes.abrir(Money.ZERO));
+        conta.comoUsuario(() -> sessoes.fechar(sessaoId, Money.ZERO));
+
+        assertThatThrownBy(() -> conta.comoUsuario(() -> vendas.iniciar(sessaoId)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Este caixa já foi fechado e não aceita venda nova; abra um caixa antes"
+                        + " de vender.");
+    }
+
+    @Test
+    @DisplayName("cliente inativado antes de a venda fiada chegar: a venda fica aberta, sem cliente, e o lote diz como sair")
+    void clienteInativoPeloLote() {
+        ContaCriada conta = criador.criar("Doceria Aurora", SENHA);
+        UUID produtoId = cadastrar(conta, "Torta", "10.00");
+        UUID clienteId = conta.comoUsuario(() -> clientes.cadastrar(new DadosDoCliente("Benedita", null)));
+        conta.comoUsuario(() -> clientes.inativar(clienteId));
+        UUID sessaoId = conta.comoUsuario(() -> sessoes.abrir(Money.ZERO));
+        UUID vendaId = UUID.randomUUID();
+        GestoDeTeste inicio = inicio(vendaId, sessaoId);
+        GestoDeTeste item = item(vendaId, UUID.randomUUID(), produtoId, "1", "10.00", inicio);
+        GestoDeTeste vinculo = GestoDeTeste.de("venda.vincularCliente", vendaId,
+                conteudo("clienteId", clienteId), item);
+        GestoDeTeste fiado = GestoDeTeste.de("venda.registrarPagamento", vendaId,
+                conteudo("pagamentoId", UUID.randomUUID(), "forma", "FIADO",
+                        "valor", new BigDecimal("10.00"), "valorRecebido", null), vinculo);
+        GestoDeTeste conclusao = conclusao(vendaId, fiado);
+
+        List<ResultadoDaOperacao> resultados = conta.comoUsuario(() -> sincronizacao.sincronizar(
+                recebidas(List.of(inicio, item, vinculo, fiado, conclusao))));
+
+        assertThat(resultados).extracting(ResultadoDaOperacao::resultado).containsExactly(
+                Resultado.APLICADA, Resultado.APLICADA, Resultado.NAO_APLICADA,
+                Resultado.NAO_APLICADA, Resultado.NAO_APLICADA);
+        assertThat(resultados.get(2).detalhe()).as("sem o nome, que o lote guardaria depois da remoção")
+                .isEqualTo("O cliente estava inativo quando a venda chegou ao servidor, e a venda"
+                        + " ficou aberta, sem cliente. Reative o cliente em Clientes e vincule-o de"
+                        + " novo à venda.");
+        assertThat(resultados.subList(3, 5)).extracting(ResultadoDaOperacao::detalhe)
+                .containsOnly("A venda parou no passo anterior, que foi recusado.");
+        conta.comoUsuario(() -> {
+            Venda venda = linhasDeVenda.findById(vendaId).orElseThrow().paraDominio();
+            assertThat(venda.getStatus()).isEqualTo(StatusVenda.ABERTA);
+            assertThat(venda.getClienteId()).isNull();
+        });
+    }
+
+    @Test
+    @DisplayName("abertura recusada: a sangria do mesmo caixa para junto, com a frase do caixa")
+    void cascataNoCaixa() {
+        ContaCriada conta = criador.criar("Papelaria da Esquina", SENHA);
+        conta.comoUsuario(() -> sessoes.abrir(Money.ZERO));
+        UUID outraSessao = UUID.randomUUID();
+        GestoDeTeste abertura = abertura(outraSessao, "20.00");
+        GestoDeTeste retirada = sangria(outraSessao, "5.00", abertura).comVersaoBase(0);
+
+        List<ResultadoDaOperacao> resultados = conta.comoUsuario(() ->
+                sincronizacao.sincronizar(recebidas(List.of(abertura, retirada))));
+
+        assertThat(resultados).extracting(ResultadoDaOperacao::resultado)
+                .containsOnly(Resultado.NAO_APLICADA);
+        assertThat(resultados.get(1).detalhe())
+                .isEqualTo("O caixa parou no passo anterior, que foi recusado.");
+    }
+
+    @Test
+    @DisplayName("cadastro de produto recusado: a edição do mesmo produto para junto, com a frase do cadastro")
+    void cascataNoCadastro() {
+        ContaCriada conta = criador.criar("Ferragem Aurora", SENHA);
+        conta.comoUsuario(() -> produtos.cadastrar(TipoProduto.PRODUTO,
+                new DadosDoProduto("Prego", Money.de("1.00"), "P-1", null, "un", Map.of())));
+        UUID produtoId = UUID.randomUUID();
+        GestoDeTeste criacao = GestoDeTeste.de("produto.criar", produtoId, conteudo("tipo", "PRODUTO",
+                "nome", "Parafuso", "preco", new BigDecimal("2.00"), "codigo", "P-1",
+                "categoria", null, "unidade", "un", "atributos", Map.of()));
+        GestoDeTeste edicao = GestoDeTeste.de("produto.editar", produtoId, conteudo("nome",
+                "Parafuso longo", "preco", new BigDecimal("2.50"), "codigo", "P-1",
+                "categoria", null, "unidade", "un", "atributos", Map.of()), criacao)
+                .comVersaoBase(0);
+
+        List<ResultadoDaOperacao> resultados = conta.comoUsuario(() ->
+                sincronizacao.sincronizar(recebidas(List.of(criacao, edicao))));
+
+        assertThat(resultados).extracting(ResultadoDaOperacao::resultado)
+                .containsOnly(Resultado.NAO_APLICADA);
+        assertThat(resultados.get(1).detalhe())
+                .isEqualTo("O cadastro do produto parou no passo anterior, que foi recusado.");
     }
 
     @Test
@@ -362,6 +459,8 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
 
         assertThat(resultados.get(1).resultado()).isEqualTo(Resultado.APLICADA_COM_REVISAO);
         assertThat(resultados.get(1).detalhe()).contains("R$ 8,50").contains("R$ 10,00");
+        assertThat(resultados.get(1).tiposDaRevisao()).containsExactly(TipoDeRevisao.PRECO_DIFERENTE);
+        assertThat(resultados.get(0).tiposDaRevisao()).isEmpty();
         conta.comoUsuario(() -> {
             Venda venda = linhasDeVenda.findById(vendaId).orElseThrow().paraDominio();
             assertThat(venda.getItens()).extracting(ItemVenda::precoUnitario)
@@ -437,7 +536,11 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
                 sincronizacao.sincronizar(recebidas(List.of(longe, perto))));
 
         assertThat(resultados.get(0).resultado()).isEqualTo(Resultado.APLICADA_COM_REVISAO);
-        assertThat(resultados.get(0).detalhe()).contains("relógio do aparelho");
+        assertThat(resultados.get(0).detalhe()).isEqualTo("O relógio do aparelho estava pelo menos 10"
+                + " minutos adiantado em relação ao servidor. A hora do aparelho foi mantida, e o"
+                + " administrador confere o dia. Acerte a data e a hora do aparelho.");
+        assertThat(resultados.get(0).tiposDaRevisao())
+                .containsExactly(TipoDeRevisao.RELOGIO_ADIANTADO);
         assertThat(resultados.get(1).resultado())
                 .as("dentro dos cinco minutos, o erro normal de relógio não vira revisão")
                 .isEqualTo(Resultado.APLICADA);
@@ -463,7 +566,7 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
         assertThat(resultados).extracting(ResultadoDaOperacao::resultado).containsExactly(
                 Resultado.APLICADA, Resultado.APLICADA, Resultado.APLICADA,
                 Resultado.APLICADA_COM_REVISAO);
-        assertThat(resultados.get(3).detalhe()).contains("relógio do aparelho");
+        assertThat(resultados.get(3).detalhe()).contains("pelo menos 365 dias adiantado");
         LocalDate diaDoBalcao = LocalDate.ofInstant(umAnoAFrente, FusoDeReferencia.DO_BALCAO);
         conta.comoUsuario(() -> {
             assertThat(linhasDeVenda.findById(vendaId).orElseThrow().paraDominio()
@@ -617,12 +720,41 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
                 .containsOnly(Resultado.APLICADA);
         assertThat(segunda.get(4).resultado()).isEqualTo(Resultado.APLICADA_COM_REVISAO);
         assertThat(segunda.get(4).detalhe()).contains("estoque negativo").contains("Queijo");
+        assertThat(segunda.get(4).tiposDaRevisao()).containsExactly(TipoDeRevisao.ESTOQUE_NEGATIVO);
         conta.comoUsuario(() -> assertThat(saldoDe(produtoId)).isEqualByComparingTo("-1"));
 
-        // O reenvio devolve a mesma revisão e não baixa de novo.
+        // O reenvio devolve a mesma revisão, com o tipo lido do que foi gravado, e não baixa de novo.
         assertThat(conta.comoUsuario(() -> sincronizacao.sincronizar(recebidas(doAdmin))))
                 .isEqualTo(segunda);
         conta.comoUsuario(() -> assertThat(saldoDe(produtoId)).isEqualByComparingTo("-1"));
+    }
+
+    @Test
+    @DisplayName("conclusão que deixa o estoque negativo e chega com o relógio adiantado: os dois tipos e as duas frases")
+    void estoqueNegativoComRelogioAdiantado() {
+        ContaCriada conta = criador.criar("Empório Aurora", SENHA);
+        criador.habilitarEstoque(conta.contaId());
+        UUID produtoId = cadastrar(conta, "Queijo", "30.00");
+        UUID sessaoId = conta.comoUsuario(() -> sessoes.abrir(Money.ZERO));
+        Instant adiantado = Instant.now().plus(10, ChronoUnit.MINUTES).truncatedTo(ChronoUnit.MILLIS);
+        UUID vendaId = UUID.randomUUID();
+        GestoDeTeste inicio = inicio(vendaId, sessaoId);
+        GestoDeTeste item = item(vendaId, UUID.randomUUID(), produtoId, "1", "30.00", inicio);
+        GestoDeTeste parcela = parcelaNoCartao(vendaId, "30.00", item);
+        GestoDeTeste conclusao = GestoDeTeste.de("venda.concluir", vendaId,
+                conteudo("concluidoEm", adiantado.toString()), parcela);
+        List<GestoDeTeste> venda = List.of(inicio, item, parcela, conclusao);
+
+        ResultadoDaOperacao daConclusao = conta.comoUsuario(() ->
+                sincronizacao.sincronizar(recebidas(venda))).get(3);
+
+        assertThat(daConclusao.resultado()).isEqualTo(Resultado.APLICADA_COM_REVISAO);
+        assertThat(daConclusao.tiposDaRevisao()).containsExactly(TipoDeRevisao.ESTOQUE_NEGATIVO,
+                TipoDeRevisao.RELOGIO_ADIANTADO);
+        assertThat(daConclusao.detalhe()).as("duas frases, separadas por espaço")
+                .contains("ajuste se preciso. O relógio do aparelho estava pelo menos 10 minutos");
+        assertThat(conta.comoUsuario(() -> sincronizacao.sincronizar(recebidas(venda))).get(3))
+                .isEqualTo(daConclusao);
     }
 
     @Test

@@ -90,30 +90,8 @@ vulnerabilities:
       só recarrega a configuração dele. O proxy é um binário estático, que não carrega a biblioteca.
     expired_at: 2026-12-01
 
-  # A base da imagem da aplicação, o eclipse-temurin 21 sobre o Alpine 3.24.2, traz a libexpat 2.8.5 e
-  # a brotli 1.2.0. As correções estão na libexpat 2.9.0 e na brotli 1.2.1. A base nova da mesma tag, de
-  # 2026-10-29, traz as duas corrigidas e entra depois de 7 dias publicada, como toda troca de base.
-  # Trocado o digest no Dockerfile, as duas exceções saem. Os dois avisos da libexpat que vêm depois
-  # delas valem até a 2.9.0 e só saem com uma base que traga a 2.10.0, que o Alpine já publicou.
-  - id: CVE-2026-77214
-    purls:
-      - pkg:apk/alpine/libexpat@2.8.5-r0?arch=x86_64&distro=3.24.2
-    statement: >-
-      Leitura além do buffer ao interpretar XML, em XML_ParseBuffer. Na imagem, só o fontconfig usa a
-      libexpat, e ele lê só os arquivos de configuração de fontes da própria imagem. A aplicação não
-      desenha texto nem imagem, que é o que levaria a JVM ao fontconfig, e a JVM lê XML com o próprio
-      leitor, sem a libexpat; nenhum dado vindo de fora chega a ela.
-    expired_at: 2026-11-17
-  - id: CVE-2026-111497
-    purls:
-      - pkg:apk/alpine/brotli-libs@1.2.0-r1?arch=x86_64&distro=3.24.2
-    statement: >-
-      Escrita além do buffer ao descomprimir um fluxo brotli. Na imagem, usam a biblioteca o freetype e
-      o fontconfig do sistema, que leem só os arquivos de fontes da própria imagem, e o dirmngr do
-      gnupg, que nunca é executado. A JVM traz o próprio freetype, sem a brotli, e a aplicação não
-      desenha texto nem imagem, que é o que a levaria ao fontconfig; nenhum dado vindo de fora chega à
-      biblioteca.
-    expired_at: 2026-11-24
+  # Os dois avisos da libexpat da base da imagem da aplicação valem até a 2.9.0 e só saem com uma base
+  # que traga a 2.10.0, que o Alpine já publicou, depois de 7 dias publicada, como toda troca de base.
   - id: CVE-2026-117610
     purls:
       - pkg:apk/alpine/libexpat@2.8.5-r0?arch=x86_64&distro=3.24.2

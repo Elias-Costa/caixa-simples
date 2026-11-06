@@ -1,5 +1,7 @@
 package br.com.caixasimples.sincronizacao.application;
 
+import br.com.caixasimples.sincronizacao.TipoDeRevisao;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -22,9 +24,11 @@ import java.util.UUID;
  * @param versao     a revisão do registro depois do gesto, quando ele foi aplicado e o registro
  *                   tem revisão
  * @param detalhe    o motivo da revisão, da recusa ou da falha; nulo quando aplicada sem pendência
+ * @param tiposDaRevisao os tipos da revisão, na ordem do motivo, só quando aplicada com revisão; vazio
+ *                   nos outros resultados e na revisão gravada antes de o tipo existir
  */
 public record ResultadoDaOperacao(UUID operacaoId, Resultado resultado, Long versao,
-        String detalhe) {
+        String detalhe, List<TipoDeRevisao> tiposDaRevisao) {
 
     public enum Resultado {
         APLICADA, APLICADA_COM_REVISAO, NAO_APLICADA, ERRO_TRANSITORIO
@@ -33,13 +37,14 @@ public record ResultadoDaOperacao(UUID operacaoId, Resultado resultado, Long ver
     public ResultadoDaOperacao {
         Objects.requireNonNull(operacaoId, "operacaoId nao pode ser nulo");
         Objects.requireNonNull(resultado, "resultado nao pode ser nulo");
+        tiposDaRevisao = tiposDaRevisao == null ? List.of() : List.copyOf(tiposDaRevisao);
     }
 
     static ResultadoDaOperacao naoAplicada(UUID operacaoId, String motivo) {
-        return new ResultadoDaOperacao(operacaoId, Resultado.NAO_APLICADA, null, motivo);
+        return new ResultadoDaOperacao(operacaoId, Resultado.NAO_APLICADA, null, motivo, List.of());
     }
 
     static ResultadoDaOperacao transitorio(UUID operacaoId, String motivo) {
-        return new ResultadoDaOperacao(operacaoId, Resultado.ERRO_TRANSITORIO, null, motivo);
+        return new ResultadoDaOperacao(operacaoId, Resultado.ERRO_TRANSITORIO, null, motivo, List.of());
     }
 }

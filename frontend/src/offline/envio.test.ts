@@ -67,6 +67,53 @@ beforeEach(async () => {
   await deleteDB('ecrx-caixa-offline')
 })
 
+/** O servidor responde a revisão com os tipos dados, ou sem o campo, como o que ainda não o conhece. */
+function comRevisao(tiposDaRevisao?: string[]) {
+  return vi.fn(async (operacoes: OperacaoDoLote[]) => operacoes.map((operacao): ResultadoDaOperacao => ({
+    operacaoId: operacao.operacaoId, resultado: 'APLICADA_COM_REVISAO',
+    detalhe: 'A baixa desta venda deixou o estoque negativo: Queijo com -1 un; confira a contagem e ajuste se preciso.',
+    ...(tiposDaRevisao ? { tiposDaRevisao } : {}),
+  })))
+}
+
+describe('tipo da revisão no lote', () => {
+  it('a revisão só de estoque negativo vira enviada: não fica no aparelho, e o detalhe é guardado', async () => {
+    entrar(ana)
+    const gesto = await cliente('Queijo')
+
+    expect(await enviarFila(comRevisao(['ESTOQUE_NEGATIVO'])))
+      .toEqual({ desfecho: 'concluida', resolvidos: 1, respondida: true })
+
+    expect((await listarGestos()).find((outro) => outro.operacaoId === gesto.operacaoId)).toMatchObject({
+      estado: 'sent',
+      resultado: { aplicada: true, tiposDaRevisao: ['ESTOQUE_NEGATIVO'],
+        detalhe: expect.stringContaining('estoque negativo') },
+    })
+  })
+
+  it('sem o campo, do servidor que não o manda, a revisão fica no aparelho como sempre', async () => {
+    entrar(ana)
+    const gesto = await cliente('Queijo')
+
+    await enviarFila(comRevisao())
+
+    expect((await listarGestos()).find((outro) => outro.operacaoId === gesto.operacaoId))
+      .toMatchObject({ estado: 'needs_review', resultado: { aplicada: true } })
+  })
+
+  it('com o relógio junto ou um tipo que o aparelho não conhece, a revisão fica no aparelho', async () => {
+    entrar(ana)
+    const comRelogio = await cliente('Queijo')
+    await enviarFila(comRevisao(['ESTOQUE_NEGATIVO', 'RELOGIO_ADIANTADO']))
+    expect((await estados())[comRelogio.operacaoId]).toBe('needs_review')
+
+    await deleteDB('ecrx-caixa-offline')
+    const desconhecido = await cliente('Queijo')
+    await enviarFila(comRevisao(['TIPO_DE_UMA_VERSAO_NOVA']))
+    expect((await estados())[desconhecido.operacaoId]).toBe('needs_review')
+  })
+})
+
 describe('envio da fila', () => {
   it('envia em ordem de dependência, em lotes de até cem, e numera os resultados nessa ordem', async () => {
     entrar(ana)

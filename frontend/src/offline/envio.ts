@@ -31,6 +31,21 @@ const TRAVA_DO_ENVIO = 'ecrx-caixa-envio-da-fila'
 let rodadaNestaAba = false
 
 /**
+ * A revisão destes tipos é de quem ajusta o estoque, e o operador não ajusta (RF29). Quem a confere é
+ * o administrador, na lista da Conta, que vem do servidor; no aparelho, o gesto foi aplicado e não
+ * há o que fazer com ele.
+ */
+const REVISOES_SO_DA_CONTA = new Set(['ESTOQUE_NEGATIVO'])
+
+/**
+ * Sem tipo, como no servidor antigo e na revisão gravada antes de o tipo existir, ou com algum tipo
+ * que não é só da Conta, como o relógio adiantado, que só quem opera acerta, a revisão fica no aparelho.
+ */
+function revisaoSoDaConta(tipos: string[] | undefined): boolean {
+  return tipos !== undefined && tipos.length > 0 && tipos.every((tipo) => REVISOES_SO_DA_CONTA.has(tipo))
+}
+
+/**
  * Envia a fila do usuário autenticado ao servidor e grava o resultado de cada gesto.
  *
  * Uma rodada por vez em todo o aparelho: a trava do navegador é exclusiva entre abas, e quem não
@@ -105,7 +120,12 @@ function desfechoDe(gesto: GestoNaFila, resposta: ResultadoDaOperacao[]): Desfec
     case 'APLICADA':
       return { operacaoId, estado: 'sent', resultado: { aplicada: true, ...versao } }
     case 'APLICADA_COM_REVISAO':
-      return { operacaoId, estado: 'needs_review', resultado: { aplicada: true, ...versao, ...detalhe } }
+      return {
+        operacaoId,
+        estado: revisaoSoDaConta(recebido.tiposDaRevisao) ? 'sent' : 'needs_review',
+        resultado: { aplicada: true, ...versao, ...detalhe,
+          ...(recebido.tiposDaRevisao ? { tiposDaRevisao: recebido.tiposDaRevisao } : {}) },
+      }
     case 'NAO_APLICADA':
       return { operacaoId, estado: 'needs_review', resultado: { aplicada: false, ...detalhe } }
     default:

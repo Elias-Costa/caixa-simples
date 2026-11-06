@@ -19,6 +19,8 @@ export type ResultadoDoGesto = {
   aplicada: boolean
   versao?: number | string
   detalhe?: string
+  /** Os tipos da revisão, quando o servidor os mandou; o gesto gravado antes deles não os tem. */
+  tiposDaRevisao?: string[]
 }
 
 export type GestoNaFila = Readonly<{
@@ -347,7 +349,8 @@ export async function marcarCaixaDesatualizado(sessaoId: string): Promise<void> 
  * saem juntos, quando o retrato dela existe e, se ela foi concluída, a sessão guardada já contém a
  * conclusão: até lá a projeção da gaveta remonta a Venda desses gestos para somar o dinheiro dela, e o
  * retrato da Venda sozinho não diz nada sobre a gaveta. O que está na fila, em envio, com falha ou em
- * revisão fica.
+ * revisão fica. A Venda com gesto recusado guarda também os enviados: só com todos os gestos o balcão
+ * consegue dizer qual venda foi recusada, com a hora e o valor que a pessoa reconhece.
  */
 async function descartarEnviadosDoCaixaEDasVendas(transacao: TransacaoDoDescarte, dono: string,
   conta: string, sessoes: SessaoNoRetrato[]): Promise<void> {
@@ -360,6 +363,7 @@ async function descartarEnviadosDoCaixaEDasVendas(transacao: TransacaoDoDescarte
     .map((gesto) => gesto.registroId))) {
     if (!(await retratos.getKey(`${conta}\u0000venda:${vendaId}`))) continue
     const daVenda = doDono.filter((gesto) => gesto.tipo.startsWith('venda.') && gesto.registroId === vendaId)
+    if (daVenda.some(gestoRecusado)) continue
     const conclusao = daVenda.find((gesto) => gesto.tipo === 'venda.concluir' && gestoAplicavel(gesto))
     if (conclusao) {
       const inicio = daVenda.find((gesto) => gesto.tipo === 'venda.iniciar')
@@ -531,6 +535,11 @@ export function ordenarPorDependencia(gestos: readonly GestoNaFila[]): GestoNaFi
 /** O gesto recusado na revisão não produziu efeito; o aplicado com pendência, sim. */
 export function gestoAplicavel(gesto: GestoNaFila): boolean {
   return gesto.estado !== 'needs_review' || gesto.resultado?.aplicada === true
+}
+
+/** O servidor recusou o gesto: não houve efeito, e o que depende dele no mesmo registro também parou. */
+export function gestoRecusado(gesto: GestoNaFila): boolean {
+  return !gestoAplicavel(gesto)
 }
 
 /** Ainda sem resultado do servidor: na fila, sendo enviado ou com falha no último envio. */
@@ -745,6 +754,36 @@ export async function conferirGesto(operacaoId: string): Promise<GestoNaFila> {
   }
   avisar('conferencia')
   return semChavesInternas(conferido)
+}
+
+/**
+ * Registra que quem operou viu todas as revisões de um registro, como uma venda inteira, numa
+ * transação só: o aviso baixa de uma vez. Como em {@link conferirGesto}, o estado não muda, e conferir
+ * de novo mantém a primeira vez.
+ */
+export async function conferirRegistro(registroId: string): Promise<void> {
+  const { dono, sessao } = donoDaSessao()
+  const banco = await abrirBanco()
+  let conferidos = 0
+  try {
+    conferirDono(dono, sessao)
+    const transacao = banco.transaction('gestos', 'readwrite')
+    const agora = new Date().toISOString()
+    let cursor = await transacao.store.index('porDono').openCursor(dono)
+    while (cursor) {
+      const gesto = cursor.value
+      if (gesto.registroId === registroId && gesto.estado === 'needs_review' && !gesto.conferidoEm) {
+        await cursor.update({ ...gesto, conferidoEm: agora })
+        conferidos++
+      }
+      cursor = await cursor.continue()
+    }
+    await transacao.done
+    conferirDono(dono, sessao)
+  } finally {
+    banco.close()
+  }
+  if (conferidos) avisar('conferencia')
 }
 
 function semChavesInternas({ chave: _chave, dono: _dono, ...gesto }: GestoGravado): GestoNaFila {

@@ -3,6 +3,7 @@ package br.com.caixasimples.shared;
 import java.math.BigDecimal;
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
@@ -48,5 +49,32 @@ public final class FormatoDeTela {
     /** O dia como o balcão o escreve: {@code 23/10/2026}. */
     public static String data(LocalDate dia) {
         return DIA.format(dia);
+    }
+
+    /**
+     * Um intervalo como se diz no balcão, arredondado ao minuto mais próximo e só nas duas maiores
+     * unidades: {@code 7 minutos}, {@code 1 hora e 5 minutos}, {@code 2 dias e 3 horas}. Arredonda em
+     * vez de cortar porque o intervalo medido costuma ficar segundos abaixo do redondo: o relógio
+     * dez minutos adiantado chega como nove minutos e cinquenta e tantos segundos.
+     */
+    public static String duracao(Duration intervalo) {
+        long minutos = intervalo.plusSeconds(30).toMinutes();
+        if (minutos < 60) {
+            return contagem(minutos, "minuto", "minutos");
+        }
+        long horas = minutos / 60;
+        if (horas < 24) {
+            long resto = minutos % 60;
+            return resto == 0 ? contagem(horas, "hora", "horas")
+                    : contagem(horas, "hora", "horas") + " e " + contagem(resto, "minuto", "minutos");
+        }
+        long dias = horas / 24;
+        long resto = horas % 24;
+        return resto == 0 ? contagem(dias, "dia", "dias")
+                : contagem(dias, "dia", "dias") + " e " + contagem(resto, "hora", "horas");
+    }
+
+    private static String contagem(long quantos, String singular, String plural) {
+        return quantos + " " + (quantos == 1 ? singular : plural);
     }
 }

@@ -27,7 +27,7 @@ function entrar(perfil: Perfil) {
 
 function mostrar(perfil: Perfil) {
   const estado: Sincronizacao = { enviando: false, porEnviar: 0, comFalha: 0, emRevisao: 0, rodada: 0,
-    enviarAgora: vi.fn(), atualizar: vi.fn() }
+    vendasRecusadas: [], enviarAgora: vi.fn(), atualizar: vi.fn() }
   render(
     <SessaoContext.Provider value={{ identidade: identidade(perfil), entrar: vi.fn(), sair: vi.fn(),
       atualizarIdentidade: vi.fn(), relerIdentidade: vi.fn() }}>

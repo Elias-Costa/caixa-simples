@@ -11,8 +11,8 @@
  * arredondado no próprio item, como o servidor faz, para que o total do comprovante local feche com
  * o que o servidor vai calcular.
  */
-import type { FormaPagamento } from '../api/vendas'
-import { centavos, MAIOR_VALOR_EM_CENTAVOS } from './dinheiro'
+import type { FormaPagamento, ValorDaForma } from '../api/vendas'
+import { centavos, MAIOR_VALOR_EM_CENTAVOS, reais } from './dinheiro'
 import { gestoAplicavel, ordenarPorDependencia, type GestoNaFila } from './fila'
 
 /**
@@ -161,6 +161,24 @@ export function dinheiroNaGaveta(venda: VendaNoDispositivo): number {
   return venda.parcelas
     .filter((parcela) => parcela.forma === 'DINHEIRO' && parcela.status === 'CONFIRMADO')
     .reduce((soma, parcela) => soma + parcela.valorCentavos, 0)
+}
+
+/** A ordem em que o servidor declara as formas, a mesma das linhas da lista que ele devolve. */
+const ORDEM_DAS_FORMAS: FormaPagamento[] = ['DINHEIRO', 'PIX', 'CARTAO', 'FIADO']
+
+/**
+ * Quanto entrou por forma, pela regra do servidor na lista do caixa: a parcela confirmada e a do
+ * fiado, que fica pendente até o cliente pagar, somadas em centavos. Vale para a Venda feita aqui e
+ * para a do servidor guardada para ler sem rede; o Pix aguardando confirmação fica de fora.
+ */
+export function formasDasParcelas(parcelas: readonly { forma: FormaPagamento; status: string; centavos: number }[]): ValorDaForma[] {
+  const porForma = new Map<FormaPagamento, number>()
+  for (const parcela of parcelas) {
+    if (parcela.status !== 'CONFIRMADO' && parcela.forma !== 'FIADO') continue
+    porForma.set(parcela.forma, (porForma.get(parcela.forma) ?? 0) + parcela.centavos)
+  }
+  return ORDEM_DAS_FORMAS.filter((forma) => porForma.has(forma))
+    .map((forma) => ({ forma, valor: reais(porForma.get(forma) ?? 0) }))
 }
 
 /** Como cada forma sem troco aparece na recusa do valor recebido. */
@@ -347,16 +365,44 @@ export function projetarVendas(gestos: readonly GestoNaFila[], usuarioId: string
     gesto.tipo.startsWith('venda.') && gestoAplicavel(gesto)))
   for (const gesto of daVenda) {
     if (gesto.tipo === 'venda.iniciar') {
-      const dados = gesto.payload as DadosDoInicio
-      vendas.set(gesto.registroId, abrirVenda({
-        id: gesto.registroId, usuarioId, sessaoCaixaId: dados.sessaoCaixaId, criadoEm: dados.criadoEm,
-      }))
+      vendas.set(gesto.registroId, vendaDoInicio(gesto, usuarioId))
       continue
     }
     const atual = vendas.get(gesto.registroId)
     if (atual) vendas.set(gesto.registroId, aplicarGesto(atual, gesto))
   }
   return vendas
+}
+
+/**
+ * As Vendas como o balcão as registrou, com o gesto recusado junto, para dizer qual venda foi recusada
+ * pela hora e pelo valor que a pessoa viu. Só serve para mostrar: o que vale para a gaveta e para o
+ * servidor é {@link projetarVendas}. O gesto feito depois de um recusado foi conferido sem ele, e por
+ * isso pode não caber aqui, como a conclusão que pagou o total sem o item recusado: esse fica de fora.
+ */
+export function remontarComoRegistrada(gestos: readonly GestoNaFila[], usuarioId: string): Map<string, VendaNoDispositivo> {
+  const vendas = new Map<string, VendaNoDispositivo>()
+  for (const gesto of ordenarPorDependencia(gestos.filter((gesto) => gesto.tipo.startsWith('venda.')))) {
+    if (gesto.tipo === 'venda.iniciar') {
+      vendas.set(gesto.registroId, vendaDoInicio(gesto, usuarioId))
+      continue
+    }
+    const atual = vendas.get(gesto.registroId)
+    if (!atual) continue
+    try {
+      vendas.set(gesto.registroId, aplicarGesto(atual, gesto))
+    } catch {
+      // A venda fica como estava antes deste gesto.
+    }
+  }
+  return vendas
+}
+
+function vendaDoInicio(gesto: GestoNaFila, usuarioId: string): VendaNoDispositivo {
+  const dados = gesto.payload as DadosDoInicio
+  return abrirVenda({
+    id: gesto.registroId, usuarioId, sessaoCaixaId: dados.sessaoCaixaId, criadoEm: dados.criadoEm,
+  })
 }
 
 function aplicarGesto(venda: VendaNoDispositivo, gesto: GestoNaFila): VendaNoDispositivo {

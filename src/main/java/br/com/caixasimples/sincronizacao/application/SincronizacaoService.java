@@ -1,12 +1,14 @@
 package br.com.caixasimples.sincronizacao.application;
 
 import br.com.caixasimples.shared.AcessoNegadoException;
+import br.com.caixasimples.shared.FormatoDeTela;
 import br.com.caixasimples.shared.PilhaSemMensagens;
 import br.com.caixasimples.shared.UsuarioContext;
 import br.com.caixasimples.sincronizacao.AplicadorDeOperacoes;
 import br.com.caixasimples.sincronizacao.Aplicacao;
 import br.com.caixasimples.sincronizacao.OperacaoRecebida;
 import br.com.caixasimples.sincronizacao.OperacaoRecusadaException;
+import br.com.caixasimples.sincronizacao.TipoDeRevisao;
 import br.com.caixasimples.sincronizacao.application.ResultadoDaOperacao.Resultado;
 import br.com.caixasimples.sincronizacao.internal.OperacaoSincronizada;
 import br.com.caixasimples.sincronizacao.internal.OperacaoSincronizadaRepository;
@@ -55,7 +57,8 @@ import tools.jackson.databind.ObjectMapper;
  * <p>O lote é aplicado na ordem das dependências e, entre as operações livres, na ordem em que
  * vieram. A dependência que não está no lote nem gravada deixa a operação para um próximo envio,
  * como erro transitório. A dependência recusada do mesmo registro recusa a operação sem tentar: a
- * Venda para no primeiro gesto recusado. A dependência de outro registro só ordena, e a raiz
+ * Venda para no primeiro gesto recusado, e o motivo é o que o módulo dono escreve para essa
+ * cascata, com o registro dito como a pessoa o reconhece. A dependência de outro registro só ordena, e a raiz
  * decide; assim uma Venda recusada não recusa sozinha a sangria seguinte nem o fechamento.
  *
  * <h2>O que se repete e o que vai para revisão</h2>
@@ -74,7 +77,9 @@ import tools.jackson.databind.ObjectMapper;
  * leu do próprio conteúdo e gravou no registro, como a conclusão da Venda e a abertura, os
  * movimentos e o fechamento do caixa: o dispositivo manda os dois em campos separados, e é o do
  * conteúdo que decide o dia dos relatórios. O gesto é aplicado com o instante do balcão e vai para
- * revisão, para o dia não mudar em silêncio.
+ * revisão, para o dia não mudar em silêncio. A revisão diz quanto o maior dos dois passou do
+ * recebimento, como o mínimo que o relógio estava adiantado: o gesto feito muito antes de a rede
+ * voltar chega parecendo menos adiantado do que o relógio estava.
  *
  * <p>Quem envia vem do contexto autenticado; o conteúdo do gesto nunca escolhe conta nem usuário
  * (RNF05).
@@ -203,36 +208,52 @@ public class SincronizacaoService {
                     "Aguardando outra operação deste aparelho, da qual esta depende.");
         }
 
-        Instant recebidaEm = Instant.now();
-        for (OperacaoSincronizada dependencia : dependencias) {
-            if (dependencia.naoFoiAplicada()
-                    && dependencia.getRegistroId().equals(operacao.registroId())) {
-                return gravar(operacao, usuarioId, recebidaEm, Resultado.NAO_APLICADA, null,
-                        "O gesto anterior deste mesmo registro não foi aplicado, e este também não.");
-            }
-        }
-
         AplicadorDeOperacoes aplicador = aplicadorPorTipo.get(operacao.tipo());
         if (aplicador == null) {
             throw new OperacaoRecusadaException("O servidor não aplica o gesto " + operacao.tipo()
                     + " recebido do aparelho.");
         }
+
+        Instant recebidaEm = Instant.now();
+        for (OperacaoSincronizada dependencia : dependencias) {
+            if (dependencia.naoFoiAplicada()
+                    && dependencia.getRegistroId().equals(operacao.registroId())) {
+                return gravar(operacao, usuarioId, recebidaEm, Resultado.NAO_APLICADA, null,
+                        aplicador.recusaEmCascata(operacao.tipo()), List.of());
+            }
+        }
+
         Aplicacao aplicacao = aplicador.aplicar(operacao);
 
+        // Cada motivo é uma frase com ponto final, e por isso eles se juntam com um espaço.
         List<String> revisoes = new ArrayList<>();
+        List<TipoDeRevisao> tipos = new ArrayList<>();
         if (aplicacao.revisao() != null) {
             revisoes.add(aplicacao.revisao());
+            tipos.add(aplicacao.tipoDaRevisao());
         }
-        if (passaDaTolerancia(operacao.criadoEm(), recebidaEm)
-                || passaDaTolerancia(aplicacao.instanteGravado(), recebidaEm)) {
-            revisoes.add("o relógio do aparelho estava adiantado em relação ao servidor; o"
-                    + " instante do balcão foi mantido, e o dia do registro precisa ser conferido");
+        Instant maisAdiantado = maisAdiantado(operacao.criadoEm(), aplicacao.instanteGravado());
+        if (passaDaTolerancia(maisAdiantado, recebidaEm)) {
+            revisoes.add("O relógio do aparelho estava pelo menos "
+                    + FormatoDeTela.duracao(Duration.between(recebidaEm, maisAdiantado))
+                    + " adiantado em relação ao servidor. A hora do aparelho foi mantida, e o"
+                    + " administrador confere o dia. Acerte a data e a hora do aparelho.");
+            tipos.add(TipoDeRevisao.RELOGIO_ADIANTADO);
         }
         return revisoes.isEmpty()
                 ? gravar(operacao, usuarioId, recebidaEm, Resultado.APLICADA,
-                        aplicacao.versao(), null)
+                        aplicacao.versao(), null, List.of())
                 : gravar(operacao, usuarioId, recebidaEm, Resultado.APLICADA_COM_REVISAO,
-                        aplicacao.versao(), String.join("; ", revisoes));
+                        aplicacao.versao(), String.join(" ", revisoes), tipos);
+    }
+
+    /**
+     * O mais tardio entre o instante da operação e o que o gesto gravou do conteúdo. Passar da
+     * tolerância com um deles é passar com o mais tardio, e é dele que sai quanto o relógio estava
+     * adiantado. O do conteúdo é nulo quando o gesto não grava instante.
+     */
+    static Instant maisAdiantado(Instant daOperacao, Instant doConteudo) {
+        return doConteudo != null && doConteudo.isAfter(daOperacao) ? doConteudo : daOperacao;
     }
 
     /**
@@ -246,11 +267,12 @@ public class SincronizacaoService {
     }
 
     private ResultadoDaOperacao gravar(OperacaoRecebida operacao, UUID usuarioId,
-            Instant recebidaEm, Resultado resultado, Long versao, String detalhe) {
+            Instant recebidaEm, Resultado resultado, Long versao, String detalhe,
+            List<TipoDeRevisao> tiposDaRevisao) {
         OperacaoSincronizada registro = new OperacaoSincronizada(operacao, usuarioId,
                 json.writeValueAsString(operacao.payload()),
                 json.writeValueAsString(operacao.dependeDe()), recebidaEm, resultado, versao,
-                detalhe);
+                detalhe, tiposDaRevisao);
         registros.save(registro);
         return registro.paraResultado();
     }
@@ -318,7 +340,7 @@ public class SincronizacaoService {
             return transacao.execute(status -> registros.findByOperacaoId(operacao.operacaoId())
                     .map(gravada -> respostaAoReenvio(gravada, operacao, usuarioId))
                     .orElseGet(() -> gravar(operacao, usuarioId, Instant.now(),
-                            Resultado.NAO_APLICADA, null, motivo)));
+                            Resultado.NAO_APLICADA, null, motivo, List.of())));
         } catch (DataIntegrityViolationException concorrente) {
             return lerGravada(operacao, usuarioId).orElseGet(() ->
                     ResultadoDaOperacao.transitorio(operacao.operacaoId(),

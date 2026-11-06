@@ -2,6 +2,7 @@ package br.com.caixasimples.sincronizacao.internal;
 
 import br.com.caixasimples.shared.ContaId;
 import br.com.caixasimples.sincronizacao.OperacaoRecebida;
+import br.com.caixasimples.sincronizacao.TipoDeRevisao;
 import br.com.caixasimples.sincronizacao.application.ResultadoDaOperacao;
 import br.com.caixasimples.sincronizacao.application.ResultadoDaOperacao.Resultado;
 import jakarta.persistence.Column;
@@ -12,8 +13,11 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.TenantId;
 import org.hibernate.type.SqlTypes;
@@ -89,6 +93,14 @@ public class OperacaoSincronizada {
     @Column
     private String detalhe;
 
+    /**
+     * Os nomes dos tipos da revisão, separados por vírgula, na ordem do detalhe; nulo sem revisão e
+     * nas linhas gravadas antes de o tipo existir. Texto e não lista do banco porque são poucos nomes
+     * de um enum, lidos só por esta classe.
+     */
+    @Column(name = "tipos_da_revisao", updatable = false)
+    private String tiposDaRevisao;
+
     @Column(name = "conferida_em")
     private Instant conferidaEm;
 
@@ -103,10 +115,11 @@ public class OperacaoSincronizada {
      * @param payloadEmJson   o conteúdo do gesto, já serializado
      * @param dependeDeEmJson a lista de dependências, já serializada
      * @param resultado       nunca o erro transitório, que não é gravado
+     * @param tiposDaRevisao  os tipos da revisão, vazio quando o resultado não é com revisão
      */
     public OperacaoSincronizada(OperacaoRecebida operacao, UUID usuarioId, String payloadEmJson,
             String dependeDeEmJson, Instant recebidaEm, Resultado resultado, Long versao,
-            String detalhe) {
+            String detalhe, List<TipoDeRevisao> tiposDaRevisao) {
         if (resultado == Resultado.ERRO_TRANSITORIO) {
             throw new IllegalArgumentException(
                     "erro transitorio nao e gravado: o reenvio precisa tentar de novo");
@@ -126,11 +139,14 @@ public class OperacaoSincronizada {
         this.resultado = Objects.requireNonNull(resultado, "resultado nao pode ser nulo");
         this.versao = versao;
         this.detalhe = detalhe;
+        this.tiposDaRevisao = tiposDaRevisao.isEmpty() ? null : tiposDaRevisao.stream()
+                .map(TipoDeRevisao::name)
+                .collect(Collectors.joining(","));
     }
 
     /** O resultado como foi devolvido na primeira vez, para o reenvio receber o mesmo. */
     public ResultadoDaOperacao paraResultado() {
-        return new ResultadoDaOperacao(operacaoId, resultado, versao, detalhe);
+        return new ResultadoDaOperacao(operacaoId, resultado, versao, detalhe, getTiposDaRevisao());
     }
 
     /** Se o gesto foi recusado, e portanto não produziu efeito. */
@@ -222,6 +238,12 @@ public class OperacaoSincronizada {
 
     public String getDetalhe() {
         return detalhe;
+    }
+
+    public List<TipoDeRevisao> getTiposDaRevisao() {
+        return tiposDaRevisao == null ? List.of() : Arrays.stream(tiposDaRevisao.split(","))
+                .map(TipoDeRevisao::valueOf)
+                .toList();
     }
 
     public Instant getConferidaEm() {

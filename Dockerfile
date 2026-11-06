@@ -30,12 +30,12 @@ RUN sh mvnw -B -ntp package -Dmaven.test.skip=true
 # Separa o jar em camadas, das que mudam menos para as que mudam mais. Uma versão nova que só
 # altera o código da aplicação reenvia só a última camada, e o layout extraído sobe mais rápido
 # que o jar aninhado.
-FROM eclipse-temurin:21-jre-alpine@sha256:51ab5e3302e7141ce665ca3ea85e8b5cd648eafbc3c0c90dd79d6537684e4555 AS camadas
+FROM eclipse-temurin:21-jre-alpine@sha256:82cf3d9ccbe1ed46252008d51b2f2329e6b9e8a2f4394c4bebefc3ea7f4b1372 AS camadas
 WORKDIR /camadas
 COPY --from=build /build/target/caixa-simples-*.jar aplicacao.jar
 RUN java -Djarmode=tools -jar aplicacao.jar extract --layers --destination extraido
 
-FROM eclipse-temurin:21-jre-alpine@sha256:51ab5e3302e7141ce665ca3ea85e8b5cd648eafbc3c0c90dd79d6537684e4555
+FROM eclipse-temurin:21-jre-alpine@sha256:82cf3d9ccbe1ed46252008d51b2f2329e6b9e8a2f4394c4bebefc3ea7f4b1372
 # Liga a imagem publicada a este repositório no registro, e é por ele que o deploy acha as versões
 # antigas para apagar.
 LABEL org.opencontainers.image.source=https://github.com/Elias-Costa/ecrx-caixa

@@ -157,7 +157,7 @@ function separarMultiplicador(texto: string): { termo: string; quantidade?: stri
 export function TelaDeVenda() {
   const { identidade } = useSessao()
   const { definirFaixa, definirVendaAberta } = useContextoDoShell()
-  const { rodada } = useSincronizacao()
+  const { rodada, vendasRecusadas } = useSincronizacao()
   const buscaRef = useRef<HTMLInputElement>(null)
   const [sessao, setSessao] = useState<SessaoCaixa>()
   const [historico, setHistorico] = useState<ResumoDaVenda[]>([])
@@ -199,6 +199,10 @@ export function TelaDeVenda() {
   // Sem servidor, ela fica para ler: o botão que só responderia com a recusa ensinaria o operador a
   // não confiar nos botões, e a ação que resta é começar outra venda, que fica no aparelho.
   const comandaSoLeitura = atual?.status === 'ABERTA' && !doDispositivo && !comServidor
+  // Sem esta frase, a venda feita sem rede e recusada na volta reaparece aberta sem dizer por quê.
+  const recusaDaComanda = atual?.status === 'ABERTA' && !doDispositivo
+    ? vendasRecusadas.find((venda) => venda.vendaId === atual.id) : undefined
+  const recusadasPorConferir = vendasRecusadas.filter((venda) => !venda.conferida).length
   const editavel = atual?.status === 'ABERTA' && !comandaSoLeitura
   const comFiado = atual?.parcelas.some((parcela) => parcela.forma === 'FIADO') ?? false
   // O Pix integrado depende do provedor, com o cliente presente, e de a Conta poder cobrar por ele
@@ -265,9 +269,21 @@ export function TelaDeVenda() {
     let vivo = true
     vendas.consultar(id).then((venda) => {
       if (vivo) setAtual((anterior) => anterior?.id === id ? venda : anterior)
-    }).catch(() => { /* a Venda continua como estava; a próxima ação a relê */ })
+    }).catch((falha) => {
+      // O servidor recusou o início, e a venda não existe lá: a comanda ficaria parada dizendo que
+      // aguarda a sincronização, e quem diz o que houve é a faixa. Com outra falha, a venda continua
+      // como estava, e a próxima ação a relê.
+      if (vivo && falha instanceof ErroDaApi && falha.status === 404 && vendaDoDispositivo.current === id) novaVenda()
+    })
     return () => { vivo = false }
   }, [rodada])
+
+  // O botão da faixa some com a última venda conferida; no PDV, o leitor de código escreve na busca.
+  const recusadasAntes = useRef(recusadasPorConferir)
+  useEffect(() => {
+    if (recusadasAntes.current > 0 && recusadasPorConferir === 0) buscaRef.current?.focus()
+    recusadasAntes.current = recusadasPorConferir
+  }, [recusadasPorConferir])
 
   useEffect(() => {
     let vivo = true
@@ -710,6 +726,9 @@ export function TelaDeVenda() {
             </div>
             {atual.status !== 'CANCELADA' && doDispositivo && <p className="pdv__ajuda">{CANCELAR_DEPOIS_DE_SINCRONIZAR}</p>}
             {doDispositivo && <p className="mensagem-info" role="status">Registrada neste aparelho. Aguardando sincronização com o servidor.</p>}
+            {recusaDaComanda && <p className="mensagem-alerta" role="status">
+              Feita sem rede, esta venda não foi concluída no servidor.{recusaDaComanda.motivo && ` ${recusaDaComanda.motivo}`}
+            </p>}
             {atual.status === 'CANCELADA' && atual.parcelas.some((p) => p.pix && p.status === 'CONFIRMADO') &&
               <p className="mensagem-info" role="status">Pix integrado recebido. A devolução precisa ser feita fora do sistema e ainda exige conciliação; este aplicativo não verifica se ela aconteceu.</p>}
             {/* O cliente se acha pelo nome, como o produto: uma lista com todos não cabe no balcão,

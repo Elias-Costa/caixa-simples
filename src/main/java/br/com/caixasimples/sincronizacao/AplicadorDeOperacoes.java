@@ -42,4 +42,13 @@ public interface AplicadorDeOperacoes {
      * @throws OperacaoRecusadaException quando uma regra do módulo recusa o gesto
      */
     Aplicacao aplicar(OperacaoRecebida operacao);
+
+    /**
+     * O motivo gravado para o gesto que não foi tentado porque o anterior do mesmo registro foi
+     * recusado. Quem o escreve é o dono, porque só ele sabe dizer o registro como a pessoa o
+     * reconhece, a venda, o caixa ou o cadastro, sem falar de gesto nem de registro.
+     *
+     * @param tipo um dos {@link #tipos()} deste módulo
+     */
+    String recusaEmCascata(String tipo);
 }

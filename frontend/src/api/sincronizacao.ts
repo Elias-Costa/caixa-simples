@@ -19,6 +19,8 @@ export type ResultadoDaOperacao = {
   resultado: ResultadoNoServidor
   versao?: number
   detalhe?: string
+  /** Só na revisão: de que tipo ela é, que diz quem pode agir sobre ela. O servidor antigo não manda. */
+  tiposDaRevisao?: string[]
 }
 
 /** Uma revisão ou recusa gravada no servidor, de qualquer usuário da Conta. */

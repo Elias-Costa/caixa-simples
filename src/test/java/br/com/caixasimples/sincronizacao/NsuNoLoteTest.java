@@ -76,6 +76,8 @@ class NsuNoLoteTest extends TesteDeIntegracao {
                 .isEqualTo(Resultado.APLICADA_COM_REVISAO);
         assertThat(resultadoDe(resultados, semNsu).detalhe())
                 .contains("R$ 10,00", "sem o NSU que a Conta exige");
+        assertThat(resultadoDe(resultados, semNsu).tiposDaRevisao())
+                .containsExactly(TipoDeRevisao.NSU_AUSENTE);
         assertThat(resultadoDe(resultados, emBranco).resultado())
                 .isEqualTo(Resultado.APLICADA_COM_REVISAO);
         assertThat(resultadoDe(resultados, comNsu).resultado()).isEqualTo(Resultado.APLICADA);

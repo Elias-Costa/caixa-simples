@@ -1,0 +1,151 @@
+import 'fake-indexeddb/auto'
+import { deleteDB } from 'idb'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { MemoryRouter, Route, Routes } from 'react-router'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { enfileirarGesto, iniciarEnvio, listarGestos, registrarDesfechos, type GestoNaFila } from '../offline/fila'
+import { gravarIdentidade, gravarToken } from '../sessao/armazenamento'
+import { SessaoContext } from '../sessao/contexto'
+import type { Identidade } from '../sessao/Identidade'
+import { tokenComExpiracao } from '../sessao/tokenDeTeste'
+import { TituloComAjuda } from '../telas/TituloComAjuda'
+import { Shell } from './Shell'
+
+vi.mock('virtual:pwa-register/react', () => ({
+  useRegisterSW: () => ({
+    needRefresh: [false, () => undefined],
+    offlineReady: [false, () => undefined],
+    updateServiceWorker: () => Promise.resolve(),
+  }),
+}))
+
+const ana: Identidade = {
+  usuarioId: 'ana', nome: 'Ana', perfil: 'OPERADOR', contaId: 'conta-a',
+  nomeNegocio: 'Cafeteria Aurora', estoqueHabilitado: false,
+}
+const SESSAO = '00000000-0000-4000-8000-000000000021'
+const espera = { timeout: 5000 }
+
+/** Uma venda em dinheiro que o servidor recusou: o início valeu, a parcela não, e a conclusão parou junto. */
+async function vendaRecusada(vendaId: string, valor: number): Promise<GestoNaFila[]> {
+  const agora = new Date().toISOString()
+  const inicio = await enfileirarGesto({ tipo: 'venda.iniciar', registroId: vendaId,
+    payload: { sessaoCaixaId: SESSAO, criadoEm: agora } })
+  const item = await enfileirarGesto({ tipo: 'venda.adicionarItem', registroId: vendaId,
+    payload: { itemId: `item-${vendaId}`, produtoId: 'produto-1', nome: 'Sonho', quantidade: 1,
+      precoUnitario: valor, desconto: 0, versaoProduto: 1 }, dependeDe: [inicio.operacaoId] })
+  const parcela = await enfileirarGesto({ tipo: 'venda.registrarPagamento', registroId: vendaId,
+    payload: { pagamentoId: `parcela-${vendaId}`, forma: 'DINHEIRO', valor, valorRecebido: valor },
+    dependeDe: [item.operacaoId] })
+  const conclusao = await enfileirarGesto({ tipo: 'venda.concluir', registroId: vendaId,
+    payload: { concluidoEm: agora }, dependeDe: [parcela.operacaoId] })
+  const gestos = [inicio, item, parcela, conclusao]
+  await iniciarEnvio(gestos.map((gesto) => gesto.operacaoId))
+  await registrarDesfechos([
+    { operacaoId: inicio.operacaoId, estado: 'sent', resultado: { aplicada: true } },
+    { operacaoId: item.operacaoId, estado: 'sent', resultado: { aplicada: true } },
+    { operacaoId: parcela.operacaoId, estado: 'needs_review',
+      resultado: { aplicada: false, detalhe: 'Esta venda já está cancelada e não aceita mais alteração.' } },
+    { operacaoId: conclusao.operacaoId, estado: 'needs_review',
+      resultado: { aplicada: false, detalhe: 'A venda parou no passo anterior, que foi recusado.' } },
+  ])
+  return gestos
+}
+
+function abrir(caminho: string) {
+  return render(
+    <MemoryRouter initialEntries={[caminho]}>
+      <SessaoContext.Provider value={{
+        identidade: ana, entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(), relerIdentidade: vi.fn(),
+      }}>
+        <Routes>
+          <Route element={<Shell />}>
+            <Route path="vender" element={<TituloComAjuda titulo="Venda" ajuda={[]} />} />
+            <Route path="caixa" element={<TituloComAjuda titulo="Caixa" ajuda={[]} />} />
+            <Route path="produtos" element={<TituloComAjuda titulo="Produtos" ajuda={[]} />} />
+          </Route>
+        </Routes>
+      </SessaoContext.Provider>
+    </MemoryRouter>,
+  )
+}
+
+const faixa = () => screen.findByText(/feita sem rede/, undefined, espera)
+
+beforeEach(async () => {
+  await deleteDB('ecrx-caixa-offline')
+  gravarToken(tokenComExpiracao(new Date(Date.now() + 60 * 60 * 1000)))
+  gravarIdentidade(ana)
+  // O que a tela e o envio da fila pedissem ficaria sem resposta, sem mudar o sinal de conexão.
+  vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => undefined)))
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
+
+describe('a faixa da venda recusada', () => {
+  it('aparece no Vender e no Caixa, com o valor, o motivo e o dinheiro fora do saldo', async () => {
+    await vendaRecusada('00000000-0000-4000-8000-000000000011', 12.4)
+
+    const noPdv = abrir('/vender')
+    const texto = (await faixa()).textContent?.replaceAll('\u00a0', ' ')
+    expect(texto).toMatch(/^A venda de R\$ 12,40 das \d\d:\d\d, feita sem rede, não foi concluída no servidor\. /)
+    expect(texto).toContain('Esta venda já está cancelada e não aceita mais alteração.')
+    expect(texto).not.toContain('parou no passo anterior')
+    expect(texto).toContain('O dinheiro dela, R$ 12,40, está na gaveta e fora do saldo esperado: avise o administrador.')
+    noPdv.unmount()
+
+    abrir('/caixa')
+    expect(await faixa()).toBeInTheDocument()
+  })
+
+  it('não aparece nas outras telas, onde o número do cabeçalho continua avisando', async () => {
+    await vendaRecusada('00000000-0000-4000-8000-000000000011', 12.4)
+
+    abrir('/produtos')
+
+    expect(await within(screen.getByRole('banner')).findByText('2 em revisão', undefined, espera)).toBeInTheDocument()
+    expect(screen.queryByText(/feita sem rede/)).not.toBeInTheDocument()
+  })
+
+  it('Conferir tira a faixa e baixa o número do cabeçalho junto, e o gesto continua em revisão', async () => {
+    const gestos = await vendaRecusada('00000000-0000-4000-8000-000000000011', 12.4)
+    abrir('/caixa')
+    await faixa()
+    const cabecalho = within(screen.getByRole('banner'))
+    expect(cabecalho.getByText('2 em revisão')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Conferir' }))
+
+    await waitFor(() => expect(screen.queryByText(/feita sem rede/)).not.toBeInTheDocument(), espera)
+    expect(cabecalho.queryByText(/em revisão/)).not.toBeInTheDocument()
+    expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Caixa' }))
+    const depois = new Map((await listarGestos()).map((gesto) => [gesto.operacaoId, gesto]))
+    expect(depois.get(gestos[2].operacaoId)).toMatchObject({ estado: 'needs_review', conferidoEm: expect.any(String) })
+    expect(depois.get(gestos[0].operacaoId)?.conferidoEm).toBeUndefined()
+  })
+
+  it('mostra uma venda por vez, a mais antiga, e o foco passa ao Conferir da seguinte', async () => {
+    await vendaRecusada('00000000-0000-4000-8000-000000000011', 12.4)
+    await vendaRecusada('00000000-0000-4000-8000-000000000012', 7)
+    abrir('/vender')
+
+    expect((await faixa()).textContent?.replaceAll('\u00a0', ' ')).toContain('R$ 12,40')
+    expect(screen.getAllByRole('button', { name: 'Conferir' })).toHaveLength(1)
+    expect(screen.getByText(/Há mais uma venda recusada para conferir\./)).toBeInTheDocument()
+
+    const botao = screen.getByRole('button', { name: 'Conferir' })
+    botao.focus()
+    fireEvent.click(botao)
+    // O navegador tira o foco do botão desligado durante a conferência; o jsdom não tira, nem deixa
+    // chamar blur num botão desligado. O foco em outro lugar faz o papel.
+    screen.getByRole('heading', { name: 'Venda' }).focus()
+
+    await waitFor(() => expect(screen.getByText(/feita sem rede/).textContent?.replaceAll('\u00a0', ' '))
+      .toContain('R$ 7,00'), espera)
+    expect(screen.queryByText(/Há mais/)).not.toBeInTheDocument()
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Conferir' })), espera)
+  })
+})

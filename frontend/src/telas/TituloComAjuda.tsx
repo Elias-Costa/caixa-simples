@@ -16,7 +16,8 @@ export function TituloComAjuda({ titulo, ajuda }: Props) {
 
   return <>
     <div className="titulo-com-ajuda">
-      <h2 className="titulo">{titulo}</h2>
+      {/* Fora da ordem do teclado, mas pode receber o foco de quem sumiu da tela, como a faixa conferida. */}
+      <h2 className="titulo" tabIndex={-1}>{titulo}</h2>
       <button type="button" className="botao botao--secundario titulo-com-ajuda__botao"
         aria-label="Ajuda desta tela" aria-expanded={aberta} aria-controls={aberta ? idDaAjuda : undefined}
         onClick={() => setAberta(!aberta)}>?</button>

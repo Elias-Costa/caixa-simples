@@ -10,7 +10,11 @@ import { Navegacao } from './Navegacao'
 import { useCelular } from './useCelular'
 import { useConexao } from './useConexao'
 import { ContextoDoShellReact } from './ContextoDoShell'
+import { FaixaDaVendaRecusada } from './FaixaDaVendaRecusada'
 import { SincronizacaoContext, useEnvioAutomatico } from './sincronizacao'
+
+/** As telas do balcão, onde a venda recusada precisa ser dita: é nelas que o caixa é conferido. */
+const TELAS_DA_VENDA_RECUSADA = new Set(['/vender', '/caixa'])
 
 /** De quanto em quanto tempo o aplicativo aberto procura a versão nova, além da volta à tela. */
 const INTERVALO_DA_PROCURA_DE_VERSAO = 60 * 60 * 1000
@@ -18,7 +22,8 @@ const INTERVALO_DA_PROCURA_DE_VERSAO = 60 * 60 * 1000
 /**
  * A moldura de toda tela: quem está operando e em que negócio, a navegação e os avisos que
  * valem para o aplicativo inteiro (sem rede ou sem resposta do servidor, fila por enviar, revisão
- * por conferir, versão nova, vencimento do plano, caixa aberto desde outro dia), e o rodapé com o
+ * por conferir, versão nova, vencimento do plano, caixa aberto desde outro dia), a venda recusada
+ * nas telas do balcão, e o rodapé com o
  * aviso de privacidade e os termos de uso. É também onde a fila do aparelho é enviada sozinha, uma vez para o aplicativo
  * inteiro. Os primeiros passos não ficam aqui: só a tela Caixa os mostra, porque é ela que sabe o
  * que a pessoa já fez.
@@ -132,6 +137,9 @@ export function Shell() {
           <Link className="botao" to="/caixa">Ir ao caixa</Link>
         </div>
       )}
+      {/* Faixa própria, e não a de contexto: aquela guarda uma frase só, e na comanda com cliente a do
+          saldo devedor esconderia esta. */}
+      {TELAS_DA_VENDA_RECUSADA.has(pathname) && <FaixaDaVendaRecusada vendas={sincronizacao.vendasRecusadas} />}
       {faixaDeContexto && <div className="faixa" role="status">{faixaDeContexto}</div>}
       </div>
 

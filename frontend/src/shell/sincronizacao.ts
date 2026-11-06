@@ -4,6 +4,7 @@ import { sincronizacao } from '../api/sincronizacao'
 import { hojeNoBalcao } from '../dataDoBalcao'
 import { enviarFila } from '../offline/envio'
 import { aoMudarFila, gestoPendente, listarGestos, sessaoPodeUsarAFila } from '../offline/fila'
+import { vendasDaFila, type VendaDaFila } from '../offline/registrosDaFila'
 import { marcarSessaoEncerrada } from '../sessao/armazenamento'
 import type { Identidade } from '../sessao/Identidade'
 
@@ -25,6 +26,11 @@ export type Sincronizacao = {
   comFalha: number
   /** Revisões não conferidas: as deste aparelho e, para o administrador, as da Conta inteira. */
   emRevisao: number
+  /**
+   * As vendas deste aparelho que o servidor recusou, conferidas ou não, das mais antigas para as mais
+   * novas. A faixa do balcão mostra as não conferidas, e a comanda diz por que a venda voltou.
+   */
+  vendasRecusadas: readonly VendaDaFila[]
   /** Muda a cada rodada que gravou algum resultado; as telas recarregam quando muda. */
   rodada: number
   enviarAgora: () => void
@@ -33,7 +39,7 @@ export type Sincronizacao = {
 }
 
 export const SincronizacaoContext = createContext<Sincronizacao>({
-  enviando: false, porEnviar: 0, comFalha: 0, emRevisao: 0, rodada: 0,
+  enviando: false, porEnviar: 0, comFalha: 0, emRevisao: 0, vendasRecusadas: [], rodada: 0,
   enviarAgora: () => undefined, atualizar: () => undefined,
 })
 
@@ -41,7 +47,12 @@ export function useSincronizacao(): Sincronizacao {
   return useContext(SincronizacaoContext)
 }
 
-type ContagemLocal = { porEnviar: number; comFalha: number; emRevisao: string[] }
+type ContagemLocal = {
+  porEnviar: number
+  comFalha: number
+  emRevisao: string[]
+  vendasRecusadas: readonly VendaDaFila[]
+}
 
 /**
  * O envio automático da fila e as contagens do cabeçalho, montados uma vez no shell.
@@ -59,7 +70,7 @@ type ContagemLocal = { porEnviar: number; comFalha: number; emRevisao: string[] 
 export function useEnvioAutomatico(identidade: Identidade | null, sair: () => void,
   caminho: string, relerIdentidade: () => Promise<unknown>): Sincronizacao {
   const [enviando, setEnviando] = useState(false)
-  const [local, setLocal] = useState<ContagemLocal>({ porEnviar: 0, comFalha: 0, emRevisao: [] })
+  const [local, setLocal] = useState<ContagemLocal>({ porEnviar: 0, comFalha: 0, emRevisao: [], vendasRecusadas: [] })
   const [daConta, setDaConta] = useState<string[]>([])
   const [rodada, setRodada] = useState(0)
   const emCurso = useRef(false)
@@ -67,6 +78,7 @@ export function useEnvioAutomatico(identidade: Identidade | null, sair: () => vo
   const temPendencia = useRef(false)
   const quem = identidade ? `${identidade.contaId}:${identidade.usuarioId}` : null
   const administrador = identidade?.perfil === 'ADMIN'
+  const usuarioId = identidade?.usuarioId ?? ''
 
   const contar = useCallback(async () => {
     if (!('indexedDB' in globalThis) || !sessaoPodeUsarAFila()) return
@@ -78,11 +90,12 @@ export function useEnvioAutomatico(identidade: Identidade | null, sair: () => vo
         comFalha: gestos.filter((gesto) => gesto.estado === 'failed').length,
         emRevisao: gestos.filter((gesto) => gesto.estado === 'needs_review' && !gesto.conferidoEm)
           .map((gesto) => gesto.operacaoId),
+        vendasRecusadas: vendasDaFila(gestos, usuarioId).filter((venda) => venda.situacao === 'recusada'),
       })
     } catch {
       // A sessão mudou no meio da leitura; a próxima contagem acerta.
     }
-  }, [])
+  }, [usuarioId])
 
   const lerDaConta = useCallback(async () => {
     if (!administrador || !comServidor()) return
@@ -180,6 +193,7 @@ export function useEnvioAutomatico(identidade: Identidade | null, sair: () => vo
   }, [contar, lerDaConta])
 
   return useMemo(() => ({
-    enviando, porEnviar: local.porEnviar, comFalha: local.comFalha, emRevisao, rodada, enviarAgora, atualizar,
+    enviando, porEnviar: local.porEnviar, comFalha: local.comFalha, emRevisao,
+    vendasRecusadas: local.vendasRecusadas, rodada, enviarAgora, atualizar,
   }), [enviando, local, emRevisao, rodada, enviarAgora, atualizar])
 }

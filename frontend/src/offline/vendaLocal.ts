@@ -1,9 +1,7 @@
 import { cadastro, type Produto } from '../api/cadastro'
 import { SemConexao } from '../api/cliente'
 import { comServidor } from '../api/conexao'
-import {
-  vendas, type Comprovante, type FormaPagamento, type ResumoDaVenda, type ValorDaForma, type Venda,
-} from '../api/vendas'
+import { vendas, type Comprovante, type ResumoDaVenda, type Venda } from '../api/vendas'
 import { lerIdentidade } from '../sessao/armazenamento'
 import { criarCaixaLocal, sessaoTemPendencia, ultimoGestoDaGaveta } from './caixaLocal'
 import { reais } from './dinheiro'
@@ -105,31 +103,11 @@ async function sessaoDaVenda(id: string): Promise<string | undefined> {
   return (await lerRetrato<Venda>(`venda:${id}`))?.dados.sessaoCaixaId
 }
 
-/** A ordem em que o servidor declara as formas, a mesma das linhas da lista que ele devolve. */
-const ORDEM_DAS_FORMAS: FormaPagamento[] = ['DINHEIRO', 'PIX', 'CARTAO', 'FIADO']
-
-type ParcelaParaSomar = { forma: FormaPagamento; status: string; centavos: number }
-
-/**
- * Quanto entrou por forma, pela regra do servidor na lista do caixa: a parcela confirmada e a do
- * fiado, que fica pendente até o cliente pagar, somadas em centavos. Vale para a Venda feita aqui e
- * para a do servidor guardada para ler sem rede; o Pix aguardando confirmação fica de fora.
- */
-function formasDasParcelas(parcelas: readonly ParcelaParaSomar[]): ValorDaForma[] {
-  const porForma = new Map<FormaPagamento, number>()
-  for (const parcela of parcelas) {
-    if (parcela.status !== 'CONFIRMADO' && parcela.forma !== 'FIADO') continue
-    porForma.set(parcela.forma, (porForma.get(parcela.forma) ?? 0) + parcela.centavos)
-  }
-  return ORDEM_DAS_FORMAS.filter((forma) => porForma.has(forma))
-    .map((forma) => ({ forma, valor: reais(porForma.get(forma) ?? 0) }))
-}
-
 function resumo(venda: raiz.VendaNoDispositivo, pendente: boolean): ResumoDaVenda {
   return {
     id: venda.id, sessaoCaixaId: venda.sessaoCaixaId, usuarioId: venda.usuarioId, status: venda.status,
     total: reais(raiz.total(venda)), criadoEm: venda.criadoEm, pendenteSincronizacao: pendente,
-    formas: formasDasParcelas(venda.parcelas.map((parcela) =>
+    formas: raiz.formasDasParcelas(venda.parcelas.map((parcela) =>
       ({ forma: parcela.forma, status: parcela.status, centavos: parcela.valorCentavos }))),
   }
 }
@@ -138,7 +116,7 @@ function resumo(venda: raiz.VendaNoDispositivo, pendente: boolean): ResumoDaVend
 function resumoDoRetrato(venda: Venda): ResumoDaVenda {
   return {
     ...venda,
-    formas: formasDasParcelas(venda.parcelas.map((parcela) =>
+    formas: raiz.formasDasParcelas(venda.parcelas.map((parcela) =>
       ({ forma: parcela.forma, status: parcela.status, centavos: Math.round(parcela.valor * 100) }))),
   }
 }

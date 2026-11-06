@@ -472,6 +472,45 @@ class SincronizacaoHttpTest extends TesteDeIntegracao {
                 .andExpect(jsonPath("$.valorFechamentoEsperado").value(40.0));
     }
 
+    @Test
+    @DisplayName("a revisão de estoque negativo traz o tipo, que falta na aplicada e na recusada; o aparelho antigo lê os campos de sempre")
+    void tipoDaRevisaoNaResposta() throws Exception {
+        ContaCriada conta = criador.criar("Empório da Praça", SENHA);
+        criador.habilitarEstoque(conta.contaId());
+        RequestPostProcessor admin = autenticador.como(conta);
+        UUID sessaoId = UUID.randomUUID();
+        UUID vendaId = UUID.randomUUID();
+        UUID produtoId = UUID.randomUUID();
+        GestoDeTeste produto = GestoDeTeste.de("produto.criar", produtoId,
+                produto("Queijo", "30.00", null));
+        GestoDeTeste abertura = GestoDeTeste.abertura(sessaoId, "0");
+        GestoDeTeste inicio = GestoDeTeste.inicio(vendaId, sessaoId, abertura);
+        GestoDeTeste item = GestoDeTeste.item(vendaId, UUID.randomUUID(), produtoId, "1", "30.00",
+                inicio, produto);
+        GestoDeTeste parcela = GestoDeTeste.parcelaNoCartao(vendaId, "30.00", item);
+        GestoDeTeste conclusao = GestoDeTeste.conclusao(vendaId, parcela, abertura);
+        GestoDeTeste desconhecido = GestoDeTeste.de("venda.cancelar", vendaId, conteudo(),
+                conclusao);
+        List<GestoDeTeste> semRevisao = List.of(produto, abertura, inicio, item, parcela,
+                desconhecido);
+
+        JsonNode resposta = enviar(admin, List.of(produto, abertura, inicio, item, parcela,
+                conclusao, desconhecido));
+
+        JsonNode daConclusao = resultadoDe(resposta, conclusao);
+        assertThat(daConclusao.path("resultado").asText()).isEqualTo("APLICADA_COM_REVISAO");
+        assertThat(daConclusao.path("detalhe").asText()).contains("estoque negativo", "Queijo");
+        assertThat(daConclusao.path("tiposDaRevisao")).extracting(JsonNode::asText)
+                .containsExactly("ESTOQUE_NEGATIVO");
+        assertThat(resultadoDe(resposta, desconhecido).path("resultado").asText())
+                .isEqualTo("NAO_APLICADA");
+        assertThat(semRevisao).allSatisfy(gesto -> assertThat(resultadoDe(resposta, gesto)
+                .has("tiposDaRevisao")).as(gesto.tipo()).isFalse());
+
+        // O reenvio lê o que foi gravado e devolve o tipo junto.
+        assertThat(resultadoDe(enviar(admin, List.of(conclusao)), conclusao)).isEqualTo(daConclusao);
+    }
+
     /** Os gestos de um expediente inteiro sem rede, na ordem e com as dependências do PWA. */
     private static final class DiaSemRede {
 

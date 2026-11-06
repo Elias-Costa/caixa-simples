@@ -1,5 +1,6 @@
 package br.com.caixasimples.vendas.internal;
 
+import br.com.caixasimples.cadastro.application.ConsultaDeClienteParaVenda.ClienteInativoParaVendaException;
 import br.com.caixasimples.cadastro.application.ConsultaDeClienteParaVenda.ClienteNaoEncontradoParaVendaException;
 import br.com.caixasimples.cadastro.application.ProdutoNaoEncontradoException;
 import br.com.caixasimples.cadastro.application.ProdutoService;
@@ -14,7 +15,9 @@ import br.com.caixasimples.sincronizacao.Aplicacao;
 import br.com.caixasimples.sincronizacao.AplicadorDeOperacoes;
 import br.com.caixasimples.sincronizacao.OperacaoRecebida;
 import br.com.caixasimples.sincronizacao.OperacaoRecusadaException;
+import br.com.caixasimples.sincronizacao.TipoDeRevisao;
 import br.com.caixasimples.vendas.SessaoCaixaNaoEncontradaParaVendaException;
+import br.com.caixasimples.vendas.application.CaixaFechadoParaVendaNovaException;
 import br.com.caixasimples.vendas.application.VendaNaoEncontradaException;
 import br.com.caixasimples.vendas.application.VendaService;
 import br.com.caixasimples.vendas.domain.ItemVenda;
@@ -57,6 +60,14 @@ import tools.jackson.databind.ObjectMapper;
  * <p>O início e a conclusão gravam o instante que leram do conteúdo e o devolvem ao lote, que o
  * confere contra o relógio do servidor; o da conclusão decide o dia do faturamento e o do dinheiro
  * na gaveta. O item e a parcela gravam o instante da própria operação, que o lote confere sempre.
+ *
+ * <h2>Recusa de uma venda que já aconteceu</h2>
+ *
+ * <p>Duas recusas do balcão com rede dizem a saída de quem ainda vai vender: abrir um caixa, reativar
+ * o cliente antes de vinculá-lo. Pelo lote, a venda já aconteceu, com o cliente atendido e às vezes o
+ * dinheiro na gaveta, e essa saída não serve. Elas chegam aqui com tipo próprio e saem com a frase de
+ * quem já vendeu. A do cliente não leva o nome dele, porque o motivo gravado no lote não sai junto
+ * quando o Cliente é removido.
  */
 @Component
 class GestosDaVenda implements AplicadorDeOperacoes {
@@ -84,6 +95,11 @@ class GestosDaVenda implements AplicadorDeOperacoes {
     }
 
     @Override
+    public String recusaEmCascata(String tipo) {
+        return "A venda parou no passo anterior, que foi recusado.";
+    }
+
+    @Override
     public Aplicacao aplicar(OperacaoRecebida operacao) {
         UUID vendaId = operacao.registroId();
         try {
@@ -100,12 +116,7 @@ class GestosDaVenda implements AplicadorDeOperacoes {
                     vendas.aplicarDesconto(vendaId, operacao.dinheiro(desconto.valor(), "valor"));
                     yield Aplicacao.aplicada(null);
                 }
-                case "venda.vincularCliente" -> {
-                    Vinculo vinculo = operacao.payloadComo(json, Vinculo.class);
-                    vendas.vincularCliente(vendaId,
-                            operacao.exigir(vinculo.clienteId(), "clienteId"));
-                    yield Aplicacao.aplicada(null);
-                }
+                case "venda.vincularCliente" -> vincularCliente(operacao);
                 case "venda.desvincularCliente" -> {
                     vendas.desvincularCliente(vendaId);
                     yield Aplicacao.aplicada(null);
@@ -126,8 +137,27 @@ class GestosDaVenda implements AplicadorDeOperacoes {
         Inicio inicio = operacao.payloadComo(json, Inicio.class);
         UUID sessaoCaixaId = operacao.exigir(inicio.sessaoCaixaId(), "sessaoCaixaId");
         Instant criadoEm = operacao.exigir(inicio.criadoEm(), "criadoEm");
-        vendas.iniciar(operacao.registroId(), sessaoCaixaId, criadoEm);
+        try {
+            vendas.iniciar(operacao.registroId(), sessaoCaixaId, criadoEm);
+        } catch (CaixaFechadoParaVendaNovaException fechado) {
+            throw new OperacaoRecusadaException("O caixa foi fechado antes de esta venda chegar ao"
+                    + " servidor, e ela não foi registrada. O administrador decide o que fazer com"
+                    + " ela.", fechado);
+        }
         return Aplicacao.aplicada(null, criadoEm);
+    }
+
+    private Aplicacao vincularCliente(OperacaoRecebida operacao) {
+        Vinculo vinculo = operacao.payloadComo(json, Vinculo.class);
+        try {
+            vendas.vincularCliente(operacao.registroId(),
+                    operacao.exigir(vinculo.clienteId(), "clienteId"));
+        } catch (ClienteInativoParaVendaException inativo) {
+            throw new OperacaoRecusadaException("O cliente estava inativo quando a venda chegou ao"
+                    + " servidor, e a venda ficou aberta, sem cliente. Reative o cliente em Clientes"
+                    + " e vincule-o de novo à venda.", inativo);
+        }
+        return Aplicacao.aplicada(null);
     }
 
     private Aplicacao adicionarItem(OperacaoRecebida operacao) {
@@ -139,7 +169,8 @@ class GestosDaVenda implements AplicadorDeOperacoes {
                 operacao.exigir(item.quantidade(), "quantidade"), precoVisto,
                 operacao.dinheiro(item.desconto(), "desconto"), operacao.criadoEm());
         if (!vigente.equals(precoVisto)) {
-            return Aplicacao.comRevisao(null, "O item " + item.nome() + " foi cobrado a "
+            return Aplicacao.comRevisao(null, TipoDeRevisao.PRECO_DIFERENTE,
+                    "O item " + item.nome() + " foi cobrado a "
                     + FormatoDeTela.reais(precoVisto) + ", e o preço atual é "
                     + FormatoDeTela.reais(vigente) + "; o valor cobrado foi mantido.");
         }
@@ -157,7 +188,8 @@ class GestosDaVenda implements AplicadorDeOperacoes {
                 operacao.exigir(parcela.pagamentoId(), "pagamentoId"),
                 new SolicitacaoPagamento(forma, valor, recebido), operacao.criadoEm(), nsu);
         if (forma == FormaPagamento.CARTAO && nsu == null && contas.nsuObrigatorio()) {
-            return Aplicacao.comRevisao(null, "A parcela de " + FormatoDeTela.reais(valor)
+            return Aplicacao.comRevisao(null, TipoDeRevisao.NSU_AUSENTE,
+                    "A parcela de " + FormatoDeTela.reais(valor)
                     + " no cartão chegou sem o NSU que a Conta exige; confira o comprovante da"
                     + " maquininha e o extrato da operadora.");
         }
@@ -173,7 +205,7 @@ class GestosDaVenda implements AplicadorDeOperacoes {
         if (negativos.isEmpty()) {
             return Aplicacao.aplicada(null, concluidoEm);
         }
-        return Aplicacao.comRevisao(null, concluidoEm,
+        return Aplicacao.comRevisao(null, concluidoEm, TipoDeRevisao.ESTOQUE_NEGATIVO,
                 "A baixa desta venda deixou o estoque negativo: " + String.join(", ", negativos)
                         + "; confira a contagem e ajuste se preciso.");
     }
