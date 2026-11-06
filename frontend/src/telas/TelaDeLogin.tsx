@@ -1,6 +1,7 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router'
 import { ErroDaApi, SemConexao } from '../api/cliente'
+import { estadoDaConexao } from '../api/conexao'
 import { sessaoFoiEncerrada, sessaoVenceu } from '../sessao/armazenamento'
 import { RelogioAdiantado } from '../sessao/token'
 import { useSessao } from '../sessao/useSessao'
@@ -13,6 +14,16 @@ export function TelaDeLogin() {
   const [senha, setSenha] = useState('')
   const [erro, setErro] = useState<string | null>(null)
   const [enviando, setEnviando] = useState(false)
+  const botaoDeEntrar = useRef<HTMLButtonElement>(null)
+  const focarDepoisDoErro = useRef(false)
+
+  // O botão desligado durante a tentativa perde o foco, que cai no corpo da página, e quem usa teclado
+  // recomeçaria do alto. A espera é pelo botão religado, porque botão desligado não recebe foco.
+  useEffect(() => {
+    if (!focarDepoisDoErro.current || enviando) return
+    focarDepoisDoErro.current = false
+    botaoDeEntrar.current?.focus()
+  })
 
   // Quem já está autenticado neste dispositivo não vê o login de novo.
   if (identidade) return <Navigate to="/" replace />
@@ -27,7 +38,8 @@ export function TelaDeLogin() {
       await entrar(email, senha)
       navegar('/', { replace: true })
     } catch (falha: unknown) {
-      setErro(mensagemDe(falha))
+      setErro(mensagemDe(falha, porQueVoltou !== null))
+      focarDepoisDoErro.current = true
       setEnviando(false)
     }
   }
@@ -69,7 +81,7 @@ export function TelaDeLogin() {
           </p>
         )}
 
-        <button type="submit" className="botao botao--largo" disabled={enviando}>
+        <button ref={botaoDeEntrar} type="submit" className="botao botao--largo" disabled={enviando}>
           {enviando ? 'Entrando...' : 'Entrar'}
         </button>
         {/* Não há recuperação por e-mail: o administrador redefine a senha do operador, e o próprio
@@ -105,12 +117,26 @@ function avisoDaEntrada(): string | null {
   return null
 }
 
-function mensagemDe(falha: unknown): string {
+/**
+ * Entrar sem resposta. O servidor fora com o Wi-Fi ligado tem frase própria, para a pessoa não ir
+ * reiniciar o roteador à toa. A parte do que fica guardado sai quando a frase de cima já diz isso.
+ */
+function semResposta(guardadoJaDito: boolean): string {
+  if (estadoDaConexao() === 'sem-rede') {
+    return guardadoJaDito
+      ? 'Sem conexão. Entrar precisa de rede.'
+      : 'Sem conexão. Entrar precisa de rede; o que foi registrado continua guardado neste aparelho.'
+  }
+  const frase = 'Sem resposta do servidor. A rede deste aparelho pode estar funcionando; tente de novo em alguns minutos.'
+  return guardadoJaDito ? frase : `${frase} O que foi registrado continua guardado neste aparelho.`
+}
+
+function mensagemDe(falha: unknown, guardadoJaDito: boolean): string {
   if (falha instanceof RelogioAdiantado) {
     return 'O relógio deste aparelho está adiantado. Acerte a data e a hora e entre de novo; o que foi '
       + 'registrado continua guardado aqui.'
   }
-  if (falha instanceof SemConexao) return 'Sem conexão. Verifique a rede e tente de novo.'
+  if (falha instanceof SemConexao) return semResposta(guardadoJaDito)
   if (falha instanceof ErroDaApi && falha.status === 401) return 'E-mail ou senha incorretos.'
   // O servidor diz quanto falta para a janela acabar. Sem o detalhe, como num 429 de um proxy no
   // caminho, a tela ainda pede para esperar, em vez de sugerir tentar de novo na hora.

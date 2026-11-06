@@ -42,8 +42,6 @@ export function gravarToken(token: string): string {
   localStorage.removeItem(CHAVE_DO_TOKEN_LEGADO)
   localStorage.setItem(CHAVE_DA_SESSAO, nova)
   fixarSessaoDaAba(nova)
-  sessionStorage.removeItem(CHAVE_DA_SESSAO_ENCERRADA)
-  localStorage.removeItem(CHAVE_DA_SESSAO_VENCIDA)
   if (anterior) {
     localStorage.removeItem(chaveDoToken(anterior))
     localStorage.removeItem(chaveDaIdentidade(anterior))
@@ -108,6 +106,16 @@ export function marcarSessaoVencida(): void {
 
 export function sessaoVenceu(): boolean {
   return localStorage.getItem(CHAVE_DA_SESSAO_VENCIDA) !== null
+}
+
+/**
+ * A pessoa entrou de fato, com o token e a identidade na mão. As marcas saem aqui, e não quando o token
+ * chega: o login que responde e a identidade que não respondem deixam a pessoa na entrada, e o motivo de
+ * ela estar ali continua valendo.
+ */
+export function limparMarcasDaEntrada(): void {
+  sessionStorage.removeItem(CHAVE_DA_SESSAO_ENCERRADA)
+  localStorage.removeItem(CHAVE_DA_SESSAO_VENCIDA)
 }
 
 const ouvintesDoVencimento = new Set<() => void>()

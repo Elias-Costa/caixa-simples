@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router'
 import { useRegisterSW } from 'virtual:pwa-register/react'
+import type { EstadoDaConexao } from '../api/conexao'
 import type { Perfil } from '../sessao/Identidade'
 import { useSessao } from '../sessao/useSessao'
+import { useConfirmacao, type Pergunta } from '../telas/useConfirmacao'
 import { useAvisoDaSessao } from './avisoDaSessao'
 import { avisoDoPlano } from './avisoDoPlano'
 import { useAvisoDoCaixaDeOutroDia } from './caixaDeOutroDia'
@@ -44,6 +46,7 @@ export function Shell() {
   const [faixaDeContexto, definirFaixa] = useState<string | null>(null)
   const [vendaAberta, definirVendaAberta] = useState(false)
   const [registro, definirRegistro] = useState<ServiceWorkerRegistration>()
+  const [confirmar, dialogoDeConfirmacao] = useConfirmacao()
   const {
     needRefresh: [precisaAtualizar],
     updateServiceWorker,
@@ -71,7 +74,11 @@ export function Shell() {
   if (!identidade) return null
   const vencimento = avisoDoPlano(identidade)
 
-  function encerrar() {
+  // O token guardado é o que abre o aplicativo sem rede, e entrar de novo precisa do servidor: sem ele,
+  // Sair não tem volta, e o próximo do turno fica sem vender. Com ele, perguntar só ensinaria a confirmar
+  // sem ler.
+  async function encerrar() {
+    if (conexao !== 'com-servidor' && !(await confirmar(perguntaDeSair(conexao, sincronizacao.porEnviar)))) return
     sair()
     navegar('/entrar', { replace: true })
   }
@@ -109,10 +116,11 @@ export function Shell() {
             {sincronizacao.emRevisao} em revisão
           </Link>
         )}
-        <button type="button" className="botao botao--secundario" onClick={encerrar}>
+        <button type="button" className="botao botao--secundario" onClick={() => void encerrar()}>
           Sair
         </button>
       </header>
+      {dialogoDeConfirmacao}
 
       {/* As faixas ficam empilhadas num lugar só, no alto de toda tela: mais de uma pode valer ao mesmo
           tempo, como o vencimento do plano e o caixa aberto desde ontem. */}
@@ -165,6 +173,23 @@ export function Shell() {
       </footer>
     </div>
   )
+}
+
+/**
+ * O número é o mesmo do cabeçalho, só de quem está saindo. No aparelho dividido por turno pode haver
+ * registros de outra pessoa, e por isso a frase diz que são seus.
+ */
+function perguntaDeSair(conexao: EstadoDaConexao, porEnviar: number): Pergunta {
+  const semRede = conexao === 'sem-rede'
+  const quando = semRede ? 'a rede voltar' : 'o servidor responder'
+  const guardados = porEnviar === 0 ? ''
+    : porEnviar === 1 ? ' 1 registro seu continua guardado neste aparelho.'
+      : ` ${porEnviar} registros seus continuam guardados neste aparelho.`
+  return {
+    titulo: semRede ? 'Sair sem rede?' : 'Sair sem resposta do servidor?',
+    texto: `Você só entra de novo quando ${quando}.${guardados}`,
+    acao: 'Sair',
+  }
 }
 
 function rotuloDoPerfil(perfil: Perfil): string {

@@ -115,7 +115,9 @@ uma linha por registro (a venda, o movimento de caixa, o cliente ou o produto), 
 a forma e o detalhe do servidor, os gestos recolhidos e um Conferir que vale para o registro inteiro.
 O agrupamento é só da tela: o servidor continua gravando e conferindo por operação. O administrador
 confere numa lista só as revisões e recusas de todos os aparelhos da Conta, inclusive as do próprio,
-e registra no servidor que as conferiu. Sair não apaga o que o
+e registra no servidor que as conferiu. Sem rede ou sem resposta do servidor, Sair pergunta antes e
+diz quantos registros ficam guardados, porque apaga o token que abre o aplicativo e entrar de novo
+precisa do servidor; com ele, não pergunta. Sair não apaga o que o
 aparelho guardou: a tela de entrada tem um link discreto para uma página que apaga a fila e as
 cópias locais de todos os usuários. Antes do botão, a página diz o que sai do aparelho, que o já
 enviado continua no servidor e quantos registros feitos sem rede ainda não chegaram a ele. Ela fica

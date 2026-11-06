@@ -241,6 +241,37 @@ describe('SessaoProvider', () => {
     expect(lerToken()).toBe('token-conta-b')
   })
 
+  it('a identidade sem resposta limpa a sessão que este login criou, e nenhuma outra', async () => {
+    const fetchFalso = vi.fn((caminho: string) => caminho === '/api/auth/login'
+      ? Promise.resolve(new Response(JSON.stringify({ token: tokenComExpiracao(daquiAUmDia()) }), { status: 200 }))
+      : Promise.reject(new TypeError('Failed to fetch')))
+    vi.stubGlobal('fetch', fetchFalso)
+    render(<SessaoProvider><EntradaPendente /></SessaoProvider>)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Entrar na Conta A' }))
+
+    expect(await screen.findByText('SemConexao')).toBeInTheDocument()
+    expect(lerToken()).toBeNull()
+    expect(sessaoAtual()).toBeNull()
+    expect(lerIdentidade()).toBeNull()
+  })
+
+  it('a identidade sem resposta não derruba a sessão que outra aba abriu enquanto a chamada corria', async () => {
+    let semResposta!: (motivo: Error) => void
+    vi.stubGlobal('fetch', vi.fn((caminho: string) => caminho === '/api/auth/login'
+      ? Promise.resolve(new Response(JSON.stringify({ token: tokenComExpiracao(daquiAUmDia()) }), { status: 200 }))
+      : new Promise<Response>((_resolver, recusar) => { semResposta = recusar })))
+    render(<SessaoProvider><EntradaPendente /></SessaoProvider>)
+    fireEvent.click(screen.getByRole('button', { name: 'Entrar na Conta A' }))
+    await waitFor(() => expect(semResposta).toBeDefined())
+
+    gravarToken('token-conta-b')
+    semResposta(new TypeError('Failed to fetch'))
+
+    expect(await screen.findByText('SemConexao')).toBeInTheDocument()
+    expect(lerToken()).toBe('token-conta-b')
+  })
+
   it('identidade e renovação antigas não alteram a sessão ativa de outra Conta', () => {
     gravarToken('token-conta-a')
     const sessaoA = sessaoAtual()!

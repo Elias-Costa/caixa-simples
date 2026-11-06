@@ -3,8 +3,8 @@ import { deleteDB } from 'idb'
 import { act, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { enfileirarGesto, listarGestos } from '../offline/fila'
-import { gravarIdentidade, gravarToken, lerToken, renovarTokenDaSessao, sessaoAtual, sessaoFoiEncerrada,
-  sessaoVenceu } from './armazenamento'
+import { gravarIdentidade, gravarToken, lerToken, limparMarcasDaEntrada, renovarTokenDaSessao, sessaoAtual,
+  sessaoFoiEncerrada, sessaoVenceu } from './armazenamento'
 import type { Identidade } from './Identidade'
 import { SessaoProvider } from './SessaoProvider'
 import { tokenComExpiracao } from './tokenDeTeste'
@@ -78,7 +78,8 @@ describe('o token que vence com o aplicativo aberto', () => {
     sessionStorage.clear()
     expect(sessaoVenceu()).toBe(true)
 
-    gravarToken(tokenComExpiracao(new Date(Date.now() + UMA_HORA)))
+    // Só a entrada completa a tira, com o token e a identidade: o caminho está em TelaDeLogin.test.tsx.
+    limparMarcasDaEntrada()
     expect(sessaoVenceu()).toBe(false)
   })
 

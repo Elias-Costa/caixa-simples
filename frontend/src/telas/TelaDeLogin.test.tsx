@@ -1,12 +1,13 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { gravarIdentidade, gravarToken, lerIdentidade, lerToken, marcarSessaoEncerrada,
-  sessaoFoiEncerrada } from '../sessao/armazenamento'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { gravarIdentidade, gravarToken, lerIdentidade, lerToken, marcarSessaoEncerrada, marcarSessaoVencida,
+  sessaoAtual, sessaoFoiEncerrada, sessaoVenceu } from '../sessao/armazenamento'
 import { SessaoProvider } from '../sessao/SessaoProvider'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
 import { ExigeSessao } from '../shell/ExigeSessao'
 import { TelaDeLogin } from './TelaDeLogin'
+import { TelaDoAparelho } from './TelaDoAparelho'
 
 const FRASE_DO_VENCIMENTO = 'A sessão neste aparelho venceu. Entre de novo, com rede; o que foi registrado '
   + 'continua guardado aqui e é enviado depois que você entrar.'
@@ -23,6 +24,7 @@ function renderizarLogin() {
       <SessaoProvider>
         <Routes>
           <Route path="/entrar" element={<TelaDeLogin />} />
+          <Route path="/aparelho" element={<TelaDoAparelho />} />
           <Route path="/" element={<p>dentro do aplicativo</p>} />
         </Routes>
       </SessaoProvider>
@@ -42,6 +44,8 @@ function respostaJson(status: number, corpo: unknown) {
     headers: { 'Content-Type': 'application/json' },
   })
 }
+
+afterEach(() => vi.restoreAllMocks())
 
 describe('TelaDeLogin', () => {
   it('mostra o nome do produto com a categoria logo abaixo', () => {
@@ -138,13 +142,182 @@ describe('TelaDeLogin', () => {
     expect(sessaoFoiEncerrada()).toBe(true)
   })
 
-  it('sem conexão mostra a mensagem própria', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
-    renderizarLogin()
+  describe('sem resposta na entrada', () => {
+    const SEM_REDE = 'Sem conexão. Entrar precisa de rede.'
+    const SEM_SERVIDOR = 'Sem resposta do servidor. A rede deste aparelho pode estar funcionando; tente de novo em alguns minutos.'
+    const GUARDADO_DEPOIS_DA_REDE = 'Sem conexão. Entrar precisa de rede; o que foi registrado continua guardado neste aparelho.'
+    const GUARDADO = 'O que foi registrado continua guardado neste aparelho.'
 
-    preencherEEnviar()
+    beforeEach(() => {
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+    })
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Sem conexão')
+    function semRede() {
+      vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+    }
+
+    it('sem rede, diz que entrar precisa dela e que o registrado continua guardado', async () => {
+      semRede()
+      renderizarLogin()
+
+      preencherEEnviar()
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(new RegExp(`^${GUARDADO_DEPOIS_DA_REDE}$`))
+    })
+
+    it('com o Wi-Fi ligado e o servidor fora, não manda verificar a rede', async () => {
+      renderizarLogin()
+
+      preencherEEnviar()
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(`${SEM_SERVIDOR} ${GUARDADO}`)
+      expect(screen.getByRole('alert')).not.toHaveTextContent('Sem conexão')
+    })
+
+    it('o proxy sem a aplicação também é sem resposta do servidor', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 502 })))
+      renderizarLogin()
+
+      preencherEEnviar()
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(SEM_SERVIDOR)
+    })
+
+    it('com a frase do vencimento em cima, a de baixo não repete o que fica guardado', async () => {
+      marcarSessaoVencida()
+      semRede()
+      renderizarLogin()
+
+      preencherEEnviar()
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(new RegExp(`^${SEM_REDE}$`))
+      expect(screen.getByRole('status')).toHaveTextContent(FRASE_DO_VENCIMENTO)
+    })
+
+    it('com a frase do 401 em cima, também não repete, sem resposta do servidor', async () => {
+      marcarSessaoEncerrada()
+      renderizarLogin()
+
+      preencherEEnviar()
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(new RegExp(`^${SEM_SERVIDOR}$`))
+      expect(screen.getByRole('status')).toHaveTextContent(FRASE_DO_401)
+    })
+  })
+
+  describe('o login responde e a identidade não', () => {
+    const FRASE_SEM_SERVIDOR = 'Sem resposta do servidor. A rede deste aparelho pode estar funcionando; tente de novo em alguns minutos.'
+
+    function loginSemIdentidade(respostaDaIdentidade: () => Promise<Response> = () => Promise.reject(new TypeError('Failed to fetch'))) {
+      vi.stubGlobal('fetch', vi.fn((caminho: string) => caminho === '/api/auth/login'
+        ? Promise.resolve(respostaJson(200, { token: tokenDoLogin() }))
+        : respostaDaIdentidade()))
+    }
+
+    it('não fica token sem identidade, e a página Apagar deixa de dizer que há sessão aberta', async () => {
+      loginSemIdentidade()
+      renderizarLogin()
+
+      preencherEEnviar()
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(FRASE_SEM_SERVIDOR)
+      expect(lerToken()).toBeNull()
+      expect(sessaoAtual()).toBeNull()
+
+      fireEvent.click(screen.getByRole('link', { name: 'Apagar os dados deste aparelho' }))
+
+      expect(await screen.findByRole('button', { name: 'Apagar os dados' })).toBeEnabled()
+      expect(screen.queryByText(/Há uma sessão aberta/)).not.toBeInTheDocument()
+    })
+
+    it('a identidade que responde com erro também não deixa token', async () => {
+      loginSemIdentidade(() => Promise.resolve(respostaJson(500, { title: 'Erro', status: 500 })))
+      renderizarLogin()
+
+      preencherEEnviar()
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('Não foi possível entrar. Tente de novo.')
+      expect(lerToken()).toBeNull()
+    })
+
+    it('a frase do vencimento continua na tela e no aparelho até a entrada dar certo', async () => {
+      marcarSessaoVencida()
+      loginSemIdentidade()
+      renderizarLogin()
+
+      preencherEEnviar()
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(new RegExp(`^${FRASE_SEM_SERVIDOR}$`))
+      expect(screen.getByRole('status')).toHaveTextContent(FRASE_DO_VENCIMENTO)
+      expect(sessaoVenceu()).toBe(true)
+      expect(lerToken()).toBeNull()
+    })
+
+    it('a frase do 401 também continua', async () => {
+      marcarSessaoEncerrada()
+      loginSemIdentidade()
+      renderizarLogin()
+
+      preencherEEnviar()
+
+      expect(await screen.findByRole('alert')).toBeInTheDocument()
+      expect(screen.getByRole('status')).toHaveTextContent(FRASE_DO_401)
+      expect(sessaoFoiEncerrada()).toBe(true)
+    })
+
+    it('repetir o login com a identidade de volta entra, e só aí a marca sai', async () => {
+      marcarSessaoVencida()
+      let identidadeResponde = false
+      const identidade = { usuarioId: '1', nome: 'Ana', perfil: 'ADMIN', contaId: '2',
+        nomeNegocio: 'Cafeteria Aurora', estoqueHabilitado: false }
+      loginSemIdentidade(() => identidadeResponde
+        ? Promise.resolve(respostaJson(200, identidade))
+        : Promise.reject(new TypeError('Failed to fetch')))
+      renderizarLogin()
+
+      preencherEEnviar()
+      expect(await screen.findByRole('alert')).toBeInTheDocument()
+
+      identidadeResponde = true
+      fireEvent.click(screen.getByRole('button', { name: 'Entrar' }))
+
+      expect(await screen.findByText('dentro do aplicativo')).toBeInTheDocument()
+      expect(lerIdentidade()).toEqual(identidade)
+      expect(sessaoVenceu()).toBe(false)
+    })
+  })
+
+  describe('o foco depois do erro', () => {
+    /**
+     * O jsdom não tira o foco do botão desligado, como o navegador faz: com o foco na senha, o teste só
+     * passa se a tela o levar ao botão de verdade.
+     */
+    function enviarComOFocoNaSenha() {
+      screen.getByLabelText('Senha').focus()
+      preencherEEnviar()
+    }
+
+    it('volta ao botão religado, sem resposta do servidor', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+      renderizarLogin()
+
+      enviarComOFocoNaSenha()
+
+      await screen.findByRole('alert')
+      const botao = screen.getByRole('button', { name: 'Entrar' })
+      expect(botao).toBeEnabled()
+      expect(botao).toHaveFocus()
+    })
+
+    it('volta ao botão religado também na senha recusada', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 401 })))
+      renderizarLogin()
+
+      enviarComOFocoNaSenha()
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('E-mail ou senha incorretos.')
+      expect(screen.getByRole('button', { name: 'Entrar' })).toHaveFocus()
+    })
   })
 
   it('sem aviso quando nada encerrou a sessão', () => {

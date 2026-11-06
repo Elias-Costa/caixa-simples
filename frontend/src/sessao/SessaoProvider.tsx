@@ -11,6 +11,7 @@ import {
   gravarToken,
   lerIdentidade,
   lerToken,
+  limparMarcasDaEntrada,
   limparSessao,
   marcarSessaoEncerrada,
   marcarSessaoVencida,
@@ -80,10 +81,20 @@ export function SessaoProvider({ children }: { children: ReactNode }) {
     if (tokenExpirado(login.token)) throw new RelogioAdiantado()
     const sessaoCriada = gravarToken(login.token)
     if (sessaoAtual() !== sessaoCriada) throw new SessaoAlterada()
-    const atual = await chamarApi<Identidade>('/api/auth/eu')
+    let atual: Identidade
+    try {
+      atual = await chamarApi<Identidade>('/api/auth/eu')
+    } catch (falha) {
+      // Sem a identidade o aplicativo não abre, e a pessoa vai repetir o login de qualquer jeito. O token
+      // que ficasse faria a página de apagar os dados dizer que há uma sessão aberta, sem Sair para tocar.
+      // Só sai a sessão que este login criou: outra aba pode ter aberto a dela enquanto a chamada corria.
+      if (sessaoAtual() === sessaoCriada) limparSessao()
+      throw falha
+    }
     if (tentativa !== tentativaDeEntrada.current || sessaoAtual() !== sessaoCriada) {
       throw new SessaoAlterada()
     }
+    limparMarcasDaEntrada()
     atualizarIdentidade(atual, sessaoCriada)
     try {
       await prepararCadastroLocal(atual)
