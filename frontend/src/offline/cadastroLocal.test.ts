@@ -245,10 +245,12 @@ describe('cadastro local', () => {
     await cadastro.reativarProduto(paoFrances.id)
     expect((await cadastro.produtos()).map((produto) => produto.nome)).toEqual(['Pão francês', 'Bolo de fubá'])
     expect((await cadastro.produtosInativos()).map((produto) => produto.nome)).toEqual(['Pão de queijo'])
+    // Registros diferentes gravados no mesmo milissegundo não têm ordem entre si.
     const gestos = await listarGestos()
-    expect(gestos.map((gesto) => gesto.tipo))
-      .toEqual(['produto.reativar', 'produto.inativar', 'produto.reativar'])
-    expect(gestos[0]).toMatchObject({ registroId: boloVelho.id, versaoBase: 3, payload: {} })
+    expect(gestos.map((gesto) => gesto.tipo).sort())
+      .toEqual(['produto.inativar', 'produto.reativar', 'produto.reativar'])
+    expect(gestos.find((gesto) => gesto.registroId === boloVelho.id))
+      .toMatchObject({ tipo: 'produto.reativar', versaoBase: 3, payload: {} })
     expect(servidor.reativarProduto).not.toHaveBeenCalled()
 
     entrar({ ...ana, usuarioId: 'operador', perfil: 'OPERADOR' })
@@ -289,10 +291,12 @@ describe('cadastro com o servidor fora e o Wi-Fi ligado', () => {
     await local.criarProduto({ ...dados, nome: 'Bolo de milho' })
 
     expect(api.criarProduto).toHaveBeenCalledTimes(1)
-    expect((await listarGestos()).map((gesto) => [gesto.tipo, gesto.payload])).toEqual([
+    // Registros diferentes gravados no mesmo milissegundo não têm ordem entre si.
+    const gestos = await listarGestos()
+    expect(gestos.map((gesto) => [gesto.tipo, gesto.payload])).toEqual(expect.arrayContaining([
       ['produto.criar', expect.objectContaining({ nome: 'Pão de queijo' })],
       ['produto.criar', expect.objectContaining({ nome: 'Bolo de milho' })],
-    ])
-    expect((await listarGestos())[0].registroId).toBe(id)
+    ]))
+    expect(gestos.find((gesto) => (gesto.payload as { nome: string }).nome === 'Pão de queijo')?.registroId).toBe(id)
   })
 })

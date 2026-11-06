@@ -733,35 +733,11 @@ export async function recuperarEnviosInterrompidos(): Promise<void> {
 }
 
 /**
- * Registra que quem operou viu a revisão deste gesto. O estado não muda: o gesto continua em
- * revisão, sai do aviso e fica no histórico. Conferir de novo mantém a primeira vez.
+ * Registra que quem operou viu as revisões escolhidas, numa transação só: o aviso baixa de uma vez. O
+ * estado não muda: o gesto continua em revisão, sai do aviso e fica no histórico. Conferir de novo
+ * mantém a primeira vez.
  */
-export async function conferirGesto(operacaoId: string): Promise<GestoNaFila> {
-  const { dono, sessao } = donoDaSessao()
-  const banco = await abrirBanco()
-  let conferido: GestoGravado
-  try {
-    conferirDono(dono, sessao)
-    const transacao = banco.transaction('gestos', 'readwrite')
-    const gesto = await transacao.store.get(chaveDoGesto(dono, operacaoId))
-    if (!gesto || gesto.estado !== 'needs_review') throw new Error('Só o gesto em revisão é conferido.')
-    conferido = gesto.conferidoEm ? gesto : { ...gesto, conferidoEm: new Date().toISOString() }
-    await transacao.store.put(conferido)
-    await transacao.done
-    conferirDono(dono, sessao)
-  } finally {
-    banco.close()
-  }
-  avisar('conferencia')
-  return semChavesInternas(conferido)
-}
-
-/**
- * Registra que quem operou viu todas as revisões de um registro, como uma venda inteira, numa
- * transação só: o aviso baixa de uma vez. Como em {@link conferirGesto}, o estado não muda, e conferir
- * de novo mantém a primeira vez.
- */
-export async function conferirRegistro(registroId: string): Promise<void> {
+async function conferirOsEscolhidos(escolhido: (gesto: GestoNaFila) => boolean): Promise<void> {
   const { dono, sessao } = donoDaSessao()
   const banco = await abrirBanco()
   let conferidos = 0
@@ -772,7 +748,7 @@ export async function conferirRegistro(registroId: string): Promise<void> {
     let cursor = await transacao.store.index('porDono').openCursor(dono)
     while (cursor) {
       const gesto = cursor.value
-      if (gesto.registroId === registroId && gesto.estado === 'needs_review' && !gesto.conferidoEm) {
+      if (escolhido(gesto) && gesto.estado === 'needs_review' && !gesto.conferidoEm) {
         await cursor.update({ ...gesto, conferidoEm: agora })
         conferidos++
       }
@@ -784,6 +760,20 @@ export async function conferirRegistro(registroId: string): Promise<void> {
     banco.close()
   }
   if (conferidos) avisar('conferencia')
+}
+
+/**
+ * Confere estes gestos. O id que não é de um gesto em revisão neste aparelho fica de fora, porque a
+ * lista da Conta traz também o que saiu de outros aparelhos.
+ */
+export async function conferirGestos(operacaoIds: readonly string[]): Promise<void> {
+  const ids = new Set(operacaoIds)
+  await conferirOsEscolhidos((gesto) => ids.has(gesto.operacaoId))
+}
+
+/** Confere tudo o que está em revisão num registro, como uma venda inteira. */
+export async function conferirRegistro(registroId: string): Promise<void> {
+  await conferirOsEscolhidos((gesto) => gesto.registroId === registroId)
 }
 
 function semChavesInternas({ chave: _chave, dono: _dono, ...gesto }: GestoGravado): GestoNaFila {

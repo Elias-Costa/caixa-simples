@@ -3,7 +3,7 @@ import { diaEMes, hora, moeda } from '../formatos'
 import type { VendaDaFila } from '../offline/registrosDaFila'
 
 /** A hora da venda, com o dia quando ela é de outro dia: no caixa aberto desde ontem, só a hora engana. */
-function quando(criadoEm: string, hoje: string): string {
+export function quando(criadoEm: string, hoje: string): string {
   const instante = new Date(criadoEm)
   return diaNoBalcao(instante) === hoje ? `das ${hora.format(instante)}`
     : `de ${diaEMes.format(instante)} às ${hora.format(instante)}`
@@ -13,17 +13,17 @@ function quando(criadoEm: string, hoje: string): string {
  * O que a faixa diz da venda recusada: qual venda, pela hora e pelo valor que a pessoa reconhece, por
  * que parou, nas palavras do servidor, e se o dinheiro dela ficou fora do saldo esperado. O dinheiro só
  * entra na gaveta do servidor com a conclusão, e a venda recusada nunca concluiu. A conta da gaveta não
- * muda: quem decide o que fazer com esse dinheiro é o administrador.
+ * muda: quem decide o que fazer com esse dinheiro é o administrador, e a ele a frase não manda avisar.
  */
-export function textoDaVendaRecusada(venda: VendaDaFila, hoje: string): string {
+export function textoDaVendaRecusada(venda: VendaDaFila, hoje: string, administrador = false): string {
   const qual = `A venda de ${moeda.format(venda.totalCentavos / 100)} ${quando(venda.criadoEm, hoje)}, feita sem rede,`
   const partes = [
     venda.recusadaNoInicio ? `${qual} foi recusada pelo servidor.` : `${qual} não foi concluída no servidor.`,
   ]
   if (venda.motivo) partes.push(venda.motivo)
   if (venda.dinheiroCentavos > 0) {
-    partes.push(`O dinheiro dela, ${moeda.format(venda.dinheiroCentavos / 100)}, está na gaveta e fora do `
-      + 'saldo esperado: avise o administrador.')
+    const fora = `O dinheiro dela, ${moeda.format(venda.dinheiroCentavos / 100)}, está na gaveta e fora do saldo esperado`
+    partes.push(administrador ? `${fora}.` : `${fora}: avise o administrador.`)
   }
   return partes.join(' ')
 }

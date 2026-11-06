@@ -31,7 +31,7 @@ export const AJUDA = {
   sincronizacao: [
     'Por enviar é o que foi feito sem internet e ainda não chegou ao servidor; sai sozinho quando a rede volta.',
     'Em revisão é o que o servidor aplicou com ajuste ou recusou: confira e toque em Conferir.',
-    'O administrador vê também as revisões de todos os aparelhos da Conta.',
+    'O administrador confere em Revisões da Conta as revisões de todos os aparelhos, inclusive as deste.',
   ],
   minhaConta: [
     'Seus dados, a troca do e-mail de entrada e a da senha.',

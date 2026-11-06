@@ -139,7 +139,9 @@ export function Shell() {
       )}
       {/* Faixa própria, e não a de contexto: aquela guarda uma frase só, e na comanda com cliente a do
           saldo devedor esconderia esta. */}
-      {TELAS_DA_VENDA_RECUSADA.has(pathname) && <FaixaDaVendaRecusada vendas={sincronizacao.vendasRecusadas} />}
+      {TELAS_DA_VENDA_RECUSADA.has(pathname) && (
+        <FaixaDaVendaRecusada vendas={sincronizacao.vendasRecusadas} administrador={identidade.perfil === 'ADMIN'} />
+      )}
       {faixaDeContexto && <div className="faixa" role="status">{faixaDeContexto}</div>}
       </div>
 

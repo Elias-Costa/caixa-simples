@@ -484,7 +484,11 @@ textarea:disabled {
   font-size: 0.9rem;
 }
 
+/* No celular, o aviso é o caminho até a tela Sincronização, que lá fica dentro do Mais: é alvo de toque. */
 .cabecalho__aviso {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--toque);
   padding: 6px 10px;
   border: 1px solid rgba(255, 176, 32, 0.45);
   border-radius: 999px;
@@ -768,6 +772,20 @@ main.cadastro {
 /* Na largura do desktop, a tabela inteira espalharia as colunas, e a hora ficaria longe do valor. */
 .caixa__extrato .tabela { max-width: 44rem; }
 .caixa__extrato summary { padding: 12px 0; font-weight: 700; cursor: pointer; }
+
+/* Uma linha por registro da fila, e a própria linha abre os passos dele. A seta é desenhada à mão porque
+   a do navegador só recua a primeira linha do resumo, e o texto do registro sem passos, que não tem seta,
+   precisa alinhar com o dos outros. */
+.registro { flex: 1 1 240px; min-width: 0; }
+.registro__resumo { position: relative; display: block; list-style: none; padding-left: 1.25em; cursor: pointer; }
+.registro__resumo::-webkit-details-marker { display: none; }
+.registro__resumo::before { content: '▸'; position: absolute; left: 0; }
+.registro[open] > .registro__resumo::before { content: '▾'; }
+.registro--sem-passos { padding-left: 1.25em; }
+.registro__linha { display: block; margin-top: 4px; color: var(--cor-texto-secundario); font-size: 0.9rem; overflow-wrap: anywhere; }
+.registro__passos { list-style: none; padding: 0 0 0 1.25em; margin: 8px 0 0; }
+.registro__passos > li { padding: 8px 0; border-top: 1px solid var(--cor-borda); }
+.registro__passos p { margin: 4px 0 0; }
 
 .relatorios { max-width: 1100px; margin: 0 auto; }
 .relatorios__cartao { min-width: 0; background: var(--cor-superficie); border: 1px solid var(--cor-borda); border-radius: var(--raio); padding: var(--espaco); margin-bottom: var(--espaco); }

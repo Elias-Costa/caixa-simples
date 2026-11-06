@@ -9,6 +9,15 @@ const venda: VendaDaFila = {
   motivo: 'Esta venda já está cancelada e não aceita mais alteração.',
 }
 
+describe('a faixa para o administrador', () => {
+  it('diz que o dinheiro está fora do saldo sem mandar avisar quem já é ele', () => {
+    const texto = textoDaVendaRecusada(venda, HOJE, true).replaceAll(' ', ' ')
+
+    expect(texto).toContain('O dinheiro dela, R$ 12,40, está na gaveta e fora do saldo esperado.')
+    expect(texto).not.toContain('avise o administrador')
+  })
+})
+
 /** A moeda usa espaço que não quebra entre o símbolo e o valor; o teste compara o que se lê. */
 const lido = (texto: string) => texto.replaceAll(' ', ' ')
 

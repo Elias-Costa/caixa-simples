@@ -113,7 +113,7 @@ function paraOperacao(gesto: GestoNaFila): OperacaoDoLote {
 function desfechoDe(gesto: GestoNaFila, resposta: ResultadoDaOperacao[]): Desfecho {
   const operacaoId = gesto.operacaoId
   const recebido = resposta.find((item) => item.operacaoId === operacaoId)
-  if (!recebido) return { operacaoId, estado: 'failed', falha: 'O servidor não devolveu resultado para este gesto.' }
+  if (!recebido) return { operacaoId, estado: 'failed', falha: 'O servidor não devolveu resultado.' }
   const versao = typeof recebido.versao === 'number' ? { versao: recebido.versao } : {}
   const detalhe = recebido.detalhe ? { detalhe: recebido.detalhe } : {}
   switch (recebido.resultado) {
@@ -152,7 +152,7 @@ async function depoisDaFalha(lote: GestoNaFila[], falha: unknown): Promise<Desfe
     return 'interrompida'
   }
   const motivo = falha instanceof SemConexao
-    ? 'Sem conexão com o servidor; o envio é repetido quando a rede voltar.'
+    ? 'Sem resposta do servidor.'
     : falha instanceof ErroDaApi
       ? `O servidor recusou o envio: ${falha.detalhe ?? falha.titulo}`
       : 'O envio falhou antes da resposta do servidor.'

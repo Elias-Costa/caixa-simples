@@ -4,8 +4,8 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ErroDaApi, SemConexao } from '../api/cliente'
 import { registrarResposta, registrarSemResposta } from '../api/conexao'
-import { sincronizacao, type OperacaoDoLote } from '../api/sincronizacao'
-import { enfileirarGesto, listarGestos } from '../offline/fila'
+import { sincronizacao, type OperacaoDoLote, type RevisaoDaConta } from '../api/sincronizacao'
+import { conferirGestos, enfileirarGesto, iniciarEnvio, listarGestos, registrarDesfechos, type GestoNaFila } from '../offline/fila'
 import { gravarIdentidade, gravarToken, sessaoFoiEncerrada } from '../sessao/armazenamento'
 import type { Identidade } from '../sessao/Identidade'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
@@ -71,6 +71,122 @@ describe('envio automático no shell', () => {
     expect((await listarGestos()).map((gesto) => gesto.estado)).toEqual(['queued'])
     // O login avisa que a sessão foi encerrada e que o registrado sem rede continua guardado.
     expect(sessaoFoiEncerrada()).toBe(true)
+  })
+})
+
+describe('o número do cabeçalho', () => {
+  const VENDA = '00000000-0000-4000-8000-000000000011'
+  const SESSAO = '00000000-0000-4000-8000-000000000021'
+  const dona: Identidade = { ...ana, perfil: 'ADMIN' }
+
+  /** Os gestos de uma venda, como o balcão os grava sem rede. */
+  async function vendaNaFila(vendaId = VENDA) {
+    const inicio = await enfileirarGesto({ tipo: 'venda.iniciar', registroId: vendaId,
+      payload: { sessaoCaixaId: SESSAO, criadoEm: new Date().toISOString() } })
+    const item = await enfileirarGesto({ tipo: 'venda.adicionarItem', registroId: vendaId, dependeDe: [inicio.operacaoId],
+      payload: { itemId: 'item', produtoId: 'produto', nome: 'Sonho', quantidade: 1, precoUnitario: 5, desconto: 0, versaoProduto: 1 } })
+    const parcela = await enfileirarGesto({ tipo: 'venda.registrarPagamento', registroId: vendaId, dependeDe: [item.operacaoId],
+      payload: { pagamentoId: 'parcela', forma: 'DINHEIRO', valor: 5, valorRecebido: 5 } })
+    const conclusao = await enfileirarGesto({ tipo: 'venda.concluir', registroId: vendaId, dependeDe: [parcela.operacaoId],
+      payload: { concluidoEm: new Date().toISOString() } })
+    return [inicio, item, parcela, conclusao]
+  }
+
+  /** A venda toda recusada, gesto a gesto, como a cascata faz. */
+  async function vendaRecusada(vendaId = VENDA) {
+    const gestos = await vendaNaFila(vendaId)
+    await iniciarEnvio(gestos.map((gesto) => gesto.operacaoId))
+    await registrarDesfechos(gestos.map((gesto) => ({ operacaoId: gesto.operacaoId, estado: 'needs_review' as const,
+      resultado: { aplicada: false, detalhe: 'O caixa foi fechado.' } })))
+    return gestos
+  }
+
+  function naLista(gesto: GestoNaFila): RevisaoDaConta {
+    return { operacaoId: gesto.operacaoId, usuarioId: 'bruno', tipo: gesto.tipo, registroId: gesto.registroId,
+      payload: gesto.payload, criadaEm: gesto.criadoEm, recebidaEm: gesto.criadoEm, resultado: 'NAO_APLICADA' }
+  }
+
+  it('o por enviar conta registros: a venda inteira conta um, e cada movimento de caixa, outro', async () => {
+    rede(false)
+    await vendaNaFila()
+    await enfileirarGesto({ tipo: 'caixa.sangrar', registroId: SESSAO, payload: { valor: 5, motivo: 'Cofre' } })
+    await enfileirarGesto({ tipo: 'caixa.suprir', registroId: SESSAO, payload: { valor: 9, motivo: 'Troco' } })
+    await gestoNovo()
+
+    const { result } = renderHook(() => useEnvioAutomatico(ana, sairFalso, '/vender', relerFalso))
+
+    await waitFor(() => expect(result.current.porEnviar).toBe(4))
+  })
+
+  it('o em revisão conta registros, e não os gestos da mesma venda', async () => {
+    rede(false)
+    await vendaRecusada()
+
+    const { result } = renderHook(() => useEnvioAutomatico(ana, sairFalso, '/vender', relerFalso))
+
+    await waitFor(() => expect(result.current.emRevisao).toBe(1))
+  })
+
+  it('no administrador, conta os registros da lista da Conta, e o do aparelho não soma de novo', async () => {
+    gravarIdentidade(dona)
+    rede(true)
+    const propria = await vendaRecusada()
+    const deOutro = crypto.randomUUID()
+    const revisoes = vi.spyOn(sincronizacao, 'revisoes').mockResolvedValue({ conferidas: [], pendentes: [
+      ...propria.map(naLista),
+      { ...naLista(propria[0]), operacaoId: crypto.randomUUID(), registroId: deOutro },
+      { ...naLista(propria[1]), operacaoId: crypto.randomUUID(), registroId: deOutro },
+    ] })
+
+    const { result } = renderHook(() => useEnvioAutomatico(dona, sairFalso, '/vender', relerFalso))
+
+    await waitFor(() => expect(revisoes).toHaveBeenCalled())
+    await waitFor(() => expect(result.current.emRevisao).toBe(2))
+  })
+
+  it('no administrador, o que foi conferido só neste aparelho não baixa o número, porque continua na lista', async () => {
+    gravarIdentidade(dona)
+    rede(true)
+    const gestos = await vendaRecusada()
+    vi.spyOn(sincronizacao, 'revisoes').mockResolvedValue({ conferidas: [], pendentes: gestos.map(naLista) })
+    await conferirGestos(gestos.map((gesto) => gesto.operacaoId))
+
+    const { result } = renderHook(() => useEnvioAutomatico(dona, sairFalso, '/vender', relerFalso))
+
+    await waitFor(() => expect(result.current.emRevisao).toBe(1))
+    // A faixa conta o mesmo: a venda está na lista, então ainda falta conferir.
+    await waitFor(() => expect(result.current.vendasRecusadas[0]?.conferida).toBe(false))
+  })
+
+  it('no administrador sem rede e sem leitura nenhuma, conta os registros em revisão guardados no aparelho', async () => {
+    gravarIdentidade(dona)
+    rede(false)
+    await vendaRecusada()
+    const revisoes = vi.spyOn(sincronizacao, 'revisoes')
+
+    const { result } = renderHook(() => useEnvioAutomatico(dona, sairFalso, '/vender', relerFalso))
+
+    await waitFor(() => expect(result.current.emRevisao).toBe(1))
+    expect(revisoes).not.toHaveBeenCalled()
+  })
+
+  it('no administrador, a rede que cai deixa o número da última leitura', async () => {
+    gravarIdentidade(dona)
+    rede(true)
+    const gestos = await vendaRecusada()
+    vi.spyOn(sincronizacao, 'revisoes').mockResolvedValue({ conferidas: [], pendentes: [
+      ...gestos.map(naLista), { ...naLista(gestos[0]), operacaoId: crypto.randomUUID(), registroId: crypto.randomUUID() },
+    ] })
+    const { result } = renderHook(() => useEnvioAutomatico(dona, sairFalso, '/vender', relerFalso))
+    await waitFor(() => expect(result.current.emRevisao).toBe(2))
+
+    rede(false)
+    act(() => { window.dispatchEvent(new Event('offline')) })
+    act(() => result.current.atualizar())
+
+    await waitFor(() => expect(result.current.enviando).toBe(false))
+    expect(result.current.emRevisao).toBe(2)
+    rede(true)
   })
 })
 

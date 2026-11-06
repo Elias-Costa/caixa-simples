@@ -5,7 +5,7 @@ import { gravarIdentidade, gravarToken, lerIdentidade, limparSessao } from '../s
 import type { Identidade } from '../sessao/Identidade'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
 import {
-  aoMudarFila, apagarDadosDoAparelho, atualizarRetratoDoCaixa, conferirGesto, conferirRegistro, contarGestosSemResultado, enfileirarGesto,
+  aoMudarFila, apagarDadosDoAparelho, atualizarRetratoDoCaixa, conferirGestos, conferirRegistro, contarGestosSemResultado, enfileirarGesto,
   guardarRetrato, guardarRetratoDaVenda, guardarRetratos, iniciarEnvio, jaEstaNoRetrato, lerCaixaNoAparelho, lerDoServidor,
   lerRetrato, listarGestos, mudarEstadoDoGesto, recuperarEnviosInterrompidos, registrarDesfechos,
   SessaoAbertaNoAparelho, type GestoNaFila,
@@ -322,17 +322,33 @@ describe('fila local de gestos', () => {
     expect(porId.get(c.operacaoId)).toMatchObject({ estado: 'queued' })
   })
 
-  it('confere a revisão sem mudar o estado e mantém a primeira conferência', async () => {
+  it('confere as revisões sem mudar o estado, mantém a primeira conferência e deixa de fora o resto', async () => {
     entrar(ana)
     const gesto = await enfileirarGesto(produto)
-    await expect(conferirGesto(gesto.operacaoId)).rejects.toThrow('em revisão')
+    const naFila = await enfileirarGesto({ ...produto, registroId: '00000000-0000-4000-8000-000000000055' })
+    const mudancas: string[] = []
+    const parar = aoMudarFila((mudanca) => mudancas.push(mudanca))
+
+    // O id de outro aparelho e o gesto sem resultado não têm o que conferir aqui.
+    await conferirGestos([gesto.operacaoId, 'de-outro-aparelho'])
+    expect(mudancas).toEqual([])
+    expect((await listarGestos()).every((item) => !item.conferidoEm)).toBe(true)
+
     await mudarEstadoDoGesto(gesto.operacaoId, 'queued', 'syncing')
     await mudarEstadoDoGesto(gesto.operacaoId, 'syncing', 'needs_review', {
       aplicada: false, detalhe: 'caixa fechado',
     })
-    const conferido = await conferirGesto(gesto.operacaoId)
+    mudancas.length = 0
+    await conferirGestos([gesto.operacaoId, naFila.operacaoId])
+    parar()
+    expect(mudancas).toEqual(['conferencia'])
+
+    const lido = async () => (await listarGestos()).find((item) => item.operacaoId === gesto.operacaoId)
+    const conferido = await lido()
     expect(conferido).toMatchObject({ estado: 'needs_review', conferidoEm: expect.any(String) })
-    expect((await conferirGesto(gesto.operacaoId)).conferidoEm).toBe(conferido.conferidoEm)
+    await conferirGestos([gesto.operacaoId])
+    expect((await lido())?.conferidoEm).toBe(conferido?.conferidoEm)
+    expect((await listarGestos()).find((item) => item.operacaoId === naFila.operacaoId)?.conferidoEm).toBeUndefined()
   })
 
   it('guarda a leitura só quando sabe quais resultados ela contém', async () => {

@@ -196,8 +196,7 @@ describe('envio da fila', () => {
 
     const semRede = vi.fn(async () => { throw new SemConexao() })
     expect((await enviarFila(semRede)).desfecho).toBe('interrompida')
-    expect((await listarGestos())[0]).toMatchObject({ estado: 'failed',
-      falha: expect.stringContaining('Sem conexão') })
+    expect((await listarGestos())[0]).toMatchObject({ estado: 'failed', falha: 'Sem resposta do servidor.' })
 
     expect(await enviarFila(servidor.enviar)).toEqual({ desfecho: 'concluida', resolvidos: 1, respondida: true })
     expect(await estados()).toEqual({ [gesto.operacaoId]: 'sent' })

@@ -59,5 +59,7 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/setupTests.ts'],
+    // O Vitest esvazia o CSS importado; o teste do alvo de toque lê as regras deste arquivo.
+    css: { include: [/estilos\.css/] },
   },
 })

@@ -110,10 +110,12 @@ pergunta leve a cada quinze segundos descobre a volta, quando a fila sai e a tel
 sozinha. A abertura, a sangria e o suprimento cuja resposta se perdeu vão à fila com o mesmo id que
 a chamada levou, e o servidor não os grava de novo. A comanda que existe no servidor fica só para
 leitura enquanto ele não responde, e o próximo item começa outra venda no aparelho. O cabeçalho
-mostra o
-que falta enviar e o que está em revisão, e a tela de sincronização mostra cada gesto com o
-detalhe do servidor, para quem operou conferir. O administrador vê também as revisões e recusas
-de todos os aparelhos da Conta e registra no servidor que as conferiu. Sair não apaga o que o
+mostra quantos registros faltam enviar e quantos estão em revisão, e a tela de sincronização mostra
+uma linha por registro (a venda, o movimento de caixa, o cliente ou o produto), com a hora, o total,
+a forma e o detalhe do servidor, os gestos recolhidos e um Conferir que vale para o registro inteiro.
+O agrupamento é só da tela: o servidor continua gravando e conferindo por operação. O administrador
+confere numa lista só as revisões e recusas de todos os aparelhos da Conta, inclusive as do próprio,
+e registra no servidor que as conferiu. Sair não apaga o que o
 aparelho guardou: a tela de entrada tem um link discreto para uma página que apaga a fila e as
 cópias locais de todos os usuários. Antes do botão, a página diz o que sai do aparelho, que o já
 enviado continua no servidor e quantos registros feitos sem rede ainda não chegaram a ele. Ela fica

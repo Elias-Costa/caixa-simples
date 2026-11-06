@@ -4,7 +4,7 @@ import { sincronizacao } from '../api/sincronizacao'
 import { hojeNoBalcao } from '../dataDoBalcao'
 import { enviarFila } from '../offline/envio'
 import { aoMudarFila, gestoPendente, listarGestos, sessaoPodeUsarAFila } from '../offline/fila'
-import { vendasDaFila, type VendaDaFila } from '../offline/registrosDaFila'
+import { chaveDoRegistro, registrosDaFila, vendasDaFila, type VendaDaFila } from '../offline/registrosDaFila'
 import { marcarSessaoEncerrada } from '../sessao/armazenamento'
 import type { Identidade } from '../sessao/Identidade'
 
@@ -21,10 +21,17 @@ export const INTERVALO_DA_SONDAGEM = 15_000
 export type Sincronizacao = {
   /** Uma rodada de envio está em curso nesta aba. */
   enviando: boolean
-  /** Gestos ainda sem resultado do servidor: na fila, em envio ou com falha. */
+  /**
+   * Registros com gesto ainda sem resultado do servidor: na fila, em envio ou com falha. Toda conta aqui
+   * é por registro (a venda, o movimento de caixa, o cliente, o produto), a mesma das linhas da tela
+   * Sincronização: quem opera pensa em vendas, e 135 gestos pareceriam 135 vendas.
+   */
   porEnviar: number
   comFalha: number
-  /** Revisões não conferidas: as deste aparelho e, para o administrador, as da Conta inteira. */
+  /**
+   * Registros com revisão por conferir. Para o administrador, os da lista da Conta, que é onde ele
+   * confere: sem ela lida, sem rede, a última leitura; sem nenhuma leitura, os guardados neste aparelho.
+   */
   emRevisao: number
   /**
    * As vendas deste aparelho que o servidor recusou, conferidas ou não, das mais antigas para as mais
@@ -50,7 +57,7 @@ export function useSincronizacao(): Sincronizacao {
 type ContagemLocal = {
   porEnviar: number
   comFalha: number
-  emRevisao: string[]
+  emRevisao: number
   vendasRecusadas: readonly VendaDaFila[]
 }
 
@@ -70,8 +77,9 @@ type ContagemLocal = {
 export function useEnvioAutomatico(identidade: Identidade | null, sair: () => void,
   caminho: string, relerIdentidade: () => Promise<unknown>): Sincronizacao {
   const [enviando, setEnviando] = useState(false)
-  const [local, setLocal] = useState<ContagemLocal>({ porEnviar: 0, comFalha: 0, emRevisao: [], vendasRecusadas: [] })
-  const [daConta, setDaConta] = useState<string[]>([])
+  const [local, setLocal] = useState<ContagemLocal>({ porEnviar: 0, comFalha: 0, emRevisao: 0, vendasRecusadas: [] })
+  // Os registros por conferir da lista da Conta; nulo enquanto ela não foi lida nesta sessão.
+  const [daConta, setDaConta] = useState<ReadonlySet<string> | null>(null)
   const [rodada, setRodada] = useState(0)
   const emCurso = useRef(false)
   const deNovo = useRef(false)
@@ -84,12 +92,12 @@ export function useEnvioAutomatico(identidade: Identidade | null, sair: () => vo
     if (!('indexedDB' in globalThis) || !sessaoPodeUsarAFila()) return
     try {
       const gestos = await listarGestos()
+      const registros = registrosDaFila(gestos, usuarioId)
       temPendencia.current = gestos.some(gestoPendente)
       setLocal({
-        porEnviar: gestos.filter(gestoPendente).length,
-        comFalha: gestos.filter((gesto) => gesto.estado === 'failed').length,
-        emRevisao: gestos.filter((gesto) => gesto.estado === 'needs_review' && !gesto.conferidoEm)
-          .map((gesto) => gesto.operacaoId),
+        porEnviar: registros.filter((registro) => registro.situacao === 'por-enviar').length,
+        comFalha: registros.filter((registro) => registro.gestos.some((gesto) => gesto.estado === 'failed')).length,
+        emRevisao: registros.filter((registro) => registro.situacao === 'em-revisao').length,
         vendasRecusadas: vendasDaFila(gestos, usuarioId).filter((venda) => venda.situacao === 'recusada'),
       })
     } catch {
@@ -101,7 +109,7 @@ export function useEnvioAutomatico(identidade: Identidade | null, sair: () => vo
     if (!administrador || !comServidor()) return
     try {
       const { pendentes } = await sincronizacao.revisoes(hojeNoBalcao())
-      setDaConta(pendentes.map((revisao) => revisao.operacaoId))
+      setDaConta(new Set(pendentes.map(chaveDoRegistro)))
     } catch {
       // Sem rede ou com a sessão trocada, fica a última contagem.
     }
@@ -185,7 +193,13 @@ export function useEnvioAutomatico(identidade: Identidade | null, sair: () => vo
   // Outros aparelhos enviam revisões a qualquer hora; o administrador vê a contagem nova a cada tela.
   useEffect(() => { queueMicrotask(() => void lerDaConta()) }, [lerDaConta, caminho])
 
-  const emRevisao = new Set([...local.emRevisao, ...(administrador ? daConta : [])]).size
+  const contaLida = administrador ? daConta : null
+  const emRevisao = contaLida ? contaLida.size : local.emRevisao
+  // Quem diz se o administrador já conferiu é a lista da Conta, e não este aparelho: a venda que saiu dela
+  // foi conferida, mesmo que em outro aparelho, e a faixa não ficaria parada sem ter onde conferir.
+  const vendasRecusadas = useMemo(() => contaLida
+    ? local.vendasRecusadas.map((venda) => ({ ...venda, conferida: !contaLida.has(venda.vendaId) }))
+    : local.vendasRecusadas, [contaLida, local.vendasRecusadas])
   const enviarAgora = useCallback(() => { void enviar() }, [enviar])
   const atualizar = useCallback(() => {
     void contar()
@@ -194,6 +208,6 @@ export function useEnvioAutomatico(identidade: Identidade | null, sair: () => vo
 
   return useMemo(() => ({
     enviando, porEnviar: local.porEnviar, comFalha: local.comFalha, emRevisao,
-    vendasRecusadas: local.vendasRecusadas, rodada, enviarAgora, atualizar,
-  }), [enviando, local, emRevisao, rodada, enviarAgora, atualizar])
+    vendasRecusadas, rodada, enviarAgora, atualizar,
+  }), [enviando, local, emRevisao, vendasRecusadas, rodada, enviarAgora, atualizar])
 }

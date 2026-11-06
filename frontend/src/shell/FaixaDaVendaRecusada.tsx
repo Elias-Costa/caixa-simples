@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router'
 import { hojeNoBalcao } from '../dataDoBalcao'
 import { conferirRegistro } from '../offline/fila'
 import type { VendaDaFila } from '../offline/registrosDaFila'
@@ -12,8 +13,13 @@ import { textoDasOutrasRecusadas, textoDaVendaRecusada } from './vendaRecusada'
  * Mostra uma por vez, a mais antiga que falta conferir. Conferir aqui é o mesmo da tela Sincronização:
  * registra que quem operou viu, e não desfaz nem refaz nada; por isso o número do cabeçalho baixa
  * junto. O servidor continua guardando a recusa na lista da Conta.
+ *
+ * O administrador confere toda revisão num lugar só, a lista da Conta, que grava no servidor: a faixa
+ * o leva até lá, e sai quando a venda deixa a lista, para o número do cabeçalho e ela contarem o mesmo.
  */
-export function FaixaDaVendaRecusada({ vendas }: { vendas: readonly VendaDaFila[] }) {
+export function FaixaDaVendaRecusada({ vendas, administrador = false }: {
+  vendas: readonly VendaDaFila[]; administrador?: boolean
+}) {
   const porConferir = vendas.filter((venda) => !venda.conferida)
   const venda = porConferir.at(0)
   const botao = useRef<HTMLButtonElement>(null)
@@ -49,13 +55,15 @@ export function FaixaDaVendaRecusada({ vendas }: { vendas: readonly VendaDaFila[
   return (
     <div className="faixa faixa--alerta faixa--longa" role="status">
       <span>
-        {textoDaVendaRecusada(venda, hojeNoBalcao())}{outras && ` ${outras}`}
+        {textoDaVendaRecusada(venda, hojeNoBalcao(), administrador)}{outras && ` ${outras}`}
         {erro && ` ${erro}`}
       </span>
-      <button ref={botao} type="button" className="botao" disabled={conferindo}
-        onClick={() => void conferir(venda.vendaId)}>
-        {conferindo ? 'Conferindo' : 'Conferir'}
-      </button>
+      {administrador ? <Link className="botao" to="/sincronizacao">Ir à Sincronização</Link> : (
+        <button ref={botao} type="button" className="botao" disabled={conferindo}
+          onClick={() => void conferir(venda.vendaId)}>
+          {conferindo ? 'Conferindo' : 'Conferir'}
+        </button>
+      )}
     </div>
   )
 }

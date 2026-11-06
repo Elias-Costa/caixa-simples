@@ -3,11 +3,15 @@ import { deleteDB } from 'idb'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { registrarResposta } from '../api/conexao'
+import { contas } from '../api/contas'
+import { sincronizacao, type RevisaoDaConta } from '../api/sincronizacao'
 import { enfileirarGesto, iniciarEnvio, listarGestos, registrarDesfechos, type GestoNaFila } from '../offline/fila'
 import { gravarIdentidade, gravarToken } from '../sessao/armazenamento'
 import { SessaoContext } from '../sessao/contexto'
 import type { Identidade } from '../sessao/Identidade'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
+import { TelaDeSincronizacao } from '../telas/TelaDeSincronizacao'
 import { TituloComAjuda } from '../telas/TituloComAjuda'
 import { Shell } from './Shell'
 
@@ -52,17 +56,18 @@ async function vendaRecusada(vendaId: string, valor: number): Promise<GestoNaFil
   return gestos
 }
 
-function abrir(caminho: string) {
+function abrir(caminho: string, identidade: Identidade = ana) {
   return render(
     <MemoryRouter initialEntries={[caminho]}>
       <SessaoContext.Provider value={{
-        identidade: ana, entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(), relerIdentidade: vi.fn(),
+        identidade, entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(), relerIdentidade: vi.fn(),
       }}>
         <Routes>
           <Route element={<Shell />}>
             <Route path="vender" element={<TituloComAjuda titulo="Venda" ajuda={[]} />} />
             <Route path="caixa" element={<TituloComAjuda titulo="Caixa" ajuda={[]} />} />
             <Route path="produtos" element={<TituloComAjuda titulo="Produtos" ajuda={[]} />} />
+            <Route path="sincronizacao" element={<TelaDeSincronizacao />} />
           </Route>
         </Routes>
       </SessaoContext.Provider>
@@ -78,6 +83,8 @@ beforeEach(async () => {
   gravarIdentidade(ana)
   // O que a tela e o envio da fila pedissem ficaria sem resposta, sem mudar o sinal de conexão.
   vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => undefined)))
+  // Uma chamada atrasada do teste anterior, já sem o fetch falso, pode ter marcado o aparelho sem servidor.
+  registrarResposta()
 })
 
 afterEach(() => {
@@ -106,7 +113,7 @@ describe('a faixa da venda recusada', () => {
 
     abrir('/produtos')
 
-    expect(await within(screen.getByRole('banner')).findByText('2 em revisão', undefined, espera)).toBeInTheDocument()
+    expect(await within(screen.getByRole('banner')).findByText('1 em revisão', undefined, espera)).toBeInTheDocument()
     expect(screen.queryByText(/feita sem rede/)).not.toBeInTheDocument()
   })
 
@@ -115,7 +122,7 @@ describe('a faixa da venda recusada', () => {
     abrir('/caixa')
     await faixa()
     const cabecalho = within(screen.getByRole('banner'))
-    expect(cabecalho.getByText('2 em revisão')).toBeInTheDocument()
+    expect(await cabecalho.findByText('1 em revisão', undefined, espera)).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Conferir' }))
 
@@ -147,5 +154,81 @@ describe('a faixa da venda recusada', () => {
       .toContain('R$ 7,00'), espera)
     expect(screen.queryByText(/Há mais/)).not.toBeInTheDocument()
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Conferir' })), espera)
+  })
+
+  it('sai quando a venda é conferida na tela Sincronização, e o número baixa junto', async () => {
+    await vendaRecusada('00000000-0000-4000-8000-000000000011', 12.4)
+    abrir('/sincronizacao')
+
+    fireEvent.click(await screen.findByRole('button', { name: /^Conferir Venda/ }, espera))
+    await waitFor(() => expect(within(screen.getByRole('banner')).queryByText(/em revisão/)).not.toBeInTheDocument(), espera)
+
+    fireEvent.click(screen.getByRole('link', { name: 'Vender' }))
+    expect(await screen.findByRole('heading', { name: 'Venda' })).toBeInTheDocument()
+    expect(screen.queryByText(/feita sem rede/)).not.toBeInTheDocument()
+  })
+
+  describe('no administrador, que confere na lista da Conta', () => {
+    const dona: Identidade = { ...ana, perfil: 'ADMIN' }
+
+    function naLista(gesto: GestoNaFila): RevisaoDaConta {
+      return { operacaoId: gesto.operacaoId, usuarioId: dona.usuarioId, tipo: gesto.tipo, registroId: gesto.registroId,
+        payload: gesto.payload, criadaEm: gesto.criadoEm, recebidaEm: gesto.criadoEm, resultado: 'NAO_APLICADA' }
+    }
+
+    beforeEach(() => gravarIdentidade(dona))
+
+    it('a faixa leva à lista em vez de conferir, sem mandar avisar quem já é o administrador', async () => {
+      const gestos = await vendaRecusada('00000000-0000-4000-8000-000000000011', 12.4)
+      vi.spyOn(sincronizacao, 'revisoes').mockResolvedValue({ pendentes: gestos.slice(2).map(naLista), conferidas: [] })
+
+      abrir('/vender', dona)
+
+      const texto = (await faixa()).textContent?.replaceAll(' ', ' ')
+      expect(texto).toContain('está na gaveta e fora do saldo esperado.')
+      expect(texto).not.toContain('avise o administrador')
+      expect(screen.queryByRole('button', { name: 'Conferir' })).not.toBeInTheDocument()
+      // O número é o da lista: a venda inteira conta um, como a linha dela lá.
+      expect(await within(screen.getByRole('banner')).findByText('1 em revisão', undefined, espera)).toBeInTheDocument()
+
+      vi.spyOn(contas, 'usuarios').mockResolvedValue([{ id: dona.usuarioId, nome: 'Ana', perfil: 'ADMIN', ativo: true }])
+      const conferir = vi.spyOn(sincronizacao, 'conferir').mockResolvedValue(undefined)
+      fireEvent.click(screen.getByRole('link', { name: 'Ir à Sincronização' }))
+      expect(await screen.findByRole('heading', { name: 'Sincronização' })).toBeInTheDocument()
+      expect(screen.queryByText(/feita sem rede/)).not.toBeInTheDocument()
+
+      // Conferida na lista, a venda sai dela: o número baixa, e a faixa não volta ao balcão.
+      vi.spyOn(sincronizacao, 'revisoes').mockResolvedValue({ pendentes: [], conferidas: [] })
+      fireEvent.click(await screen.findByRole('button', { name: /^Conferir Venda/ }, espera))
+      await waitFor(() => expect(conferir).toHaveBeenCalledTimes(2), espera)
+      await waitFor(() => expect(within(screen.getByRole('banner')).queryByText(/em revisão/)).not.toBeInTheDocument(), espera)
+      fireEvent.click(screen.getByRole('link', { name: 'Vender' }))
+      expect(await screen.findByRole('heading', { name: 'Venda' })).toBeInTheDocument()
+      expect(screen.queryByText(/feita sem rede/)).not.toBeInTheDocument()
+      expect((await listarGestos()).filter((gesto) => gesto.estado === 'needs_review')
+        .every((gesto) => !!gesto.conferidoEm)).toBe(true)
+    })
+
+    it('a faixa sai quando a venda deixa a lista, mesmo conferida em outro aparelho, e o número baixa junto', async () => {
+      await vendaRecusada('00000000-0000-4000-8000-000000000011', 12.4)
+      vi.spyOn(sincronizacao, 'revisoes').mockResolvedValue({ pendentes: [], conferidas: [] })
+
+      abrir('/vender', dona)
+
+      await waitFor(() => expect(sincronizacao.revisoes).toHaveBeenCalled(), espera)
+      await waitFor(() => expect(screen.queryByText(/feita sem rede/)).not.toBeInTheDocument(), espera)
+      expect(within(screen.getByRole('banner')).queryByText(/em revisão/)).not.toBeInTheDocument()
+    })
+
+    it('sem a lista lida, a faixa e o número ficam com o que este aparelho guarda', async () => {
+      await vendaRecusada('00000000-0000-4000-8000-000000000011', 12.4)
+      vi.spyOn(sincronizacao, 'revisoes').mockImplementation(() => new Promise(() => undefined))
+
+      abrir('/vender', dona)
+
+      expect(await faixa()).toBeInTheDocument()
+      expect(await within(screen.getByRole('banner')).findByText('1 em revisão', undefined, espera)).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: 'Ir à Sincronização' })).toBeInTheDocument()
+    })
   })
 })
