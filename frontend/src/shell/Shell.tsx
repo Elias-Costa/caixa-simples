@@ -3,6 +3,7 @@ import { Link, Outlet, useLocation, useNavigate } from 'react-router'
 import { useRegisterSW } from 'virtual:pwa-register/react'
 import type { Perfil } from '../sessao/Identidade'
 import { useSessao } from '../sessao/useSessao'
+import { useAvisoDaSessao } from './avisoDaSessao'
 import { avisoDoPlano } from './avisoDoPlano'
 import { useAvisoDoCaixaDeOutroDia } from './caixaDeOutroDia'
 import { itensDoMenu } from './menu'
@@ -21,8 +22,8 @@ const INTERVALO_DA_PROCURA_DE_VERSAO = 60 * 60 * 1000
 
 /**
  * A moldura de toda tela: quem está operando e em que negócio, a navegação e os avisos que
- * valem para o aplicativo inteiro (sem rede ou sem resposta do servidor, fila por enviar, revisão
- * por conferir, versão nova, vencimento do plano, caixa aberto desde outro dia), a venda recusada
+ * valem para o aplicativo inteiro (sem rede ou sem resposta do servidor, sessão para vencer, fila por
+ * enviar, revisão por conferir, versão nova, vencimento do plano, caixa aberto desde outro dia), a venda recusada
  * nas telas do balcão, e o rodapé com o
  * aviso de privacidade e os termos de uso. É também onde a fila do aparelho é enviada sozinha, uma vez para o aplicativo
  * inteiro. Os primeiros passos não ficam aqui: só a tela Caixa os mostra, porque é ela que sabe o
@@ -33,6 +34,7 @@ export function Shell() {
   const navegar = useNavigate()
   const { pathname } = useLocation()
   const conexao = useConexao()
+  const avisoDeVencimento = useAvisoDaSessao(conexao)
   const sincronizacao = useEnvioAutomatico(identidade, sair, pathname, relerIdentidade)
   const quem = identidade ? `${identidade.contaId}:${identidade.usuarioId}` : null
   const caixaDeOutroDia = useAvisoDoCaixaDeOutroDia(quem, sincronizacao.rodada, pathname)
@@ -88,6 +90,10 @@ export function Shell() {
             {conexao === 'sem-rede' ? 'Sem conexão' : 'Sem resposta do servidor'}
           </span>
         )}
+        {/* O contêiner fica sempre montado: uma região que nasce junto com o texto pode não ser anunciada. */}
+        <div className="cabecalho__regiao" role="status">
+          {avisoDeVencimento && <span className="cabecalho__aviso cabecalho__aviso--longo">{avisoDeVencimento}</span>}
+        </div>
         {sincronizacao.enviando && (
           <span className="cabecalho__aviso" role="status">
             Enviando

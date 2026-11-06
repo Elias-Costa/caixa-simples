@@ -8,6 +8,7 @@ const CHAVE_DA_IDENTIDADE_LEGADA = 'ecrx-caixa.identidade'
 export const CHAVE_DA_SESSAO = 'ecrx-caixa.sessao'
 const CHAVE_DA_SESSAO_NA_ABA = 'ecrx-caixa.sessao-na-aba'
 const CHAVE_DA_SESSAO_ENCERRADA = 'ecrx-caixa.sessao-encerrada'
+const CHAVE_DA_SESSAO_VENCIDA = 'ecrx-caixa.sessao-vencida'
 const SESSAO_LEGADA = 'legada'
 
 function chaveDoToken(sessao: string): string { return `ecrx-caixa.token.${sessao}` }
@@ -42,6 +43,7 @@ export function gravarToken(token: string): string {
   localStorage.setItem(CHAVE_DA_SESSAO, nova)
   fixarSessaoDaAba(nova)
   sessionStorage.removeItem(CHAVE_DA_SESSAO_ENCERRADA)
+  localStorage.removeItem(CHAVE_DA_SESSAO_VENCIDA)
   if (anterior) {
     localStorage.removeItem(chaveDoToken(anterior))
     localStorage.removeItem(chaveDaIdentidade(anterior))
@@ -92,6 +94,36 @@ export function marcarSessaoEncerrada(): void {
 
 export function sessaoFoiEncerrada(): boolean {
   return sessionStorage.getItem(CHAVE_DA_SESSAO_ENCERRADA) !== null
+}
+
+/**
+ * O token venceu pelo relógio do aparelho, sem ninguém o recusar. A marca é outra porque a frase é
+ * outra: aqui ninguém encerrou nada, e entrar de novo pede rede. Fica no aparelho até o próximo login,
+ * e não na aba: quem deixou vencer com o aplicativo aberto, fechou e abriu de novo já não tem o token, e
+ * sem a marca veria a entrada sem saber que o registrado continua guardado.
+ */
+export function marcarSessaoVencida(): void {
+  localStorage.setItem(CHAVE_DA_SESSAO_VENCIDA, 'sim')
+}
+
+export function sessaoVenceu(): boolean {
+  return localStorage.getItem(CHAVE_DA_SESSAO_VENCIDA) !== null
+}
+
+const ouvintesDoVencimento = new Set<() => void>()
+
+/**
+ * Quem descobre o token vencido no meio do uso, como a fila, avisa por aqui, e a sessão termina na
+ * hora, em vez de a tela ficar com a recusa e a lista vazia até a próxima conferência. Devolve o que
+ * desliga o aviso.
+ */
+export function aoVencerToken(ouvinte: () => void): () => void {
+  ouvintesDoVencimento.add(ouvinte)
+  return () => { ouvintesDoVencimento.delete(ouvinte) }
+}
+
+export function avisarTokenVencido(): void {
+  for (const ouvinte of [...ouvintesDoVencimento]) ouvinte()
 }
 
 /**

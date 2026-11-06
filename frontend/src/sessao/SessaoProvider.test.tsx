@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CHAVE_DA_SESSAO, fixarSessaoDaAba, gravarIdentidade, gravarToken, lerIdentidade,
-  lerToken, limparSessao, renovarTokenDaSessao, sessaoAtual, sessaoFoiEncerrada } from './armazenamento'
+  lerToken, limparSessao, renovarTokenDaSessao, sessaoAtual, sessaoFoiEncerrada, sessaoVenceu } from './armazenamento'
 import type { Identidade } from './Identidade'
 import { SessaoProvider } from './SessaoProvider'
 import { tokenComExpiracao } from './tokenDeTeste'
@@ -88,9 +88,11 @@ describe('SessaoProvider', () => {
 
     expect(screen.getByText('ninguém')).toBeInTheDocument()
     expect(fetchFalso).not.toHaveBeenCalled()
+    // Sem token não há o que ter vencido: é o aparelho novo ou quem tocou em Sair.
+    expect(sessaoVenceu()).toBe(false)
   })
 
-  it('token expirado é descartado e o aplicativo abre sem ninguém', () => {
+  it('token expirado é descartado, o aplicativo abre sem ninguém e a entrada fica marcada para dizer por quê', () => {
     gravarToken(tokenComExpiracao(new Date(Date.now() - 1000)))
     gravarIdentidade(guardada)
     vi.stubGlobal('fetch', vi.fn())
@@ -103,6 +105,21 @@ describe('SessaoProvider', () => {
 
     expect(screen.getByText('ninguém')).toBeInTheDocument()
     expect(lerToken()).toBeNull()
+    expect(sessaoVenceu()).toBe(true)
+    expect(sessaoFoiEncerrada()).toBe(false)
+  })
+
+  it('o token que já nasce vencido, com o relógio adiantado, não é guardado e não abre sessão', async () => {
+    const fetchFalso = vi.fn().mockResolvedValue(new Response(JSON.stringify(
+      { token: tokenComExpiracao(new Date(Date.now() - 1000)) }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchFalso)
+    render(<SessaoProvider><EntradaPendente /></SessaoProvider>)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Entrar na Conta A' }))
+
+    expect(await screen.findByText('RelogioAdiantado')).toBeInTheDocument()
+    expect(lerToken()).toBeNull()
+    expect(fetchFalso).toHaveBeenCalledTimes(1)
   })
 
   it('a revalidação na abertura atualiza a identidade com a resposta do servidor', async () => {
@@ -206,7 +223,7 @@ describe('SessaoProvider', () => {
 
   it('login concorrente entre abas não adota a sessão criada pela outra aba', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ token: 'token-conta-a' }), { status: 200 }),
+      new Response(JSON.stringify({ token: tokenComExpiracao(daquiAUmDia()) }), { status: 200 }),
     ))
     const gravarOriginal = Storage.prototype.setItem
     let alternou = false

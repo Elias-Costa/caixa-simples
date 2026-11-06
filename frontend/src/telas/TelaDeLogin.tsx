@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router'
 import { ErroDaApi, SemConexao } from '../api/cliente'
-import { sessaoFoiEncerrada } from '../sessao/armazenamento'
+import { sessaoFoiEncerrada, sessaoVenceu } from '../sessao/armazenamento'
+import { RelogioAdiantado } from '../sessao/token'
 import { useSessao } from '../sessao/useSessao'
 import { CampoDeSenha } from './CampoDeSenha'
 
@@ -15,6 +16,8 @@ export function TelaDeLogin() {
 
   // Quem já está autenticado neste dispositivo não vê o login de novo.
   if (identidade) return <Navigate to="/" replace />
+
+  const porQueVoltou = avisoDaEntrada()
 
   async function enviar(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault()
@@ -41,12 +44,7 @@ export function TelaDeLogin() {
           </div>
         </div>
 
-        {sessaoFoiEncerrada() && (
-          <p className="mensagem-info" role="status">
-            A sessão neste aparelho foi encerrada. Entre de novo; o que foi registrado sem rede continua
-            guardado aqui e é enviado depois que você entrar.
-          </p>
-        )}
+        {porQueVoltou && <p className="mensagem-info" role="status">{porQueVoltou}</p>}
 
         <label className="campo">
           <span className="campo__rotulo">E-mail</span>
@@ -91,7 +89,27 @@ export function TelaDeLogin() {
   )
 }
 
+/**
+ * Por que a pessoa voltou à entrada, quando não foi ela quem saiu. São duas frases porque são dois fatos:
+ * o servidor recusou o token, por um ato de alguém, ou o token venceu sozinho, e aí entrar pede rede.
+ */
+function avisoDaEntrada(): string | null {
+  if (sessaoFoiEncerrada()) {
+    return 'A sessão neste aparelho foi encerrada. Entre de novo; o que foi registrado sem rede continua '
+      + 'guardado aqui e é enviado depois que você entrar.'
+  }
+  if (sessaoVenceu()) {
+    return 'A sessão neste aparelho venceu. Entre de novo, com rede; o que foi registrado continua '
+      + 'guardado aqui e é enviado depois que você entrar.'
+  }
+  return null
+}
+
 function mensagemDe(falha: unknown): string {
+  if (falha instanceof RelogioAdiantado) {
+    return 'O relógio deste aparelho está adiantado. Acerte a data e a hora e entre de novo; o que foi '
+      + 'registrado continua guardado aqui.'
+  }
   if (falha instanceof SemConexao) return 'Sem conexão. Verifique a rede e tente de novo.'
   if (falha instanceof ErroDaApi && falha.status === 401) return 'E-mail ou senha incorretos.'
   // O servidor diz quanto falta para a janela acabar. Sem o detalhe, como num 429 de um proxy no

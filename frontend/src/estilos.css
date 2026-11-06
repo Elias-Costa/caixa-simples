@@ -500,6 +500,15 @@ textarea:disabled {
   text-decoration: none;
 }
 
+/* A frase inteira, que no celular não cabe numa linha: sem isto, empurraria a página para o lado. */
+.cabecalho__aviso--longo {
+  border-radius: var(--raio);
+  white-space: normal;
+}
+
+/* Vazia, a região continua na árvore para ser anunciada depois, sem somar um espaço à linha do cabeçalho. */
+.cabecalho__regiao:empty { display: contents; }
+
 /* Vazio, o contêiner não ocupa altura, e a linha da faixa some junto. */
 .faixas {
   grid-area: faixa;

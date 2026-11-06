@@ -11,7 +11,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import br.com.caixasimples.TesteDeIntegracao;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
 import br.com.caixasimples.shared.Perfil;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import java.time.Duration;
+import java.util.Base64;
 import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -139,6 +142,20 @@ class AutenticacaoTest extends TesteDeIntegracao {
     }
 
     @Test
+    @DisplayName("o token vale 72 horas, tanto o do login quanto o renovado: é a janela sem rede do RNF01")
+    void tokenValeSetentaEDuasHoras() throws Exception {
+        ContaCriada conta = criador.criar("Padaria Aurora", SENHA_VALIDA);
+        String token = extrairToken(conta);
+
+        String renovado = http.perform(get("/api/auth/eu").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getHeader("X-Ecrx-Caixa-Token");
+
+        assertThat(validadeDe(token)).isEqualTo(Duration.ofHours(72));
+        assertThat(validadeDe(renovado)).isEqualTo(Duration.ofHours(72));
+    }
+
+    @Test
     @DisplayName("token de uma conta nunca resolve para outra")
     void tokenDeUmaContaNaoServeParaOutra() throws Exception {
         ContaCriada contaA = criador.criar("Negocio A", SENHA_VALIDA);
@@ -154,6 +171,12 @@ class AutenticacaoTest extends TesteDeIntegracao {
 
         assertThat(contaResolvida).isEqualTo(contaA.contaId().valor().toString());
         assertThat(contaResolvida).isNotEqualTo(contaB.contaId().valor().toString());
+    }
+
+    /** O que o aparelho lê do token: a carga, sem conferir a assinatura. */
+    private Duration validadeDe(String token) {
+        JsonNode carga = json.readTree(Base64.getUrlDecoder().decode(token.split("\\.")[1]));
+        return Duration.ofSeconds(carga.get("exp").asLong() - carga.get("iat").asLong());
     }
 
     private String extrairToken(ContaCriada conta) throws Exception {

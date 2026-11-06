@@ -891,9 +891,12 @@ que pode ser o nome de uma pessoa e iria ao registro gravado do lote. Sem essa c
 recusaria a linha, mas a resposta seria um 500 com a pilha no log ou um 409 que mandaria procurar um
 registro repetido que não existe.
 
-A validade do token conta a partir do último contato com o servidor e não do login: toda resposta
-autenticada devolve um token renovado. Na prática, é a janela de resistência que a operação offline
-exige. Inativar alguém derruba o token dele na requisição seguinte, e trocar a senha ou sair de
+A validade do token, de 72 horas, conta a partir do último contato com o servidor e não do login:
+toda resposta autenticada devolve um token renovado. Na prática, é a janela de resistência que a
+operação offline exige. O aparelho parado não faz contato nenhum, e por isso o aplicativo aberto, com
+a tela à vista e o servidor respondendo, pergunta a identidade a cada hora; sem resposta, o cabeçalho
+avisa nas últimas 24 horas. Vencido o token pelo relógio do aparelho, o aplicativo vai à entrada e diz
+por quê, de qualquer tela, e a fila fica guardada até essa pessoa entrar de novo. Inativar alguém derruba o token dele na requisição seguinte, e trocar a senha ou sair de
 todos os aparelhos derruba os tokens de quem pediu, pela versão de acesso. No aplicativo, o token e a identidade de quem entrou ficam guardados no
 dispositivo, e é isso que permite abrir o aplicativo sem rede. Cada login inicia uma sessão nova
 no navegador; token e identidade ficam vinculados a ela, cada aba só usa a sessão com que abriu,

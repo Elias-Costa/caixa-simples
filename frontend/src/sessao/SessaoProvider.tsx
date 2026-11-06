@@ -4,6 +4,7 @@ import { SessaoContext, type Sessao } from './contexto'
 import type { Identidade } from './Identidade'
 import { prepararCadastroLocal } from './prepararCadastroLocal'
 import {
+  aoVencerToken,
   CHAVE_DA_SESSAO,
   fixarSessaoDaAba,
   gravarIdentidade,
@@ -12,19 +13,28 @@ import {
   lerToken,
   limparSessao,
   marcarSessaoEncerrada,
+  marcarSessaoVencida,
   sessaoAtual,
   sessaoDaAba,
 } from './armazenamento'
-import { tokenExpirado } from './token'
+import { RelogioAdiantado, tokenExpirado } from './token'
+
+/**
+ * De quanto em quanto tempo o aplicativo aberto confere se o token venceu. O intervalo é o caminho da
+ * tela parada; um temporizador não anda com o aparelho dormindo, e por isso a volta à tela, a volta
+ * da rede e a recusa da fila conferem também, na hora.
+ */
+const INTERVALO_DA_CONFERENCIA = 30_000
 
 /**
  * A identidade com que o aplicativo abre: a guardada no dispositivo, se o token guardado ainda
  * vale. É o que faz o aplicativo abrir sem rede: ninguém é perguntado, e o token será usado
- * quando a rede voltar. Token expirado é descartado, e o caminho é o login.
+ * quando a rede voltar. Token expirado é descartado, e o caminho é o login, que diz por quê.
  */
 function identidadeInicial(): Identidade | null {
   const token = lerToken()
   if (!token || tokenExpirado(token)) {
+    if (token) marcarSessaoVencida()
     const sessao = sessaoAtual()
     if (!sessaoDaAba() && sessao) fixarSessaoDaAba(sessao)
     limparSessao()
@@ -67,6 +77,7 @@ export function SessaoProvider({ children }: { children: ReactNode }) {
     if (tentativa !== tentativaDeEntrada.current || sessaoAtual() !== sessaoAnterior) {
       throw new SessaoAlterada()
     }
+    if (tokenExpirado(login.token)) throw new RelogioAdiantado()
     const sessaoCriada = gravarToken(login.token)
     if (sessaoAtual() !== sessaoCriada) throw new SessaoAlterada()
     const atual = await chamarApi<Identidade>('/api/auth/eu')
@@ -116,6 +127,31 @@ export function SessaoProvider({ children }: { children: ReactNode }) {
       return undefined
     }
   }, [sair, atualizarIdentidade])
+
+  // O token vencido encerra a sessão da mesma forma em todo caminho: a tela parada, a volta à tela, a
+  // rede que volta e a fila que recusa. O vencimento é julgado pelo relógio do aparelho, porque sem rede
+  // não há outro; a fila fica guardada, por Conta e Usuário, para quando essa pessoa entrar de novo.
+  const autenticado = identidade !== null
+  useEffect(() => {
+    if (!autenticado) return
+    const conferir = () => {
+      const token = lerToken()
+      if (!token || !tokenExpirado(token)) return
+      marcarSessaoVencida()
+      sair()
+    }
+    const aoVoltarATela = () => { if (document.visibilityState === 'visible') conferir() }
+    const conferencia = window.setInterval(conferir, INTERVALO_DA_CONFERENCIA)
+    document.addEventListener('visibilitychange', aoVoltarATela)
+    window.addEventListener('online', conferir)
+    const desligarVencimento = aoVencerToken(conferir)
+    return () => {
+      window.clearInterval(conferencia)
+      document.removeEventListener('visibilitychange', aoVoltarATela)
+      window.removeEventListener('online', conferir)
+      desligarVencimento()
+    }
+  }, [autenticado, sair])
 
   // Na abertura com sessão guardada, a pergunta acima, e a cópia local do cadastro com a resposta.
   // Depois, o envio da fila e a sondagem do servidor a repetem; o login faz a mesma pergunta por

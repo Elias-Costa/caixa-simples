@@ -6,8 +6,10 @@ import { cadastro } from '../api/cadastro'
 import { caixa } from '../api/caixa'
 import { registrarResposta, registrarSemResposta } from '../api/conexao'
 import { vendas, type Comprovante, type Venda } from '../api/vendas'
+import { gravarToken } from '../sessao/armazenamento'
 import { SessaoContext } from '../sessao/contexto'
 import type { Identidade } from '../sessao/Identidade'
+import { tokenComExpiracao } from '../sessao/tokenDeTeste'
 import { TelaDeVenda } from '../telas/TelaDeVenda'
 import { Shell } from './Shell'
 
@@ -111,6 +113,65 @@ function registrar(update: () => Promise<void>) {
   const registro = { update } as unknown as ServiceWorkerRegistration
   act(() => versao.opcoes?.onRegisteredSW?.('/sw.js', registro))
 }
+
+describe('o aviso de que a sessão vai vencer', () => {
+  const AVISO = 'Sessão vence em 5 horas. Qualquer conexão renova.'
+
+  function faltando(horas: number) {
+    gravarToken(tokenComExpiracao(new Date(Date.now() + horas * UMA_HORA)))
+  }
+
+  it('sem rede e perto do fim, o cabeçalho avisa', () => {
+    faltando(5.5)
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+    abrir('/caixa')
+
+    expect(screen.getByText(AVISO)).toBeInTheDocument()
+  })
+
+  it('sem resposta do servidor, avisa do mesmo jeito', () => {
+    faltando(5.5)
+    registrarSemResposta()
+    abrir('/caixa')
+
+    expect(screen.getByText(AVISO)).toBeInTheDocument()
+  })
+
+  it('com o servidor respondendo, não avisa: a renovação já resolve, e o aviso sai quando ele volta', () => {
+    faltando(5.5)
+    abrir('/caixa')
+    expect(screen.queryByText(AVISO)).not.toBeInTheDocument()
+
+    act(() => registrarSemResposta())
+    expect(screen.getByText(AVISO)).toBeInTheDocument()
+
+    act(() => registrarResposta())
+    expect(screen.queryByText(AVISO)).not.toBeInTheDocument()
+  })
+
+  it('longe do fim, não avisa nem sem rede', () => {
+    faltando(30)
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+    abrir('/caixa')
+
+    expect(screen.queryByText(/Sessão vence em/)).not.toBeInTheDocument()
+  })
+
+  it('o número desce com o tempo, sem ninguém tocar', () => {
+    faltando(5.5)
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'], shouldAdvanceTime: true })
+    try {
+      abrir('/caixa')
+      expect(screen.getByText(AVISO)).toBeInTheDocument()
+
+      act(() => { vi.advanceTimersByTime(UMA_HORA) })
+      expect(screen.getByText('Sessão vence em 4 horas. Qualquer conexão renova.')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
 
 describe('versão nova no Shell', () => {
   it('fora da venda, a faixa oferece Atualizar, que ativa a versão nova e recarrega', () => {
@@ -249,15 +310,15 @@ describe('aviso de conexão no cabeçalho', () => {
     expect(within(cabecalho).queryByText(/Sem conexão|Sem resposta do servidor/)).not.toBeInTheDocument()
 
     act(() => registrarSemResposta())
-    expect(within(cabecalho).getByRole('status')).toHaveTextContent('Sem resposta do servidor')
+    expect(within(cabecalho).getByText('Sem resposta do servidor')).toHaveAttribute('role', 'status')
 
     vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
     act(() => { window.dispatchEvent(new Event('offline')) })
-    expect(within(cabecalho).getByRole('status')).toHaveTextContent('Sem conexão')
+    expect(within(cabecalho).getByText('Sem conexão')).toHaveAttribute('role', 'status')
 
     vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
     act(() => { window.dispatchEvent(new Event('online')) })
-    expect(within(cabecalho).getByRole('status')).toHaveTextContent('Sem resposta do servidor')
+    expect(within(cabecalho).getByText('Sem resposta do servidor')).toHaveAttribute('role', 'status')
 
     act(() => registrarResposta())
     expect(within(cabecalho).queryByText(/Sem conexão|Sem resposta do servidor/)).not.toBeInTheDocument()

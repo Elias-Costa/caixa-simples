@@ -1,6 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import { tokenExpirado } from './token'
+import { restanteDoToken, tokenExpirado } from './token'
 import { tokenComExpiracao } from './tokenDeTeste'
+
+describe('restanteDoToken', () => {
+  const agora = new Date('2026-09-21T12:00:00Z')
+
+  it('diz quanto falta para o token vencer, em milissegundos', () => {
+    const token = tokenComExpiracao(new Date('2026-09-21T17:30:00Z'))
+    expect(restanteDoToken(token, agora)).toBe(5.5 * 60 * 60 * 1000)
+  })
+
+  it('do token vencido ou ilegível, não falta nada', () => {
+    expect(restanteDoToken(tokenComExpiracao(new Date('2026-09-21T11:00:00Z')), agora)).toBe(0)
+    expect(restanteDoToken('a.b', agora)).toBe(0)
+  })
+})
 
 describe('tokenExpirado', () => {
   const agora = new Date('2026-09-21T12:00:00Z')

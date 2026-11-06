@@ -6,9 +6,26 @@
  * login. Token que não se consegue ler conta como expirado.
  */
 export function tokenExpirado(token: string, agora: Date = new Date()): boolean {
+  return restanteDoToken(token, agora) === 0
+}
+
+/** Quanto falta para o token vencer, em milissegundos; do vencido ou ilegível, não falta nada. */
+export function restanteDoToken(token: string, agora: Date = new Date()): number {
   const expiraEmSegundos = expiracaoDe(token)
-  if (expiraEmSegundos === undefined) return true
-  return expiraEmSegundos * 1000 <= agora.getTime()
+  if (expiraEmSegundos === undefined) return 0
+  return Math.max(0, expiraEmSegundos * 1000 - agora.getTime())
+}
+
+/**
+ * O servidor acabou de emitir o token e o aparelho já o lê como vencido: a validade é de dias, então
+ * o relógio do aparelho está adiantado pelo menos isso. Entrar assim só levaria de volta à entrada,
+ * dizendo que a sessão venceu.
+ */
+export class RelogioAdiantado extends Error {
+  constructor() {
+    super('O relógio do aparelho está adiantado')
+    this.name = 'RelogioAdiantado'
+  }
 }
 
 function expiracaoDe(token: string): number | undefined {

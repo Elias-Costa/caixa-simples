@@ -1,9 +1,21 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
-import { describe, expect, it, vi } from 'vitest'
-import { lerIdentidade, lerToken, marcarSessaoEncerrada, sessaoFoiEncerrada } from '../sessao/armazenamento'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { gravarIdentidade, gravarToken, lerIdentidade, lerToken, marcarSessaoEncerrada,
+  sessaoFoiEncerrada } from '../sessao/armazenamento'
 import { SessaoProvider } from '../sessao/SessaoProvider'
+import { tokenComExpiracao } from '../sessao/tokenDeTeste'
+import { ExigeSessao } from '../shell/ExigeSessao'
 import { TelaDeLogin } from './TelaDeLogin'
+
+const FRASE_DO_VENCIMENTO = 'A sessão neste aparelho venceu. Entre de novo, com rede; o que foi registrado '
+  + 'continua guardado aqui e é enviado depois que você entrar.'
+const FRASE_DO_401 = 'A sessão neste aparelho foi encerrada. Entre de novo; o que foi registrado sem rede '
+  + 'continua guardado aqui e é enviado depois que você entrar.'
+
+function tokenDoLogin() {
+  return tokenComExpiracao(new Date(Date.now() + 60 * 60 * 1000))
+}
 
 function renderizarLogin() {
   render(
@@ -139,7 +151,7 @@ describe('TelaDeLogin', () => {
     vi.stubGlobal('fetch', vi.fn())
     renderizarLogin()
 
-    expect(screen.queryByText(/sessão neste aparelho foi encerrada/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 
   it('depois de o servidor recusar o token, avisa que a fila continua guardada até o próximo login', async () => {
@@ -147,7 +159,7 @@ describe('TelaDeLogin', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn()
-        .mockResolvedValueOnce(respostaJson(200, { token: 'token-do-login' }))
+        .mockResolvedValueOnce(respostaJson(200, { token: tokenDoLogin() }))
         .mockResolvedValueOnce(respostaJson(200, {
           usuarioId: '1', nome: 'Ana', perfil: 'ADMIN', contaId: '2',
           nomeNegocio: 'Cafeteria Aurora', estoqueHabilitado: false,
@@ -155,13 +167,66 @@ describe('TelaDeLogin', () => {
     )
     renderizarLogin()
 
-    expect(screen.getByRole('status')).toHaveTextContent(
-      'o que foi registrado sem rede continua guardado aqui e é enviado depois que você entrar')
+    expect(screen.getByRole('status')).toHaveTextContent(FRASE_DO_401)
 
     preencherEEnviar()
 
     expect(await screen.findByText('dentro do aplicativo')).toBeInTheDocument()
     expect(sessaoFoiEncerrada()).toBe(false)
+  })
+
+  it('abrir o aplicativo com o token vencido diz que a sessão venceu, e não que alguém a encerrou', () => {
+    gravarToken(tokenComExpiracao(new Date(Date.now() - 1000)))
+    vi.stubGlobal('fetch', vi.fn())
+
+    renderizarLogin()
+
+    expect(screen.getByRole('status')).toHaveTextContent(FRASE_DO_VENCIMENTO)
+  })
+
+  describe('com o aplicativo aberto', () => {
+    afterEach(() => vi.useRealTimers())
+
+    it('o token que vence leva da tela à entrada, com a frase, quando a rede volta', async () => {
+      gravarToken(tokenComExpiracao(new Date(Date.now() + 60 * 60 * 1000)))
+      gravarIdentidade({ usuarioId: '1', nome: 'Ana', perfil: 'OPERADOR', contaId: '2',
+        nomeNegocio: 'Cafeteria Aurora', estoqueHabilitado: false })
+      vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => undefined)))
+      vi.useFakeTimers({ toFake: ['Date'], shouldAdvanceTime: true })
+      render(
+        <MemoryRouter initialEntries={['/caixa']}>
+          <SessaoProvider>
+            <Routes>
+              <Route element={<ExigeSessao />}>
+                <Route path="/caixa" element={<p>tela do caixa</p>} />
+              </Route>
+              <Route path="/entrar" element={<TelaDeLogin />} />
+            </Routes>
+          </SessaoProvider>
+        </MemoryRouter>,
+      )
+      expect(screen.getByText('tela do caixa')).toBeInTheDocument()
+
+      vi.setSystemTime(Date.now() + 60 * 60 * 1000 + 1000)
+      act(() => { window.dispatchEvent(new Event('online')) })
+
+      expect(await screen.findByRole('status')).toHaveTextContent(FRASE_DO_VENCIMENTO)
+      expect(screen.queryByText('tela do caixa')).not.toBeInTheDocument()
+    })
+  })
+
+  it('o relógio adiantado, que faz o token novo nascer vencido, é dito na entrada, sem entrar', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      respostaJson(200, { token: tokenComExpiracao(new Date(Date.now() - 1000)) })))
+    renderizarLogin()
+
+    preencherEEnviar()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'O relógio deste aparelho está adiantado. Acerte a data e a hora e entre de novo; o que foi registrado '
+      + 'continua guardado aqui.')
+    expect(lerToken()).toBeNull()
+    expect(fetch).toHaveBeenCalledTimes(1)
   })
 
   it('login certo guarda o token e a identidade e entra no aplicativo', async () => {
@@ -173,11 +238,12 @@ describe('TelaDeLogin', () => {
       nomeNegocio: 'Cafeteria Aurora',
       estoqueHabilitado: false,
     }
+    const token = tokenDoLogin()
     vi.stubGlobal(
       'fetch',
       vi
         .fn()
-        .mockResolvedValueOnce(respostaJson(200, { token: 'token-do-login' }))
+        .mockResolvedValueOnce(respostaJson(200, { token }))
         .mockResolvedValueOnce(respostaJson(200, identidade)),
     )
     renderizarLogin()
@@ -185,7 +251,7 @@ describe('TelaDeLogin', () => {
     preencherEEnviar()
 
     expect(await screen.findByText('dentro do aplicativo')).toBeInTheDocument()
-    expect(lerToken()).toBe('token-do-login')
+    expect(lerToken()).toBe(token)
     expect(lerIdentidade()).toEqual(identidade)
   })
 })

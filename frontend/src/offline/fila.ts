@@ -1,6 +1,6 @@
 import { deleteDB, openDB, type DBSchema, type IDBPTransaction } from 'idb'
 import {
-  apagarChavesDoAparelho, lerIdentidade, lerTokenDaSessao, sessaoAtual, sessaoDaAba,
+  apagarChavesDoAparelho, avisarTokenVencido, lerIdentidade, lerTokenDaSessao, sessaoAtual, sessaoDaAba,
 } from '../sessao/armazenamento'
 import { tokenExpirado } from '../sessao/token'
 
@@ -117,7 +117,11 @@ function donoDaSessao(): { dono: string; conta: string; usuario: string; sessao:
     throw new Error('A sessão autenticada mudou')
   }
   const token = lerTokenDaSessao(sessao)
-  if (!token || tokenExpirado(token)) throw new Error('Entre novamente para usar a fila')
+  if (!token || tokenExpirado(token)) {
+    // Sem o aviso, a tela ficaria com esta recusa e a lista vazia, dizendo que não há nada.
+    if (token) avisarTokenVencido()
+    throw new Error('Entre novamente para usar a fila')
+  }
   return { dono: `${identidade.contaId}\u0000${identidade.usuarioId}`, conta: identidade.contaId,
     usuario: identidade.usuarioId, sessao }
 }

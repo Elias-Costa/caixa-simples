@@ -82,7 +82,7 @@ export type OpcoesDaChamada = {
  *
  * Toda resposta autenticada traz um token novo no cabeçalho, e é ele que a próxima requisição
  * envia: a validade do token conta do último contato com o servidor, não do login, e é isso que
- * dá ao aplicativo um dia inteiro de resistência sem rede. A troca acontece aqui, uma vez, para
+ * dá ao aplicativo a janela inteira de resistência sem rede. A troca acontece aqui, uma vez, para
  * nenhuma tela precisar lembrar disso.
  */
 export async function chamarApi<T>(caminho: string, opcoes: OpcoesDaChamada = {}): Promise<T> {

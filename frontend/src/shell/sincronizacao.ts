@@ -18,6 +18,15 @@ export const INTERVALO_DE_REPETICAO = 30_000
  */
 export const INTERVALO_DA_SONDAGEM = 15_000
 
+/**
+ * O token só renova na resposta de uma chamada, e o aparelho parado não faz nenhuma: com a tela à vista
+ * e o servidor respondendo, o aparelho pergunta a identidade a cada intervalo. O tablet ligado no balcão
+ * começa assim qualquer queda com a janela quase inteira, e quem foi revogado cai sem precisar tocar em
+ * nada. A conta não olha o relógio do aparelho, que pode estar errado. Oculta, a tela não pergunta: o
+ * celular no bolso não mantém a sessão viva.
+ */
+export const INTERVALO_DA_RENOVACAO = 60 * 60 * 1000
+
 export type Sincronizacao = {
   /** Uma rodada de envio está em curso nesta aba. */
   enviando: boolean
@@ -67,7 +76,9 @@ type ContagemLocal = {
  * A fila sai sozinha ao abrir o aplicativo, quando o servidor volta a responder, a cada gesto
  * gravado com servidor e a cada {@link INTERVALO_DE_REPETICAO} enquanto houver gesto sem resultado;
  * "Enviar agora" dispara na hora. Sem resposta do servidor, a sondagem pergunta por ele a cada
- * {@link INTERVALO_DA_SONDAGEM} e logo que a rede do navegador volta. Toda rodada que o servidor
+ * {@link INTERVALO_DA_SONDAGEM}. A rede do navegador que volta pergunta sempre, mesmo com a fila vazia,
+ * porque é essa resposta que renova o token; com a tela à vista, a pergunta também sai a cada
+ * {@link INTERVALO_DA_RENOVACAO} e ao voltar à tela. Toda rodada que o servidor
  * respondeu relê a identidade, porque a Conta pode ter passado a exigir algo, como o NSU no cartão,
  * que a venda sem rede confere antes de gravar. Se o servidor recusa o token, a sessão local
  * termina como na abertura do aplicativo, e a fila fica para o próximo login. O administrador vê
@@ -165,16 +176,21 @@ export function useEnvioAutomatico(identidade: Identidade | null, sair: () => vo
   }), [enviar, lerDaConta])
 
   useEffect(() => {
-    const voltouARede = () => {
-      if (estadoDaConexao() === 'sem-servidor') void relerIdentidade()
-    }
+    const voltouARede = () => { void relerIdentidade() }
     window.addEventListener('online', voltouARede)
     const sondagem = window.setInterval(() => {
       if (estadoDaConexao() === 'sem-servidor') void relerIdentidade()
     }, INTERVALO_DA_SONDAGEM)
+    const renovar = () => {
+      if (document.visibilityState === 'visible' && comServidor()) void relerIdentidade()
+    }
+    const renovacao = window.setInterval(renovar, INTERVALO_DA_RENOVACAO)
+    document.addEventListener('visibilitychange', renovar)
     return () => {
       window.removeEventListener('online', voltouARede)
       window.clearInterval(sondagem)
+      window.clearInterval(renovacao)
+      document.removeEventListener('visibilitychange', renovar)
     }
   }, [relerIdentidade])
 

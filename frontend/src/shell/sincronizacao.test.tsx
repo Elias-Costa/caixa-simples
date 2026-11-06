@@ -9,7 +9,7 @@ import { conferirGestos, enfileirarGesto, iniciarEnvio, listarGestos, registrarD
 import { gravarIdentidade, gravarToken, sessaoFoiEncerrada } from '../sessao/armazenamento'
 import type { Identidade } from '../sessao/Identidade'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
-import { INTERVALO_DA_SONDAGEM, useEnvioAutomatico } from './sincronizacao'
+import { INTERVALO_DA_RENOVACAO, INTERVALO_DA_SONDAGEM, useEnvioAutomatico } from './sincronizacao'
 
 const ana: Identidade = {
   contaId: 'conta-a', usuarioId: 'ana', nome: 'Ana', nomeNegocio: 'Cafeteria Aurora',
@@ -240,5 +240,75 @@ describe('servidor fora com o Wi-Fi ligado', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('a renovação com o aplicativo aberto', () => {
+  function aVista(visivel: boolean) {
+    return vi.spyOn(document, 'visibilityState', 'get').mockReturnValue(visivel ? 'visible' : 'hidden')
+  }
+
+  afterEach(() => vi.useRealTimers())
+
+  /** A fila está vazia, e nenhuma rodada pergunta nada: quem perguntar é a renovação. */
+  function montar() {
+    const reler = vi.fn(async () => undefined)
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'], shouldAdvanceTime: true })
+    renderHook(() => useEnvioAutomatico(ana, sairFalso, '/vender', reler))
+    return reler
+  }
+
+  it('à vista e com servidor, pergunta a cada hora, sem ninguém tocar', () => {
+    rede(true)
+    aVista(true)
+    const reler = montar()
+
+    act(() => { vi.advanceTimersByTime(INTERVALO_DA_RENOVACAO - 1000) })
+    expect(reler).not.toHaveBeenCalled()
+
+    act(() => { vi.advanceTimersByTime(1000) })
+    expect(reler).toHaveBeenCalledTimes(1)
+    act(() => { vi.advanceTimersByTime(INTERVALO_DA_RENOVACAO) })
+    expect(reler).toHaveBeenCalledTimes(2)
+  })
+
+  it('oculta, não pergunta: o celular no bolso não mantém a sessão viva', () => {
+    rede(true)
+    aVista(false)
+    const reler = montar()
+
+    act(() => { vi.advanceTimersByTime(INTERVALO_DA_RENOVACAO) })
+    act(() => { document.dispatchEvent(new Event('visibilitychange')) })
+    expect(reler).not.toHaveBeenCalled()
+  })
+
+  it('voltar à tela pergunta na hora, sem esperar a hora cheia', () => {
+    rede(true)
+    const visibilidade = aVista(false)
+    const reler = montar()
+
+    visibilidade.mockReturnValue('visible')
+    act(() => { document.dispatchEvent(new Event('visibilitychange')) })
+    expect(reler).toHaveBeenCalledTimes(1)
+  })
+
+  it('sem rede, não pergunta: a chamada só marcaria o que já se sabe', () => {
+    rede(false)
+    aVista(true)
+    const reler = montar()
+
+    act(() => { vi.advanceTimersByTime(INTERVALO_DA_RENOVACAO) })
+    act(() => { document.dispatchEvent(new Event('visibilitychange')) })
+    expect(reler).not.toHaveBeenCalled()
+  })
+
+  it('a rede que volta pergunta mesmo com a fila vazia, e é isso que a faz renovar', () => {
+    rede(false)
+    aVista(true)
+    const reler = montar()
+
+    rede(true)
+    act(() => { window.dispatchEvent(new Event('online')) })
+    expect(reler).toHaveBeenCalledTimes(1)
   })
 })

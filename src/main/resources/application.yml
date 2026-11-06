@@ -50,9 +50,10 @@ ecrx-caixa:
     # A aplicação não sobe sem esta variável.
     # Precisa de ao menos 32 bytes (HMAC-SHA256).
     secret: ${ECRX_CAIXA_JWT_SECRET}
-    # 24h contadas do último contato com o servidor: toda resposta autenticada devolve um token novo.
-    # Essa é a janela de resistência offline exigida pelo RNF01.
-    validade: 24h
+    # 72h contadas do último contato com o servidor: toda resposta autenticada devolve um token novo.
+    # Essa é a janela de resistência offline exigida pelo RNF01. O tempo com o negócio fechado também
+    # conta, e 72h cobrem quem fecha de sábado à tarde e abre na segunda, com folga até a terça de manhã.
+    validade: 72h
   planos:
     # Assina o código que ativa cada pedido de plano. O mantenedor usa o mesmo valor no script que
     # gera o código. Sem valor padrão, como a chave do token, e com ao menos 32 bytes.
