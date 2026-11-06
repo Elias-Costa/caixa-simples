@@ -45,6 +45,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -124,6 +125,15 @@ import org.springframework.transaction.support.TransactionTemplate;
  * que disputam a mesma sessão ou os mesmos produtos param no primeiro registro em comum, e a
  * segunda recebe o conflito de versão, em vez de cada uma segurar um registro e esperar pelo
  * outro.
+ *
+ * <p><strong>Toda consulta lê um único instante</strong>, em {@code REPEATABLE_READ}. A linha da
+ * Venda e cada lista de membros vêm em consultas SQL separadas, e a consulta não trava nada. Em
+ * {@code READ COMMITTED}, cada uma veria o que estava confirmado quando rodou, e a escrita que
+ * confirmasse no meio deixaria a linha de antes com os membros de depois: a raiz recusaria a
+ * remontagem, e o dado certo viraria erro na tela, como quando o lote do dispositivo monta a venda
+ * que a tela está lendo. As alterações continuam em {@code READ COMMITTED} de propósito: com a
+ * trava, a segunda lê o que a primeira confirmou, e em {@code REPEATABLE_READ}, depois de esperar,
+ * receberia erro de serialização.
  *
  * <p><strong>A Venda registrada no dispositivo sem rede</strong> chega com os ids que ele gerou e
  * com os instantes do balcão (RNF01, RNF03), pelas formas de {@link #iniciar}, de
@@ -531,7 +541,7 @@ public class VendaService {
      * Autoriza a Venda antes de buscar a configuração Pix da Conta, e diz se a tentativa já tem
      * cobrança reservada nesta Venda, o que faz do pedido a retomada de uma cobrança existente.
      */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public boolean verificarAcessoATentativaPix(UUID vendaId, UUID tentativaId) {
         Venda venda = lerSemTrava(vendaId).paraDominio();
         UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
@@ -558,7 +568,7 @@ public class VendaService {
     }
 
     /** Localiza somente uma cobrança já reservada na Conta resolvida pela URL autenticada. */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public java.util.Optional<PixParaConfirmar> pixPorTxid(String txid) {
         return vendas.findByPixTxid(txid).flatMap(linha -> linha.paraDominio()
                 .getPagamentos().stream().filter(p -> p.cobrancaPix() != null
@@ -570,7 +580,7 @@ public class VendaService {
     }
 
     /** Casos financeiros tardios que o ADMIN precisa conciliar fora do sistema. */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public List<ConciliacaoPix> conciliacoesPix() {
         UsuarioContext.exigirAdmin();
         return vendas.findComPixIntegrado(StatusPagamento.CONFIRMADO).stream()
@@ -857,7 +867,7 @@ public class VendaService {
     }
 
     /** Dívida de um Cliente da Conta, calculada das Vendas e dos recebimentos. */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public Money saldoDevedorDoCliente(UUID clienteId) {
         UsuarioContext.exigirAtual();
         clientes.nomeDe(clienteId);
@@ -867,7 +877,7 @@ public class VendaService {
     }
 
     /** Vendas com dívida e Cliente identificado, para a cobrança no balcão. */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public List<DividaParaTela> dividasEmAberto() {
         UsuarioContext.exigirAtual();
         return vendas.findByStatus(StatusVenda.CONCLUIDA).stream()
@@ -880,7 +890,7 @@ public class VendaService {
     }
 
     /** Dados imutáveis do lançamento para imprimir ou compartilhar. */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public ComprovanteDeRecebimento comprovanteDeRecebimento(UUID vendaId, UUID recebimentoId) {
         UsuarioContext.exigirAtual();
         Venda venda = lerSemTrava(vendaId).paraDominio();
@@ -936,7 +946,7 @@ public class VendaService {
      *                                     quem chama não é ADMIN
      * @throws IllegalStateException       se a venda não está CONCLUIDA
      */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public Comprovante comprovante(UUID vendaId) {
         Venda venda = lerSemTrava(vendaId).paraDominio();
         UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
@@ -986,7 +996,7 @@ public class VendaService {
     }
 
     /** Devolve a comanda inteira após recarga da tela, incluindo parcelas já lançadas. */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public VendaParaTela consultar(UUID vendaId) {
         Venda venda = lerSemTrava(vendaId).paraDominio();
         UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
@@ -1007,7 +1017,7 @@ public class VendaService {
      * @throws br.com.caixasimples.shared.AcessoNegadoException se a sessão é de outro operador e
      *         quem chama não é ADMIN, tenha ela venda ou não
      */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public List<ResumoDaVenda> vendasDaSessao(UUID sessaoCaixaId) {
         Objects.requireNonNull(sessaoCaixaId, "id da sessao de caixa nao pode ser nulo");
         Optional<UUID> dono = caixa.operadorDaSessao(sessaoCaixaId);

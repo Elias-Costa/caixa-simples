@@ -726,8 +726,10 @@ são somas; os filtros entraram como parâmetro opcional nas consultas que já e
   inteiro da raiz, então quem altera a comanda, com rede ou pelo lote, a lê com a trava da linha:
   a segunda escrita espera a primeira confirmar e decide sobre o que ela deixou. Duas adições
   valem as duas, e a edição que chega durante a conclusão é recusada, em vez de reabrir a venda
-  com o dinheiro já na gaveta. As consultas leem sem trava, e um teste de arquitetura recusa
-  escrita que leia a Venda sem ela.
+  com o dinheiro já na gaveta. As consultas leem sem trava e num único instante: a linha da venda
+  e os membros vêm de consultas SQL separadas, e a escrita que confirmasse entre elas faria a raiz
+  recusar a remontagem, com o dado gravado certo. Um teste de arquitetura recusa escrita que leia a
+  Venda sem a trava e consulta que não leia num único instante.
 - **O saldo de estoque pode ficar negativo.** A venda que levou mais do que o saldo registrava já
   aconteceu no balcão; recusar a baixa não a desfaria, só impediria de registrar a venda que
   aconteceu ou deixaria o estoque mentindo por omissão. O saldo negativo é o fato a corrigir, por um ajuste de contagem, e
@@ -1160,7 +1162,13 @@ valem as duas, duas parcelas do total não passam dele, e a edição que chega d
 com rede ou pelo lote, é recusada sem reabrir a venda nem mexer no caixa e no estoque. Duas
 conclusões, e dois cancelamentos, com os mesmos produtos em ordens diferentes terminam em conflito
 de versão para a segunda, nunca em impasse. Testes de arquitetura recusam escrita em `VendaService`
-que leia a Venda sem a trava e ouvinte da conclusão ou do cancelamento sem ordem declarada.
+que leia a Venda sem a trava, consulta que não leia num único instante e ouvinte da conclusão ou do
+cancelamento sem ordem declarada.
+
+A consulta durante a escrita também: uma transação prende a tabela do membro, a leitura passa pela
+linha da Venda e para nela, e a escrita confirma nessa mesma transação. A lista do caixa, o detalhe
+da venda e as dívidas em aberto saem como estavam antes da escrita, inteiros, e a leitura seguinte já
+a vê.
 
 Duas inativações de administrador também: uma transação prende a linha do usuário que a primeira
 grava, e a segunda começa com a primeira parada ali. Quando um administrador inativa o outro ao

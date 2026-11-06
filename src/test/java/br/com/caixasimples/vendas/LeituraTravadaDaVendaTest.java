@@ -18,16 +18,22 @@ import com.tngtech.archunit.lang.ConditionEvents;
 import com.tngtech.archunit.lang.SimpleConditionEvent;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Toda alteração da Venda lê a raiz com a trava da linha.
+ * Toda alteração da Venda lê a raiz com a trava da linha, e toda consulta lê um único instante.
  *
  * <p>A linha da Venda não tem versão: duas escritas que leram a mesma comanda sem trava gravam uma
  * por cima da outra, e a que confirma por último desfaz a outra. Com a trava, a segunda espera a
  * primeira confirmar e lê o que ela deixou. O PostgreSQL recusa trava em transação somente
  * leitura, então a leitura sem trava continua existindo, e estas regras dizem onde ela pode estar:
  * só ela chama {@code findById}, e só as consultas a chamam.
+ *
+ * <p>Sem a trava, o que mantém a linha e os membros no mesmo estado é o isolamento: eles vêm em
+ * consultas SQL separadas, e a escrita que confirmasse entre elas viraria erro de remontagem, com o
+ * dado gravado certo. {@code LeituraDaVendaDuranteAEscritaTest} prova a disputa em três consultas;
+ * esta regra alcança a consulta que ainda não existe.
  */
 class LeituraTravadaDaVendaTest {
 
@@ -49,12 +55,14 @@ class LeituraTravadaDaVendaTest {
 
         soALeituraSemTravaChamaFindById(VendaService.class).check(producao);
         soConsultaChamaALeituraSemTrava(VendaService.class).check(producao);
+        todaConsultaLeUmUnicoInstante(VendaService.class).check(producao);
     }
 
     @Test
-    void regrasRecusamEscritaQueLeSemTrava() {
+    void regrasRecusamEscritaQueLeSemTravaEConsultaEmVariosInstantes() {
         assertThat(violaAsRegras(EscritorQueLeSemTrava.class)).isTrue();
         assertThat(violaAsRegras(EscritorPelaLeituraSemTrava.class)).isTrue();
+        assertThat(violaAsRegras(ConsultaEmVariosInstantes.class)).isTrue();
         assertThat(violaAsRegras(ServicoQueSegueAsRegras.class)).isFalse();
     }
 
@@ -68,6 +76,25 @@ class LeituraTravadaDaVendaTest {
         return methods().that().areDeclaredIn(servico).and(DescribedPredicate.not(SOMENTE_LEITURA))
                 .should(naoChamar(servico, "lerSemTrava"))
                 .because("só a transação somente leitura dispensa a trava");
+    }
+
+    private static ArchRule todaConsultaLeUmUnicoInstante(Class<?> servico) {
+        return methods().that().areDeclaredIn(servico).and(SOMENTE_LEITURA)
+                .should(lerEmRepeatableRead())
+                .because("a raiz e os membros vêm em consultas separadas, e a escrita que confirma"
+                        + " entre elas viraria erro de remontagem com o dado gravado certo");
+    }
+
+    private static ArchCondition<JavaMethod> lerEmRepeatableRead() {
+        return new ArchCondition<>("declarar isolation = REPEATABLE_READ") {
+            @Override
+            public void check(JavaMethod metodo, ConditionEvents eventos) {
+                Transactional transacao = metodo.getAnnotationOfType(Transactional.class);
+                if (transacao.isolation() != Isolation.REPEATABLE_READ) {
+                    eventos.add(SimpleConditionEvent.violated(metodo, metodo.getDescription()));
+                }
+            }
+        };
     }
 
     /** Toda chamada do método ao alvo, inclusive dentro de lambda, que vira método próprio. */
@@ -89,7 +116,8 @@ class LeituraTravadaDaVendaTest {
     private static boolean violaAsRegras(Class<?> servico) {
         JavaClasses importada = new ClassFileImporter().importClasses(servico);
         return soALeituraSemTravaChamaFindById(servico).evaluate(importada).hasViolation()
-                || soConsultaChamaALeituraSemTrava(servico).evaluate(importada).hasViolation();
+                || soConsultaChamaALeituraSemTrava(servico).evaluate(importada).hasViolation()
+                || todaConsultaLeUmUnicoInstante(servico).evaluate(importada).hasViolation();
     }
 
     // As fixtures nunca rodam: só o bytecode delas é lido, e o repositório fica sem valor.
@@ -117,6 +145,20 @@ class LeituraTravadaDaVendaTest {
         }
     }
 
+    /** A consulta lê sem trava, como deve, mas cada consulta SQL vê um instante diferente. */
+    private static final class ConsultaEmVariosInstantes {
+        private VendaRepository vendas;
+
+        @Transactional(readOnly = true)
+        void consultar(UUID vendaId) {
+            lerSemTrava(vendaId);
+        }
+
+        private VendaEntity lerSemTrava(UUID vendaId) {
+            return vendas.findById(vendaId).orElseThrow();
+        }
+    }
+
     /** Controle: a recusa vem de quem chama, não de uma regra que recusa tudo. */
     private static final class ServicoQueSegueAsRegras {
         private VendaRepository vendas;
@@ -126,7 +168,7 @@ class LeituraTravadaDaVendaTest {
             vendas.findLockedById(vendaId).orElseThrow();
         }
 
-        @Transactional(readOnly = true)
+        @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
         void consultar(UUID vendaId) {
             lerSemTrava(vendaId);
         }

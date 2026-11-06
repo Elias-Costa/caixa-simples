@@ -103,7 +103,9 @@ public class VendaEntity {
      * consulta: ele recusa na subida da aplicação, com {@code MultipleBagFetchException}. E mesmo
      * que aceitasse, os JOINs multiplicariam linhas de itens, pagamentos e recebimentos, para depois
      * desfazer a multiplicação em memória. Com {@code SUBSELECT} cada coleção vem numa consulta
-     * própria, logo depois da raiz, o que é o comportamento que se esperaria ler no nome.
+     * própria, logo depois da raiz, o que é o comportamento que se esperaria ler no nome. Consultas
+     * separadas só formam um estado que existiu com a trava da linha ou com um único instante de
+     * leitura, por isso quem lê sem trava precisa de {@code REPEATABLE_READ}.
      *
      * <p>{@link OrderBy} por {@code criadoEm} para os itens saírem na ordem em que entraram na
      * comanda. Empate de instante continua sem ordem definida, e isso é aceitável.
