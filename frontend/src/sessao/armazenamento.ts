@@ -1,3 +1,4 @@
+import { aoAvisoDeOutraAba, avisarAsOutrasAbas } from '../canalDasAbas'
 import type { Identidade } from './Identidade'
 
 // O token fica no dispositivo para o aplicativo abrir sem rede enquanto ele não expirar. A
@@ -9,6 +10,7 @@ export const CHAVE_DA_SESSAO = 'ecrx-caixa.sessao'
 const CHAVE_DA_SESSAO_NA_ABA = 'ecrx-caixa.sessao-na-aba'
 const CHAVE_DA_SESSAO_ENCERRADA = 'ecrx-caixa.sessao-encerrada'
 const CHAVE_DA_SESSAO_VENCIDA = 'ecrx-caixa.sessao-vencida'
+const CHAVE_DA_VOLTA_POR_OUTRA_ABA = 'ecrx-caixa.volta-por-outra-aba'
 const SESSAO_LEGADA = 'legada'
 
 function chaveDoToken(sessao: string): string { return `ecrx-caixa.token.${sessao}` }
@@ -84,11 +86,23 @@ export function gravarIdentidade(identidade: Identidade, sessao = sessaoAtual())
 /**
  * O servidor recusou o token desta aba: a senha foi trocada, os aparelhos foram derrubados ou o
  * usuário foi inativado. A marca fica na aba até o próximo login, para a tela de login dizer que a
- * sessão foi encerrada e que o registrado continua guardado.
+ * sessão foi encerrada e que o registrado continua guardado. As outras abas usavam o mesmo token e vão à
+ * entrada quando esta sair; o aviso é o que as faz dizer por quê, cada uma com a marca dela.
  */
 export function marcarSessaoEncerrada(): void {
-  sessionStorage.setItem(CHAVE_DA_SESSAO_ENCERRADA, 'sim')
+  gravarMarcaDeEncerrada()
+  avisarAsOutrasAbas({ tipo: 'sessao-encerrada' })
 }
+
+function gravarMarcaDeEncerrada(): void {
+  sessionStorage.setItem(CHAVE_DA_SESSAO_ENCERRADA, 'sim')
+  avisarMarcas()
+}
+
+// A marca recebida de outra aba é gravada nesta, e o aviso não volta ao canal.
+aoAvisoDeOutraAba((aviso) => {
+  if (aviso.tipo === 'sessao-encerrada') gravarMarcaDeEncerrada()
+})
 
 export function sessaoFoiEncerrada(): boolean {
   return sessionStorage.getItem(CHAVE_DA_SESSAO_ENCERRADA) !== null
@@ -102,10 +116,55 @@ export function sessaoFoiEncerrada(): boolean {
  */
 export function marcarSessaoVencida(): void {
   localStorage.setItem(CHAVE_DA_SESSAO_VENCIDA, 'sim')
+  avisarMarcas()
 }
 
 export function sessaoVenceu(): boolean {
   return localStorage.getItem(CHAVE_DA_SESSAO_VENCIDA) !== null
+}
+
+/**
+ * Por que outra aba do aplicativo trouxe esta à entrada: alguém saiu nela e a sessão desta terminou junto,
+ * ou alguém entrou nela e abriu outra sessão, e o navegador fica com uma por vez. A marca é da aba, para a
+ * frase continuar depois de recarregar, e sai com a entrada completa.
+ */
+export type VoltaPorOutraAba = 'saiu' | 'entrou'
+
+export function marcarVoltaPorOutraAba(motivo: VoltaPorOutraAba): void {
+  sessionStorage.setItem(CHAVE_DA_VOLTA_POR_OUTRA_ABA, motivo)
+  // A sessão de que a marca do 401 desta aba fala foi trocada pela de quem entrou.
+  if (motivo === 'entrou') sessionStorage.removeItem(CHAVE_DA_SESSAO_ENCERRADA)
+  avisarMarcas()
+}
+
+/**
+ * A sessão aberta pela outra aba terminou: entrar aqui já não leva ninguém à entrada, e a frase de quem
+ * entrou deixaria de ser verdade.
+ */
+export function tirarMarcaDeEntradaEmOutraAba(): void {
+  if (voltaPorOutraAba() !== 'entrou') return
+  sessionStorage.removeItem(CHAVE_DA_VOLTA_POR_OUTRA_ABA)
+  avisarMarcas()
+}
+
+export function voltaPorOutraAba(): VoltaPorOutraAba | null {
+  const motivo = sessionStorage.getItem(CHAVE_DA_VOLTA_POR_OUTRA_ABA)
+  return motivo === 'saiu' || motivo === 'entrou' ? motivo : null
+}
+
+const ouvintesDasMarcas = new Set<() => void>()
+
+/**
+ * Avisa quando uma marca da entrada muda. A entrada já à vista troca a frase, como quando alguém entra em
+ * outra aba depois de esta ter voltado à entrada. Devolve o que desliga o aviso.
+ */
+export function aoMudarMarcasDaEntrada(ouvinte: () => void): () => void {
+  ouvintesDasMarcas.add(ouvinte)
+  return () => { ouvintesDasMarcas.delete(ouvinte) }
+}
+
+function avisarMarcas(): void {
+  for (const ouvinte of [...ouvintesDasMarcas]) ouvinte()
 }
 
 /**
@@ -115,7 +174,9 @@ export function sessaoVenceu(): boolean {
  */
 export function limparMarcasDaEntrada(): void {
   sessionStorage.removeItem(CHAVE_DA_SESSAO_ENCERRADA)
+  sessionStorage.removeItem(CHAVE_DA_VOLTA_POR_OUTRA_ABA)
   localStorage.removeItem(CHAVE_DA_SESSAO_VENCIDA)
+  avisarMarcas()
 }
 
 const ouvintesDoVencimento = new Set<() => void>()

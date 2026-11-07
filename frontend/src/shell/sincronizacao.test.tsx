@@ -1,5 +1,5 @@
 import 'fake-indexeddb/auto'
-import { deleteDB } from 'idb'
+import { deleteDB, openDB } from 'idb'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ErroDaApi, SemConexao } from '../api/cliente'
@@ -9,7 +9,7 @@ import { conferirGestos, enfileirarGesto, iniciarEnvio, listarGestos, registrarD
 import { gravarIdentidade, gravarToken, sessaoFoiEncerrada } from '../sessao/armazenamento'
 import type { Identidade } from '../sessao/Identidade'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
-import { INTERVALO_DA_RENOVACAO, INTERVALO_DA_SONDAGEM, useEnvioAutomatico } from './sincronizacao'
+import { INTERVALO_DA_RENOVACAO, INTERVALO_DA_SONDAGEM, INTERVALO_DE_REPETICAO, useEnvioAutomatico } from './sincronizacao'
 
 const ana: Identidade = {
   contaId: 'conta-a', usuarioId: 'ana', nome: 'Ana', nomeNegocio: 'Cafeteria Aurora',
@@ -315,5 +315,163 @@ describe('a renovação com o aplicativo aberto', () => {
     rede(true)
     act(() => { window.dispatchEvent(new Event('online')) })
     expect(reler).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('duas abas do mesmo usuário', () => {
+  const abertos: BroadcastChannel[] = []
+  /** O canal que a outra aba do aplicativo abriria. */
+  function outraAba() {
+    const canal = new BroadcastChannel('ecrx-caixa-abas')
+    abertos.push(canal)
+    return canal
+  }
+
+  /** Grava como a outra aba gravaria: no mesmo banco, sem passar pelos ouvintes desta aba. */
+  async function gestoDeOutraAba() {
+    await listarGestos()
+    const banco = await openDB('ecrx-caixa-offline')
+    const operacaoId = crypto.randomUUID()
+    await banco.put('gestos', {
+      chave: `conta-a ana ${operacaoId}`, dono: 'conta-a ana', operacaoId,
+      registroId: crypto.randomUUID(), tipo: 'cliente.criar', payload: { nome: 'Maria', contato: null },
+      dependeDe: [], estado: 'queued', criadoEm: new Date().toISOString(),
+    })
+    banco.close()
+  }
+
+  /** A trava do envio entre abas, que o jsdom não tem; enquanto comOutraAba, ela está com a outra aba. */
+  function travaDoNavegador() {
+    const trava = { comOutraAba: true }
+    Object.defineProperty(navigator, 'locks', {
+      configurable: true,
+      value: {
+        request: async (_nome: string, _opcoes: unknown, executar: (obtida: unknown) => Promise<unknown>) =>
+          executar(trava.comOutraAba ? null : { name: 'ecrx-caixa-envio-da-fila' }),
+      },
+    })
+    return trava
+  }
+
+  afterEach(() => {
+    for (const canal of abertos.splice(0)) canal.close()
+    delete (navigator as { locks?: unknown }).locks
+  })
+
+  it('o token recusado aqui avisa as outras abas, que usavam o mesmo', async () => {
+    rede(true)
+    vi.spyOn(sincronizacao, 'enviarLote').mockRejectedValue(new ErroDaApi(401, 'Não autorizado', undefined, {}))
+    const outra = outraAba()
+    const naOutra: unknown[] = []
+    outra.addEventListener('message', (evento) => naOutra.push(evento.data))
+    const sair = vi.fn()
+    renderHook(() => useEnvioAutomatico(ana, sair, '/vender', relerFalso))
+    await gestoNovo()
+
+    await waitFor(() => expect(sair).toHaveBeenCalled())
+    await waitFor(() => expect(naOutra).toContainEqual({ tipo: 'sessao-encerrada' }))
+  })
+
+  it('conta o gesto que outra aba gravou, sem esperar troca de tela', async () => {
+    rede(false)
+    const outra = outraAba()
+    const { result } = renderHook(() => useEnvioAutomatico(ana, sairFalso, '/sincronizacao', relerFalso))
+    await waitFor(() => expect(result.current.porEnviar).toBe(0))
+
+    await gestoDeOutraAba()
+    outra.postMessage({ tipo: 'fila' })
+
+    await waitFor(() => expect(result.current.porEnviar).toBe(1))
+  })
+
+  it('o aviso de outra aba só conta: quem envia o gesto novo é a aba que o gravou', async () => {
+    rede(true)
+    const enviarLote = vi.spyOn(sincronizacao, 'enviarLote').mockImplementation(
+      async (operacoes: OperacaoDoLote[]) => operacoes.map((operacao) => ({
+        operacaoId: operacao.operacaoId, resultado: 'APLICADA' as const })))
+    const outra = outraAba()
+    const { result } = renderHook(() => useEnvioAutomatico(ana, sairFalso, '/vender', relerFalso))
+    await waitFor(() => expect(result.current.enviando).toBe(false))
+
+    await gestoDeOutraAba()
+    outra.postMessage({ tipo: 'fila' })
+
+    await waitFor(() => expect(result.current.porEnviar).toBe(1))
+    expect(enviarLote).not.toHaveBeenCalled()
+  })
+
+  it('mostra Enviando enquanto outra aba envia e, no fim dela, o número certo, a rodada e o pedido que esperava', async () => {
+    rede(true)
+    const trava = travaDoNavegador()
+    const enviarLote = vi.spyOn(sincronizacao, 'enviarLote').mockImplementation(
+      async (operacoes: OperacaoDoLote[]) => operacoes.map((operacao) => ({
+        operacaoId: operacao.operacaoId, resultado: 'APLICADA' as const })))
+    const outra = outraAba()
+    const { result } = renderHook(() => useEnvioAutomatico(ana, sairFalso, '/vender', relerFalso))
+    await waitFor(() => expect(result.current.enviando).toBe(false))
+
+    outra.postMessage({ tipo: 'rodada', fase: 'inicio' })
+    await waitFor(() => expect(result.current.enviando).toBe(true))
+    // O gesto feito aqui no meio da rodada da outra esbarra na trava e espera o fim dela.
+    await gestoNovo()
+    await waitFor(() => expect(result.current.porEnviar).toBe(1))
+    expect(result.current.enviando).toBe(true)
+    expect(result.current.rodada).toBe(0)
+    expect(enviarLote).not.toHaveBeenCalled()
+
+    trava.comOutraAba = false
+    outra.postMessage({ tipo: 'rodada', fase: 'fim', gravou: true })
+
+    await waitFor(() => expect(enviarLote).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(result.current.porEnviar).toBe(0))
+    expect(result.current.enviando).toBe(false)
+    // Uma volta pela rodada da outra aba, que gravou, e outra pela desta.
+    expect(result.current.rodada).toBe(2)
+  })
+
+  it('a rodada da outra aba que não gravou nada conta de novo e não recarrega as telas', async () => {
+    rede(false)
+    const outra = outraAba()
+    const { result } = renderHook(() => useEnvioAutomatico(ana, sairFalso, '/vender', relerFalso))
+    await waitFor(() => expect(result.current.porEnviar).toBe(0))
+
+    outra.postMessage({ tipo: 'rodada', fase: 'inicio' })
+    await waitFor(() => expect(result.current.enviando).toBe(true))
+    await gestoDeOutraAba()
+    outra.postMessage({ tipo: 'rodada', fase: 'fim', gravou: false })
+
+    await waitFor(() => expect(result.current.porEnviar).toBe(1))
+    expect(result.current.enviando).toBe(false)
+    expect(result.current.rodada).toBe(0)
+  })
+
+  it('a aba que enviava fechou sem avisar o fim: a repetição pega a trava, envia e tira o Enviando', async () => {
+    rede(true)
+    const trava = travaDoNavegador()
+    trava.comOutraAba = false
+    await gestoNovo()
+    const enviarLote = vi.spyOn(sincronizacao, 'enviarLote')
+      .mockRejectedValueOnce(new SemConexao())
+      .mockImplementation(async (operacoes: OperacaoDoLote[]) => operacoes.map((operacao) => ({
+        operacaoId: operacao.operacaoId, resultado: 'APLICADA' as const })))
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'], shouldAdvanceTime: true })
+    try {
+      const outra = outraAba()
+      const { result } = renderHook(() => useEnvioAutomatico(ana, sairFalso, '/vender', relerFalso))
+      await waitFor(() => expect(enviarLote).toHaveBeenCalledTimes(1))
+      act(() => registrarResposta())
+      await waitFor(() => expect(result.current.porEnviar).toBe(1))
+
+      outra.postMessage({ tipo: 'rodada', fase: 'inicio' })
+      await waitFor(() => expect(result.current.enviando).toBe(true))
+
+      act(() => { vi.advanceTimersByTime(INTERVALO_DE_REPETICAO) })
+
+      await waitFor(() => expect(result.current.porEnviar).toBe(0))
+      expect(enviarLote).toHaveBeenCalledTimes(2)
+      expect(result.current.enviando).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

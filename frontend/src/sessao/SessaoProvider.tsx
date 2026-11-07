@@ -15,8 +15,10 @@ import {
   limparSessao,
   marcarSessaoEncerrada,
   marcarSessaoVencida,
+  marcarVoltaPorOutraAba,
   sessaoAtual,
   sessaoDaAba,
+  tirarMarcaDeEntradaEmOutraAba,
 } from './armazenamento'
 import { RelogioAdiantado, tokenExpirado } from './token'
 
@@ -104,13 +106,19 @@ export function SessaoProvider({ children }: { children: ReactNode }) {
   }, [atualizarIdentidade])
 
   // Outra aba pode trocar a Conta no armazenamento compartilhado. Esta aba deixa de exibir
-  // imediatamente a identidade anterior; as chamadas em voo são recusadas pelo cliente HTTP.
+  // imediatamente a identidade anterior; as chamadas em voo são recusadas pelo cliente HTTP. A entrada diz
+  // por quê: a chave trocada por outra é alguém que entrou na outra aba; a chave apagada, quando a sessão
+  // era a desta aba, é alguém que saiu nela. Uma sessão de outra aba que termina não é a desta, e só deixa
+  // de valer a frase de quem entrou.
   useEffect(() => {
     const outraAbaMudouSessao = (evento: StorageEvent) => {
-      if (evento.key === CHAVE_DA_SESSAO || evento.key === null) {
-        tentativaDeEntrada.current++
-        setIdentidade(null)
-      }
+      if (evento.key !== CHAVE_DA_SESSAO && evento.key !== null) return
+      if (evento.key !== null && evento.newValue !== null) marcarVoltaPorOutraAba('entrou')
+      else if (evento.key !== null && evento.oldValue !== null && evento.oldValue === sessaoDaAba()) {
+        marcarVoltaPorOutraAba('saiu')
+      } else tirarMarcaDeEntradaEmOutraAba()
+      tentativaDeEntrada.current++
+      setIdentidade(null)
     }
     window.addEventListener('storage', outraAbaMudouSessao)
     return () => window.removeEventListener('storage', outraAbaMudouSessao)

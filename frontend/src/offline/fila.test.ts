@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto'
 import { deleteDB, openDB } from 'idb'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { gravarIdentidade, gravarToken, lerIdentidade, limparSessao } from '../sessao/armazenamento'
 import type { Identidade } from '../sessao/Identidade'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
@@ -484,5 +484,36 @@ describe('dados do aparelho', () => {
 
     expect(await listarGestos()).toHaveLength(1)
     expect(lerIdentidade()).toEqual(ana)
+  })
+})
+
+describe('a fila entre as abas', () => {
+  it('avisa as outras abas a cada mudança, sem nada do gesto', async () => {
+    entrar(ana)
+    const outra = new BroadcastChannel('ecrx-caixa-abas')
+    const naOutra: unknown[] = []
+    outra.addEventListener('message', (evento) => naOutra.push(evento.data))
+    try {
+      const gesto = await enfileirarGesto(produto)
+      await aplicados(gesto)
+      await new Promise((resolver) => setTimeout(resolver, 0))
+      // O gesto novo, o envio e o resultado.
+      expect(naOutra).toEqual([{ tipo: 'fila' }, { tipo: 'fila' }, { tipo: 'fila' }])
+    } finally {
+      outra.close()
+    }
+  })
+
+  it('a mudança feita em outra aba chega aos ouvintes desta, sem dizer qual foi', async () => {
+    const outra = new BroadcastChannel('ecrx-caixa-abas')
+    const mudancas: string[] = []
+    const parar = aoMudarFila((mudanca) => mudancas.push(mudanca))
+    try {
+      outra.postMessage({ tipo: 'fila' })
+      await vi.waitFor(() => expect(mudancas).toEqual(['outra-aba']))
+    } finally {
+      parar()
+      outra.close()
+    }
   })
 })

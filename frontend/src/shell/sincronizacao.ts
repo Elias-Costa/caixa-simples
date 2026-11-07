@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { aoMudarConexao, comServidor, estadoDaConexao } from '../api/conexao'
 import { sincronizacao } from '../api/sincronizacao'
+import { aoAvisoDeOutraAba } from '../canalDasAbas'
 import { hojeNoBalcao } from '../dataDoBalcao'
 import { enviarFila } from '../offline/envio'
 import { aoMudarFila, gestoPendente, listarGestos, sessaoPodeUsarAFila } from '../offline/fila'
@@ -28,7 +29,10 @@ export const INTERVALO_DA_SONDAGEM = 15_000
 export const INTERVALO_DA_RENOVACAO = 60 * 60 * 1000
 
 export type Sincronizacao = {
-  /** Uma rodada de envio está em curso nesta aba. */
+  /**
+   * Uma rodada de envio está em curso neste aparelho: nesta aba, ou em outra que avisou o começo dela e
+   * ainda não avisou o fim.
+   */
   enviando: boolean
   /**
    * Registros com gesto ainda sem resultado do servidor: na fila, em envio ou com falha. Toda conta aqui
@@ -83,11 +87,14 @@ type ContagemLocal = {
  * que a venda sem rede confere antes de gravar. Se o servidor recusa o token, a sessão local
  * termina como na abertura do aplicativo, e a fila fica para o próximo login. O administrador vê
  * também a lista de revisões da Conta, relida ao abrir, na volta do servidor, depois de cada envio
- * e a cada troca de tela.
+ * e a cada troca de tela. As outras abas do aplicativo avisam as mudanças da fila e o começo e o fim de
+ * cada rodada delas, e esta aba os trata como trata os seus; a trava continua deixando uma rodada só no
+ * aparelho.
  */
 export function useEnvioAutomatico(identidade: Identidade | null, sair: () => void,
   caminho: string, relerIdentidade: () => Promise<unknown>): Sincronizacao {
   const [enviando, setEnviando] = useState(false)
+  const [outraAbaEnviando, setOutraAbaEnviando] = useState(false)
   const [local, setLocal] = useState<ContagemLocal>({ porEnviar: 0, comFalha: 0, emRevisao: 0, vendasRecusadas: [] })
   // Os registros por conferir da lista da Conta; nulo enquanto ela não foi lida nesta sessão.
   const [daConta, setDaConta] = useState<ReadonlySet<string> | null>(null)
@@ -95,6 +102,9 @@ export function useEnvioAutomatico(identidade: Identidade | null, sair: () => vo
   const emCurso = useRef(false)
   const deNovo = useRef(false)
   const temPendencia = useRef(false)
+  const outraAbaComATrava = useRef(false)
+  // Um pedido desta aba encontrou a trava com outra aba; ele sai quando ela avisar o fim.
+  const pedidoNaTravaDeOutraAba = useRef(false)
   const quem = identidade ? `${identidade.contaId}:${identidade.usuarioId}` : null
   const administrador = identidade?.perfil === 'ADMIN'
   const usuarioId = identidade?.usuarioId ?? ''
@@ -136,10 +146,19 @@ export function useEnvioAutomatico(identidade: Identidade | null, sair: () => vo
     setEnviando(true)
     let respondida = false
     let recusada = false
+    let esperaOFimDaOutraAba = false
     try {
       do {
         deNovo.current = false
         const rodadaDeEnvio = await enviarFila()
+        esperaOFimDaOutraAba = rodadaDeEnvio.desfecho === 'ocupada'
+        if (esperaOFimDaOutraAba) pedidoNaTravaDeOutraAba.current = true
+        else if (rodadaDeEnvio.desfecho !== 'sem-fila') {
+          // Esta aba teve a trava: nenhuma outra está enviando, nem a que fechou sem avisar o fim.
+          pedidoNaTravaDeOutraAba.current = false
+          outraAbaComATrava.current = false
+          setOutraAbaEnviando(false)
+        }
         if (rodadaDeEnvio.respondida) respondida = true
         if (rodadaDeEnvio.resolvidos > 0) setRodada((anterior) => anterior + 1)
         if (rodadaDeEnvio.desfecho === 'sessao-recusada') {
@@ -154,8 +173,12 @@ export function useEnvioAutomatico(identidade: Identidade | null, sair: () => vo
     } finally {
       emCurso.current = false
       setEnviando(false)
-      void contar()
-      void lerDaConta()
+      // Contar no meio do lote da outra aba mostraria o que ela ainda vai gravar; a conta sai do fim dela.
+      // Sem o aviso de começo, como no navegador sem o canal, a conta é a de sempre.
+      if (!(esperaOFimDaOutraAba && outraAbaComATrava.current)) {
+        void contar()
+        void lerDaConta()
+      }
       if (respondida && !recusada) void relerIdentidade()
     }
   }, [contar, lerDaConta, sair, relerIdentidade])
@@ -194,10 +217,33 @@ export function useEnvioAutomatico(identidade: Identidade | null, sair: () => vo
     }
   }, [relerIdentidade])
 
+  // A mudança de outra aba só conta aqui: quem envia o gesto novo é a aba que o gravou.
   useEffect(() => aoMudarFila((mudanca) => {
     void contar()
     if (mudanca === 'gesto-novo' && comServidor()) void enviar()
   }), [contar, enviar])
+
+  // A rodada de outra aba vale como a desta: enquanto ela envia, o aparelho está enviando; no fim, conta de
+  // novo, relê a lista da Conta e, se gravou, as telas recarregam. O pedido desta aba que esbarrou na trava
+  // dela sai agora, como o que chega no meio de uma rodada desta aba vira mais uma volta.
+  useEffect(() => aoAvisoDeOutraAba((aviso) => {
+    if (aviso.tipo !== 'rodada') return
+    if (aviso.fase === 'inicio') {
+      outraAbaComATrava.current = true
+      setOutraAbaEnviando(true)
+      return
+    }
+    outraAbaComATrava.current = false
+    setOutraAbaEnviando(false)
+    if (aviso.gravou) setRodada((anterior) => anterior + 1)
+    if (pedidoNaTravaDeOutraAba.current && comServidor()) {
+      pedidoNaTravaDeOutraAba.current = false
+      void enviar()
+      return
+    }
+    void contar()
+    void lerDaConta()
+  }), [contar, lerDaConta, enviar])
 
   useEffect(() => {
     const repeticao = window.setInterval(() => {
@@ -222,8 +268,9 @@ export function useEnvioAutomatico(identidade: Identidade | null, sair: () => vo
     void lerDaConta()
   }, [contar, lerDaConta])
 
+  const enviandoNoAparelho = enviando || outraAbaEnviando
   return useMemo(() => ({
-    enviando, porEnviar: local.porEnviar, comFalha: local.comFalha, emRevisao,
+    enviando: enviandoNoAparelho, porEnviar: local.porEnviar, comFalha: local.comFalha, emRevisao,
     vendasRecusadas, rodada, enviarAgora, atualizar,
-  }), [enviando, local, emRevisao, vendasRecusadas, rodada, enviarAgora, atualizar])
+  }), [enviandoNoAparelho, local, emRevisao, vendasRecusadas, rodada, enviarAgora, atualizar])
 }

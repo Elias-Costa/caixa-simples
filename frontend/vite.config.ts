@@ -58,7 +58,8 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
-    setupFiles: ['./src/setupTests.ts'],
+    // O canal falso vem primeiro: o setupTests já carrega a conexão, que abre o canal entre as abas.
+    setupFiles: ['./src/setupCanal.ts', './src/setupTests.ts'],
     // O Vitest esvazia o CSS importado; o teste do alvo de toque lê as regras deste arquivo.
     css: { include: [/estilos\.css/] },
   },

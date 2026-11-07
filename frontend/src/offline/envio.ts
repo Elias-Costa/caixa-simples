@@ -1,4 +1,5 @@
 import { ErroDaApi, SemConexao, SessaoAlterada } from '../api/cliente'
+import { avisarAsOutrasAbas } from '../canalDasAbas'
 import { sincronizacao, type OperacaoDoLote, type ResultadoDaOperacao } from '../api/sincronizacao'
 import {
   iniciarEnvio, listarGestos, ordenarPorDependencia, recuperarEnviosInterrompidos, registrarDesfechos,
@@ -70,9 +71,25 @@ export async function enviarFila(enviar: EnviarLote = sincronizacao.enviarLote):
 
 async function comTravaDoAparelho(executar: () => Promise<RodadaDeEnvio>): Promise<RodadaDeEnvio | undefined> {
   // Navegador sem a trava entre abas conta só com a guarda desta aba.
-  if (!('locks' in navigator) || !navigator.locks) return executar()
+  if (!('locks' in navigator) || !navigator.locks) return avisandoAsOutrasAbas(executar)
   return navigator.locks.request(TRAVA_DO_ENVIO, { ifAvailable: true },
-    async (trava) => trava ? executar() : undefined)
+    async (trava) => trava ? avisandoAsOutrasAbas(executar) : undefined)
+}
+
+/**
+ * A aba que ficou sem a trava não conta no meio do lote desta, que ainda vai gravar os resultados: ela
+ * mostra que o aparelho está enviando e conta quando esta avisar o fim, com o que foi gravado.
+ */
+async function avisandoAsOutrasAbas(executar: () => Promise<RodadaDeEnvio>): Promise<RodadaDeEnvio> {
+  avisarAsOutrasAbas({ tipo: 'rodada', fase: 'inicio' })
+  let gravou = false
+  try {
+    const resultado = await executar()
+    gravou = resultado.resolvidos > 0
+    return resultado
+  } finally {
+    avisarAsOutrasAbas({ tipo: 'rodada', fase: 'fim', gravou })
+  }
 }
 
 async function rodada(enviar: EnviarLote): Promise<RodadaDeEnvio> {

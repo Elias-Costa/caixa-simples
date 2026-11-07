@@ -1,8 +1,8 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { gravarIdentidade, gravarToken, lerIdentidade, lerToken, marcarSessaoEncerrada, marcarSessaoVencida,
-  sessaoAtual, sessaoFoiEncerrada, sessaoVenceu } from '../sessao/armazenamento'
+import { CHAVE_DA_SESSAO, gravarIdentidade, gravarToken, lerIdentidade, lerToken, marcarSessaoEncerrada,
+  marcarSessaoVencida, sessaoAtual, sessaoFoiEncerrada, sessaoVenceu, voltaPorOutraAba } from '../sessao/armazenamento'
 import { SessaoProvider } from '../sessao/SessaoProvider'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
 import { ExigeSessao } from '../shell/ExigeSessao'
@@ -13,6 +13,11 @@ const FRASE_DO_VENCIMENTO = 'A sessão neste aparelho venceu. Entre de novo, com
   + 'continua guardado aqui e é enviado depois que quem o registrou entrar.'
 const FRASE_DO_401 = 'A sessão neste aparelho foi encerrada. Entre de novo; o que foi registrado '
   + 'continua guardado aqui e é enviado depois que quem o registrou entrar.'
+
+const FRASE_DE_QUEM_SAIU = 'Alguém saiu em outra aba do aplicativo, e a sessão terminou aqui também. Entre de '
+  + 'novo; o que foi registrado continua guardado aqui.'
+const FRASE_DE_QUEM_ENTROU = 'Alguém entrou em outra aba do aplicativo, e só uma sessão fica aberta por vez. Se '
+  + 'entrar aqui, a outra aba volta à entrada; o que foi registrado continua guardado aqui.'
 
 function tokenDoLogin() {
   return tokenComExpiracao(new Date(Date.now() + 60 * 60 * 1000))
@@ -427,5 +432,167 @@ describe('TelaDeLogin', () => {
     expect(await screen.findByText('dentro do aplicativo')).toBeInTheDocument()
     expect(lerToken()).toBe(token)
     expect(lerIdentidade()).toEqual(identidade)
+  })
+})
+
+describe('a entrada trazida por outra aba do aplicativo', () => {
+  const ana = { usuarioId: '1', nome: 'Ana', perfil: 'OPERADOR' as const, contaId: '2',
+    nomeNegocio: 'Cafeteria Aurora', estoqueHabilitado: false }
+  const abertos: BroadcastChannel[] = []
+
+  afterEach(() => {
+    for (const canal of abertos.splice(0)) canal.close()
+  })
+
+  function renderizarAplicativo() {
+    return render(
+      <MemoryRouter initialEntries={['/caixa']}>
+        <SessaoProvider>
+          <Routes>
+            <Route element={<ExigeSessao />}>
+              <Route path="/caixa" element={<p>tela do caixa</p>} />
+            </Route>
+            <Route path="/entrar" element={<TelaDeLogin />} />
+            <Route path="/" element={<p>dentro do aplicativo</p>} />
+          </Routes>
+        </SessaoProvider>
+      </MemoryRouter>,
+    )
+  }
+
+  /** Esta aba dentro do aplicativo, com a pergunta da abertura sem resposta. */
+  function dentroDoAplicativo(): string {
+    gravarToken(tokenDoLogin())
+    gravarIdentidade(ana)
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => undefined)))
+    return sessaoAtual() as string
+  }
+
+  // O que a outra aba faz no armazenamento compartilhado, e o evento que o navegador entrega a esta.
+  function outraAbaSaiu(sessao: string) {
+    localStorage.removeItem(`ecrx-caixa.token.${sessao}`)
+    localStorage.removeItem(CHAVE_DA_SESSAO)
+    fireEvent(window, new StorageEvent('storage', { key: CHAVE_DA_SESSAO, oldValue: sessao, newValue: null }))
+  }
+
+  function outraAbaEntrou(anterior: string | null): string {
+    const nova = crypto.randomUUID()
+    localStorage.setItem(`ecrx-caixa.token.${nova}`, tokenDoLogin())
+    localStorage.setItem(CHAVE_DA_SESSAO, nova)
+    if (anterior) localStorage.removeItem(`ecrx-caixa.token.${anterior}`)
+    fireEvent(window, new StorageEvent('storage', { key: CHAVE_DA_SESSAO, oldValue: anterior, newValue: nova }))
+    return nova
+  }
+
+  it('alguém sai em outra aba: esta volta à entrada dizendo por quê, também depois de recarregar', async () => {
+    const sessao = dentroDoAplicativo()
+    const { unmount } = renderizarAplicativo()
+    expect(screen.getByText('tela do caixa')).toBeInTheDocument()
+
+    outraAbaSaiu(sessao)
+
+    expect(await screen.findByRole('status')).toHaveTextContent(new RegExp(`^${FRASE_DE_QUEM_SAIU}$`))
+    unmount()
+    renderizarAplicativo()
+    expect(screen.getByRole('status')).toHaveTextContent(FRASE_DE_QUEM_SAIU)
+  })
+
+  it('alguém entra em outra aba: a frase diz que entrar aqui tira a outra, também depois de recarregar', async () => {
+    const sessao = dentroDoAplicativo()
+    const { unmount } = renderizarAplicativo()
+
+    outraAbaEntrou(sessao)
+
+    expect(await screen.findByRole('status')).toHaveTextContent(new RegExp(`^${FRASE_DE_QUEM_ENTROU}$`))
+    // A recarga continua na entrada, com a sessão da outra aba valendo: a guarda das abas fica.
+    unmount()
+    renderizarAplicativo()
+    expect(screen.getByRole('status')).toHaveTextContent(FRASE_DE_QUEM_ENTROU)
+    expect(screen.queryByText('tela do caixa')).not.toBeInTheDocument()
+  })
+
+  it('a frase troca com a entrada já à vista, quando alguém entra depois de outro sair', async () => {
+    const sessao = dentroDoAplicativo()
+    renderizarAplicativo()
+    outraAbaSaiu(sessao)
+    expect(await screen.findByRole('status')).toHaveTextContent(FRASE_DE_QUEM_SAIU)
+
+    outraAbaEntrou(null)
+
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(FRASE_DE_QUEM_ENTROU))
+  })
+
+  it('o 401 em outra aba é dito aqui com a frase do 401, que ganha da de quem saiu', async () => {
+    const sessao = dentroDoAplicativo()
+    renderizarAplicativo()
+    const outra = new BroadcastChannel('ecrx-caixa-abas')
+    abertos.push(outra)
+
+    outraAbaSaiu(sessao)
+    outra.postMessage({ tipo: 'sessao-encerrada' })
+
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(FRASE_DO_401))
+    expect(sessaoFoiEncerrada()).toBe(true)
+  })
+
+  it('quem entra em outra aba tira a frase do 401 desta, que falava da sessão trocada', async () => {
+    marcarSessaoEncerrada()
+    vi.stubGlobal('fetch', vi.fn())
+    renderizarLogin()
+    expect(screen.getByRole('status')).toHaveTextContent(FRASE_DO_401)
+
+    outraAbaEntrou(null)
+
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(FRASE_DE_QUEM_ENTROU))
+    expect(sessaoFoiEncerrada()).toBe(false)
+  })
+
+  it('a sessão de quem entrou na outra aba termina: entrar aqui já não tira ninguém, e a frase sai', async () => {
+    const sessao = dentroDoAplicativo()
+    renderizarAplicativo()
+    const nova = outraAbaEntrou(sessao)
+    expect(await screen.findByRole('status')).toHaveTextContent(FRASE_DE_QUEM_ENTROU)
+
+    outraAbaSaiu(nova)
+
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument())
+  })
+
+  it('o vencimento ganha da frase de quem saiu, porque também faz a outra aba sair', async () => {
+    const sessao = dentroDoAplicativo()
+    renderizarAplicativo()
+
+    marcarSessaoVencida()
+    outraAbaSaiu(sessao)
+
+    expect(await screen.findByRole('status')).toHaveTextContent(FRASE_DO_VENCIMENTO)
+  })
+
+  it('com a frase de outra aba à vista, a de baixo não repete o que fica guardado', async () => {
+    const sessao = dentroDoAplicativo()
+    renderizarAplicativo()
+    outraAbaSaiu(sessao)
+    expect(await screen.findByRole('status')).toHaveTextContent(FRASE_DE_QUEM_SAIU)
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+
+    preencherEEnviar()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(new RegExp('^Sem resposta do servidor. A rede deste '
+      + 'aparelho pode estar funcionando; tente de novo em alguns minutos.$'))
+  })
+
+  it('a entrada completa nesta aba tira a marca de outra aba', async () => {
+    const sessao = dentroDoAplicativo()
+    renderizarAplicativo()
+    outraAbaEntrou(sessao)
+    expect(await screen.findByRole('status')).toHaveTextContent(FRASE_DE_QUEM_ENTROU)
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(respostaJson(200, { token: tokenDoLogin() }))
+      .mockResolvedValueOnce(respostaJson(200, ana)))
+
+    preencherEEnviar()
+
+    expect(await screen.findByText('dentro do aplicativo')).toBeInTheDocument()
+    expect(voltaPorOutraAba()).toBeNull()
   })
 })

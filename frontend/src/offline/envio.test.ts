@@ -310,3 +310,51 @@ describe('envio da fila', () => {
     expect(lento).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('a rodada entre as abas', () => {
+  it('a rodada que tem a trava avisa as outras abas do começo e do fim, e se gravou', async () => {
+    entrar(ana)
+    const outra = new BroadcastChannel('ecrx-caixa-abas')
+    const rodadas: unknown[] = []
+    outra.addEventListener('message', (evento) => {
+      if ((evento.data as { tipo?: string }).tipo === 'rodada') rodadas.push(evento.data)
+    })
+    try {
+      const servidor = servidorFalso()
+      await enviarFila(servidor.enviar)
+      await cliente('Gil')
+      await enviarFila(servidor.enviar)
+      await new Promise((resolver) => setTimeout(resolver, 0))
+      expect(rodadas).toEqual([
+        { tipo: 'rodada', fase: 'inicio' }, { tipo: 'rodada', fase: 'fim', gravou: false },
+        { tipo: 'rodada', fase: 'inicio' }, { tipo: 'rodada', fase: 'fim', gravou: true },
+      ])
+    } finally {
+      outra.close()
+    }
+  })
+
+  it('quem não pegou a trava não avisa rodada nenhuma', async () => {
+    entrar(ana)
+    await cliente('Gil')
+    Object.defineProperty(navigator, 'locks', {
+      configurable: true,
+      value: {
+        request: async (_nome: string, _opcoes: unknown, executar: (obtida: unknown) => Promise<unknown>) =>
+          executar(null),
+      },
+    })
+    const outra = new BroadcastChannel('ecrx-caixa-abas')
+    const avisos: unknown[] = []
+    outra.addEventListener('message', (evento) => avisos.push(evento.data))
+    try {
+      expect(await enviarFila(servidorFalso().enviar))
+        .toEqual({ desfecho: 'ocupada', resolvidos: 0, respondida: false })
+      await new Promise((resolver) => setTimeout(resolver, 0))
+      expect(avisos).toEqual([])
+    } finally {
+      outra.close()
+      delete (navigator as { locks?: unknown }).locks
+    }
+  })
+})

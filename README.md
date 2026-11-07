@@ -92,7 +92,9 @@ recebe a fila em lote: aplica cada gesto uma vez, na ordem das dependências, co
 instantes do balcão, e grava o resultado de cada um na mesma transação do efeito, para o reenvio
 devolver o que foi gravado em vez de aplicar de novo. O PWA envia a fila sozinho: ao abrir, na
 volta do servidor, a cada gesto gravado com ele respondendo e a cada meio minuto enquanto houver
-gesto sem resultado, uma rodada por vez entre as abas; depois de cada envio respondido, relê a
+gesto sem resultado, uma rodada por vez entre as abas, que avisam umas às outras as mudanças da
+fila, o começo e o fim de cada rodada e o servidor que deixou de responder ou voltou, sem nenhum dado
+no aviso; depois de cada envio respondido, relê a
 identidade, para a venda sem rede conhecer logo o que a Conta passou a exigir, como o NSU no
 cartão. Cada gesto recebe o seu desfecho, aplicado, em
 revisão, recusado ou com falha, que é repetida com o mesmo id. A projeção local deixa de somar de
@@ -907,7 +909,8 @@ por quê, de qualquer tela, e a fila fica guardada até essa pessoa entrar de no
 todos os aparelhos derruba os tokens de quem pediu, pela versão de acesso. No aplicativo, o token e a identidade de quem entrou ficam guardados no
 dispositivo, e é isso que permite abrir o aplicativo sem rede. Cada login inicia uma sessão nova
 no navegador; token e identidade ficam vinculados a ela, cada aba só usa a sessão com que abriu,
-e uma troca em outra aba remove a identidade anterior da tela. O que uma escrita começada antes de
+e uma troca em outra aba remove a identidade anterior da tela; a entrada diz se alguém saiu ou entrou
+na outra aba, ou se o servidor recusou o token dela. O que uma escrita começada antes de
 uma troca de sessão ainda faria no aparelho, como marcar e reler o caixa ou guardar a identidade,
 não alcança a sessão que entrou depois, na mesma aba ou em outra. O custo aceito, e escrito, é que
 quem pega o tablet destravado entra até o token expirar. O cliente nunca envia conta nem perfil em

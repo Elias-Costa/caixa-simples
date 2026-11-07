@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router'
 import { ErroDaApi, SemConexao } from '../api/cliente'
 import { estadoDaConexao } from '../api/conexao'
-import { sessaoFoiEncerrada, sessaoVenceu } from '../sessao/armazenamento'
+import { aoMudarMarcasDaEntrada, sessaoFoiEncerrada, sessaoVenceu, voltaPorOutraAba } from '../sessao/armazenamento'
 import { RelogioAdiantado } from '../sessao/token'
 import { useSessao } from '../sessao/useSessao'
 import { CampoDeSenha } from './CampoDeSenha'
@@ -16,6 +16,8 @@ export function TelaDeLogin() {
   const [enviando, setEnviando] = useState(false)
   const botaoDeEntrar = useRef<HTMLButtonElement>(null)
   const focarDepoisDoErro = useRef(false)
+  // A marca pode mudar com a entrada à vista, quando alguém entra ou sai em outra aba.
+  const porQueVoltou = useSyncExternalStore(aoMudarMarcasDaEntrada, avisoDaEntrada)
 
   // O botão desligado durante a tentativa perde o foco, que cai no corpo da página, e quem usa teclado
   // recomeçaria do alto. A espera é pelo botão religado, porque botão desligado não recebe foco.
@@ -27,8 +29,6 @@ export function TelaDeLogin() {
 
   // Quem já está autenticado neste dispositivo não vê o login de novo.
   if (identidade) return <Navigate to="/" replace />
-
-  const porQueVoltou = avisoDaEntrada()
 
   async function enviar(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault()
@@ -102,12 +102,18 @@ export function TelaDeLogin() {
 }
 
 /**
- * Por que a pessoa voltou à entrada, quando não foi ela quem saiu. São duas frases porque são dois fatos:
- * o servidor recusou o token, por um ato de alguém, ou o token venceu sozinho, e aí entrar pede rede. A
- * entrada não sabe quem vai entrar, e a fila de cada usuário só sai quando ele entra: a frase não promete o
- * envio a quem está lendo.
+ * Por que a pessoa voltou à entrada, quando não foi ela quem saiu. O servidor recusou o token, por um ato de
+ * alguém; o token venceu sozinho, e aí entrar pede rede; ou outra aba do aplicativo saiu ou entrou, e o
+ * navegador fica com uma sessão por vez. A entrada não sabe quem vai entrar, e a fila de cada usuário só sai
+ * quando ele entra: a frase não promete o envio a quem está lendo. Quem entrou em outra aba vem primeiro,
+ * porque é o fato mais novo e porque entrar aqui tira a outra aba; quem saiu vem por último, porque o 401 e o
+ * vencimento também fazem a outra aba sair e dizem mais.
  */
 function avisoDaEntrada(): string | null {
+  if (voltaPorOutraAba() === 'entrou') {
+    return 'Alguém entrou em outra aba do aplicativo, e só uma sessão fica aberta por vez. Se entrar aqui, a '
+      + 'outra aba volta à entrada; o que foi registrado continua guardado aqui.'
+  }
   if (sessaoFoiEncerrada()) {
     return 'A sessão neste aparelho foi encerrada. Entre de novo; o que foi registrado continua guardado aqui '
       + 'e é enviado depois que quem o registrou entrar.'
@@ -115,6 +121,10 @@ function avisoDaEntrada(): string | null {
   if (sessaoVenceu()) {
     return 'A sessão neste aparelho venceu. Entre de novo, com rede; o que foi registrado continua '
       + 'guardado aqui e é enviado depois que quem o registrou entrar.'
+  }
+  if (voltaPorOutraAba() === 'saiu') {
+    return 'Alguém saiu em outra aba do aplicativo, e a sessão terminou aqui também. Entre de novo; o que foi '
+      + 'registrado continua guardado aqui.'
   }
   return null
 }

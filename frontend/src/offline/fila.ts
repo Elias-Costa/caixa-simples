@@ -1,4 +1,5 @@
 import { deleteDB, openDB, type DBSchema, type IDBPTransaction } from 'idb'
+import { aoAvisoDeOutraAba, avisarAsOutrasAbas } from '../canalDasAbas'
 import {
   apagarChavesDoAparelho, avisarTokenVencido, lerIdentidade, lerTokenDaSessao, sessaoAtual, sessaoDaAba,
 } from '../sessao/armazenamento'
@@ -70,7 +71,11 @@ export type Desfecho =
   | { operacaoId: string; estado: 'failed'; falha: string }
   | { operacaoId: string; estado: 'queued' }
 
-export type MudancaDaFila = 'gesto-novo' | 'estado' | 'conferencia'
+/**
+ * O que mudou na fila. A mudança feita em outra aba chega sem dizer qual foi: quem ouve conta e relê a
+ * fila de novo, e quem envia o gesto novo é a aba que o gravou.
+ */
+export type MudancaDaFila = 'gesto-novo' | 'estado' | 'conferencia' | 'outra-aba'
 
 type GestoGravado = GestoNaFila & { chave: string; dono: string }
 
@@ -137,9 +142,19 @@ function chaveDoGesto(dono: string, operacaoId: string): string {
   return `${dono}\u0000${operacaoId}`
 }
 
-function avisar(mudanca: MudancaDaFila): void {
-  for (const ouvinte of ouvintes) ouvinte(mudanca)
+function avisar(mudanca: Exclude<MudancaDaFila, 'outra-aba'>): void {
+  avisarOuvintesDestaAba(mudanca)
+  avisarAsOutrasAbas({ tipo: 'fila' })
 }
+
+function avisarOuvintesDestaAba(mudanca: MudancaDaFila): void {
+  for (const ouvinte of [...ouvintes]) ouvinte(mudanca)
+}
+
+// A outra aba grava no mesmo banco; sem este aviso, esta diria que não há nada com a fila cheia.
+aoAvisoDeOutraAba((aviso) => {
+  if (aviso.tipo === 'fila') avisarOuvintesDestaAba('outra-aba')
+})
 
 async function abrirBanco() {
   return openDB<BancoDaFila>(NOME_DO_BANCO, 3, {
@@ -223,7 +238,10 @@ export async function apagarDadosDoAparelho(aoBloquear: () => void = () => undef
   apagarChavesDoAparelho()
 }
 
-/** Avisa quem mostra ou envia a fila, nesta aba, a cada gesto novo, mudança de estado ou conferência. */
+/**
+ * Avisa quem mostra ou envia a fila a cada gesto novo, mudança de estado ou conferência, nesta aba ou em
+ * outra aba do aplicativo.
+ */
 export function aoMudarFila(ouvinte: (mudanca: MudancaDaFila) => void): () => void {
   ouvintes.add(ouvinte)
   return () => { ouvintes.delete(ouvinte) }
