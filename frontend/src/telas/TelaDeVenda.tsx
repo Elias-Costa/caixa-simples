@@ -250,6 +250,9 @@ export function TelaDeVenda() {
     ? lerDinheiro(valorRecebido) : null
   const previaDoTroco = recebidoNaPrevia !== null && valorDaParcela !== null
     ? (Math.round(recebidoNaPrevia * 100) - Math.round(valorDaParcela * 100)) / 100 : undefined
+  // No celular, a lista de itens fica atrás do rodapé preso, e quem passa código só veria o Total mudar. A
+  // prévia do troco tira a linha, para o rodapé não passar da folga de rolagem do campo que recebe o foco.
+  const ultimoItem = editavel && previaDoTroco === undefined ? atual?.itens.at(-1) : undefined
   // O administrador vende em qualquer caixa, e a venda dele aparece na lista do caixa do operador;
   // abrir, retomar e cancelar continuam com quem a fez, ou com o administrador.
   const abreAVenda = (resumo: ResumoDaVenda) =>
@@ -886,6 +889,10 @@ export function TelaDeVenda() {
             {/* O contêiner fica montado desde que a comanda abre: uma região que nasce junto com o texto pode não ser anunciada. */}
             {celular && <div className="pdv__regiao" role="status">
               {registradaNoRodape && <p className="mensagem-info">Registrada neste aparelho.</p>}
+              {ultimoItem && <p className="pdv__ultimo">
+                <span className="pdv__ultimo-nome">Último: {quantidadeComUnidade(ultimoItem.quantidade, ultimoItem.unidade)} × {ultimoItem.nome}</span>
+                <span>{moeda.format(ultimoItem.subtotal)}</span>
+              </p>}
             </div>}
             <p className="pdv__linha pdv__total"><span>Total:</span> <span>{moeda.format(atual.total)}</span></p>
             {/* Sem parcela, o que falta é o total: a linha só repetiria o número de cima, e o rodapé mais

@@ -968,6 +968,8 @@ main.cadastro {
   bottom: 0;
   z-index: 1;
   display: grid;
+  /* A coluna não cresce com o conteúdo: o nome em linha única do último item alargaria o rodapé inteiro para fora da tela. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   margin: var(--espaco) calc(var(--espaco) * -1) calc(var(--espaco) * -1);
   padding: 12px var(--espaco) var(--espaco);
@@ -980,6 +982,14 @@ main.cadastro {
 /* Vazia, a região continua na árvore para ser anunciada depois, sem somar um espaço entre as linhas do rodapé. */
 .pdv__regiao:empty { display: contents; }
 .pdv__regiao > p { margin: 0; }
+/* O nome pode passar de 90 letras: ele é que se corta, e o preço fica sempre à vista. O secundário tem 6,00:1 sobre o rodapé. */
+.pdv__ultimo { display: flex; justify-content: space-between; gap: 12px; color: var(--cor-texto-secundario); }
+.pdv__ultimo-nome {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* Com o rodapé preso, o campo que recebe o foco pelo teclado, ou a mensagem que rola até a vista,
    pararia atrás dele. A folga de rolagem do tamanho do rodapé com a prévia do troco faz a rolagem
    parar acima. Só vale na tela que tem o rodapé. */

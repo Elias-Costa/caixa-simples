@@ -1274,7 +1274,7 @@ describe('a frase da venda feita sem rede', () => {
     const concluir = await abrirVendaDoAparelho(true)
     expect(screen.getByText(LONGA)).toBeInTheDocument()
     const regiao = within(rodape()).getByRole('status')
-    expect(regiao).toBeEmptyDOMElement()
+    expect(regiao).not.toHaveTextContent(CURTA)
 
     fireEvent.click(concluir)
     await screen.findByLabelText('Comprovante não fiscal')
@@ -1302,6 +1302,85 @@ describe('a frase da venda feita sem rede', () => {
 
     expect(screen.queryByText(CURTA)).not.toBeInTheDocument()
     expect(screen.queryByText(LONGA)).not.toBeInTheDocument()
+  })
+})
+
+describe('o último item no rodapé', () => {
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  const cafe = { ...comanda.itens[0], unidade: 'un' }
+  const pao = { id: 'item-2', produtoId: 'produto-2', nome: 'Pão de queijo', quantidade: 2, unidade: 'un',
+    precoUnitario: 3.5, desconto: 0, subtotal: 7 }
+  const rodape = () => screen.getByText('Total:').closest('p')!.parentElement!
+  const regiao = () => within(rodape()).getByRole('status')
+
+  /** Abre pela lista a venda com um item; o retorno troca o que a próxima leitura da venda devolve. */
+  async function abrir(celular: boolean) {
+    vi.stubGlobal('matchMedia', () => ({ matches: !celular, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
+    vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined)
+    let venda: Venda = { ...comanda, itens: [cafe] }
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([{ id: comanda.id,
+      sessaoCaixaId: comanda.sessaoCaixaId, usuarioId: comanda.usuarioId,
+      status: 'ABERTA', total: comanda.total, criadoEm: comanda.criadoEm }])
+    vi.spyOn(vendas, 'consultar').mockImplementation(async () => venda)
+    mostrar()
+    fireEvent.click(await screen.findByRole('button', { name: /Aberta/ }))
+    const concluir = await screen.findByRole('button', { name: 'Receber e concluir' })
+    await waitFor(() => expect(concluir).toBeEnabled())
+    return { concluir, trocarVenda: (nova: Venda) => { venda = nova } }
+  }
+
+  it('no celular, mostra o último lançado com o preço, e acompanha o item seguinte', async () => {
+    const { trocarVenda } = await abrir(true)
+    expect(regiao()).toHaveTextContent('Último: 1 un × Café')
+    expect(within(regiao()).getByText('R$ 12,50')).toBeInTheDocument()
+
+    vi.spyOn(cadastro, 'buscarProdutos').mockResolvedValue([{ id: 'produto-2', tipo: 'PRODUTO',
+      nome: 'Pão de queijo', preco: 3.5, codigo: 'PQ-1', categoria: null, unidade: 'un', atributos: {} }])
+    vi.spyOn(vendas, 'adicionarItem').mockResolvedValue({ id: 'item-2' })
+    trocarVenda({ ...comanda, itens: [cafe, pao], total: 19.5, faltaPagar: 19.5 })
+    fireEvent.change(screen.getByLabelText('Produto por nome ou código'), { target: { value: 'PQ-1' } })
+    const resultado = await screen.findByRole('button', { name: /Pão de queijo · R\$\s*3,50/ })
+    fireEvent.click(resultado)
+
+    await waitFor(() => expect(regiao()).toHaveTextContent('Último: 2 un × Pão de queijo'))
+    expect(within(regiao()).getByText('R$ 7,00')).toBeInTheDocument()
+    expect(regiao()).not.toHaveTextContent('Café')
+  })
+
+  it('a prévia do troco tira a linha, e ela volta quando a prévia sai', async () => {
+    await abrir(true)
+    fireEvent.click(screen.getByRole('button', { name: 'R$ 20' }))
+    await screen.findByText('Troco previsto:')
+    expect(regiao()).toBeEmptyDOMElement()
+
+    fireEvent.change(screen.getByLabelText('Valor recebido em dinheiro'), { target: { value: '' } })
+    await waitFor(() => expect(regiao()).toHaveTextContent('Último: 1 un × Café'))
+  })
+
+  it('ao concluir, a linha sai', async () => {
+    const { concluir, trocarVenda } = await abrir(true)
+    vi.spyOn(vendas, 'pagar').mockResolvedValue({ troco: 0 })
+    vi.spyOn(vendas, 'concluir').mockImplementation(async () => {
+      trocarVenda({ ...comanda, itens: [cafe], status: 'CONCLUIDA', pago: 12.5, faltaPagar: 0 })
+    })
+    vi.spyOn(vendas, 'comprovante').mockResolvedValue(comprovante)
+    fireEvent.click(concluir)
+    await screen.findByLabelText('Comprovante não fiscal')
+    expect(screen.queryByText(/Último:/)).not.toBeInTheDocument()
+  })
+
+  it('no tablet não aparece: lá a lista de itens está à vista', async () => {
+    await abrir(false)
+    expect(within(rodape()).queryByText(/Último:/)).not.toBeInTheDocument()
+  })
+
+  it('a comanda só para leitura não mostra a linha: a ação ali é começar outra venda', async () => {
+    await abrir(true)
+    act(() => { registrarSemResposta() })
+    await screen.findByText(/Esta venda está no servidor/)
+    expect(screen.queryByText(/Último:/)).not.toBeInTheDocument()
   })
 })
 

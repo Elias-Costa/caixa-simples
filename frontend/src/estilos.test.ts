@@ -21,6 +21,16 @@ describe('o rodapé da comanda', () => {
   it('a região vazia não soma um espaço entre as linhas, porque o rodapé é uma grade com intervalo', () => {
     expect(regra('.pdv__regiao:empty')).toContain('display: contents')
   })
+
+  it('o nome do último item se corta com reticências, e o preço fica à vista', () => {
+    const nome = regra('.pdv__ultimo-nome')
+    expect(nome).toContain('text-overflow: ellipsis')
+    expect(nome).toContain('white-space: nowrap')
+    // Sem isto, o nome numa caixa flexível não encolhe, e o preço sairia da tela.
+    expect(nome).toContain('min-width: 0')
+    // O jsdom não calcula layout, e o navegador é que mostrou: sem esta coluna, o rodapé inteiro saía pela direita.
+    expect(regra('.pdv__rodape')).toContain('grid-template-columns: minmax(0, 1fr)')
+  })
 })
 
 describe('cabeçalho no celular', () => {
