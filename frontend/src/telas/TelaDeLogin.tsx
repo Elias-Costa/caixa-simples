@@ -103,16 +103,18 @@ export function TelaDeLogin() {
 
 /**
  * Por que a pessoa voltou à entrada, quando não foi ela quem saiu. São duas frases porque são dois fatos:
- * o servidor recusou o token, por um ato de alguém, ou o token venceu sozinho, e aí entrar pede rede.
+ * o servidor recusou o token, por um ato de alguém, ou o token venceu sozinho, e aí entrar pede rede. A
+ * entrada não sabe quem vai entrar, e a fila de cada usuário só sai quando ele entra: a frase não promete o
+ * envio a quem está lendo.
  */
 function avisoDaEntrada(): string | null {
   if (sessaoFoiEncerrada()) {
-    return 'A sessão neste aparelho foi encerrada. Entre de novo; o que foi registrado sem rede continua '
-      + 'guardado aqui e é enviado depois que você entrar.'
+    return 'A sessão neste aparelho foi encerrada. Entre de novo; o que foi registrado continua guardado aqui '
+      + 'e é enviado depois que quem o registrou entrar.'
   }
   if (sessaoVenceu()) {
     return 'A sessão neste aparelho venceu. Entre de novo, com rede; o que foi registrado continua '
-      + 'guardado aqui e é enviado depois que você entrar.'
+      + 'guardado aqui e é enviado depois que quem o registrou entrar.'
   }
   return null
 }

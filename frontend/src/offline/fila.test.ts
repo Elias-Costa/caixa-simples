@@ -5,9 +5,9 @@ import { gravarIdentidade, gravarToken, lerIdentidade, limparSessao } from '../s
 import type { Identidade } from '../sessao/Identidade'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
 import {
-  aoMudarFila, apagarDadosDoAparelho, atualizarRetratoDoCaixa, conferirGestos, conferirRegistro, contarGestosSemResultado, enfileirarGesto,
-  guardarRetrato, guardarRetratoDaVenda, guardarRetratos, iniciarEnvio, jaEstaNoRetrato, lerCaixaNoAparelho, lerDoServidor,
-  lerRetrato, listarGestos, mudarEstadoDoGesto, recuperarEnviosInterrompidos, registrarDesfechos,
+  aoMudarFila, apagarDadosDoAparelho, atualizarRetratoDoCaixa, conferirGestos, conferirRegistro, enfileirarGesto,
+  gestosDeCadaUsuario, gestosDosOutrosUsuarios, guardarRetrato, guardarRetratoDaVenda, guardarRetratos, iniciarEnvio,
+  jaEstaNoRetrato, lerCaixaNoAparelho, lerDoServidor, lerRetrato, listarGestos, mudarEstadoDoGesto, recuperarEnviosInterrompidos, registrarDesfechos,
   SessaoAbertaNoAparelho, type GestoNaFila,
 } from './fila'
 
@@ -413,7 +413,7 @@ describe('dados do aparelho', () => {
   const bia: Identidade = { ...ana, usuarioId: 'bia', nome: 'Bia', perfil: 'OPERADOR' }
   const registro = (final: string) => `00000000-0000-4000-8000-0000000000${final}`
 
-  it('conta, sem sessão, os gestos de todos os usuários que ainda não tiveram resultado', async () => {
+  it('lê, sem sessão, os gestos de todos os usuários, um grupo por usuário', async () => {
     entrar(ana)
     await enfileirarGesto(produto)
     const comFalha = await enfileirarGesto({ ...produto, registroId: registro('42') })
@@ -430,8 +430,28 @@ describe('dados do aparelho', () => {
     await iniciarEnvio([emEnvio.operacaoId])
     limparSessao()
 
-    // Na fila e com falha, da Ana, e em envio, da Bia; o enviado e o em revisão já têm resultado.
-    expect(await contarGestosSemResultado()).toBe(3)
+    const grupos = await gestosDeCadaUsuario()
+    // Gestos feitos no mesmo milissegundo podem vir em qualquer ordem: compara-se o conjunto de cada grupo.
+    expect(grupos.map((grupo) => grupo.map((gesto) => gesto.estado).sort()).sort((a, b) => a.length - b.length))
+      .toEqual([['syncing'], ['failed', 'needs_review', 'queued', 'sent']])
+  })
+
+  it('dá a quem entrou os gestos dos outros usuários, sem os dele, e pede a sessão', async () => {
+    entrar(ana)
+    await enfileirarGesto(produto)
+    entrar(bia)
+    const daBia = await enfileirarGesto({ ...produto, registroId: registro('46') })
+    entrar({ ...ana, contaId: 'conta-b', usuarioId: 'ana' })
+    const deOutraConta = await enfileirarGesto({ ...produto, registroId: registro('47') })
+    entrar(ana)
+
+    const grupos = await gestosDosOutrosUsuarios()
+
+    // A mesma pessoa em outra Conta é outro dono: a fila dela também só sai quando ela entra lá.
+    expect(grupos.map((grupo) => grupo.map((gesto) => gesto.operacaoId)).sort())
+      .toEqual([[daBia.operacaoId], [deOutraConta.operacaoId]].sort())
+    limparSessao()
+    await expect(gestosDosOutrosUsuarios()).rejects.toThrow()
   })
 
   it('apaga a fila, os retratos e as chaves do aplicativo, e o nome do Cliente não fica', async () => {
@@ -450,7 +470,7 @@ describe('dados do aparelho', () => {
     expect(localStorage.getItem('ecrx-caixa.token.de-uma-sessao-antiga')).toBeNull()
     expect(sessionStorage.getItem('ecrx-caixa.intencao-online.conta-a.ana.resumo')).toBeNull()
     expect(localStorage.getItem('outro-aplicativo')).toBe('fica')
-    expect(await contarGestosSemResultado()).toBe(0)
+    expect(await gestosDeCadaUsuario()).toEqual([])
     entrar(ana)
     expect(await listarGestos()).toEqual([])
     expect(await lerRetrato('clientesAtivos')).toBeNull()

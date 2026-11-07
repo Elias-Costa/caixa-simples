@@ -502,3 +502,63 @@ describe('sem o servidor', () => {
     window.dispatchEvent(new Event('online'))
   })
 })
+
+describe('a fila de outro usuário neste aparelho', () => {
+  const bia: Identidade = { ...identidade('OPERADOR'), usuarioId: 'u-2', nome: 'Bia' }
+  const carlos: Identidade = { ...identidade('OPERADOR'), usuarioId: 'u-3', nome: 'Carlos' }
+
+  function entrarComo(quem: Identidade) {
+    gravarToken(tokenComExpiracao(new Date(Date.now() + 60 * 60 * 1000)))
+    gravarIdentidade(quem)
+  }
+
+  // Um teste anterior pode ter deixado o aparelho sem servidor, e a tela diria outra coisa.
+  beforeEach(() => registrarResposta())
+
+  it('conta o registro de outro usuário sem enviá-lo e não diz que tudo chegou ao servidor', async () => {
+    entrarComo(bia)
+    await vendaNaFila(VENDA, 9.5)
+    entrar('OPERADOR')
+
+    mostrar('OPERADOR')
+
+    expect(await screen.findByText('Há 1 registro de outro usuário neste aparelho. Ele só é enviado quando essa '
+      + 'pessoa entrar.')).toBeInTheDocument()
+    expect(screen.getByText('Nada por enviar: o que você registrou neste aparelho chegou ao servidor.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Enviar agora' })).toBeDisabled()
+  })
+
+  it('junto da fila de quem entrou, conta os registros do outro e deixa de fora o que ele já enviou', async () => {
+    entrarComo(bia)
+    await vendaNaFila(VENDA, 9.5)
+    await enfileirarGesto({ tipo: 'caixa.sangrar', registroId: SESSAO, payload: { valor: 5, motivo: 'Cofre' } })
+    const enviado = await enfileirarGesto({ tipo: 'cliente.criar', registroId: CLIENTE, payload: { nome: 'Maria', contato: null } })
+    await responder([aplicado(enviado)])
+    entrar('OPERADOR')
+    await enfileirarGesto({ tipo: 'caixa.suprir', registroId: SESSAO, payload: { valor: 50 } })
+
+    mostrar('OPERADOR')
+
+    expect(await screen.findByText('Há 2 registros de outro usuário neste aparelho. Eles só são enviados quando essa '
+      + 'pessoa entrar.')).toBeInTheDocument()
+    expect(await listaDa(/^Suprimento/)).toBeInTheDocument()
+    expect(screen.queryByText(/^Nada por enviar/)).not.toBeInTheDocument()
+  })
+
+  it('conta os de dois outros usuários também para o administrador', async () => {
+    entrarComo(bia)
+    await vendaNaFila(VENDA, 9.5)
+    entrarComo(carlos)
+    await vendaNaFila(OUTRA, 7)
+    await enfileirarGesto({ tipo: 'cliente.criar', registroId: CLIENTE, payload: { nome: 'Maria', contato: null } })
+    entrar('ADMIN')
+    equipe()
+    vi.spyOn(sincronizacao, 'revisoes').mockResolvedValue({ pendentes: [], conferidas: [] })
+
+    mostrar('ADMIN')
+
+    expect(await screen.findByText('Há 3 registros de 2 outros usuários neste aparelho. Cada um só é enviado quando '
+      + 'a pessoa que o fez entrar.')).toBeInTheDocument()
+    expect(screen.getByText('Nada por enviar: o que você registrou neste aparelho chegou ao servidor.')).toBeInTheDocument()
+  })
+})

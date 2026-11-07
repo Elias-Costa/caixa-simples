@@ -117,10 +117,13 @@ O agrupamento é só da tela: o servidor continua gravando e conferindo por oper
 confere numa lista só as revisões e recusas de todos os aparelhos da Conta, inclusive as do próprio,
 e registra no servidor que as conferiu. Sem rede ou sem resposta do servidor, Sair pergunta antes e
 diz quantos registros ficam guardados, porque apaga o token que abre o aplicativo e entrar de novo
-precisa do servidor; com ele, não pergunta. Sair não apaga o que o
+precisa do servidor; com ele, não pergunta. A fila de cada usuário só sai quando ele entra, e a tela
+de sincronização de quem entra depois conta, sem nome, o que outro usuário deixou por enviar no
+aparelho. Sair não apaga o que o
 aparelho guardou: a tela de entrada tem um link discreto para uma página que apaga a fila e as
 cópias locais de todos os usuários. Antes do botão, a página diz o que sai do aparelho, que o já
-enviado continua no servidor e quantos registros feitos sem rede ainda não chegaram a ele. Ela fica
+enviado continua no servidor, quantos registros de quantos usuários ainda não chegaram a ele, na
+mesma conta do cabeçalho de cada um, e a revisão ainda não conferida que sai junto. Ela fica
 fora do aplicativo porque o aparelho de uma Conta encerrada ou de quem foi inativado não entra mais
 e o servidor não o alcança.
 Nas rotas online de recebimento de fiado, parcela, sangria e suprimento, o aparelho envia um UUID

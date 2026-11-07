@@ -115,18 +115,51 @@ function formasDosPagamentos(gestos: readonly GestoNaFila[]): ValorDaForma[] {
   return raiz.formasDasParcelas(parcelas)
 }
 
+function agruparPorRegistro(gestos: readonly GestoNaFila[]): Map<string, GestoNaFila[]> {
+  const porRegistro = new Map<string, GestoNaFila[]>()
+  for (const gesto of gestos) {
+    const chave = chaveDoRegistro(gesto)
+    porRegistro.set(chave, [...(porRegistro.get(chave) ?? []), gesto])
+  }
+  return porRegistro
+}
+
+export type ContagemDosUsuarios = Readonly<{
+  /** Registros com algum gesto ainda sem resultado do servidor. */
+  porEnviar: number
+  /** Quantos usuários têm ao menos um registro por enviar. */
+  usuariosComPorEnviar: number
+  /** Registros sem nada por enviar com alguma revisão ainda não conferida neste aparelho. */
+  emRevisao: number
+}>
+
+/**
+ * A fila de vários usuários contada como o cabeçalho e a tela Sincronização de cada um a contam: por
+ * registro, dentro da fila de cada usuário, porque o mesmo cliente editado por duas pessoas é uma linha
+ * na tela de cada uma. A situação não depende da remontagem da venda, e por isso a conta não pede quem
+ * entrou nem sessão.
+ */
+export function contarPorUsuario(filas: readonly (readonly GestoNaFila[])[]): ContagemDosUsuarios {
+  let porEnviar = 0
+  let usuariosComPorEnviar = 0
+  let emRevisao = 0
+  for (const fila of filas) {
+    const situacoes = [...agruparPorRegistro(fila).values()].map(situacaoDoRegistro)
+    const doUsuario = situacoes.filter((situacao) => situacao === 'por-enviar').length
+    porEnviar += doUsuario
+    if (doUsuario > 0) usuariosComPorEnviar++
+    emRevisao += situacoes.filter((situacao) => situacao === 'em-revisao').length
+  }
+  return { porEnviar, usuariosComPorEnviar, emRevisao }
+}
+
 /**
  * A fila agrupada, um registro por linha, dos mais antigos para os mais novos. A venda sem o gesto de
  * início também entra, sem total: a revisão antiga e o que veio depois de uma recusa não se perdem.
  */
 export function registrosDaFila(gestos: readonly GestoNaFila[], usuarioId: string): RegistroDaFila[] {
   const vendas = new Map(vendasDaFila(gestos, usuarioId).map((venda) => [venda.vendaId, venda]))
-  const porRegistro = new Map<string, GestoNaFila[]>()
-  for (const gesto of gestos) {
-    const chave = chaveDoRegistro(gesto)
-    porRegistro.set(chave, [...(porRegistro.get(chave) ?? []), gesto])
-  }
-  return [...porRegistro].map(([chave, doRegistro]): RegistroDaFila => {
+  return [...agruparPorRegistro(gestos)].map(([chave, doRegistro]): RegistroDaFila => {
     const ordenados = ordenarPorDependencia(doRegistro)
     const primeiro = ordenados[0]
     const daVenda = primeiro.tipo.startsWith('venda.')

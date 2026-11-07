@@ -10,9 +10,9 @@ import { TelaDeLogin } from './TelaDeLogin'
 import { TelaDoAparelho } from './TelaDoAparelho'
 
 const FRASE_DO_VENCIMENTO = 'A sessão neste aparelho venceu. Entre de novo, com rede; o que foi registrado '
-  + 'continua guardado aqui e é enviado depois que você entrar.'
-const FRASE_DO_401 = 'A sessão neste aparelho foi encerrada. Entre de novo; o que foi registrado sem rede '
-  + 'continua guardado aqui e é enviado depois que você entrar.'
+  + 'continua guardado aqui e é enviado depois que quem o registrou entrar.'
+const FRASE_DO_401 = 'A sessão neste aparelho foi encerrada. Entre de novo; o que foi registrado '
+  + 'continua guardado aqui e é enviado depois que quem o registrou entrar.'
 
 function tokenDoLogin() {
   return tokenComExpiracao(new Date(Date.now() + 60 * 60 * 1000))
@@ -138,7 +138,7 @@ describe('TelaDeLogin', () => {
       'O acesso desta Conta está suspenso. O administrador recebeu o aviso por e-mail.')
     expect(screen.getByRole('alert')).not.toHaveTextContent('E-mail ou senha incorretos.')
     expect(lerToken()).toBeNull()
-    // O aviso de que o registrado sem rede continua guardado fica na tela até o próximo login.
+    // O aviso de que o registrado continua guardado fica na tela até o próximo login.
     expect(sessaoFoiEncerrada()).toBe(true)
   })
 

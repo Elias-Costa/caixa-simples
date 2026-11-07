@@ -84,7 +84,7 @@ export function gravarIdentidade(identidade: Identidade, sessao = sessaoAtual())
 /**
  * O servidor recusou o token desta aba: a senha foi trocada, os aparelhos foram derrubados ou o
  * usuário foi inativado. A marca fica na aba até o próximo login, para a tela de login dizer que a
- * sessão foi encerrada e que o registrado sem rede continua guardado.
+ * sessão foi encerrada e que o registrado continua guardado.
  */
 export function marcarSessaoEncerrada(): void {
   sessionStorage.setItem(CHAVE_DA_SESSAO_ENCERRADA, 'sim')

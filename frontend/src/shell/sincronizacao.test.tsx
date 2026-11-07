@@ -69,7 +69,7 @@ describe('envio automático no shell', () => {
 
     await waitFor(() => expect(sair).toHaveBeenCalled())
     expect((await listarGestos()).map((gesto) => gesto.estado)).toEqual(['queued'])
-    // O login avisa que a sessão foi encerrada e que o registrado sem rede continua guardado.
+    // O login avisa que a sessão foi encerrada e que o registrado continua guardado.
     expect(sessaoFoiEncerrada()).toBe(true)
   })
 })

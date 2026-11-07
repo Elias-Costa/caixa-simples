@@ -5,8 +5,10 @@ import { contas } from '../api/contas'
 import { sincronizacao, type RevisaoDaConta, type RevisoesDaConta } from '../api/sincronizacao'
 import { hojeNoBalcao } from '../dataDoBalcao'
 import { dataHora } from '../formatos'
-import { aoMudarFila, conferirGestos, listarGestos, type GestoNaFila } from '../offline/fila'
-import { registrosDaConta, registrosDaFila, type RegistroDaFila } from '../offline/registrosDaFila'
+import { aoMudarFila, conferirGestos, gestosDosOutrosUsuarios, listarGestos, type GestoNaFila } from '../offline/fila'
+import {
+  contarPorUsuario, registrosDaConta, registrosDaFila, type ContagemDosUsuarios, type RegistroDaFila,
+} from '../offline/registrosDaFila'
 import { useSincronizacao } from '../shell/sincronizacao'
 import { useConexao } from '../shell/useConexao'
 import { useSessao } from '../sessao/useSessao'
@@ -183,6 +185,21 @@ type FocoDepois = {
   indice: number
 }
 
+/**
+ * A fila de outra pessoa só sai quando ela entra, e o aparelho não guarda o nome de quem saiu. Sem esta
+ * frase, a venda do turno anterior ficaria parada aqui sem ninguém saber, nem o administrador, porque o
+ * servidor não soube dela.
+ */
+function fraseDosOutros({ porEnviar, usuariosComPorEnviar }: ContagemDosUsuarios): string {
+  if (usuariosComPorEnviar > 1) {
+    return `Há ${porEnviar} registros de ${usuariosComPorEnviar} outros usuários neste aparelho. Cada um só é `
+      + 'enviado quando a pessoa que o fez entrar.'
+  }
+  return porEnviar === 1
+    ? 'Há 1 registro de outro usuário neste aparelho. Ele só é enviado quando essa pessoa entrar.'
+    : `Há ${porEnviar} registros de outro usuário neste aparelho. Eles só são enviados quando essa pessoa entrar.`
+}
+
 /** A conferência parou no meio: a linha continua, e repetir não dá erro, porque o servidor mantém a primeira. */
 function falhaNaConta(falha: unknown, conferidos: number, total: number): string {
   const motivo = falha instanceof SemConexao ? 'Sem resposta do servidor.' : erroDeCadastro(falha)
@@ -197,7 +214,8 @@ function falhaNaConta(falha: unknown, conferidos: number, total: number): string
  * servidor continua gravando e conferindo por operação. Quem opera vê aqui o que ainda não foi, o que
  * falhou e será repetido, e o que foi revisado ou recusado, e confere no aparelho, porque não tem a
  * lista da Conta. O administrador vê aqui só o que falta enviar: toda revisão, de qualquer aparelho, fica
- * na lista da Conta, e a conferência dele fica gravada no servidor, com quem e quando.
+ * na lista da Conta, e a conferência dele fica gravada no servidor, com quem e quando. O que outro usuário
+ * deixou por enviar neste aparelho aparece só contado, para os dois perfis: a fila é de quem a fez.
  */
 export function TelaDeSincronizacao() {
   const { identidade } = useSessao()
@@ -208,6 +226,7 @@ export function TelaDeSincronizacao() {
   const administrador = identidade?.perfil === 'ADMIN'
   const usuarioId = identidade?.usuarioId ?? ''
   const [gestos, setGestos] = useState<GestoNaFila[]>([])
+  const [dosOutros, setDosOutros] = useState<ContagemDosUsuarios | null>(null)
   const [dia, setDia] = useState(hojeNoBalcao)
   const [daConta, setDaConta] = useState<RevisoesDaConta>()
   const [usuarios, setUsuarios] = useState<Map<string, string>>(() => new Map())
@@ -222,7 +241,9 @@ export function TelaDeSincronizacao() {
 
   const lerAparelho = useCallback(async () => {
     try {
-      setGestos(await listarGestos())
+      const [doUsuario, deOutros] = await Promise.all([listarGestos(), gestosDosOutrosUsuarios()])
+      setGestos(doUsuario)
+      setDosOutros(contarPorUsuario(deOutros))
     } catch (falha) {
       setErro(erroDeCadastro(falha))
     }
@@ -350,8 +371,9 @@ export function TelaDeSincronizacao() {
             ))}
           </ul>
         ) : (
-          <p className="cadastro__apoio">Nada por enviar: o que foi feito neste aparelho chegou ao servidor.</p>
+          <p className="cadastro__apoio">Nada por enviar: o que você registrou neste aparelho chegou ao servidor.</p>
         )}
+        {dosOutros && dosOutros.porEnviar > 0 && <p className="mensagem-info">{fraseDosOutros(dosOutros)}</p>}
 
         {!administrador && <>
           <h4 ref={tituloDoAparelho} tabIndex={-1}>Em revisão</h4>

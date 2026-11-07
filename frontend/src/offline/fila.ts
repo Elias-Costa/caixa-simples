@@ -171,15 +171,41 @@ export class SessaoAbertaNoAparelho extends Error {
   }
 }
 
+/** Um grupo por usuário, cada um na ordem em que os gestos foram feitos; o grupo não diz de quem é. */
+function separarPorDono(gestos: readonly GestoGravado[]): GestoNaFila[][] {
+  const porDono = new Map<string, GestoNaFila[]>()
+  for (const gesto of gestos) {
+    porDono.set(gesto.dono, [...(porDono.get(gesto.dono) ?? []), semChavesInternas(gesto)])
+  }
+  return [...porDono.values()].map((doDono) => doDono.sort((a, b) => a.criadoEm.localeCompare(b.criadoEm)))
+}
+
 /**
- * Quantos gestos de todos os usuários deste aparelho ainda não tiveram resultado do servidor. Não
- * exige sessão: é lida na tela de entrada, inclusive no aparelho de uma Conta que já não entra.
+ * Os gestos de todos os usuários deste aparelho, um grupo por usuário. Não exige sessão: é lida na
+ * página que apaga os dados, aberta pela entrada, inclusive no aparelho de uma Conta que já não entra.
  */
-export async function contarGestosSemResultado(): Promise<number> {
-  if (!('indexedDB' in globalThis)) return 0
+export async function gestosDeCadaUsuario(): Promise<GestoNaFila[][]> {
+  if (!('indexedDB' in globalThis)) return []
   const banco = await abrirBanco()
   try {
-    return (await banco.getAll('gestos')).filter(gestoPendente).length
+    return separarPorDono(await banco.getAll('gestos'))
+  } finally {
+    banco.close()
+  }
+}
+
+/**
+ * Os gestos dos outros usuários deste aparelho, um grupo por usuário. A fila de outra pessoa nunca é
+ * enviada por quem entrou e espera aqui até ela entrar; quem entrou só precisa saber quantos registros são.
+ */
+export async function gestosDosOutrosUsuarios(): Promise<GestoNaFila[][]> {
+  const { dono, sessao } = donoDaSessao()
+  const banco = await abrirBanco()
+  try {
+    conferirDono(dono, sessao)
+    const gestos = await banco.getAll('gestos')
+    conferirDono(dono, sessao)
+    return separarPorDono(gestos.filter((gesto) => gesto.dono !== dono))
   } finally {
     banco.close()
   }

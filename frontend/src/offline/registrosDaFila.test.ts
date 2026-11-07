@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { RevisaoDaConta } from '../api/sincronizacao'
 import type { GestoNaFila, ResultadoDoGesto } from './fila'
-import { chaveDoRegistro, registrosDaConta, registrosDaFila, vendasDaFila } from './registrosDaFila'
+import { chaveDoRegistro, contarPorUsuario, registrosDaConta, registrosDaFila, vendasDaFila } from './registrosDaFila'
 
 const VENDA = '00000000-0000-4000-8000-000000000011'
 const OUTRA = '00000000-0000-4000-8000-000000000012'
@@ -217,6 +217,44 @@ describe('os registros da fila', () => {
     ], 'ana')
 
     expect(registros.map((registro) => registro.gestos[0].tipo)).toEqual(['caixa.sangrar', 'venda.iniciar'])
+  })
+})
+
+describe('a conta da fila de vários usuários', () => {
+  const CLIENTE = '00000000-0000-4000-8000-000000000031'
+  const naFila: Parcial = { estado: 'queued', resultado: undefined }
+
+  it('conta a venda de quatro gestos como um registro, como o cabeçalho de quem a fez', () => {
+    const fila = [inicio(naFila), item(9.5, naFila), dinheiro(9.5, 10, naFila), conclusao(naFila)]
+
+    expect(contarPorUsuario([fila])).toEqual({ porEnviar: 1, usuariosComPorEnviar: 1, emRevisao: 0 })
+    expect(registrosDaFila(fila, 'ana').filter((registro) => registro.situacao === 'por-enviar')).toHaveLength(1)
+  })
+
+  it('soma os registros de cada usuário, e o mesmo cliente editado por dois é um registro de cada', () => {
+    const daAna = [inicio(naFila), conclusao(naFila),
+      gesto('cliente.editar', { nome: 'Maria' }, { ...naFila, registroId: CLIENTE })]
+    const daBia = [
+      gesto('caixa.sangrar', { valor: 20 }, { ...naFila, registroId: SESSAO }),
+      gesto('caixa.sangrar', { valor: 30 }, { ...naFila, registroId: SESSAO }),
+      gesto('cliente.editar', { nome: 'Maria Souza' }, { ...naFila, registroId: CLIENTE }),
+    ]
+    const deQuemJaEnviou = [inicio({ registroId: OUTRA }), conclusao({ registroId: OUTRA })]
+
+    expect(contarPorUsuario([daAna, daBia, deQuemJaEnviou]))
+      .toEqual({ porEnviar: 5, usuariosComPorEnviar: 2, emRevisao: 0 })
+  })
+
+  it('conta à parte a revisão ainda não conferida, e o registro com algo por enviar fica só por enviar', () => {
+    const emRevisao: Parcial = { estado: 'needs_review', resultado: { aplicada: true, detalhe: 'Estoque negativo.' } }
+    const fila = [
+      inicio(), conclusao(emRevisao),
+      inicio({ registroId: OUTRA }), conclusao({ ...emRevisao, registroId: OUTRA, conferidoEm: INICIO }),
+      gesto('cliente.criar', { nome: 'Maria' }, { ...emRevisao, registroId: CLIENTE }),
+      gesto('cliente.editar', { nome: 'Maria Souza' }, { ...naFila, registroId: CLIENTE }),
+    ]
+
+    expect(contarPorUsuario([fila])).toEqual({ porEnviar: 1, usuariosComPorEnviar: 1, emRevisao: 1 })
   })
 })
 
