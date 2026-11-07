@@ -1005,8 +1005,9 @@ describe('a página ao terminar a venda', () => {
     const busca = await screen.findByLabelText('Produto por nome ou código')
     fireEvent.change(busca, { target: { value: 'CA-1' } })
     fireEvent.click(await screen.findByRole('button', { name: /Café · R\$\s*12,50/ }))
-    await screen.findByRole('button', { name: 'Receber e concluir' })
+    const concluir = await screen.findByRole('button', { name: 'Receber e concluir' })
     await waitFor(() => expect(busca).toHaveFocus())
+    await waitFor(() => expect(concluir).toBeEnabled())
     return busca
   }
 
@@ -1064,6 +1065,199 @@ describe('a página ao terminar a venda', () => {
     await screen.findByLabelText('Comprovante não fiscal')
     await waitFor(() => expect(busca).toHaveFocus())
     expect(rolar).not.toHaveBeenCalled()
+  })
+})
+
+describe('o botão principal ao abrir a comanda', () => {
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  // O jsdom não calcula layout: o fim do rodapé na tela vem da prova, e a altura da tela é a dele, 768. A lista
+  // de resultados à vista empurra o rodapé, como no navegador; medido com ela, a página desceria a mais.
+  function comRodapeEm(baixo: number, celular = true) {
+    vi.stubGlobal('matchMedia', () => ({ matches: !celular, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
+    vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined)
+    const original = HTMLElement.prototype.getBoundingClientRect
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (!this.classList.contains('pdv__rodape')) return original.call(this)
+      const empurrado = document.querySelector('.pdv__resultados') ? 100 : 0
+      return { bottom: baixo + empurrado } as DOMRect
+    })
+    return vi.spyOn(window, 'scrollBy').mockImplementation(() => undefined)
+  }
+
+  function simularVenda() {
+    let concluida = false
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    // A lista do caixa demora, como a do servidor: é nesse intervalo que a comanda aparece na tela.
+    vi.spyOn(vendas, 'daSessao').mockImplementation(async () => {
+      await new Promise((resolver) => setTimeout(resolver, 20))
+      return []
+    })
+    vi.spyOn(cadastro, 'buscarProdutos').mockResolvedValue([{ id: 'produto-1', tipo: 'PRODUTO',
+      nome: 'Café', preco: 12.5, codigo: 'CA-1', categoria: null, unidade: 'un', atributos: {} }])
+    vi.spyOn(vendas, 'iniciar').mockResolvedValue({ id: 'venda-1' })
+    vi.spyOn(vendas, 'adicionarItem').mockResolvedValue({ id: 'item-1' })
+    // Um objeto novo a cada leitura, como a resposta do servidor: é o que distingue a mesma venda da venda seguinte.
+    vi.spyOn(vendas, 'consultar').mockImplementation(async () => concluida
+      ? { ...comanda, status: 'CONCLUIDA', pago: 12.5, faltaPagar: 0 } : { ...comanda })
+    vi.spyOn(vendas, 'pagar').mockResolvedValue({ troco: 0 })
+    vi.spyOn(vendas, 'concluir').mockImplementation(async () => { concluida = true })
+    vi.spyOn(vendas, 'comprovante').mockResolvedValue(comprovante)
+    return { reabrir: () => { concluida = false } }
+  }
+
+  async function lancar(busca: HTMLElement) {
+    fireEvent.change(busca, { target: { value: 'CA-1' } })
+    const resultado = await screen.findByRole('button', { name: /Café · R\$\s*12,50/ })
+    // Enquanto a chamada anterior termina, o resultado fica desligado, e o toque não lançaria nada.
+    await waitFor(() => expect(resultado).toBeEnabled())
+    fireEvent.click(resultado)
+    const concluir = await screen.findByRole('button', { name: 'Receber e concluir' })
+    await waitFor(() => expect(busca).toHaveFocus())
+    await waitFor(() => expect(concluir).toBeEnabled())
+  }
+
+  it('no celular, com o botão abaixo da tela, rola só o que falta, e o foco fica na busca', async () => {
+    const rolar = comRodapeEm(828)
+    simularVenda()
+    mostrar()
+    const busca = await screen.findByLabelText('Produto por nome ou código')
+    expect(rolar).not.toHaveBeenCalled()
+
+    await lancar(busca)
+
+    expect(rolar).toHaveBeenCalledOnce()
+    expect(rolar).toHaveBeenCalledWith(0, 60)
+    expect(busca).toHaveFocus()
+  })
+
+  it('o segundo item não rola de novo, e a venda seguinte rola outra vez', async () => {
+    const rolar = comRodapeEm(828)
+    const venda = simularVenda()
+    mostrar()
+    const busca = await screen.findByLabelText('Produto por nome ou código')
+    await lancar(busca)
+    expect(rolar).toHaveBeenCalledOnce()
+
+    // A pessoa já decidiu onde a página fica; mais um item não a tira de lá.
+    await lancar(busca)
+    expect(rolar).toHaveBeenCalledOnce()
+
+    venda.reabrir()
+    fireEvent.click(screen.getByRole('button', { name: 'Nova venda' }))
+    vi.mocked(vendas.iniciar).mockResolvedValue({ id: 'venda-2' })
+    vi.mocked(vendas.consultar).mockImplementation(async () => ({ ...comanda, id: 'venda-2' }))
+    await lancar(busca)
+    expect(rolar).toHaveBeenCalledTimes(2)
+  })
+
+  it('trocar direto para outra venda aberta, sem passar por Nova venda, rola de novo', async () => {
+    const rolar = comRodapeEm(828)
+    const resumo = (id: string, total: number) => ({ id, sessaoCaixaId: aberta.id, usuarioId: aberta.usuarioId,
+      status: 'ABERTA' as const, total, criadoEm: aberta.abertaEm })
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([resumo('venda-1', 12.5), resumo('venda-2', 20)])
+    vi.spyOn(vendas, 'consultar').mockImplementation(async (id) => ({ ...comanda, id }))
+    mostrar()
+
+    fireEvent.click(await screen.findByRole('button', { name: /Aberta.*12,50.*retomar ou cancelar/ }))
+    await screen.findByRole('button', { name: 'Receber e concluir' })
+    expect(rolar).toHaveBeenCalledOnce()
+
+    fireEvent.click(screen.getByRole('button', { name: /Aberta.*20,00.*retomar ou cancelar/ }))
+    await waitFor(() => expect(rolar).toHaveBeenCalledTimes(2))
+  })
+
+  it('o botão que aparece depois, com o primeiro item recusado antes, também rola', async () => {
+    const rolar = comRodapeEm(828)
+    simularVenda()
+    const semItens = { ...comanda, itens: [], total: 0, faltaPagar: 0 }
+    vi.spyOn(vendas, 'adicionarItem').mockRejectedValueOnce(new ErroDaApi(409, 'Conflict', 'Sem estoque.', {}))
+    vi.mocked(vendas.consultar).mockResolvedValueOnce(semItens)
+    mostrar()
+    const busca = await screen.findByLabelText('Produto por nome ou código')
+    fireEvent.change(busca, { target: { value: 'CA-1' } })
+    fireEvent.click(await screen.findByRole('button', { name: /Café · R\$\s*12,50/ }))
+    await screen.findByText('Nenhum item lançado.')
+    expect(rolar).not.toHaveBeenCalled()
+
+    await lancar(busca)
+    expect(rolar).toHaveBeenCalledOnce()
+  })
+
+  it('ao concluir, volta ao alto e desce só o que falta para o troco aparecer inteiro', async () => {
+    const descer = comRodapeEm(828)
+    simularVenda()
+    mostrar()
+    await lancar(await screen.findByLabelText('Produto por nome ou código'))
+    descer.mockClear()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Receber e concluir' }))
+    await screen.findByLabelText('Comprovante não fiscal')
+    await waitFor(() => expect(descer).toHaveBeenCalledOnce())
+
+    expect(descer).toHaveBeenCalledWith(0, 60)
+    // Na ordem contrária, a volta ao alto desfaria a descida, e o troco ficaria cortado.
+    const subir = vi.mocked(window.scrollTo)
+    expect(subir.mock.invocationCallOrder[0]).toBeLessThan(descer.mock.invocationCallOrder[0])
+  })
+
+  it('com o botão à vista não rola', async () => {
+    const rolar = comRodapeEm(768)
+    simularVenda()
+    mostrar()
+    await lancar(await screen.findByLabelText('Produto por nome ou código'))
+    expect(rolar).not.toHaveBeenCalled()
+  })
+
+  it('a venda concluída aberta pela lista não rola: o rodapé dela não tem botão principal', async () => {
+    const rolar = comRodapeEm(828)
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([{ id: comanda.id,
+      sessaoCaixaId: comanda.sessaoCaixaId, usuarioId: comanda.usuarioId,
+      status: 'CONCLUIDA', total: comanda.total, criadoEm: comanda.criadoEm }])
+    vi.spyOn(vendas, 'consultar').mockResolvedValue({ ...comanda, status: 'CONCLUIDA', pago: 12.5, faltaPagar: 0 })
+    vi.spyOn(vendas, 'comprovante').mockResolvedValue(comprovante)
+    mostrar()
+
+    fireEvent.click(await screen.findByRole('button', { name: /Concluída.*R\$/ }))
+    await screen.findByLabelText('Comprovante não fiscal')
+    expect(rolar).not.toHaveBeenCalled()
+  })
+
+  it('no tablet não rola, nem ao abrir nem ao concluir: lá o painel da comanda começa no alto', async () => {
+    const rolar = comRodapeEm(1100, false)
+    simularVenda()
+    mostrar()
+    await lancar(await screen.findByLabelText('Produto por nome ou código'))
+    expect(rolar).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Receber e concluir' }))
+    await screen.findByLabelText('Comprovante não fiscal')
+    await waitFor(() => expect(screen.getByLabelText('Produto por nome ou código')).toHaveFocus())
+    expect(rolar).not.toHaveBeenCalled()
+  })
+})
+
+describe('o rodapé da comanda', () => {
+  it('sem parcela não repete o total em Falta lançar, e com parcela diz o que falta e o que foi lançado', async () => {
+    const parcela = { id: 'parcela-1', forma: 'DINHEIRO' as const, valor: 5, status: 'CONFIRMADO' as const, troco: 0 }
+    const consultar = vi.spyOn(vendas, 'consultar').mockResolvedValue(comanda)
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([{ id: comanda.id,
+      sessaoCaixaId: comanda.sessaoCaixaId, usuarioId: comanda.usuarioId,
+      status: 'ABERTA', total: comanda.total, criadoEm: comanda.criadoEm }])
+    mostrar()
+
+    fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
+    await screen.findByRole('button', { name: 'Receber e concluir' })
+    expect(screen.queryByText(/Falta lançar/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Parcelas lançadas/)).not.toBeInTheDocument()
+
+    consultar.mockResolvedValue({ ...comanda, parcelas: [parcela], pago: 5, faltaPagar: 7.5 })
+    fireEvent.click(screen.getByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
+    expect(await screen.findByText(/Falta lançar/)).toHaveTextContent('R$ 7,50')
+    expect(screen.getByText(/Parcelas lançadas/)).toHaveTextContent('R$ 5,00')
   })
 })
 

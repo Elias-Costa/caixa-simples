@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
 import { QRCodeSVG } from 'qrcode.react'
 import { cadastro, type Cliente, type Produto } from '../api/cadastro'
@@ -155,11 +155,22 @@ function separarMultiplicador(texto: string): { termo: string; quantidade?: stri
     : { termo: texto }
 }
 
+/**
+ * O rodapé preso não sobe acima do topo do painel da comanda: no celular, com cabeçalho, faixa e busca ocupando
+ * a tela, o fim dele ficaria abaixo dela. A página rola só o que falta, e a busca continua à vista.
+ */
+function mostrarORodape(rodape: HTMLElement | null) {
+  if (!rodape) return
+  const falta = rodape.getBoundingClientRect().bottom - window.innerHeight
+  if (falta > 0) window.scrollBy(0, falta)
+}
+
 export function TelaDeVenda() {
   const { identidade } = useSessao()
   const { definirFaixa, definirVendaAberta } = useContextoDoShell()
   const { rodada, vendasRecusadas } = useSincronizacao()
   const buscaRef = useRef<HTMLInputElement>(null)
+  const rodapeRef = useRef<HTMLDivElement>(null)
   const [sessao, setSessao] = useState<SessaoCaixa>()
   const [historico, setHistorico] = useState<ResumoDaVenda[]>([])
   const [conciliacoes, setConciliacoes] = useState<ConciliacaoPix[]>([])
@@ -229,6 +240,7 @@ export function TelaDeVenda() {
     && valorDaParcela === atual.faltaPagar
   const concluirSemPagar = atual !== undefined && editavel && atual.itens.length > 0
     && atual.faltaPagar === 0 && !pixPendente
+  const comBotaoPrincipal = receberEConcluir || concluirSemPagar || comandaSoLeitura
   // A prévia conta em centavos, como o servidor: subtrair em ponto flutuante erraria o último centavo.
   // O troco que vale continua sendo o que o registro da parcela devolve.
   const recebidoNaPrevia = lancando && formaEscolhida === 'DINHEIRO' && valorRecebido
@@ -290,6 +302,11 @@ export function TelaDeVenda() {
     })
     return () => { vivo = false }
   }, [rodada])
+
+  // Ao abrir a comanda, o botão principal aparece sem a pessoa procurar. Depois disso, quem rola é ela.
+  useLayoutEffect(() => {
+    if (celular && comBotaoPrincipal) mostrarORodape(rodapeRef.current)
+  }, [atual?.id, comBotaoPrincipal, celular])
 
   // O botão da faixa some com a última venda conferida; no PDV, o leitor de código escreve na busca.
   const recusadasAntes = useRef(recusadasPorConferir)
@@ -427,11 +444,12 @@ export function TelaDeVenda() {
     try {
       id = continua ? atual.id : (await vendas.iniciar(sessao.id)).id
       await vendas.adicionarItem(id, produto, numero(quantidade), desconto)
-      await atualizar(id)
       // O termo buscado sai junto com os resultados: guardado, o mesmo código passado de novo pareceria
-      // já buscado e sem resultado, e o Enter do leitor não lançaria nada.
+      // já buscado e sem resultado, e o Enter do leitor não lançaria nada. E sai antes de a comanda aparecer:
+      // a lista ainda na tela empurraria o rodapé, e a rolagem que mostra o botão principal desceria a mais.
       setBusca(''); setResultados([]); setBuscado(''); setQuantidade('1'); setDescontoItem('')
       buscaRef.current?.focus()
+      await atualizar(id)
     } catch (falha) {
       falhar('busca', erroDaComanda(falha))
       if (id && !atual) await atualizar(id).catch(() => undefined)
@@ -563,6 +581,8 @@ export function TelaDeVenda() {
     setSegundaViaEm(undefined)
     // A próxima venda começa pela busca sem um toque para voltar a ela, como depois de lançar item.
     voltarABusca()
+    // O troco é o que se lê com o cliente esperando: no alto da página, ele poderia ficar cortado.
+    if (celular) mostrarORodape(rodapeRef.current)
   }
 
   async function concluirPendente() {
@@ -857,13 +877,13 @@ export function TelaDeVenda() {
               troco e o botão principal não dependem de rolar, por mais itens que a venda tenha. O
               botão principal não envia o formulário, e o Enter num campo continua registrando só a
               parcela. A mensagem de erro fica aqui também, onde o rodapé não a cobre. */}
-          {atual ? <div className="pdv__rodape">
+          {atual ? <div className="pdv__rodape" ref={rodapeRef}>
             <Mensagem tipo="erro" texto={erroEm('comanda')} />
             {comandaSoLeitura && <p className="mensagem-info" role="status">Esta venda está no servidor e continua quando a rede voltar. Para vender agora, comece uma nova venda.</p>}
             <p className="pdv__linha pdv__total"><span>Total:</span> <span>{moeda.format(atual.total)}</span></p>
-            {/* Sem parcela, o lançado é zero e o que falta é o total: a linha a menos deixa o rodapé
-                mais baixo no celular, onde ele divide a tela com a comanda. */}
-            {atual.status === 'ABERTA' && <p className="pdv__linha">
+            {/* Sem parcela, o que falta é o total: a linha só repetiria o número de cima, e o rodapé mais
+                baixo deixa mais comanda à vista no celular, onde os dois dividem a tela. */}
+            {atual.status === 'ABERTA' && atual.parcelas.length > 0 && <p className="pdv__linha">
               {atual.pago > 0 && <span>Parcelas lançadas: {moeda.format(atual.pago)}</span>}
               <span>Falta lançar: {moeda.format(atual.faltaPagar)}</span>
             </p>}
