@@ -142,6 +142,9 @@ describe('o número do cabeçalho', () => {
 
     await waitFor(() => expect(revisoes).toHaveBeenCalled())
     await waitFor(() => expect(result.current.emRevisao).toBe(2))
+    // A rodada de envio da montagem ainda corre. Terminada depois do teste, ela releria a lista da Conta já
+    // sem o simulado, e a recusa da chamada de verdade deixaria o teste seguinte sem servidor.
+    await waitFor(() => expect(result.current.enviando).toBe(false))
   })
 
   it('no administrador, o que foi conferido só neste aparelho não baixa o número, porque continua na lista', async () => {
@@ -156,6 +159,8 @@ describe('o número do cabeçalho', () => {
     await waitFor(() => expect(result.current.emRevisao).toBe(1))
     // A faixa conta o mesmo: a venda está na lista, então ainda falta conferir.
     await waitFor(() => expect(result.current.vendasRecusadas[0]?.conferida).toBe(false))
+    // Como no teste acima, a rodada da montagem termina antes do fim deste.
+    await waitFor(() => expect(result.current.enviando).toBe(false))
   })
 
   it('no administrador sem rede e sem leitura nenhuma, conta os registros em revisão guardados no aparelho', async () => {
