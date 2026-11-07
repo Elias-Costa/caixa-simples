@@ -16,3 +16,11 @@ describe('alvos de toque', () => {
     expect(aviso).toContain('display: inline-flex')
   })
 })
+
+describe('cabeçalho no celular', () => {
+  // O roteiro do navegador mede as linhas. Aqui fica o que o teste de tela não vê: o corte é o do celular,
+  // e o tablet e o desktop não mudam.
+  it('a conexão fica na última linha: o nome e a frase longa sobem, só abaixo do corte do tablet', () => {
+    expect(estilos).toMatch(/@media \(max-width: 599px\) \{\s+\.cabecalho:has\(\.cabecalho__aviso\) \.cabecalho__quem \{ order: -2; flex-basis: 100%; \}\s+\.cabecalho__regiao \{ order: -1; flex-basis: 100%; \}\s+\}/)
+  })
+})

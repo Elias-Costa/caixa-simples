@@ -978,6 +978,95 @@ describe('PDV no tablet', () => {
   })
 })
 
+describe('a página ao terminar a venda', () => {
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  // Sem matchMedia a tela conta como larga; aqui ela responde como a do celular ou a do tablet.
+  function comLargura(celular: boolean) {
+    vi.stubGlobal('matchMedia', () => ({ matches: !celular, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
+    return vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined)
+  }
+
+  /** Lança um item pela busca e deixa a venda pronta para Receber e concluir. */
+  async function lancarUmItem() {
+    let concluida = false
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([])
+    vi.spyOn(cadastro, 'buscarProdutos').mockResolvedValue([{ id: 'produto-1', tipo: 'PRODUTO',
+      nome: 'Café', preco: 12.5, codigo: 'CA-1', categoria: null, unidade: 'un', atributos: {} }])
+    vi.spyOn(vendas, 'iniciar').mockResolvedValue({ id: 'venda-1' })
+    vi.spyOn(vendas, 'adicionarItem').mockResolvedValue({ id: 'item-1' })
+    vi.spyOn(vendas, 'consultar').mockImplementation(async () => concluida
+      ? { ...comanda, status: 'CONCLUIDA', pago: 12.5, faltaPagar: 0 } : comanda)
+    vi.spyOn(vendas, 'pagar').mockResolvedValue({ troco: 0 })
+    vi.spyOn(vendas, 'concluir').mockImplementation(async () => { concluida = true })
+    vi.spyOn(vendas, 'comprovante').mockResolvedValue(comprovante)
+    mostrar()
+    const busca = await screen.findByLabelText('Produto por nome ou código')
+    fireEvent.change(busca, { target: { value: 'CA-1' } })
+    fireEvent.click(await screen.findByRole('button', { name: /Café · R\$\s*12,50/ }))
+    await screen.findByRole('button', { name: 'Receber e concluir' })
+    await waitFor(() => expect(busca).toHaveFocus())
+    return busca
+  }
+
+  it('no celular, concluir volta ao alto antes do foco na busca, e lançar o item não volta', async () => {
+    const rolar = comLargura(true)
+    const busca = await lancarUmItem()
+    // No meio da venda a pessoa continua onde está.
+    expect(rolar).not.toHaveBeenCalled()
+
+    const foco = vi.spyOn(busca, 'focus')
+    fireEvent.click(screen.getByRole('button', { name: 'Receber e concluir' }))
+    await screen.findByLabelText('Comprovante não fiscal')
+    await waitFor(() => expect(foco).toHaveBeenCalledOnce())
+
+    expect(rolar).toHaveBeenCalledOnce()
+    expect(rolar).toHaveBeenCalledWith(0, 0)
+    // Na ordem contrária, o foco centralizaria a busca, e a página não voltaria para onde foi mandada.
+    expect(rolar.mock.invocationCallOrder[0]).toBeLessThan(foco.mock.invocationCallOrder[0])
+  })
+
+  it('no celular, Nova venda e o cancelamento voltam ao alto, e retomar a venda não', async () => {
+    const rolar = comLargura(true)
+    let cancelada = false
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([{ id: comanda.id,
+      sessaoCaixaId: comanda.sessaoCaixaId, usuarioId: comanda.usuarioId,
+      status: 'ABERTA', total: comanda.total, criadoEm: comanda.criadoEm }])
+    vi.spyOn(vendas, 'consultar').mockImplementation(async () => cancelada ? { ...comanda, status: 'CANCELADA' } : comanda)
+    vi.spyOn(vendas, 'cancelar').mockImplementation(async () => { cancelada = true })
+    mostrar()
+
+    const busca = await screen.findByLabelText('Produto por nome ou código')
+    fireEvent.click(await screen.findByRole('button', { name: 'Retomar' }))
+    await screen.findByRole('button', { name: 'Cancelar venda' })
+    await waitFor(() => expect(busca).toHaveFocus())
+    expect(rolar).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Nova venda' }))
+    expect(rolar).toHaveBeenCalledOnce()
+    expect(busca).toHaveFocus()
+    rolar.mockClear()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Retomar' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancelar venda' }))
+    await confirmacaoAberta()
+    await responderConfirmacao('Cancelar venda')
+    await waitFor(() => expect(rolar).toHaveBeenCalledOnce())
+    expect(rolar).toHaveBeenCalledWith(0, 0)
+  })
+
+  it('no tablet, a página fica onde está: a busca é presa, e o comprovante continua à vista', async () => {
+    const rolar = comLargura(false)
+    const busca = await lancarUmItem()
+    fireEvent.click(screen.getByRole('button', { name: 'Receber e concluir' }))
+    await screen.findByLabelText('Comprovante não fiscal')
+    await waitFor(() => expect(busca).toHaveFocus())
+    expect(rolar).not.toHaveBeenCalled()
+  })
+})
+
 describe('comanda do servidor sem servidor', () => {
   it('fica só para leitura, com a frase e Nova venda no rodapé como única ação', async () => {
     vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)

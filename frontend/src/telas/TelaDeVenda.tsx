@@ -16,6 +16,7 @@ import { normalizarNsu } from '../offline/raizDaVenda'
 import { criarVendaLocal } from '../offline/vendaLocal'
 import { useContextoDoShell } from '../shell/ContextoDoShell'
 import { useSincronizacao } from '../shell/sincronizacao'
+import { useCelular } from '../shell/useCelular'
 import { useConexao } from '../shell/useConexao'
 import { useSessao } from '../sessao/useSessao'
 import { paraBusca } from '../textoDeBusca'
@@ -192,6 +193,7 @@ export function TelaDeVenda() {
   const idDaLista = useId()
   const [confirmar, dialogoDeConfirmacao] = useConfirmacao()
   const conexao = useConexao()
+  const celular = useCelular()
   const comServidor = conexao === 'com-servidor'
   const pixPendente = atual?.parcelas.some((parcela) => parcela.pix && parcela.status === 'PENDENTE') ?? false
   const doDispositivo = atual?.pendenteSincronizacao === true
@@ -246,6 +248,17 @@ export function TelaDeVenda() {
 
   function falhar(lugar: LugarDoErro, texto: string) { setErro({ texto, lugar }) }
   function erroEm(lugar: LugarDoErro) { return erro?.lugar === lugar ? erro.texto : undefined }
+
+  /**
+   * A venda terminou, e a próxima começa pela busca. No celular, quem desceu até as notas só voltaria até
+   * o foco centralizar a busca, com o alto do cabeçalho (sem conexão, vencimento da sessão) fora da vista,
+   * e assim ficaria nas vendas seguintes. Do alto, o foco só rola se a busca estiver atrás do rodapé preso.
+   * Nas telas maiores a busca é presa, o foco não rola, e o comprovante continua à vista.
+   */
+  function voltarABusca() {
+    if (celular) window.scrollTo(0, 0)
+    buscaRef.current?.focus()
+  }
 
   // Relê também quando uma rodada de envio grava resultado: a Venda feita sem rede deixa de estar
   // pendente, e a lista precisa mostrar isso. E quando o servidor volta: sem ele, a lista era só a
@@ -549,7 +562,7 @@ export function TelaDeVenda() {
     setComprovante(await vendas.comprovante(id))
     setSegundaViaEm(undefined)
     // A próxima venda começa pela busca sem um toque para voltar a ela, como depois de lançar item.
-    buscaRef.current?.focus()
+    voltarABusca()
   }
 
   async function concluirPendente() {
@@ -566,7 +579,7 @@ export function TelaDeVenda() {
     setOcupado(true); setErro(undefined)
     try {
       await vendas.cancelar(atual.id); await atualizar(atual.id); setComprovante(undefined)
-      buscaRef.current?.focus()
+      voltarABusca()
     }
     catch (falha) { falhar('comanda', erroDaComanda(falha)) }
     finally { setOcupado(false) }
@@ -635,7 +648,7 @@ export function TelaDeVenda() {
   function novaVenda() {
     setAtual(undefined); setComprovante(undefined); setTroco(undefined); setForma('DINHEIRO'); setNsu('')
     setErro(undefined); setCopiado(undefined); setBuscaCliente('')
-    buscaRef.current?.focus()
+    voltarABusca()
   }
 
   return <section className="pdv">

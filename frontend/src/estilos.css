@@ -509,6 +509,14 @@ textarea:disabled {
 /* Vazia, a região continua na árvore para ser anunciada depois, sem somar um espaço à linha do cabeçalho. */
 .cabecalho__regiao:empty { display: contents; }
 
+/* No celular, a última linha é a que sobra quando a página rola um pouco, e por isso a conexão fica nela, ao
+   lado da fila e de Sair; o nome e a frase longa, cada um na sua linha, vêm antes. Com a ordem só na tela, o
+   leitor de tela ouve como antes, e o teclado não muda, porque o que sobe não recebe foco. */
+@media (max-width: 599px) {
+  .cabecalho:has(.cabecalho__aviso) .cabecalho__quem { order: -2; flex-basis: 100%; }
+  .cabecalho__regiao { order: -1; flex-basis: 100%; }
+}
+
 /* Vazio, o contêiner não ocupa altura, e a linha da faixa some junto. */
 .faixas {
   grid-area: faixa;
