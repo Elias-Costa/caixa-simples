@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { gravarIdentidade, gravarToken, lerIdentidade, lerToken, marcarSessaoEncerrada, marcarSessaoVencida,
@@ -290,7 +290,8 @@ describe('TelaDeLogin', () => {
   describe('o foco depois do erro', () => {
     /**
      * O jsdom não tira o foco do botão desligado, como o navegador faz: com o foco na senha, o teste só
-     * passa se a tela o levar ao botão de verdade.
+     * passa se a tela o levar ao botão de verdade. O foco vem num efeito, que roda depois do desenho que
+     * mostrou o erro, e por isso a afirmação espera.
      */
     function enviarComOFocoNaSenha() {
       screen.getByLabelText('Senha').focus()
@@ -306,7 +307,7 @@ describe('TelaDeLogin', () => {
       await screen.findByRole('alert')
       const botao = screen.getByRole('button', { name: 'Entrar' })
       expect(botao).toBeEnabled()
-      expect(botao).toHaveFocus()
+      await waitFor(() => expect(botao).toHaveFocus())
     })
 
     it('volta ao botão religado também na senha recusada', async () => {
@@ -316,7 +317,7 @@ describe('TelaDeLogin', () => {
       enviarComOFocoNaSenha()
 
       expect(await screen.findByRole('alert')).toHaveTextContent('E-mail ou senha incorretos.')
-      expect(screen.getByRole('button', { name: 'Entrar' })).toHaveFocus()
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Entrar' })).toHaveFocus())
     })
   })
 

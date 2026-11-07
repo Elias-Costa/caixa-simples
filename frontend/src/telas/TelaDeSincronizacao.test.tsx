@@ -329,11 +329,13 @@ describe('a lista da Conta', () => {
 
     const cartao = await cartaoDaConta()
     expect(await cartao.findByText(/^Venda das/)).toBeInTheDocument()
+    // A fila do aparelho, lida do IndexedDB, chega depois da lista simulada. Só depois dela o que se afirma
+    // ausente abaixo está ausente de fato, e não por ainda não ter sido lido.
+    const aparelho = within(screen.getByRole('heading', { name: 'Este aparelho' }).closest('.caixa__cartao') as HTMLElement)
+    expect(await aparelho.findByText('Cofre · Na fila')).toBeInTheDocument()
     expect(screen.getAllByText(/^Venda das/)).toHaveLength(1)
     expect(screen.queryByRole('heading', { name: 'Em revisão' })).not.toBeInTheDocument()
     expect(screen.queryByText(/Conferidos neste aparelho/)).not.toBeInTheDocument()
-    const aparelho = within(screen.getByRole('heading', { name: 'Este aparelho' }).closest('.caixa__cartao') as HTMLElement)
-    expect(aparelho.getByText('Cofre · Na fila')).toBeInTheDocument()
   })
 
   it('agrupa a venda com o autor, e Conferir chama a rota uma vez por operação e marca o que é deste aparelho', async () => {

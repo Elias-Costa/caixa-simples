@@ -28,11 +28,13 @@ const ana: Identidade = {
   nomeNegocio: 'Cafeteria Aurora', estoqueHabilitado: false,
 }
 const SESSAO = '00000000-0000-4000-8000-000000000021'
-const espera = { timeout: 5000 }
+// Abaixo dos 5 s do próprio teste: igual a eles, a espera presa apareceria só como tempo esgotado, sem a
+// linha em que parou.
+const espera = { timeout: 3000 }
 
 /** Uma venda em dinheiro que o servidor recusou: o início valeu, a parcela não, e a conclusão parou junto. */
-async function vendaRecusada(vendaId: string, valor: number): Promise<GestoNaFila[]> {
-  const agora = new Date().toISOString()
+async function vendaRecusada(vendaId: string, valor: number, criadaEm = new Date()): Promise<GestoNaFila[]> {
+  const agora = criadaEm.toISOString()
   const inicio = await enfileirarGesto({ tipo: 'venda.iniciar', registroId: vendaId,
     payload: { sessaoCaixaId: SESSAO, criadoEm: agora } })
   const item = await enfileirarGesto({ tipo: 'venda.adicionarItem', registroId: vendaId,
@@ -135,13 +137,20 @@ describe('a faixa da venda recusada', () => {
   })
 
   it('mostra uma venda por vez, a mais antiga, e o foco passa ao Conferir da seguinte', async () => {
-    await vendaRecusada('00000000-0000-4000-8000-000000000011', 12.4)
-    await vendaRecusada('00000000-0000-4000-8000-000000000012', 7)
+    // A hora de cada venda vem daqui: gravadas em sequência, as duas podem cair no mesmo milissegundo. A mais
+    // nova entra primeiro, para a ordem da faixa sair da hora da venda, e não da ordem de gravação.
+    const agora = Date.now()
+    await vendaRecusada('00000000-0000-4000-8000-000000000012', 7, new Date(agora))
+    await vendaRecusada('00000000-0000-4000-8000-000000000011', 12.4, new Date(agora - 60_000))
     abrir('/vender')
 
     expect((await faixa()).textContent?.replaceAll('\u00a0', ' ')).toContain('R$ 12,40')
     expect(screen.getAllByRole('button', { name: 'Conferir' })).toHaveLength(1)
     expect(screen.getByText(/Há mais uma venda recusada para conferir\./)).toBeInTheDocument()
+
+    // O efeito do desenho que mostrou a faixa roda numa tarefa depois dele. Um toque antes disso, mais
+    // rápido que o de uma pessoa, faria aquele efeito gastar o pedido de passar o foco à venda seguinte.
+    await new Promise((fim) => setTimeout(fim))
 
     const botao = screen.getByRole('button', { name: 'Conferir' })
     botao.focus()

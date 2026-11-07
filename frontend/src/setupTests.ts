@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest'
 import { cleanup } from '@testing-library/react'
-import { afterEach, vi } from 'vitest'
+import { afterEach, beforeEach, vi } from 'vitest'
 import { registrarResposta } from './api/conexao'
 
 // O jsdom não abre diálogo modal. O mínimo de que as telas dependem: abrir marca o diálogo como
@@ -18,12 +18,15 @@ if (typeof HTMLDialogElement.prototype.showModal !== 'function') {
   }
 }
 
-// Cada teste começa sem sessão guardada, sem fetch falso do teste anterior e com o servidor
-// respondendo, porque o estado da conexão é do módulo e passaria de um teste ao outro.
+// Cada teste começa sem sessão guardada e sem fetch falso do teste anterior.
 afterEach(() => {
   cleanup()
   localStorage.clear()
   sessionStorage.clear()
   vi.unstubAllGlobals()
-  registrarResposta()
 })
+
+// E com o servidor respondendo, porque o estado da conexão é do módulo e passaria de um teste ao outro.
+// Fica aqui, e não no afterEach: o cleanup roda os efeitos que ficaram pendentes, já sem os simulados, e
+// a falha da chamada de verdade só chega depois do fim dele.
+beforeEach(() => registrarResposta())
