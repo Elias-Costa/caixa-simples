@@ -977,6 +977,9 @@ main.cadastro {
   box-shadow: 0 -8px 16px rgba(0, 0, 0, 0.35);
 }
 .pdv__rodape > * { margin: 0; }
+/* Vazia, a região continua na árvore para ser anunciada depois, sem somar um espaço entre as linhas do rodapé. */
+.pdv__regiao:empty { display: contents; }
+.pdv__regiao > p { margin: 0; }
 /* Com o rodapé preso, o campo que recebe o foco pelo teclado, ou a mensagem que rola até a vista,
    pararia atrás dele. A folga de rolagem do tamanho do rodapé com a prévia do troco faz a rolagem
    parar acima. Só vale na tela que tem o rodapé. */

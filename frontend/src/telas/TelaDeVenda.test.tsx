@@ -1239,6 +1239,72 @@ describe('o botão principal ao abrir a comanda', () => {
   })
 })
 
+describe('a frase da venda feita sem rede', () => {
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  const LONGA = 'Registrada neste aparelho. Aguardando sincronização com o servidor.'
+  const CURTA = 'Registrada neste aparelho.'
+
+  /** Abre pela lista uma venda da fila do aparelho, aberta, e deixa a conclusão pronta para o toque. */
+  async function abrirVendaDoAparelho(celular: boolean, pendente = true) {
+    vi.stubGlobal('matchMedia', () => ({ matches: !celular, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
+    vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined)
+    let concluida = false
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([{ id: comanda.id,
+      sessaoCaixaId: comanda.sessaoCaixaId, usuarioId: comanda.usuarioId,
+      status: 'ABERTA', total: comanda.total, criadoEm: comanda.criadoEm, pendenteSincronizacao: pendente }])
+    vi.spyOn(vendas, 'consultar').mockImplementation(async () => concluida
+      ? { ...comanda, status: 'CONCLUIDA', pago: 12.5, faltaPagar: 0, pendenteSincronizacao: pendente }
+      : { ...comanda, pendenteSincronizacao: pendente })
+    vi.spyOn(vendas, 'pagar').mockResolvedValue({ troco: 0 })
+    vi.spyOn(vendas, 'concluir').mockImplementation(async () => { concluida = true })
+    vi.spyOn(vendas, 'comprovante').mockResolvedValue(comprovante)
+    mostrar()
+    fireEvent.click(await screen.findByRole('button', { name: /Aberta/ }))
+    const concluir = await screen.findByRole('button', { name: 'Receber e concluir' })
+    await waitFor(() => expect(concluir).toBeEnabled())
+    return concluir
+  }
+
+  /** O rodapé preso é o bloco do total, que é a linha que ele sempre tem. */
+  const rodape = () => screen.getByText('Total:').closest('p')!.parentElement!
+
+  it('no celular, ao concluir, a curta aparece no rodapé, numa região já montada, e a longa sai', async () => {
+    const concluir = await abrirVendaDoAparelho(true)
+    expect(screen.getByText(LONGA)).toBeInTheDocument()
+    const regiao = within(rodape()).getByRole('status')
+    expect(regiao).toBeEmptyDOMElement()
+
+    fireEvent.click(concluir)
+    await screen.findByLabelText('Comprovante não fiscal')
+
+    expect(regiao).toHaveTextContent(CURTA)
+    expect(regiao).toBeInTheDocument()
+    expect(screen.queryByText(LONGA)).not.toBeInTheDocument()
+  })
+
+  it('no tablet, a longa continua no painel, sem a curta nem a região no rodapé', async () => {
+    const concluir = await abrirVendaDoAparelho(false)
+    expect(within(rodape()).queryByRole('status')).not.toBeInTheDocument()
+
+    fireEvent.click(concluir)
+    await screen.findByLabelText('Comprovante não fiscal')
+
+    expect(screen.getByText(LONGA)).toBeInTheDocument()
+    expect(screen.queryByText(CURTA)).not.toBeInTheDocument()
+  })
+
+  it('no celular, a venda que está no servidor conclui sem frase nenhuma', async () => {
+    const concluir = await abrirVendaDoAparelho(true, false)
+    fireEvent.click(concluir)
+    await screen.findByLabelText('Comprovante não fiscal')
+
+    expect(screen.queryByText(CURTA)).not.toBeInTheDocument()
+    expect(screen.queryByText(LONGA)).not.toBeInTheDocument()
+  })
+})
+
 describe('o rodapé da comanda', () => {
   it('sem parcela não repete o total em Falta lançar, e com parcela diz o que falta e o que foi lançado', async () => {
     const parcela = { id: 'parcela-1', forma: 'DINHEIRO' as const, valor: 5, status: 'CONFIRMADO' as const, troco: 0 }

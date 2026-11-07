@@ -17,6 +17,12 @@ describe('alvos de toque', () => {
   })
 })
 
+describe('o rodapé da comanda', () => {
+  it('a região vazia não soma um espaço entre as linhas, porque o rodapé é uma grade com intervalo', () => {
+    expect(regra('.pdv__regiao:empty')).toContain('display: contents')
+  })
+})
+
 describe('cabeçalho no celular', () => {
   // O roteiro do navegador mede as linhas. Aqui fica o que o teste de tela não vê: o corte é o do celular,
   // e o tablet e o desktop não mudam.

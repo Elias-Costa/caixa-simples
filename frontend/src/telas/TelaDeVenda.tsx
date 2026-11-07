@@ -208,6 +208,9 @@ export function TelaDeVenda() {
   const comServidor = conexao === 'com-servidor'
   const pixPendente = atual?.parcelas.some((parcela) => parcela.pix && parcela.status === 'PENDENTE') ?? false
   const doDispositivo = atual?.pendenteSincronizacao === true
+  // No celular, o rodapé preso cobre a frase no painel. Ao concluir, é a hora de saber o que aconteceu, e ela
+  // vai para o rodapé, em versão curta, porque ele divide a tela com a comanda.
+  const registradaNoRodape = celular && doDispositivo && atual?.status === 'CONCLUIDA'
   // A comanda que existe no servidor só continua com ele respondendo, e o aparelho não a copia.
   // Sem servidor, ela fica para ler: o botão que só responderia com a recusa ensinaria o operador a
   // não confiar nos botões, e a ação que resta é começar outra venda, que fica no aparelho.
@@ -758,7 +761,7 @@ export function TelaDeVenda() {
                 type="button" disabled={ocupado} onClick={() => void cancelar()}>Cancelar venda</button>}
             </div>
             {atual.status !== 'CANCELADA' && doDispositivo && <p className="pdv__ajuda">{CANCELAR_DEPOIS_DE_SINCRONIZAR}</p>}
-            {doDispositivo && <p className="mensagem-info" role="status">Registrada neste aparelho. Aguardando sincronização com o servidor.</p>}
+            {doDispositivo && !registradaNoRodape && <p className="mensagem-info" role="status">Registrada neste aparelho. Aguardando sincronização com o servidor.</p>}
             {recusaDaComanda && <p className="mensagem-alerta" role="status">
               Feita sem rede, esta venda não foi concluída no servidor.{recusaDaComanda.motivo && ` ${recusaDaComanda.motivo}`}
             </p>}
@@ -880,6 +883,10 @@ export function TelaDeVenda() {
           {atual ? <div className="pdv__rodape" ref={rodapeRef}>
             <Mensagem tipo="erro" texto={erroEm('comanda')} />
             {comandaSoLeitura && <p className="mensagem-info" role="status">Esta venda está no servidor e continua quando a rede voltar. Para vender agora, comece uma nova venda.</p>}
+            {/* O contêiner fica montado desde que a comanda abre: uma região que nasce junto com o texto pode não ser anunciada. */}
+            {celular && <div className="pdv__regiao" role="status">
+              {registradaNoRodape && <p className="mensagem-info">Registrada neste aparelho.</p>}
+            </div>}
             <p className="pdv__linha pdv__total"><span>Total:</span> <span>{moeda.format(atual.total)}</span></p>
             {/* Sem parcela, o que falta é o total: a linha só repetiria o número de cima, e o rodapé mais
                 baixo deixa mais comanda à vista no celular, onde os dois dividem a tela. */}
