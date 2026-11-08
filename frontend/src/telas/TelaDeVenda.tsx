@@ -178,6 +178,28 @@ function separarMultiplicador(texto: string): { termo: string; quantidade?: stri
 }
 
 /**
+ * O que o Enter da busca guarda: o termo, a quantidade e o desconto do item que estavam na tela naquele instante, nos
+ * textos dos campos, para voltarem a eles como estavam. Com os resultados do termo já à vista, o produto vem decidido.
+ */
+type Leitura = { termo: string; quantidade: string; descontoItem: string; produto?: Produto }
+
+/**
+ * O produto que o Enter lança: o do código igual ao termo, ou o único resultado. Com vários achados pelo nome, quem
+ * escolhe é a pessoa.
+ */
+function escolhidoPeloEnter(encontrados: Produto[], termo: string): Produto | undefined {
+  const doCodigo = encontrados.find((produto) => produto.codigo === termo)
+  return doCodigo ?? (encontrados.length === 1 ? encontrados[0] : undefined)
+}
+
+/** Quem passou códigos depois do que falhou precisa saber que eles não entraram, e não só que aquele falhou. */
+function codigosDescartados(quantos: number): string {
+  if (quantos === 0) return ''
+  return quantos === 1 ? ' O código passado em seguida não foi lançado.'
+    : ` Os ${quantos} códigos passados em seguida não foram lançados.`
+}
+
+/**
  * O rodapé preso não sobe acima do topo do painel da comanda: no celular, com cabeçalho, faixa e busca ocupando
  * a tela, o fim dele ficaria abaixo dela. A página rola só o que falta, e a busca continua à vista.
  */
@@ -222,6 +244,11 @@ export function TelaDeVenda() {
   const [erro, setErro] = useState<ErroNaTela>()
   const [conferirNaVolta, setConferirNaVolta] = useState<ConferirNaVolta>()
   const [ocupado, setOcupado] = useState(false)
+  // As leituras que o Enter guardou e que esperam a comanda ficar livre, na ordem do Enter. A lista fica numa ref
+  // porque o Enter e o fim de uma leitura a consultam antes do desenho seguinte; o número em estado acompanha a lista,
+  // mantém a comanda ocupada enquanto ela não esvazia e faz a fila andar.
+  const fila = useRef<Leitura[]>([])
+  const [naFila, setNaFila] = useState(0)
   const [carregando, setCarregando] = useState(true)
   const [todasAsVendas, setTodasAsVendas] = useState(false)
   const idDaLista = useId()
@@ -229,6 +256,9 @@ export function TelaDeVenda() {
   const conexao = useConexao()
   const celular = useCelular()
   const comServidor = conexao === 'com-servidor'
+  // Entre dois itens da fila a comanda continua ocupada: um toque em Receber e concluir fecharia a venda sem os itens
+  // que ainda esperam.
+  const comandaOcupada = ocupado || naFila > 0
   const pixPendente = atual?.parcelas.some((parcela) => parcela.pix && parcela.status === 'PENDENTE') ?? false
   const doDispositivo = atual?.pendenteSincronizacao === true
   // No celular, o rodapé preso cobre a frase no painel. Ao concluir, é a hora de saber o que aconteceu, e ela
@@ -519,14 +549,25 @@ export function TelaDeVenda() {
     catch (falha) { falhar('tela', erroDeCadastro(falha)) }
   }
 
-  async function adicionar(produto: Produto) {
+  function guardarLeitura(leitura: Leitura) {
+    fila.current.push(leitura)
+    setNaFila(fila.current.length)
+  }
+
+  /** Devolve quantas leituras esperavam, para a mensagem da falha dizer que elas não entraram. */
+  function esvaziarAFila(): number {
+    const descartadas = fila.current.length
+    fila.current = []
+    setNaFila(0)
+    return descartadas
+  }
+
+  /**
+   * Lança o produto na venda da comanda ou, sem venda aberta nela, numa nova. Serve ao toque num resultado e às
+   * leituras da fila; `aoGravar` é o que o toque faz com o campo depois de o item gravar e antes de a comanda aparecer.
+   */
+  async function lancar(produto: Produto, quantos: number, desconto: number, aoGravar?: () => void) {
     if (!sessao) return
-    const desconto = descontoDigitado(descontoItem)
-    if (desconto === null) {
-      falhar('busca', 'Informe o desconto do item com até duas casas decimais.')
-      return
-    }
-    setOcupado(true); setErro(undefined)
     // A comanda do servidor só para leitura é como a concluída: o item começa outra venda, que fica
     // no aparelho, e ela continua na lista para retomar quando o servidor responder.
     const continua = atual?.status === 'ABERTA' && !comandaSoLeitura
@@ -535,7 +576,6 @@ export function TelaDeVenda() {
     let intencao: IntencaoOnline | undefined
     try {
       id = continua ? atual.id : (await vendas.iniciar(sessao.id)).id
-      const quantos = numero(quantidade)
       // O mesmo produto, na mesma quantidade e com o mesmo desconto, depois de uma resposta perdida, leva o mesmo
       // id, e o servidor responde o item que já gravou. O id sai quando o lançamento responde ou quando a comanda
       // relida mostra o item: daí em diante, o mesmo código é mais uma unidade.
@@ -543,22 +583,91 @@ export function TelaDeVenda() {
         { produtoId: produto.id, quantidade: quantos, desconto }, identidade)
       await vendas.adicionarItem(id, produto, quantos, desconto, intencao.id)
       intencao.confirmar()
-      // O termo buscado sai junto com os resultados: guardado, o mesmo código passado de novo pareceria
-      // já buscado e sem resultado, e o Enter do leitor não lançaria nada. E sai antes de a comanda aparecer:
-      // a lista ainda na tela empurraria o rodapé, e a rolagem que mostra o botão principal desceria a mais.
-      setBusca(''); setResultados([]); setBuscado(''); setQuantidade('1'); setDescontoItem('')
+      aoGravar?.()
       buscaRef.current?.focus()
       await atualizar(id)
     } catch (falha) {
-      falhar('busca', erroDaComanda(falha))
+      // A falha para a fila: a comanda precisa ser conferida antes de seguir e, sem resposta, a leitura seguinte
+      // começaria outra venda no aparelho, longe dos itens que vieram antes.
+      falhar('busca', erroDaComanda(falha) + codigosDescartados(esvaziarAFila()))
       conferirSeSemResposta(falha, id, intencao)
       // Sem resposta, a venda nova toma o lugar da que estava na comanda, já concluída: é a nova que a releitura
       // mostra quando o servidor voltar.
       if (id && !continua && falha instanceof SemConexao) setAtual(undefined)
       if (id && !atual) await atualizar(id).catch(() => undefined)
     }
-    finally { setOcupado(false) }
   }
+
+  async function adicionar(produto: Produto) {
+    if (!sessao) return
+    const desconto = descontoDigitado(descontoItem)
+    if (desconto === null) {
+      falhar('busca', 'Informe o desconto do item com até duas casas decimais.')
+      return
+    }
+    const tocado = busca
+    setOcupado(true); setErro(undefined)
+    try {
+      await lancar(produto, numero(quantidade), desconto, () => {
+        // O termo buscado sai junto com os resultados: guardado, o mesmo código passado de novo pareceria
+        // já buscado e sem resultado, e o Enter do leitor não lançaria nada. E sai antes de a comanda aparecer:
+        // a lista ainda na tela empurraria o rodapé, e a rolagem que mostra o botão principal desceria a mais.
+        // Sai só se o campo ainda tiver o termo tocado: o que o leitor digitou nele durante o lançamento é outra leitura.
+        if (buscaRef.current?.value === tocado) { setBusca(''); setResultados([]); setBuscado('') }
+        setQuantidade('1'); setDescontoItem('')
+      })
+    } finally { setOcupado(false) }
+  }
+
+  /**
+   * O termo da fila que não acha produto, ou acha vários, não lança nada, e as leituras seguintes continuam. Com vários,
+   * ele volta ao campo com os resultados, como o Enter que não lança, se nada foi lido depois dele: é quem digita o
+   * nome e dá Enter antes de a lista aparecer. O código sem produto não volta, porque a leitura seguinte colaria nele.
+   */
+  function naoLancada(leitura: Leitura, encontrados: Produto[]) {
+    if (encontrados.length === 0) {
+      falhar('busca', `Nenhum produto encontrado para ${leitura.termo}.`)
+      return
+    }
+    if (fila.current.length === 0 && buscaRef.current?.value === '') {
+      setBusca(leitura.termo); setQuantidade(leitura.quantidade); setDescontoItem(leitura.descontoItem)
+      setResultados(ordenarResultados(encontrados, leitura.termo)); setBuscado(leitura.termo)
+      return
+    }
+    falhar('busca', `Mais de um produto encontrado para ${leitura.termo}. Nada foi lançado.`)
+  }
+
+  /** Uma leitura da fila: o termo que chegou antes da resposta da busca é buscado agora, na vez dele. */
+  async function lancarLeitura(leitura: Leitura) {
+    setOcupado(true)
+    try {
+      let produto = leitura.produto
+      if (!produto) {
+        let encontrados: Produto[]
+        try {
+          encontrados = await cadastro.buscarProdutos(leitura.termo)
+        } catch (falha) {
+          falhar('busca', (falha instanceof SemConexao ? 'Sem resposta do servidor na busca. Tente de novo.'
+            : erroDeCadastro(falha)) + codigosDescartados(esvaziarAFila()))
+          return
+        }
+        produto = escolhidoPeloEnter(encontrados, leitura.termo)
+        if (!produto) { naoLancada(leitura, encontrados); return }
+      }
+      // O desconto foi conferido no Enter, e a leitura com desconto inválido nem entra na fila.
+      await lancar(produto, numero(leitura.quantidade), descontoDigitado(leitura.descontoItem) ?? 0)
+    } finally { setOcupado(false) }
+  }
+
+  // A leitura guardada entra quando a comanda fica livre, uma por vez e na ordem do Enter. O efeito roda depois do
+  // desenho em que a anterior terminou, com a venda dela já relida: o segundo item vai para a venda que o primeiro
+  // abriu, sem abrir outra, e a leitura que chegou durante Receber e concluir começa a venda seguinte.
+  useEffect(() => {
+    if (ocupado || naFila === 0) return
+    const leitura = fila.current.shift()
+    setNaFila(fila.current.length)
+    if (leitura) void lancarLeitura(leitura)
+  }, [ocupado, naFila])
 
   async function remover(itemId: string) {
     if (!atual) return
@@ -743,30 +852,29 @@ export function TelaDeVenda() {
   }
 
   /**
-   * O Enter que o leitor de código de barras manda depois do código. Lança o produto cujo código é
-   * igual ao termo, ou o único resultado; com vários achados pelo nome, quem escolhe é a pessoa. O
-   * leitor digita mais rápido que a espera da busca, e o Enter pode chegar antes da resposta: aí a
-   * busca sai na hora.
+   * O Enter que o leitor de código de barras manda depois do código. A leitura sai do campo na hora, com a
+   * quantidade e o desconto daquele instante, e espera a comanda ficar livre: a seguinte começa no campo vazio, sem
+   * colar no código anterior nem se perder enquanto ele lança. Com os resultados do termo já à vista, o Enter só
+   * guarda o produto do código igual ou o único resultado; com vários achados pelo nome, ou nenhum, quem escolhe é
+   * a pessoa. O leitor digita mais rápido que a espera da busca, e então o termo vai sem produto, buscado na vez dele.
    */
-  async function lancarPeloEnter() {
-    const procurado = busca.trim()
-    if (!procurado || ocupado || !sessao) return
-    let encontrados = resultados
-    if (buscado !== procurado) {
-      try {
-        encontrados = await cadastro.buscarProdutos(procurado)
-      } catch (falha) {
-        setErro({ lugar: 'busca', daLeitura: 'busca', texto: falha instanceof SemConexao
-          ? 'Sem resposta do servidor na busca. Tente de novo.' : erroDeCadastro(falha) })
-        return
-      }
-      setResultados(ordenarResultados(encontrados, procurado)); setBuscado(procurado)
+  function lerPeloEnter() {
+    const termoLido = busca.trim()
+    if (!termoLido || !sessao) return
+    if (descontoDigitado(descontoItem) === null) {
+      falhar('busca', 'Informe o desconto do item com até duas casas decimais.')
+      return
     }
-    // O campo pode ter mudado durante a busca; lançar pelo termo antigo seria lançar outro produto.
-    if (buscaRef.current && buscaRef.current.value.trim() !== procurado) return
-    const doCodigo = encontrados.find((produto) => produto.codigo === procurado)
-    const escolhido = doCodigo ?? (encontrados.length === 1 ? encontrados[0] : undefined)
-    if (escolhido) await adicionar(escolhido)
+    let produto: Produto | undefined
+    if (buscado === termoLido) {
+      produto = escolhidoPeloEnter(resultados, termoLido)
+      if (!produto) return
+    }
+    // A primeira leitura com a comanda livre começa sem o aviso da anterior; a que chega com outra em curso deixa à
+    // vista o aviso do código que ficou de fora.
+    if (!comandaOcupada) setErro(undefined)
+    guardarLeitura({ termo: termoLido, quantidade, descontoItem, produto })
+    setBusca(''); setResultados([]); setBuscado(''); setQuantidade('1'); setDescontoItem('')
   }
 
   function mudarBusca(texto: string) {
@@ -818,7 +926,7 @@ export function TelaDeVenda() {
                 onKeyDown={(evento) => {
                   if (evento.key !== 'Enter') return
                   evento.preventDefault()
-                  void lancarPeloEnter()
+                  lerPeloEnter()
                 }}
                 placeholder="Digite ou passe o código" />
             </label>
@@ -836,7 +944,7 @@ export function TelaDeVenda() {
             <p className="pdv__ajuda" role="status">Nenhum produto encontrado para {termo}.</p>}
           {resultados.length > 0 && <ul className="pdv__resultados">
             {resultados.map((produto) => <li key={produto.id}>
-              <button type="button" className="botao botao--secundario" disabled={ocupado}
+              <button type="button" className="botao botao--secundario" disabled={comandaOcupada}
                 onClick={() => void adicionar(produto)}>
                 {/* O preço é o da unidade de venda: 16,90 o quilo não se confunde com o da unidade. */}
                 {produto.nome} · {moeda.format(produto.preco)}{produto.unidade && `/${produto.unidade}`}
@@ -849,9 +957,9 @@ export function TelaDeVenda() {
         {/* O comprovante vem logo abaixo da comanda que o gerou: depois da lista do caixa, ficava a
             milhares de pixels, com o cliente esperando. */}
         <div className="pdv__coluna">
-        <section className="pdv__painel" aria-busy={ocupado}>
+        <section className="pdv__painel" aria-busy={comandaOcupada}>
           <div className="pdv__topo"><h3>Comanda</h3>
-            <span className="pdv__ajuda" aria-live="polite">{ocupado ? 'Registrando...' : ''}</span>
+            <span className="pdv__ajuda" aria-live="polite">{comandaOcupada ? 'Registrando...' : ''}</span>
             {/* Com a comanda só para leitura, Nova venda é a ação principal e fica no rodapé. */}
             {!comandaSoLeitura &&
               <button className="botao botao--secundario" type="button" onClick={novaVenda}>Nova venda</button>}
@@ -859,7 +967,7 @@ export function TelaDeVenda() {
           {/* Começar outra continua possível: o aviso só lembra da venda que ficaria para trás. */}
           {avisarAbertas && <div className="pdv__aberta">
             <p className="mensagem-info">{avisoDasAbertas(abertasNoCaixa)}</p>
-            <button className="botao botao--secundario" type="button" disabled={ocupado}
+            <button className="botao botao--secundario" type="button" disabled={comandaOcupada}
               onClick={() => void retomar(abertasNoCaixa[0])}>Retomar</button>
           </div>}
           {!atual ? <p>Busque e escolha o primeiro produto para iniciar.</p> : <>
@@ -868,7 +976,7 @@ export function TelaDeVenda() {
             <div className="pdv__topo pdv__venda">
               <p>Venda {atual.id.slice(0, 8)} · {ROTULO_DA_VENDA[atual.status]}</p>
               {atual.status !== 'CANCELADA' && !doDispositivo && comServidor && <button className="botao botao--perigo"
-                type="button" disabled={ocupado} onClick={() => void cancelar()}>Cancelar venda</button>}
+                type="button" disabled={comandaOcupada} onClick={() => void cancelar()}>Cancelar venda</button>}
             </div>
             {atual.status !== 'CANCELADA' && doDispositivo && <p className="pdv__ajuda">{CANCELAR_DEPOIS_DE_SINCRONIZAR}</p>}
             {doDispositivo && !registradaNoRodape && <p className="mensagem-info" role="status">Registrada neste aparelho. Aguardando sincronização com o servidor.</p>}
@@ -882,7 +990,7 @@ export function TelaDeVenda() {
             {atual.clienteId && <div className="pdv__topo">
               <p>Cliente: {nomeDoCliente(atual.clienteId)}</p>
               {editavel && !comFiado && <button className="botao botao--secundario"
-                type="button" disabled={ocupado} onClick={() => void tirarCliente()}>Tirar o cliente</button>}
+                type="button" disabled={comandaOcupada} onClick={() => void tirarCliente()}>Tirar o cliente</button>}
             </div>}
             {/* A conclusão com fiado exige cliente, e a parcela lançada não se desfaz: sem ele, a
                 venda ficaria sem como concluir. */}
@@ -899,7 +1007,7 @@ export function TelaDeVenda() {
                 <p className="pdv__ajuda" role="status">Nenhum cliente encontrado para {termoCliente}.</p>}
               {clientesEncontrados.length > 0 && <ul className="pdv__resultados">
                 {clientesEncontrados.map((cliente) => <li key={cliente.id}>
-                  <button type="button" className="botao botao--secundario" disabled={ocupado}
+                  <button type="button" className="botao botao--secundario" disabled={comandaOcupada}
                     onClick={() => void vincularCliente(cliente.id)}>{cliente.nome}</button>
                 </li>)}
               </ul>}
@@ -909,7 +1017,7 @@ export function TelaDeVenda() {
                 <span>{quantidadeComUnidade(item.quantidade, item.unidade)} × {item.nome} · {moeda.format(item.subtotal)}
                   {item.desconto > 0 && ` (desconto ${moeda.format(item.desconto)})`}</span>
                 {editavel && <button className="botao botao--secundario" type="button"
-                  disabled={ocupado} onClick={() => void remover(item.id)}>Remover</button>}
+                  disabled={comandaOcupada} onClick={() => void remover(item.id)}>Remover</button>}
               </li>)}
             </ul>}
             {identidade?.perfil === 'ADMIN' && editavel && <form onSubmit={(evento) => void descontar(evento)} className="pdv__desconto">
@@ -917,7 +1025,7 @@ export function TelaDeVenda() {
                 <CampoDeDinheiro rotulo="Desconto da venda" placeholder="0,00" valor={descontoVenda}
                   aoMudar={setDescontoVenda} />
               </div>
-              <button className="botao botao--secundario" disabled={ocupado}>Aplicar</button>
+              <button className="botao botao--secundario" disabled={comandaOcupada}>Aplicar</button>
             </form>}
             {atual.saldoDevedor > 0 && <p><strong>Saldo devedor desta venda: {moeda.format(atual.saldoDevedor)}</strong></p>}
             {atual.parcelas.length > 0 && <ul className="pdv__parcelas">
@@ -943,7 +1051,7 @@ export function TelaDeVenda() {
                           {copiado === parcela.id ? 'Copiado' : 'Copiar'}</button></p>
                     </>}
                   {parcela.status === 'PENDENTE' && parcela.pix.estado !== 'DISPONIVEL' && editavel &&
-                    <button type="button" className="botao botao--secundario" disabled={ocupado}
+                    <button type="button" className="botao botao--secundario" disabled={comandaOcupada}
                       onClick={() => void retentarPix(parcela.id, parcela.valor)}>Retentar cobrança</button>}
                 </div>}
               </li>)}
@@ -970,7 +1078,7 @@ export function TelaDeVenda() {
                 {/* A nota abaixo da parcela fica desligada: o servidor recusaria o recebido menor. */}
                 <div className="pdv__notas" role="group" aria-label="Nota recebida">
                   {NOTAS.map((nota) => <button key={nota} type="button" className="botao botao--secundario"
-                    disabled={ocupado || (valorDaParcela !== null && nota < valorDaParcela)}
+                    disabled={comandaOcupada || (valorDaParcela !== null && nota < valorDaParcela)}
                     onClick={() => setValorRecebido(valorNoCampo(nota))}>R$ {nota}</button>)}
                 </div>
               </>}
@@ -982,7 +1090,7 @@ export function TelaDeVenda() {
                   onChange={(evento) => setNsu(evento.target.value)} />
               </label>}
               <div className="pdv__acoes">
-                <button className="botao botao--secundario" disabled={ocupado}>Registrar parcela</button>
+                <button className="botao botao--secundario" disabled={comandaOcupada}>Registrar parcela</button>
               </div>
             </form>}
           </>}
@@ -1020,10 +1128,10 @@ export function TelaDeVenda() {
             {previaDoTroco === undefined && troco !== undefined && <p className="pdv__troco" role="status">
               <span>Troco:</span> <strong>{moeda.format(troco)}</strong>
             </p>}
-            {receberEConcluir && <button className="botao botao--largo" type="button" disabled={ocupado}
+            {receberEConcluir && <button className="botao botao--largo" type="button" disabled={comandaOcupada}
               onClick={(evento) => void pagar(evento, true)}>
               {formaEscolhida === 'FIADO' ? 'Registrar fiado e concluir' : 'Receber e concluir'}</button>}
-            {concluirSemPagar && <button className="botao botao--largo" type="button" disabled={ocupado}
+            {concluirSemPagar && <button className="botao botao--largo" type="button" disabled={comandaOcupada}
               onClick={() => void concluirPendente()}>Concluir venda</button>}
             {comandaSoLeitura && <button className="botao botao--largo" type="button" onClick={novaVenda}>
               Nova venda</button>}

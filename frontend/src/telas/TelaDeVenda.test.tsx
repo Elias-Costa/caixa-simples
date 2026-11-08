@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cadastro } from '../api/cadastro'
+import { cadastro, type Produto } from '../api/cadastro'
 import { caixa } from '../api/caixa'
 import { ErroDaApi, SemConexao } from '../api/cliente'
 import { comServidor as alcancaOServidor, registrarResposta, registrarSemResposta } from '../api/conexao'
@@ -1725,5 +1725,305 @@ describe('escrita sem resposta, relida quando o servidor volta', () => {
     await act(async () => { await new Promise((resolver) => setTimeout(resolver, 50)) })
     expect(screen.getByText('Busque e escolha o primeiro produto para iniciar.')).toBeInTheDocument()
     expect(servidor.consultar.mock.calls.length).toBe(leiturasAntes)
+  })
+})
+
+describe('leituras seguidas do leitor de código', () => {
+  // Uma chamada atrasada do teste anterior pode ter deixado o aparelho sem servidor.
+  beforeEach(() => { registrarResposta() })
+
+  const cafe: Produto = { id: 'produto-cafe', tipo: 'PRODUTO', nome: 'Café', preco: 6, codigo: '7890000000010',
+    categoria: null, unidade: 'un', atributos: {} }
+  const pao: Produto = { id: 'produto-pao', tipo: 'PRODUTO', nome: 'Pão', preco: 1.5, codigo: '7890000000011',
+    categoria: null, unidade: 'un', atributos: {} }
+  const cafeGrande: Produto = { id: 'produto-cafe-grande', tipo: 'PRODUTO', nome: 'Café grande', preco: 8,
+    codigo: '7890000000012', categoria: null, unidade: 'un', atributos: {} }
+
+  /** Uma resposta que o teste solta quando quer: a leitura seguinte chega com a anterior ainda em curso. */
+  function presa<T>() {
+    let soltar!: (valor: T) => void
+    let recusar!: (falha: unknown) => void
+    const promessa = new Promise<T>((resolver, rejeitar) => { soltar = resolver; recusar = rejeitar })
+    return { promessa, soltar, recusar }
+  }
+
+  /**
+   * O servidor simulado guarda as vendas e os itens gravados nelas, e a comanda relida mostra o que ele tem. A busca
+   * acha o produto pelo código igual. Cada lançamento espera, antes de gravar, a trava que o teste deu para ele.
+   */
+  function balcao(...iniciais: Venda[]) {
+    const gravadas = new Map(iniciais.map((venda) => [venda.id, venda]))
+    const travas: Promise<void>[] = []
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockImplementation(async () => [...gravadas.values()].map((venda) => ({
+      id: venda.id, sessaoCaixaId: venda.sessaoCaixaId, usuarioId: venda.usuarioId, status: venda.status,
+      total: venda.total, criadoEm: venda.criadoEm })))
+    vi.spyOn(cadastro, 'buscarProdutos').mockImplementation(async (termo: string) =>
+      [cafe, pao, cafeGrande].filter((produto) => produto.codigo === termo))
+    const iniciar = vi.spyOn(vendas, 'iniciar').mockImplementation(async () => {
+      const id = `venda-nova-${gravadas.size + 1}`
+      gravadas.set(id, { ...comanda, id, total: 0, faltaPagar: 0, itens: [] })
+      return { id }
+    })
+    vi.spyOn(vendas, 'consultar').mockImplementation(async (id: string) => ler(id))
+    const adicionar = vi.spyOn(vendas, 'adicionarItem').mockImplementation(async (id, produtoId, quantidade,
+      desconto, itemId) => {
+      await travas.shift()
+      const produto = [cafe, pao, cafeGrande].find((candidato) => candidato.id === produtoId)!
+      const venda = ler(id)
+      const subtotal = produto.preco * quantidade - desconto
+      gravadas.set(id, { ...venda, total: venda.total + subtotal, faltaPagar: venda.faltaPagar + subtotal,
+        itens: [...venda.itens, { id: itemId ?? 'sem-id', produtoId, nome: produto.nome, quantidade,
+          precoUnitario: produto.preco, desconto, subtotal }] })
+      return { id: itemId ?? 'sem-id' }
+    })
+    function ler(id: string): Venda {
+      const venda = gravadas.get(id)
+      if (!venda) throw new Error('venda desconhecida no teste')
+      return venda
+    }
+    return { iniciar, adicionar, ler, gravar(venda: Venda) { gravadas.set(venda.id, venda) },
+      travar(trava: Promise<void>) { travas.push(trava) } }
+  }
+
+  /** O leitor digita o código inteiro e manda Enter. */
+  function passar(busca: HTMLElement, codigo: string) {
+    fireEvent.change(busca, { target: { value: codigo } })
+    fireEvent.keyDown(busca, { key: 'Enter' })
+  }
+
+  function painelDaBusca() { return screen.getByRole('heading', { name: 'Busca de produtos' }).closest('section')! }
+  function painelDaComanda() { return screen.getByRole('heading', { name: 'Comanda' }).closest('section')! }
+  function comandaLivre() { return waitFor(() => expect(painelDaComanda()).toHaveAttribute('aria-busy', 'false')) }
+  function itensNaComanda() {
+    return screen.queryAllByText(/^\d+ × /).map((item) => item.textContent?.replace(/\s+/g, ' '))
+  }
+
+  it('duas leituras durante o lançamento viram dois itens, na ordem e na mesma venda, e o campo fica vazio', async () => {
+    const servidor = balcao()
+    const primeira = presa<void>()
+    servidor.travar(primeira.promessa)
+    mostrar()
+
+    const busca = await screen.findByLabelText('Produto por nome ou código')
+    passar(busca, cafe.codigo!)
+    expect(busca).toHaveValue('')
+    await waitFor(() => expect(servidor.adicionar).toHaveBeenCalledTimes(1))
+    passar(busca, pao.codigo!)
+    expect(busca).toHaveValue('')
+    expect(painelDaComanda()).toHaveAttribute('aria-busy', 'true')
+
+    await act(async () => { primeira.soltar() })
+
+    await waitFor(() => expect(servidor.adicionar).toHaveBeenCalledTimes(2))
+    await comandaLivre()
+    expect(servidor.adicionar.mock.calls.map((chamada) => [chamada[0], chamada[1]]))
+      .toEqual([['venda-nova-1', cafe.id], ['venda-nova-1', pao.id]])
+    expect(servidor.iniciar).toHaveBeenCalledTimes(1)
+    expect(itensNaComanda()).toEqual(['1 × Café · R$ 6,00', '1 × Pão · R$ 1,50'])
+    expect(busca).toHaveValue('')
+  })
+
+  it('a leitura que chega antes da resposta da busca da anterior não cola nela, e as duas entram', async () => {
+    const servidor = balcao()
+    const buscaDoCafe = presa<Produto[]>()
+    vi.mocked(cadastro.buscarProdutos).mockImplementationOnce(() => buscaDoCafe.promessa)
+    mostrar()
+
+    const busca = await screen.findByLabelText('Produto por nome ou código')
+    passar(busca, cafe.codigo!)
+    passar(busca, pao.codigo!)
+    expect(busca).toHaveValue('')
+    expect(servidor.adicionar).not.toHaveBeenCalled()
+
+    await act(async () => { buscaDoCafe.soltar([cafe]) })
+
+    await waitFor(() => expect(servidor.adicionar).toHaveBeenCalledTimes(2))
+    await comandaLivre()
+    expect(servidor.adicionar.mock.calls.map((chamada) => chamada[1])).toEqual([cafe.id, pao.id])
+    expect(servidor.iniciar).toHaveBeenCalledTimes(1)
+    expect(itensNaComanda()).toEqual(['1 × Café · R$ 6,00', '1 × Pão · R$ 1,50'])
+  })
+
+  it('o código que o leitor digita durante o lançamento não é apagado quando o lançamento responde', async () => {
+    const servidor = balcao()
+    const primeira = presa<void>()
+    servidor.travar(primeira.promessa)
+    mostrar()
+
+    const busca = await screen.findByLabelText('Produto por nome ou código')
+    passar(busca, cafe.codigo!)
+    await waitFor(() => expect(servidor.adicionar).toHaveBeenCalledTimes(1))
+    fireEvent.change(busca, { target: { value: '78900' } })
+
+    await act(async () => { primeira.soltar() })
+
+    expect(await screen.findByText(/1 × Café/)).toBeInTheDocument()
+    await comandaLivre()
+    expect(busca).toHaveValue('78900')
+  })
+
+  it('pelo toque num resultado, o campo só sai se ainda tiver o termo tocado', async () => {
+    const servidor = balcao()
+    const primeira = presa<void>()
+    servidor.travar(primeira.promessa)
+    mostrar()
+
+    const busca = await screen.findByLabelText('Produto por nome ou código')
+    fireEvent.change(busca, { target: { value: pao.codigo } })
+    fireEvent.click(await screen.findByRole('button', { name: /Pão · R\$\s*1,50/ }))
+    await waitFor(() => expect(servidor.adicionar).toHaveBeenCalledTimes(1))
+    fireEvent.change(busca, { target: { value: '789' } })
+
+    await act(async () => { primeira.soltar() })
+
+    expect(await screen.findByText(/1 × Pão/)).toBeInTheDocument()
+    await comandaLivre()
+    expect(busca).toHaveValue('789')
+  })
+
+  it('o código sem produto no meio da fila não para as seguintes, e o aviso continua à vista', async () => {
+    const servidor = balcao()
+    const buscaDoDesconhecido = presa<Produto[]>()
+    vi.mocked(cadastro.buscarProdutos).mockImplementationOnce(() => buscaDoDesconhecido.promessa)
+    mostrar()
+
+    const busca = await screen.findByLabelText('Produto por nome ou código')
+    passar(busca, '7890000000099')
+    passar(busca, pao.codigo!)
+
+    await act(async () => { buscaDoDesconhecido.soltar([]) })
+
+    expect(await screen.findByText(/1 × Pão/)).toBeInTheDocument()
+    await comandaLivre()
+    expect(servidor.adicionar).toHaveBeenCalledTimes(1)
+    expect(within(painelDaBusca()).getByRole('alert'))
+      .toHaveTextContent('Nenhum produto encontrado para 7890000000099.')
+    expect(busca).toHaveValue('')
+  })
+
+  it('o termo de vários produtos com outra leitura na fila não lança nada e diz por quê', async () => {
+    const servidor = balcao()
+    const buscaDoNome = presa<Produto[]>()
+    vi.mocked(cadastro.buscarProdutos).mockImplementationOnce(() => buscaDoNome.promessa)
+    mostrar()
+
+    const busca = await screen.findByLabelText('Produto por nome ou código')
+    passar(busca, 'café')
+    passar(busca, pao.codigo!)
+
+    await act(async () => { buscaDoNome.soltar([cafe, cafeGrande]) })
+
+    expect(await screen.findByText(/1 × Pão/)).toBeInTheDocument()
+    await comandaLivre()
+    expect(servidor.adicionar.mock.calls.map((chamada) => chamada[1])).toEqual([pao.id])
+    expect(within(painelDaBusca()).getByRole('alert'))
+      .toHaveTextContent('Mais de um produto encontrado para café. Nada foi lançado.')
+  })
+
+  it('a recusa do lançamento descarta as leituras que esperam, diz quantas, e a leitura seguinte entra', async () => {
+    const servidor = balcao()
+    const primeira = presa<void>()
+    servidor.travar(primeira.promessa)
+    mostrar()
+
+    const busca = await screen.findByLabelText('Produto por nome ou código')
+    passar(busca, cafe.codigo!)
+    await waitFor(() => expect(servidor.adicionar).toHaveBeenCalledTimes(1))
+    passar(busca, pao.codigo!)
+    passar(busca, cafeGrande.codigo!)
+
+    await act(async () => { primeira.recusar(new ErroDaApi(409, 'Conflict', 'O produto foi inativado.', {})) })
+
+    expect(await within(painelDaBusca()).findByRole('alert'))
+      .toHaveTextContent('O produto foi inativado. Os 2 códigos passados em seguida não foram lançados.')
+    await comandaLivre()
+    expect(servidor.adicionar).toHaveBeenCalledTimes(1)
+
+    // Com a fila vazia, a leitura seguinte começa sem o aviso da anterior.
+    passar(busca, pao.codigo!)
+    await waitFor(() => expect(servidor.adicionar).toHaveBeenCalledTimes(2))
+    expect(await screen.findByText(/1 × Pão/)).toBeInTheDocument()
+    expect(within(painelDaBusca()).queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('sem resposta do lançamento, a leitura que esperava não vai para outra venda', async () => {
+    const servidor = balcao()
+    const primeira = presa<void>()
+    servidor.travar(primeira.promessa)
+    mostrar()
+
+    const busca = await screen.findByLabelText('Produto por nome ou código')
+    passar(busca, cafe.codigo!)
+    await waitFor(() => expect(servidor.adicionar).toHaveBeenCalledTimes(1))
+    passar(busca, pao.codigo!)
+
+    await act(async () => {
+      registrarSemResposta()
+      primeira.recusar(new SemConexao())
+    })
+
+    expect(await within(painelDaBusca()).findByRole('alert')).toHaveTextContent('Sem resposta do servidor. Confira a '
+      + 'comanda antes de repetir. O código passado em seguida não foi lançado.')
+    await comandaLivre()
+    expect(servidor.adicionar).toHaveBeenCalledTimes(1)
+    expect(servidor.iniciar).toHaveBeenCalledTimes(1)
+  })
+
+  it('o 3* fica com a leitura em que foi digitado, e a seguinte vai com uma unidade', async () => {
+    const servidor = balcao()
+    const primeira = presa<void>()
+    servidor.travar(primeira.promessa)
+    mostrar()
+
+    const busca = await screen.findByLabelText('Produto por nome ou código')
+    fireEvent.change(busca, { target: { value: `3*${cafe.codigo}` } })
+    expect(screen.getByLabelText('Quantidade')).toHaveValue(3)
+    fireEvent.keyDown(busca, { key: 'Enter' })
+    expect(screen.getByLabelText('Quantidade')).toHaveValue(1)
+    await waitFor(() => expect(servidor.adicionar).toHaveBeenCalledTimes(1))
+    passar(busca, pao.codigo!)
+
+    await act(async () => { primeira.soltar() })
+
+    await waitFor(() => expect(servidor.adicionar).toHaveBeenCalledTimes(2))
+    await comandaLivre()
+    expect(servidor.adicionar.mock.calls.map((chamada) => [chamada[1], chamada[2]]))
+      .toEqual([[cafe.id, 3], [pao.id, 1]])
+  })
+
+  it('a leitura que chega durante Receber e concluir entra depois, numa venda nova', async () => {
+    const servidor = balcao(comanda)
+    const recebimento = presa<void>()
+    const pagar = vi.spyOn(vendas, 'pagar').mockImplementation(async (id, forma, valor) => {
+      await recebimento.promessa
+      servidor.gravar({ ...servidor.ler(id), pago: valor, faltaPagar: 0,
+        parcelas: [{ id: 'parcela-1', forma, valor, status: 'CONFIRMADO', troco: 0 }] })
+      return { troco: 0 }
+    })
+    const concluir = vi.spyOn(vendas, 'concluir').mockImplementation(async (id) => {
+      servidor.gravar({ ...servidor.ler(id), status: 'CONCLUIDA' })
+    })
+    vi.spyOn(vendas, 'comprovante').mockResolvedValue(comprovante)
+    mostrar()
+
+    fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
+    const receber = await screen.findByRole('button', { name: 'Receber e concluir' })
+    await waitFor(() => expect(receber).toBeEnabled())
+    fireEvent.click(receber)
+    await waitFor(() => expect(pagar).toHaveBeenCalledTimes(1))
+    const busca = screen.getByLabelText('Produto por nome ou código')
+    passar(busca, pao.codigo!)
+    expect(busca).toHaveValue('')
+
+    await act(async () => { recebimento.soltar() })
+
+    await waitFor(() => expect(servidor.adicionar).toHaveBeenCalledTimes(1))
+    await comandaLivre()
+    expect(concluir).toHaveBeenCalledWith('venda-1')
+    expect(servidor.iniciar).toHaveBeenCalledTimes(1)
+    expect(concluir.mock.invocationCallOrder[0]).toBeLessThan(servidor.iniciar.mock.invocationCallOrder[0])
+    expect(servidor.adicionar.mock.calls[0][0]).not.toBe('venda-1')
+    expect(await screen.findByText(/1 × Pão/)).toBeInTheDocument()
   })
 })
