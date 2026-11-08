@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { chamarApi, ErroDaApi, SessaoAlterada } from '../api/cliente'
 import { SessaoContext, type Sessao } from './contexto'
 import type { Identidade } from './Identidade'
-import { prepararCadastroLocal } from './prepararCadastroLocal'
+import { copiarCadastroSeFaltar, prepararCadastroLocal } from './prepararCadastroLocal'
 import {
   aoVencerToken,
   CHAVE_DA_SESSAO,
@@ -127,7 +127,9 @@ export function SessaoProvider({ children }: { children: ReactNode }) {
   // Pergunta ao servidor quem está operando: a resposta renova o token, atualiza nome, perfil e o
   // que a Conta exige, como o NSU no cartão, e derruba quem foi inativado, porque o servidor
   // responde 401. Sem rede, fica o que estava guardado. A resposta que chega depois de outro login
-  // ou de outra Conta nesta aba é descartada.
+  // ou de outra Conta nesta aba é descartada. A resposta é também a volta do servidor: a pergunta sai
+  // com a rede que volta, pela sondagem enquanto ele não responde e depois de cada envio respondido, e
+  // a cópia do cadastro que ainda falta é feita aí.
   const relerIdentidade = useCallback(async (): Promise<Identidade | undefined> => {
     if (!lerToken()) return undefined
     const tentativa = tentativaDeEntrada.current
@@ -137,6 +139,7 @@ export function SessaoProvider({ children }: { children: ReactNode }) {
       const atual = await chamarApi<Identidade>('/api/auth/eu')
       if (!mesmaSessao() || !sessao) return undefined
       atualizarIdentidade(atual, sessao)
+      void copiarCadastroSeFaltar(atual).catch(() => undefined)
       return atual
     } catch (falha) {
       if (mesmaSessao() && falha instanceof ErroDaApi && falha.status === 401) {

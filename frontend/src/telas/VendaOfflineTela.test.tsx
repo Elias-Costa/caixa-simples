@@ -1,9 +1,9 @@
 import 'fake-indexeddb/auto'
 import { deleteDB } from 'idb'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Produto } from '../api/cadastro'
+import { cadastro, type Produto } from '../api/cadastro'
 import { criarCaixaLocal } from '../offline/caixaLocal'
 import { guardarRetrato, listarGestos } from '../offline/fila'
 import { gravarIdentidade, gravarToken } from '../sessao/armazenamento'
@@ -126,4 +126,69 @@ describe('PDV sem rede', () => {
       .toHaveTextContent('Pix: R$ 6,25')
     expect(buscar).not.toHaveBeenCalled()
   }, 20000)
+})
+
+describe('PDV com o cadastro que chega depois da entrada', () => {
+  const CATALOGO_SEM_REDE = 'O catálogo ainda não foi copiado para este aparelho. Ele é copiado quando a rede voltar.'
+
+  it('a busca que acha no catálogo copiado tira a frase de que ele ainda não estava no aparelho', async () => {
+    await deleteDB('ecrx-caixa-offline')
+    await guardarRetrato('clientesAtivos', [], 0)
+    await guardarRetrato('clientesInativos', [], 0)
+    await criarCaixaLocal().abrir(20)
+    mostrar()
+
+    const busca = await screen.findByLabelText('Produto por nome ou código')
+    fireEvent.change(busca, { target: { value: 'café' } })
+    expect(await screen.findByText(CATALOGO_SEM_REDE, undefined, espera)).toBeInTheDocument()
+
+    // A cópia chega na volta do servidor, e a busca seguinte já acha nela.
+    await guardarRetrato('produtos', [cafe], 0)
+    fireEvent.change(busca, { target: { value: 'expresso' } })
+    expect(await screen.findByRole('button', { name: /Café expresso · R\$\s*6,25/ }, espera)).toBeInTheDocument()
+    expect(screen.queryByText(CATALOGO_SEM_REDE)).not.toBeInTheDocument()
+  })
+
+  it('a busca que responde não tira o erro do lançamento que a pessoa tentou', async () => {
+    const dona = { ...identidade, perfil: 'ADMIN' as const }
+    gravarIdentidade(dona)
+    await criarCaixaLocal().abrir(20)
+    render(<MemoryRouter><SessaoContext.Provider value={{
+      identidade: dona, entrar: vi.fn(), sair: vi.fn(), atualizarIdentidade: vi.fn(), relerIdentidade: vi.fn(),
+    }}><TelaDeVenda /></SessaoContext.Provider></MemoryRouter>)
+
+    fireEvent.change(await screen.findByLabelText('Desconto deste item'), { target: { value: '1,234' } })
+    fireEvent.change(screen.getByLabelText('Produto por nome ou código'), { target: { value: 'café' } })
+    fireEvent.click(await screen.findByRole('button', { name: /Café expresso · R\$\s*6,25/ }, espera))
+    const desconto = 'Informe o desconto do item com até duas casas decimais.'
+    expect(await screen.findByText(desconto)).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Produto por nome ou código'), { target: { value: 'expresso' } })
+    await waitFor(() => expect(screen.getByLabelText('Produto por nome ou código')).toHaveValue('expresso'))
+    await new Promise((pronto) => setTimeout(pronto, 400))
+    expect(screen.getByRole('button', { name: /Café expresso · R\$\s*6,25/ })).toBeInTheDocument()
+    expect(screen.getByText(desconto)).toBeInTheDocument()
+  })
+
+  it('os clientes são lidos de novo na volta do servidor, e a frase da cópia que faltava sai', async () => {
+    await deleteDB('ecrx-caixa-offline')
+    await guardarRetrato('produtos', [cafe], 0)
+    await criarCaixaLocal().abrir(20)
+    const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+    const lerClientes = vi.spyOn(cadastro, 'clientes')
+    mostrar()
+
+    const semClientes = 'O cadastro de clientes ainda não foi copiado para este aparelho. Ele é copiado quando a rede voltar.'
+    expect(await screen.findByText(semClientes, undefined, espera)).toBeInTheDocument()
+
+    // A rede volta, e o servidor responde: nenhum caixa aberto lá, e as listas vazias, a de clientes também.
+    vi.stubGlobal('fetch', vi.fn(async (caminho: string) => caminho === '/api/caixa/sessoes/aberta'
+      ? new Response(null, { status: 204 })
+      : new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } })))
+    onLine.mockReturnValue(true)
+    act(() => { window.dispatchEvent(new Event('online')) })
+
+    await waitFor(() => expect(lerClientes.mock.calls.length).toBeGreaterThanOrEqual(2), espera)
+    await waitFor(() => expect(screen.queryByText(/ainda não foi copiado/)).not.toBeInTheDocument(), espera)
+  })
 })

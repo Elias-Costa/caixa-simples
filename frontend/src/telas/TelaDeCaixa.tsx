@@ -22,7 +22,7 @@ import { PrimeirosPassos } from './PrimeirosPassos'
 import { ROTULO_DA_FORMA, ROTULO_DA_VENDA, ROTULO_DO_CAIXA, ROTULO_DO_MOVIMENTO } from './rotulos'
 import { useConfirmacao, type Pergunta } from './useConfirmacao'
 import { TituloComAjuda } from './TituloComAjuda'
-import { motivoSemServidor, vendasSemServidor } from './semServidor'
+import { extratoSemServidor, motivoSemServidor, vendasSemServidor } from './semServidor'
 import { AJUDA } from './textosDeAjuda'
 import { useTourDoCaixa } from './tourDoCaixa'
 
@@ -44,7 +44,13 @@ const SAI_DA_GAVETA: ReadonlySet<MovimentoCaixa['tipo']> = new Set(['SANGRIA', '
 
 /** O cartão em que a resposta de uma ação aparece: o mesmo em que ela foi tocada. */
 type LugarDaMensagem = 'tela' | 'abertura' | 'sessao' | 'movimento' | 'fechamento' | 'vendas'
-type MensagemNaTela = { tipo: 'erro' | 'sucesso' | 'info'; texto: string; lugar: LugarDaMensagem }
+type MensagemNaTela = {
+  tipo: 'erro' | 'sucesso' | 'info'
+  texto: string
+  lugar: LugarDaMensagem
+  /** O caixa cuja sincronização a frase espera: ela sai quando a tela o relê sem pendência. */
+  aguardando?: string
+}
 
 /**
  * A resposta da abertura, do movimento ou do fechamento, pelo caixa relido depois dele. Sem rede, ou
@@ -54,7 +60,7 @@ type MensagemNaTela = { tipo: 'erro' | 'sucesso' | 'info'; texto: string; lugar:
 function respostaDaAcao(relida: SessaoCaixa | undefined, lugar: LugarDaMensagem,
   textos: { noServidor: string; noAparelho: string }): MensagemNaTela {
   return relida?.pendenteSincronizacao
-    ? { tipo: 'info', texto: textos.noAparelho, lugar }
+    ? { tipo: 'info', texto: textos.noAparelho, lugar, aguardando: relida.id }
     : { tipo: 'sucesso', texto: textos.noServidor, lugar }
 }
 
@@ -358,7 +364,9 @@ export function TelaDeCaixa() {
     if (!selecionada || selecionada.movimentos) return
     let ativo = true
     caixa.consultar(selecionada.id).then((detalhes) => {
-      if (ativo) setSelecionada(detalhes)
+      // Sem servidor, o caixa fechado conhecido só pelo resumo volta sem o extrato: trocá-lo pela mesma
+      // sessão pediria outra consulta, sem fim. A volta do servidor relê a tela, e a consulta sai de novo.
+      if (ativo && detalhes.movimentos) setSelecionada(detalhes)
     }).catch((falha) => {
       if (ativo) setMensagem({ tipo: 'erro', texto: erroDeCadastro(falha), lugar: 'sessao' })
     })
@@ -405,8 +413,20 @@ export function TelaDeCaixa() {
     return nomes.get(usuarioId) ?? `operador ${usuarioId.slice(0, 8)}`
   }
 
+  /**
+   * A frase de que a ação ficou neste aparelho sai quando a rodada de envio, desta aba ou de outra,
+   * grava o resultado e a tela relê o caixa sem pendência, como sai a da comanda no Vender. Até a
+   * tela reler esse caixa, ela fica.
+   */
+  function jaSincronizado(sessaoId: string): boolean {
+    const conhecida = [selecionada, aberta].find((sessao) => sessao?.id === sessaoId)
+    return conhecida !== undefined && !conhecida.pendenteSincronizacao
+  }
+
   function mostrarEm(lugar: LugarDaMensagem) {
-    return mensagem?.lugar === lugar ? <Mensagem tipo={mensagem.tipo} texto={mensagem.texto} /> : null
+    if (mensagem?.lugar !== lugar) return null
+    if (mensagem.aguardando && jaSincronizado(mensagem.aguardando)) return null
+    return <Mensagem tipo={mensagem.tipo} texto={mensagem.texto} />
   }
 
   /** Só leitura: corrigir ou cancelar uma venda continua na tela Vender, de quem a fez. */
@@ -611,8 +631,9 @@ export function TelaDeCaixa() {
             {selecionada.saldoDesatualizado && <p>Este caixa mudou com rede depois da última leitura feita neste
               aparelho. Saldo, diferença e extrato atualizados aparecem quando ele for lido de novo; até lá, a
               sangria sem rede espera.</p>}
-            {selecionada.status === 'FECHADA' && selecionada.fechamentoSemValores
-              && <p>Fechado no servidor; valor contado e diferença aparecem quando a rede voltar.</p>}
+            {selecionada.status === 'FECHADA' && selecionada.fechamentoSemValores && <p>{conexao === 'sem-rede'
+              ? 'Fechado no servidor; valor contado e diferença aparecem quando a rede voltar.'
+              : 'Fechado no servidor; valor contado e diferença aparecem quando ele responder.'}</p>}
           </div>
           <div>
             <h4 id={`${ids}-vendido`}>Vendido neste caixa</h4>
@@ -693,7 +714,8 @@ export function TelaDeCaixa() {
           <summary id={`${ids}-movimentos`}>
             Movimentos{selecionada.movimentos ? ` (${selecionada.movimentos.length})` : ''}
           </summary>
-          {!selecionada.movimentos ? <p>Carregando extrato...</p>
+          {!selecionada.movimentos ? <p>{conexao === 'com-servidor' ? 'Carregando extrato...'
+            : extratoSemServidor(conexao)}</p>
             : selecionada.movimentos.length === 0 ? <p>Nenhum movimento neste caixa.</p>
               : <table className="tabela" aria-labelledby={`${ids}-movimentos`}>
                 <thead><tr>

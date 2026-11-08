@@ -19,3 +19,13 @@ export function vendasSemServidor(conexao: SemServidor): string {
     ? 'Sem conexão. As vendas deste caixa aparecem quando a rede voltar.'
     : 'Sem resposta do servidor. As vendas deste caixa aparecem quando ele responder.'
 }
+
+/**
+ * No lugar da lista de movimentos do caixa fechado que o aparelho conhece só pelo resumo: ele não guarda
+ * o extrato, e uma lista vazia diria que o caixa não teve movimento.
+ */
+export function extratoSemServidor(conexao: SemServidor): string {
+  return conexao === 'sem-rede'
+    ? 'Sem conexão. O extrato deste caixa aparece quando a rede voltar.'
+    : 'Sem resposta do servidor. O extrato deste caixa aparece quando ele responder.'
+}

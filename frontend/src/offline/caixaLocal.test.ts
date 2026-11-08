@@ -592,22 +592,116 @@ describe('SessaoCaixa local diante do que o servidor já sabe', () => {
     expect(await local.consultar(sessao.id)).toMatchObject({ status: 'FECHADA', fechamentoSemValores: true })
   })
 
-  it('não traz de volta o caixa fechado com rede quando a rede cai logo depois', async () => {
+  it('não traz de volta o caixa fechado com rede quando a rede cai logo depois, e mostra o contado e a diferença que o servidor devolveu', async () => {
     entrar(ana)
     rede(true)
     const sessao = abertaNoServidor(20)
     const remoto = { ...caixa, consultar: vi.fn(async () => sessao),
-      fechar: vi.fn(async () => ({ diferenca: 0 })) }
+      fechar: vi.fn(async () => ({ diferenca: 2 })) }
     const local = criarCaixaLocal(remoto)
     await local.consultar(sessao.id)
-    expect(await local.fechar(sessao.id, 20)).toEqual({ diferenca: 0 })
+    expect(await local.fechar(sessao.id, 18)).toEqual({ diferenca: 2 })
 
     rede(false)
     expect(await local.abertaDoOperadorAtual()).toBeUndefined()
-    expect(await local.consultar(sessao.id)).toMatchObject({ status: 'FECHADA', fechamentoSemValores: true })
+    // Quem acabou de contar a gaveta vê a diferença; só a hora espera a leitura, porque a resposta não a traz.
+    const fechada = await local.consultar(sessao.id)
+    expect(fechada).toMatchObject({ status: 'FECHADA', fechadaEm: null, valorFechamentoContado: 18, diferenca: 2,
+      valorFechamentoEsperado: 20 })
+    expect(fechada.fechamentoSemValores).toBeUndefined()
+    expect(await local.historico(hojeNoBalcao())).toEqual([fechada])
     await expect(local.fechar(sessao.id, 20)).rejects.toThrow('não fecha de novo')
     expect(remoto.fechar).toHaveBeenCalledTimes(1)
     expect(await listarGestos()).toEqual([])
+
+    // O fechamento lido do servidor toma o lugar dos valores guardados, com a hora.
+    const fechadaEm = new Date().toISOString()
+    remoto.consultar.mockResolvedValue({ ...sessao, versao: 1, status: 'FECHADA', fechadaEm,
+      valorFechamentoContado: 18, diferenca: 2 })
+    rede(true)
+    await local.consultar(sessao.id)
+    expect(await lerCaixaNoAparelho()).toMatchObject({ fechadasNoServidor: [], fechamentosDoAparelho: [] })
+    rede(false)
+    expect(await local.consultar(sessao.id)).toMatchObject({ status: 'FECHADA', fechadaEm, diferenca: 2 })
+  })
+
+  it('o fechamento feito com rede em outro caixa não dá valores ao caixa que o servidor fechou fora daqui', async () => {
+    entrar(ana)
+    rede(true)
+    const fechadoFora = abertaNoServidor(20)
+    const remoto = { ...caixa, abertaDoOperadorAtual: abertaRemota(fechadoFora),
+      consultar: vi.fn(async () => fechadoFora), fechar: vi.fn(async () => ({ diferenca: 0 })) }
+    const local = criarCaixaLocal(remoto)
+    await local.consultar(fechadoFora.id)
+    remoto.abertaDoOperadorAtual.mockResolvedValue(undefined)
+    await local.abertaDoOperadorAtual()
+    const proprio = abertaNoServidor(30)
+    remoto.consultar.mockResolvedValue(proprio)
+    await local.consultar(proprio.id)
+    await local.fechar(proprio.id, 30)
+
+    rede(false)
+    expect(await local.consultar(fechadoFora.id)).toMatchObject({ status: 'FECHADA', fechamentoSemValores: true,
+      valorFechamentoContado: null, diferenca: null })
+    expect(await local.consultar(proprio.id)).toMatchObject({ status: 'FECHADA', valorFechamentoContado: 30,
+      diferenca: 0 })
+  })
+
+  it('o resumo do fechamento lido com rede vale sem rede: a linha do histórico não volta atrás, e o extrato de outra leitura sai', async () => {
+    entrar(ana)
+    rede(true)
+    const sessao = { ...abertaNoServidor(80), movimentos: [movimento('VENDA', 4.9)], valorFechamentoEsperado: 84.9 }
+    const remoto = { ...caixa, abertaDoOperadorAtual: abertaRemota(sessao), consultar: vi.fn(async () => sessao),
+      historico: vi.fn(async () => [resumo(sessao)]) }
+    const local = criarCaixaLocal(remoto)
+    await local.consultar(sessao.id)
+    // Outro aparelho fecha o caixa, e o Vender ouve que não há caixa aberto.
+    remoto.abertaDoOperadorAtual.mockResolvedValue(undefined)
+    await local.abertaDoOperadorAtual()
+
+    const fechadaEm = new Date().toISOString()
+    const fechada: SessaoCaixa = { ...sessao, versao: 2, status: 'FECHADA', fechadaEm,
+      valorFechamentoEsperado: 94.4, valorFechamentoContado: 92.4, diferenca: 2 }
+    remoto.historico.mockResolvedValue([resumo(fechada)])
+    await local.historico(hojeNoBalcao())
+
+    rede(false)
+    expect(await local.historico(hojeNoBalcao())).toEqual([expect.objectContaining({ id: sessao.id,
+      status: 'FECHADA', fechadaEm, valorFechamentoContado: 92.4, diferenca: 2, valorFechamentoEsperado: 94.4 })])
+    expect(await lerCaixaNoAparelho()).toMatchObject({ fechadasNoServidor: [] })
+    // Sem rede, o extrato da leitura anterior não aparece com o esperado da nova: ele fica ausente, e não vazio.
+    const semExtrato = await local.consultar(sessao.id)
+    expect(semExtrato.fechamentoSemValores).toBeUndefined()
+    expect(semExtrato.movimentos).toBeUndefined()
+
+    // Com rede, a consulta traz o extrato do fechamento.
+    const comExtrato = { ...fechada, movimentos: [...sessao.movimentos!, movimento('SANGRIA', 10)] }
+    remoto.consultar.mockResolvedValue(comExtrato)
+    rede(true)
+    await local.consultar(sessao.id)
+    rede(false)
+    expect((await local.consultar(sessao.id)).movimentos).toHaveLength(2)
+  })
+
+  it('sem rede, o histórico do dia sai pela ordem da abertura, como o servidor responde', async () => {
+    entrar(ana)
+    rede(true)
+    const hoje = hojeNoBalcao()
+    const as = (horario: string) => new Date(`${hoje}T${horario}:00-03:00`).toISOString()
+    const daTarde = { ...abertaNoServidor(80), abertaEm: as('16:30') }
+    const fechado = (abertaEm: string): SessaoCaixa => ({ ...abertaNoServidor(50), abertaEm, status: 'FECHADA',
+      fechadaEm: abertaEm, valorFechamentoContado: 50, diferenca: 0 })
+    const daManha = fechado(as('06:30'))
+    const doAlmoco = fechado(as('14:38'))
+    // O caixa aberto é guardado primeiro, pela pergunta do Vender; os fechados, pelo histórico.
+    const remoto = { ...caixa, abertaDoOperadorAtual: abertaRemota(daTarde),
+      historico: vi.fn(async () => [daManha, doAlmoco, daTarde].map(resumo)) }
+    const local = criarCaixaLocal(remoto)
+    await local.abertaDoOperadorAtual()
+    await local.historico(hoje)
+
+    rede(false)
+    expect((await local.historico(hoje)).map((sessao) => sessao.id)).toEqual([daManha.id, doAlmoco.id, daTarde.id])
   })
 
   it('troca a sessão ABERTA guardada pela que o servidor diz aberta', async () => {
@@ -929,7 +1023,7 @@ describe('mesclarSessoesLidas', () => {
 
   it('não troca a sessão guardada por uma leitura mais antiga', () => {
     const lida = { ...guardada, versao: 3, valorFechamentoEsperado: 99 }
-    const atual = { sessoes: [guardada], fechadasNoServidor: [], desatualizadas: [] }
+    const atual = { sessoes: [guardada], fechadasNoServidor: [], fechamentosDoAparelho: [], desatualizadas: [] }
     expect(mesclarSessoesLidas(atual, [lida], 4, ana.usuarioId)).toEqual(atual)
     expect(mesclarSessoesLidas(atual, [lida], 5, ana.usuarioId).sessoes).toEqual([{ ...lida, ordemDaLeitura: 5 }])
   })
@@ -938,14 +1032,15 @@ describe('mesclarSessoesLidas', () => {
     const fechada = { ...guardada, versao: 2, status: 'FECHADA' as const, fechadaEm: new Date().toISOString(),
       valorFechamentoContado: 20, diferenca: 0 }
     const comFechamento = mesclarSessoesLidas({ sessoes: [guardada], fechadasNoServidor: [guardada.id],
-      desatualizadas: [] }, [fechada], 6, ana.usuarioId)
+      fechamentosDoAparelho: [{ sessaoId: guardada.id, valorContado: 20, diferenca: 0 }], desatualizadas: [] },
+    [fechada], 6, ana.usuarioId)
     expect(comFechamento).toEqual({ sessoes: [{ ...fechada, ordemDaLeitura: 6 }], fechadasNoServidor: [],
-      desatualizadas: [] })
+      fechamentosDoAparelho: [], desatualizadas: [] })
     expect(mesclarSessoesLidas(comFechamento, [resumo(guardada)], 7, ana.usuarioId)).toEqual(comFechamento)
   })
 
   it('tira a marca de desatualizada só com a leitura da sessão pedida depois dela', () => {
-    const marcada = { sessoes: [guardada], fechadasNoServidor: [],
+    const marcada = { sessoes: [guardada], fechadasNoServidor: [], fechamentosDoAparelho: [],
       desatualizadas: [{ sessaoId: guardada.id, ordem: 7 }] }
     const lida = { ...guardada, versao: 1, valorFechamentoEsperado: 25 }
     expect(mesclarSessoesLidas(marcada, [lida], 6, ana.usuarioId).desatualizadas).toEqual(marcada.desatualizadas)
@@ -955,9 +1050,23 @@ describe('mesclarSessoesLidas', () => {
       .toEqual(marcada.desatualizadas)
   })
 
+  it('o resumo de outra revisão substitui o extrato guardado só se a sessão estiver fechada', () => {
+    const comExtrato = { ...guardada, movimentos: [movimento('VENDA', 4.9)] }
+    const atual = { sessoes: [comExtrato], fechadasNoServidor: [guardada.id], fechamentosDoAparelho: [],
+      desatualizadas: [] }
+    const aberta = { ...resumo(guardada), versao: 3, valorFechamentoEsperado: 30 }
+    expect(mesclarSessoesLidas(atual, [aberta], 6, ana.usuarioId)).toEqual(atual)
+
+    const fechada = { ...aberta, status: 'FECHADA' as const, fechadaEm: new Date().toISOString(),
+      valorFechamentoContado: 28, diferenca: 2 }
+    expect(mesclarSessoesLidas(atual, [fechada], 6, ana.usuarioId)).toEqual({
+      sessoes: [{ ...fechada, movimentos: undefined, ordemDaLeitura: 6 }], fechadasNoServidor: [],
+      fechamentosDoAparelho: [], desatualizadas: [] })
+  })
+
   it('ignora a sessão de outro operador', () => {
     const deOutro = { ...abertaNoServidor(10), usuarioId: 'outra' }
-    const vazio = { sessoes: [], fechadasNoServidor: [], desatualizadas: [] }
+    const vazio = { sessoes: [], fechadasNoServidor: [], fechamentosDoAparelho: [], desatualizadas: [] }
     expect(mesclarSessoesLidas(vazio, [deOutro], 0, ana.usuarioId)).toEqual(vazio)
   })
 })

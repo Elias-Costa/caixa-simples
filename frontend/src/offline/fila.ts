@@ -55,13 +55,21 @@ export type SessaoNoRetrato = { id: string; ordemDaLeitura?: number }
 export type SessaoDesatualizada = { sessaoId: string; ordem: number }
 
 /**
+ * O valor contado e a diferença que o servidor devolveu ao fechamento feito com rede neste aparelho. A
+ * resposta não traz a hora, que só chega com a leitura da sessão.
+ */
+export type FechamentoDoAparelho = { sessaoId: string; valorContado: number; diferenca: number }
+
+/**
  * O que o aparelho guarda do caixa do usuário: as sessões lidas do servidor, as que o servidor já
- * disse não estarem abertas sem que o aparelho tenha lido o fechamento delas e as que o aparelho
- * mudou com rede sem reler.
+ * disse não estarem abertas sem que o aparelho tenha lido o fechamento delas, os valores dos
+ * fechamentos que este aparelho fez com rede e ainda não releu, e as sessões que o aparelho mudou com
+ * rede sem reler.
  */
 export type RetratoDoCaixa<T extends SessaoNoRetrato> = {
   sessoes: T[]
   fechadasNoServidor: string[]
+  fechamentosDoAparelho: FechamentoDoAparelho[]
   desatualizadas: SessaoDesatualizada[]
 }
 
@@ -287,9 +295,11 @@ export async function guardarRetratos(retratos: { tipo: string; dados: unknown }
 
 type TransacaoDoDescarte = IDBPTransaction<BancoDaFila, ('retratos' | 'gestos')[], 'readwrite'>
 
-function tiposDoCaixa(usuario: string): { sessoes: string; fechadas: string; desatualizadas: string } {
+function tiposDoCaixa(usuario: string): {
+  sessoes: string; fechadas: string; fechamentos: string; desatualizadas: string
+} {
   return { sessoes: `caixa:${usuario}:sessoes`, fechadas: `caixa:${usuario}:fechadasNoServidor`,
-    desatualizadas: `caixa:${usuario}:desatualizadas` }
+    fechamentos: `caixa:${usuario}:fechamentosDoAparelho`, desatualizadas: `caixa:${usuario}:desatualizadas` }
 }
 
 async function retratoDoCaixa<T extends SessaoNoRetrato>(
@@ -298,8 +308,11 @@ async function retratoDoCaixa<T extends SessaoNoRetrato>(
   const tipos = tiposDoCaixa(usuario)
   const sessoes = await ler(`${conta}\u0000${tipos.sessoes}`)
   const fechadas = await ler(`${conta}\u0000${tipos.fechadas}`)
+  // O aparelho que guardou o caixa antes desta lista não a tem, e lê nenhum fechamento.
+  const fechamentos = await ler(`${conta}\u0000${tipos.fechamentos}`)
   const desatualizadas = await ler(`${conta}\u0000${tipos.desatualizadas}`)
   return { sessoes: (sessoes?.dados ?? []) as T[], fechadasNoServidor: (fechadas?.dados ?? []) as string[],
+    fechamentosDoAparelho: (fechamentos?.dados ?? []) as FechamentoDoAparelho[],
     desatualizadas: (desatualizadas?.dados ?? []) as SessaoDesatualizada[] }
 }
 
@@ -353,6 +366,8 @@ export async function atualizarRetratoDoCaixa<T extends SessaoNoRetrato>(
       dados: novo.sessoes, ordemDaLeitura: 0 })
     await retratos.put({ chave: `${conta}\u0000${tipos.fechadas}`, conta, tipo: tipos.fechadas,
       dados: novo.fechadasNoServidor })
+    await retratos.put({ chave: `${conta}\u0000${tipos.fechamentos}`, conta, tipo: tipos.fechamentos,
+      dados: novo.fechamentosDoAparelho })
     await retratos.put({ chave: `${conta}\u0000${tipos.desatualizadas}`, conta, tipo: tipos.desatualizadas,
       dados: novo.desatualizadas })
     await descartarEnviadosDoCaixaEDasVendas(transacao, dono, conta, novo.sessoes)

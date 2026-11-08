@@ -1,6 +1,6 @@
 import type { Cliente, DadosDoCliente, DadosDoProduto, Produto } from '../api/cadastro'
 import { SemConexao } from '../api/cliente'
-import { comServidor } from '../api/conexao'
+import { comServidor, estadoDaConexao } from '../api/conexao'
 import { lerIdentidade } from '../sessao/armazenamento'
 import { paraBusca } from '../textoDeBusca'
 import {
@@ -186,12 +186,21 @@ function projetarClientes(ativos: Retrato<Cliente[]> | null, inativos: Retrato<C
   return [...itens.values()].filter((cliente) => !removidos.has(cliente.id))
 }
 
+/**
+ * O fim da frase de quem ainda não tem a cópia do cadastro: ela é feita na volta do servidor, sem
+ * entrar de novo. Com o Wi-Fi ligado e o servidor fora, falar da rede confundiria quem a vê funcionando.
+ */
+function quandoACopiaSai(): string {
+  return estadoDaConexao() === 'sem-rede' ? 'Ele é copiado quando a rede voltar.'
+    : 'Ele é copiado quando o servidor responder.'
+}
+
 async function locaisProdutos(): Promise<ProdutoLocal[]> {
   const [ativos, inativos, gestos] = await Promise.all([
     lerRetrato<Produto[]>('produtos'), lerRetrato<Produto[]>('produtosInativos'), listarGestos(),
   ])
   if (!ativos && !inativos && !gestos.some((gesto) => gesto.tipo === 'produto.criar')) {
-    throw new Error('O catálogo ainda não foi carregado neste aparelho. Entre online para prepará-lo.')
+    throw new Error(`O catálogo ainda não foi copiado para este aparelho. ${quandoACopiaSai()}`)
   }
   return projetarProdutos(ativos, inativos, gestos)
 }
@@ -212,9 +221,19 @@ async function locaisClientes(): Promise<ClienteLocal[]> {
     listarGestos(), lerRetrato<string[]>('clientesRemovidos'),
   ])
   if (!ativos && !inativos && !gestos.some((gesto) => gesto.tipo === 'cliente.criar')) {
-    throw new Error('O cadastro de clientes ainda não foi carregado neste aparelho. Entre online para prepará-lo.')
+    throw new Error(`O cadastro de clientes ainda não foi copiado para este aparelho. ${quandoACopiaSai()}`)
   }
   return projetarClientes(ativos, inativos, gestos, new Set(removidos?.dados ?? []))
+}
+
+/**
+ * Se o aparelho já tem a cópia dos produtos e a dos clientes que a entrada faz. Sem uma delas, a volta
+ * do servidor copia de novo.
+ */
+export async function cadastroCopiado(): Promise<boolean> {
+  const [produtos, clientes] = await Promise.all([lerRetrato<Produto[]>('produtos'),
+    lerRetrato<Cliente[]>('clientesAtivos')])
+  return produtos !== null && clientes !== null
 }
 
 async function dependencias(prefixo: string, id: string): Promise<{ dependeDe: string[]; pendente: boolean }> {

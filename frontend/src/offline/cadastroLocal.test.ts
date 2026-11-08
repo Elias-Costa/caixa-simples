@@ -300,3 +300,33 @@ describe('cadastro com o servidor fora e o Wi-Fi ligado', () => {
     expect(gestos.find((gesto) => (gesto.payload as { nome: string }).nome === 'Pão de queijo')?.registroId).toBe(id)
   })
 })
+
+describe('cadastro ainda não copiado para o aparelho', () => {
+  it('diz que a cópia sai quando a rede voltar, sem pedir a quem já entrou que entre de novo', async () => {
+    entrar(ana)
+    rede(false)
+    const local = criarCadastroLocal(remoto())
+
+    await expect(local.produtos()).rejects.toThrow(
+      'O catálogo ainda não foi copiado para este aparelho. Ele é copiado quando a rede voltar.')
+    await expect(local.buscarProdutos('café')).rejects.toThrow(
+      'O catálogo ainda não foi copiado para este aparelho. Ele é copiado quando a rede voltar.')
+    await expect(local.clientes()).rejects.toThrow(
+      'O cadastro de clientes ainda não foi copiado para este aparelho. Ele é copiado quando a rede voltar.')
+  })
+
+  it('com o Wi-Fi ligado e o servidor fora, diz que a cópia sai quando o servidor responder', async () => {
+    entrar(ana)
+    rede(true)
+    const semResposta = async (): Promise<never> => {
+      registrarSemResposta()
+      throw new SemConexao()
+    }
+    const local = criarCadastroLocal({ ...remoto(), produtos: vi.fn(semResposta), clientes: vi.fn(semResposta) })
+
+    await expect(local.produtos()).rejects.toThrow(
+      'O catálogo ainda não foi copiado para este aparelho. Ele é copiado quando o servidor responder.')
+    await expect(local.clientes()).rejects.toThrow(
+      'O cadastro de clientes ainda não foi copiado para este aparelho. Ele é copiado quando o servidor responder.')
+  })
+})

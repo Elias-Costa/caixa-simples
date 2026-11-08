@@ -7,11 +7,15 @@ import { caixa, type SessaoCaixa } from '../api/caixa'
 import { SemConexao } from '../api/cliente'
 import { registrarResposta, registrarSemResposta } from '../api/conexao'
 import { contas } from '../api/contas'
+import { sincronizacao, type OperacaoDoLote } from '../api/sincronizacao'
 import { vendas, type Comprovante, type ResumoDaVenda, type Venda } from '../api/vendas'
+import { hojeNoBalcao } from '../dataDoBalcao'
 import { criarCaixaLocal } from '../offline/caixaLocal'
+import { enviarFila } from '../offline/envio'
 import { gravarIdentidade, gravarToken } from '../sessao/armazenamento'
 import { tokenComExpiracao } from '../sessao/tokenDeTeste'
 import { SessaoContext } from '../sessao/contexto'
+import { SincronizacaoContext, useEnvioAutomatico } from '../shell/sincronizacao'
 import { confirmacaoAberta, responderConfirmacao } from './confirmacaoDeTeste'
 import { TelaDeCaixa } from './TelaDeCaixa'
 
@@ -36,6 +40,15 @@ const aberta: SessaoCaixa = {
 function resumo(id: string, status: ResumoDaVenda['status'], total: number, criadoEm: string,
   formas?: ResumoDaVenda['formas']): ResumoDaVenda {
   return { id, sessaoCaixaId: 's-1', usuarioId: 'u-1', status, total, criadoEm, formas }
+}
+
+const ANA = { usuarioId: 'u-1', nome: 'Ana', perfil: 'OPERADOR' as const, contaId: 'c-1',
+  nomeNegocio: 'Loja da Esquina', estoqueHabilitado: false }
+
+/** Grava a sessão da Ana, para guardar o caixa no aparelho antes de a tela abrir. */
+function entrarComoAna() {
+  gravarToken(tokenComExpiracao(new Date(Date.now() + 60 * 60 * 1000)))
+  gravarIdentidade(ANA)
 }
 
 function mostrar(perfil: 'ADMIN' | 'OPERADOR' = 'OPERADOR') {
@@ -760,6 +773,23 @@ describe('caixa com o servidor fora e o Wi-Fi ligado', () => {
     expect(screen.queryByText('Nenhuma venda neste caixa.')).not.toBeInTheDocument()
   })
 
+  it('o caixa fechado fora do aparelho diz que os valores aparecem quando o servidor responder, e não quando a rede voltar', async () => {
+    const deHoje = { ...aberta, abertaEm: new Date().toISOString() }
+    vi.spyOn(caixa, 'consultar').mockResolvedValue({ ...deHoje, versao: 0, movimentos: [] })
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(undefined)
+    entrarComoAna()
+    const local = criarCaixaLocal()
+    await local.consultar(deHoje.id)
+    await local.abertaDoOperadorAtual()
+    registrarSemResposta()
+    mostrar()
+
+    fireEvent.click(await screen.findByRole('button', { name: /Fechado/ }))
+    expect(await screen.findByText('Fechado no servidor; valor contado e diferença aparecem quando ele responder.'))
+      .toBeInTheDocument()
+    expect(screen.queryByText(/quando a rede voltar/)).not.toBeInTheDocument()
+  })
+
   it('quando o servidor volta a responder, a tela relê sem trocar de tela', async () => {
     registrarSemResposta()
     const lerAberta = vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
@@ -775,5 +805,153 @@ describe('caixa com o servidor fora e o Wi-Fi ligado', () => {
 
     expect(await screen.findByRole('heading', { name: 'Caixa de Ana' })).toBeInTheDocument()
     expect(lerAberta).toHaveBeenCalled()
+  })
+})
+
+describe('caixa fechado e o que o aparelho sabe dele', () => {
+  const AGUARDANDO = 'Caixa fechado neste aparelho. Aguardando sincronização com o servidor.'
+  const abertos: BroadcastChannel[] = []
+  // Fora do componente, para serem as mesmas funções em toda renderização, como as do Shell.
+  const sairFalso = vi.fn()
+  const relerFalso = vi.fn(async () => undefined)
+
+  afterEach(() => {
+    for (const canal of abertos.splice(0)) canal.close()
+  })
+
+  /** A tela com o envio automático do shell: a rodada desta aba e a de outra chegam como no aplicativo. */
+  function ComEnvio() {
+    return <SincronizacaoContext.Provider value={useEnvioAutomatico(ANA, sairFalso, '/caixa', relerFalso)}>
+      <TelaDeCaixa />
+    </SincronizacaoContext.Provider>
+  }
+
+  function mostrarComEnvio() {
+    render(<SessaoContext.Provider value={{ identidade: ANA, entrar: vi.fn(), sair: vi.fn(),
+      atualizarIdentidade: vi.fn(), relerIdentidade: vi.fn() }}><ComEnvio /></SessaoContext.Provider>)
+  }
+
+  /** O caixa de hoje lido com rede e guardado, como o aparelho o tem quando a rede cai. */
+  async function caixaGuardado(): Promise<SessaoCaixa> {
+    // A fila só aceita registro com UUID, como o servidor.
+    const deHoje: SessaoCaixa = { ...aberta, id: crypto.randomUUID(), abertaEm: new Date().toISOString(), versao: 0,
+      movimentos: [] }
+    vi.spyOn(caixa, 'consultar').mockResolvedValue(deHoje)
+    entrarComoAna()
+    await criarCaixaLocal().consultar(deHoje.id)
+    return deHoje
+  }
+
+  /** Sem rede, fecha o caixa com 18,00 contados, e a frase diz que o fechamento ficou no aparelho. */
+  async function fecharSemRede() {
+    fireEvent.change(await screen.findByLabelText('Valor contado'), { target: { value: '18' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Fechar e registrar diferença' }))
+    await responderConfirmacao('Fechar caixa')
+    expect(await screen.findByText(AGUARDANDO)).toHaveClass('mensagem-info')
+  }
+
+  /** O servidor, depois de aplicar o fechamento: nenhum caixa aberto, e o fechado com a hora e os valores. */
+  function servidorComOFechamento(deHoje: SessaoCaixa) {
+    const fechada: SessaoCaixa = { ...deHoje, versao: 1, status: 'FECHADA', fechadaEm: new Date().toISOString(),
+      valorFechamentoContado: 18, diferenca: 2 }
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(undefined)
+    vi.spyOn(caixa, 'historico').mockResolvedValue([{ ...fechada, movimentos: undefined }])
+    vi.spyOn(caixa, 'consultar').mockResolvedValue(fechada)
+    vi.spyOn(sincronizacao, 'enviarLote').mockImplementation(async (operacoes: OperacaoDoLote[]) =>
+      operacoes.map((operacao) => ({ operacaoId: operacao.operacaoId, resultado: 'APLICADA' as const, versao: 1 })))
+  }
+
+  it('a frase de que o fechamento ficou no aparelho sai quando a rodada desta aba o grava, como a da comanda', async () => {
+    const deHoje = await caixaGuardado()
+    const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+    mostrarComEnvio()
+    await fecharSemRede()
+
+    servidorComOFechamento(deHoje)
+    onLine.mockReturnValue(true)
+    act(() => { window.dispatchEvent(new Event('online')) })
+
+    await waitFor(() => expect(sincronizacao.enviarLote).toHaveBeenCalledOnce())
+    await waitFor(() => expect(screen.queryByText(AGUARDANDO)).not.toBeInTheDocument())
+    expect(screen.queryByText('Pendente de sincronização com o servidor.')).not.toBeInTheDocument()
+    expect(screen.getByRole('row', { name: /Diferença/ })).toHaveTextContent('Falta de R$ 2,00')
+  })
+
+  it('a frase sai também quando quem grava o fechamento é a rodada de outra aba', async () => {
+    const deHoje = await caixaGuardado()
+    const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+    const outra = new BroadcastChannel('ecrx-caixa-abas')
+    abertos.push(outra)
+    mostrarComEnvio()
+    await fecharSemRede()
+
+    // A outra aba envia no mesmo banco. Sem o evento da rede, esta não envia nem relê por conta própria: o que
+    // a faz reler é só o aviso do fim da rodada que gravou.
+    servidorComOFechamento(deHoje)
+    onLine.mockReturnValue(true)
+    outra.postMessage({ tipo: 'rodada', fase: 'inicio' })
+    expect(await enviarFila()).toMatchObject({ desfecho: 'concluida', resolvidos: 1 })
+    expect(screen.getByText(AGUARDANDO)).toBeInTheDocument()
+    outra.postMessage({ tipo: 'rodada', fase: 'fim', gravou: true })
+
+    await waitFor(() => expect(screen.queryByText(AGUARDANDO)).not.toBeInTheDocument())
+    expect(screen.getByRole('row', { name: /Diferença/ })).toHaveTextContent('Falta de R$ 2,00')
+  })
+
+  it('quem fecha o caixa com rede vê o contado e a diferença, mesmo com a releitura sem resposta', async () => {
+    const deHoje: SessaoCaixa = { ...aberta, abertaEm: new Date().toISOString(), versao: 0 }
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(deHoje)
+    vi.spyOn(caixa, 'historico').mockResolvedValue([deHoje])
+    vi.spyOn(caixa, 'consultar').mockResolvedValue({ ...deHoje, movimentos: [] })
+    vi.spyOn(caixa, 'fechar').mockImplementation(async () => {
+      // Depois do fechamento, as leituras do caixa ficam sem resposta.
+      const semResposta = async (): Promise<never> => {
+        registrarSemResposta()
+        throw new SemConexao()
+      }
+      vi.spyOn(caixa, 'abertaDoOperadorAtual').mockImplementation(semResposta)
+      vi.spyOn(caixa, 'historico').mockImplementation(semResposta)
+      vi.spyOn(caixa, 'consultar').mockImplementation(semResposta)
+      return { diferenca: 2 }
+    })
+    mostrar()
+
+    fireEvent.change(await screen.findByLabelText('Valor contado'), { target: { value: '18' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Fechar e registrar diferença' }))
+    await responderConfirmacao('Fechar caixa')
+
+    const sessao = screen.getByRole('heading', { name: 'Caixa de Ana' }).closest('section')!
+    expect(await within(sessao).findByText('Caixa fechado.')).toHaveClass('mensagem-sucesso')
+    expect(within(sessao).getByRole('row', { name: /Valor contado/ })).toHaveTextContent('R$ 18,00')
+    expect(within(sessao).getByRole('row', { name: /Diferença/ })).toHaveTextContent('Falta de R$ 2,00')
+    expect(screen.queryByText(/Fechado no servidor/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Fechado/ })).toHaveTextContent('Falta de R$ 2,00')
+  })
+
+  it('sem rede, o caixa fechado conhecido só pelo resumo diz que o extrato aparece depois, e não que não teve movimento', async () => {
+    const agora = new Date().toISOString()
+    const fechadoHoje: SessaoCaixa = { ...aberta, abertaEm: agora, versao: 2, status: 'FECHADA', fechadaEm: agora,
+      valorFechamentoEsperado: 20, valorFechamentoContado: 18, diferenca: 2 }
+    vi.spyOn(caixa, 'historico').mockResolvedValue([fechadoHoje])
+    entrarComoAna()
+    await criarCaixaLocal().historico(hojeNoBalcao())
+    const consultar = vi.spyOn(caixa, 'consultar')
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+    mostrar()
+
+    fireEvent.click(await screen.findByRole('button', { name: /Fechado/ }))
+    const extrato = await abrirLista(/^Movimentos/)
+    expect(extrato.querySelector('summary')).toHaveTextContent(/^Movimentos$/)
+    expect(within(extrato).getByText('Sem conexão. O extrato deste caixa aparece quando a rede voltar.')).toBeInTheDocument()
+    expect(screen.queryByText('Nenhum movimento neste caixa.')).not.toBeInTheDocument()
+    expect(screen.getByRole('row', { name: /Diferença/ })).toHaveTextContent('Falta de R$ 2,00')
+    expect(consultar).not.toHaveBeenCalled()
+
+    // A tela parada não fica relendo o caixa à espera de um extrato que o aparelho não tem: depois de os
+    // efeitos da abertura assentarem, nenhuma leitura da sessão guardada.
+    await new Promise((pronto) => setTimeout(pronto, 300))
+    const leituras = vi.spyOn(Storage.prototype, 'getItem')
+    await new Promise((pronto) => setTimeout(pronto, 300))
+    expect(leituras).not.toHaveBeenCalled()
   })
 })

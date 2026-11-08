@@ -80,7 +80,8 @@ O PWA guarda uma fila local de gestos no IndexedDB, separada por Conta e usuári
 armazenamento persistente ao ser instalado. O cadastro de Produto, serviço e Cliente já usa sem
 rede a cópia local recebida da API e registra cada alteração na fila com UUID estável e revisão
 de origem. O catálogo sugerido é copiado no servidor no primeiro login ADMIN e então guardado no
-dispositivo; novos itens do balcão não duplicam essa cópia. A `SessaoCaixa` também pode ser aberta,
+dispositivo; novos itens do balcão não duplicam essa cópia, e a cópia que o login não conseguiu fazer
+é refeita na volta do servidor, sem entrar de novo. A `SessaoCaixa` também pode ser aberta,
 movimentada por sangria e suprimento, conferida e fechada sem rede: cada gesto fica na fila, o saldo
 esperado e a diferença são calculados no dispositivo, e a tela indica o que aguarda sincronização.
 A Venda também é registrada e concluída sem rede no PDV, em dinheiro, em cartão lançado à mão e,
@@ -102,7 +103,8 @@ novo o que o retrato do servidor já contém, e o gesto enviado só sai do apare
 retrato que o usa já contém o efeito dele: a Venda em dinheiro continua na gaveta sem rede até o
 caixa ser relido. A sessão de caixa que o servidor diz não estar mais aberta deixa de aceitar
 operação sem rede e aparece fechada, sem os valores do fechamento até a próxima leitura, enquanto
-a abertura feita no aparelho e ainda não enviada continua valendo. Depois de cada lançamento com
+a abertura feita no aparelho e ainda não enviada continua valendo; a que o próprio aparelho fechou
+com rede mostra o valor contado e a diferença que o servidor devolveu, e só a hora espera a leitura. Depois de cada lançamento com
 rede que mexe na gaveta, o aparelho relê o caixa; se a rede cair antes da releitura, o saldo
 esperado aparece como indisponível sem rede e a sangria espera a próxima leitura, em vez de partir
 de um saldo antigo. Para o aparelho, o servidor fora com o Wi-Fi ligado vale como falta de rede: a

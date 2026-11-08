@@ -6,7 +6,7 @@ import { centavos, centavosDoSaldo, reais } from './dinheiro'
 import {
   atualizarRetratoDoCaixa, enfileirarGesto, gestoAplicavel, gestoPendente, jaEstaNoRetrato, lerCaixaNoAparelho,
   lerDoServidor, listarGestos, marcarCaixaDesatualizado, ordenarPorDependencia, versaoDoResultado,
-  type GestoNaFila, type RetratoDoCaixa,
+  type FechamentoDoAparelho, type GestoNaFila, type RetratoDoCaixa,
 } from './fila'
 import { dinheiroNaGaveta, projetarVendas, type DadosDoInicio } from './raizDaVenda'
 
@@ -135,16 +135,24 @@ export function mesclarSessoesLidas(atual: RetratoDoCaixa<SessaoGuardada>, lidas
       // revisão.
       guardadas.set(lida.id, { ...anterior, ...lida, movimentos: anterior?.movimentos, ordemDaLeitura })
       guardadasAgora.add(lida.id)
+    } else if (lida.status === 'FECHADA') {
+      // O fechamento lido vale mais que o extrato guardado: sem ele, a sessão continuaria ABERTA no
+      // aparelho, e sem rede voltaria a aparecer fechada sem valores. O extrato de outra revisão sai,
+      // para não somar os movimentos de uma leitura ao esperado de outra; a próxima consulta o traz.
+      guardadas.set(lida.id, { ...lida, movimentos: undefined, ordemDaLeitura })
+      guardadasAgora.add(lida.id)
     }
-    // O resumo de outra revisão não substitui um extrato guardado: ficariam os movimentos de uma
-    // leitura com o esperado de outra. O extrato é trocado na próxima consulta da sessão.
+    // O resumo de outra revisão de uma sessão ABERTA não substitui um extrato guardado, pelo mesmo
+    // motivo. O extrato é trocado na próxima consulta da sessão.
   }
   const sessoes = [...guardadas.values()]
-  // Com o fechamento lido, a marca de fechada no servidor não tem mais o que dizer.
+  // Com o fechamento lido, a marca de fechada no servidor não tem mais o que dizer, nem os valores que o
+  // fechamento feito aqui devolveu.
   const fechamentoLido = new Set(sessoes.filter((sessao) => sessao.status === 'FECHADA').map((sessao) => sessao.id))
   return {
     sessoes,
     fechadasNoServidor: atual.fechadasNoServidor.filter((id) => !fechamentoLido.has(id)),
+    fechamentosDoAparelho: atual.fechamentosDoAparelho.filter((fechamento) => !fechamentoLido.has(fechamento.sessaoId)),
     // A leitura ignorada acima não diz nada do que a escrita com rede mudou, e a marca fica.
     desatualizadas: atual.desatualizadas.filter((marca) =>
       !guardadasAgora.has(marca.sessaoId) || marca.ordem > ordemDaLeitura),
@@ -181,10 +189,15 @@ async function guardarSessaoAberta(recebida: SessaoCaixa | undefined, ordemDaLei
   })
 }
 
-/** O servidor confirmou o fechamento; os valores dele chegam na próxima leitura da sessão. */
-async function marcarFechadaNoServidor(id: string): Promise<void> {
+/**
+ * O servidor confirmou o fechamento feito aqui e devolveu a diferença: quem acabou de contar a gaveta
+ * a vê mesmo que a rede caia antes de a sessão ser lida de novo. A hora chega com essa leitura.
+ */
+async function guardarFechamentoDoAparelho(fechamento: FechamentoDoAparelho): Promise<void> {
   await atualizarRetratoDoCaixa<SessaoGuardada>((atual) => ({ ...atual,
-    fechadasNoServidor: [...new Set([...atual.fechadasNoServidor, id])] }))
+    fechadasNoServidor: [...new Set([...atual.fechadasNoServidor, fechamento.sessaoId])],
+    fechamentosDoAparelho: [...atual.fechamentosDoAparelho.filter((outro) => outro.sessaoId !== fechamento.sessaoId),
+      fechamento] }))
 }
 
 /**
@@ -193,11 +206,15 @@ async function marcarFechadaNoServidor(id: string): Promise<void> {
  * a Venda. O confirmado depois da leitura entra com a revisão que o servidor devolveu.
  */
 function projetar(base: SessaoGuardada | undefined, gestos: GestoNaFila[], id: string,
-  fechadaNoServidor: boolean, desatualizada: boolean): SessaoCaixa | undefined {
+  fechadaNoServidor: boolean, doAparelho: FechamentoDoAparelho | undefined,
+  desatualizada: boolean): SessaoCaixa | undefined {
   let sessao: SessaoCaixa | undefined
   if (base) {
     const { ordemDaLeitura: _ordem, ...guardada } = base
-    sessao = { ...guardada, movimentos: [...(guardada.movimentos ?? [])] }
+    // A sessão fechada lida só pelo resumo não tem extrato no aparelho: uma lista vazia diria que o caixa
+    // não teve movimento, e o gesto que ainda chegasse a ela não faria do extrato uma lista completa.
+    sessao = guardada.status === 'FECHADA' && !guardada.movimentos ? { ...guardada, movimentos: undefined }
+      : { ...guardada, movimentos: [...(guardada.movimentos ?? [])] }
   }
   const leitura = base ? { ordemDaLeitura: base.ordemDaLeitura ?? 0 } : undefined
   const vendas = projetarVendas(gestos, usuarioAtual())
@@ -227,7 +244,7 @@ function projetar(base: SessaoGuardada | undefined, gestos: GestoNaFila[], id: s
         motivo: dados.motivo, vendaId: null, recebimentoId: null, criadoEm: dados.criadoEm }
       const esperado = centavosDoSaldo(sessao.valorFechamentoEsperado)
       const quantia = centavos(dados.valor, 'Valor do movimento')
-      sessao = { ...sessao, movimentos: [...(sessao.movimentos ?? []), movimento],
+      sessao = { ...sessao, movimentos: sessao.movimentos && [...sessao.movimentos, movimento],
         versao: versaoDoResultado(gesto) ?? versaoLida(sessao) + 1,
         valorFechamentoEsperado: reais(esperado + (tipo === 'SUPRIMENTO' ? quantia : -quantia)) }
     }
@@ -238,7 +255,7 @@ function projetar(base: SessaoGuardada | undefined, gestos: GestoNaFila[], id: s
       const movimento: MovimentoCaixa = { id: gesto.operacaoId, tipo: 'VENDA', valor: reais(emDinheiro),
         motivo: null, vendaId: venda.id, recebimentoId: null, criadoEm: venda.concluidoEm ?? gesto.criadoEm }
       // A Venda não devolve a revisão da sessão; o dispositivo conta a entrada do dinheiro.
-      sessao = { ...sessao, movimentos: [...(sessao.movimentos ?? []), movimento],
+      sessao = { ...sessao, movimentos: sessao.movimentos && [...sessao.movimentos, movimento],
         versao: versaoLida(sessao) + 1,
         valorFechamentoEsperado: reais(centavosDoSaldo(sessao.valorFechamentoEsperado) + emDinheiro) }
     }
@@ -254,10 +271,14 @@ function projetar(base: SessaoGuardada | undefined, gestos: GestoNaFila[], id: s
   if (!sessao) return undefined
   // O servidor já disse que a sessão não está aberta, e o aparelho não leu o fechamento: ela deixa de
   // aceitar operação, sem hora, valor contado ou diferença inventados. O fechamento feito aqui e
-  // ainda não enviado tem os próprios valores e prevalece.
+  // ainda não enviado tem os próprios valores e prevalece. O feito aqui com rede tem o valor contado e a
+  // diferença que o servidor devolveu, e só a hora espera a leitura.
   if (fechadaNoServidor && sessao.status === 'ABERTA') {
-    sessao = { ...sessao, status: 'FECHADA', fechadaEm: null, valorFechamentoContado: null, diferenca: null,
-      fechamentoSemValores: true }
+    sessao = doAparelho
+      ? { ...sessao, status: 'FECHADA', fechadaEm: null, valorFechamentoContado: doAparelho.valorContado,
+        diferenca: doAparelho.diferenca }
+      : { ...sessao, status: 'FECHADA', fechadaEm: null, valorFechamentoContado: null, diferenca: null,
+        fechamentoSemValores: true }
   }
   // A sessão mudou com rede depois da leitura guardada: o esperado dela ficou para trás, e a
   // diferença do fechamento feito aqui sairia dele. O servidor a calcula quando o gesto chegar.
@@ -266,11 +287,13 @@ function projetar(base: SessaoGuardada | undefined, gestos: GestoNaFila[], id: s
 }
 
 async function locais(): Promise<SessaoCaixa[]> {
-  const { sessoes: base, fechadasNoServidor, desatualizadas, gestos } = await lerCaixaNoAparelho<SessaoGuardada>()
+  const { sessoes: base, fechadasNoServidor, fechamentosDoAparelho, desatualizadas, gestos } =
+    await lerCaixaNoAparelho<SessaoGuardada>()
   const ids = new Set([...base.map((sessao) => sessao.id),
     ...gestos.filter((gesto) => gesto.tipo === 'caixa.abrir').map((gesto) => gesto.registroId)])
   return [...ids].map((id) => projetar(base.find((sessao) => sessao.id === id), gestos, id,
-    fechadasNoServidor.includes(id), desatualizadas.some((marca) => marca.sessaoId === id)))
+    fechadasNoServidor.includes(id), fechamentosDoAparelho.find((fechamento) => fechamento.sessaoId === id),
+    desatualizadas.some((marca) => marca.sessaoId === id)))
     .filter((sessao): sessao is SessaoCaixa => !!sessao)
 }
 
@@ -383,8 +406,11 @@ export function criarCaixaLocal(remoto: CaixaRemoto = caixa): CaixaNoDispositivo
           if (!(falha instanceof SemConexao)) throw falha
         }
       }
+      // Na ordem da abertura, como o servidor responde: a do aparelho é a ordem em que cada sessão foi
+      // guardada, e o caixa lido aberto viria antes dos fechados do mesmo dia.
       return (await locais()).filter((sessao) => diaNoBalcao(sessao.abertaEm) === dia
         && (!operadorId || operadorId === usuarioAtual()))
+        .sort((uma, outra) => Date.parse(uma.abertaEm) - Date.parse(outra.abertaEm))
     },
     async abrir(valorAbertura) {
       // O id nasce aqui também com rede: sem resposta, a abertura vai à fila com ele, e o servidor a
@@ -437,7 +463,7 @@ export function criarCaixaLocal(remoto: CaixaRemoto = caixa): CaixaNoDispositivo
         try {
           const fechada = await remoto.fechar(id, valorContado)
           // Se a rede cair antes de a sessão ser lida de novo, a guardada ainda diria ABERTA.
-          await marcarFechadaNoServidor(id)
+          await guardarFechamentoDoAparelho({ sessaoId: id, valorContado, diferenca: fechada.diferenca })
           return fechada
         } catch (falha) {
           // Sem resposta, o fechamento vai à fila. Se a chamada perdida já tinha fechado, o gesto

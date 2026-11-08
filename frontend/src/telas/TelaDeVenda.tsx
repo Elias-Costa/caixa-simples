@@ -58,6 +58,12 @@ function formaDa(opcao: OpcaoDePagamento): FormaPagamento {
 /** O painel em que a mensagem de erro aparece: o mesmo em que a ação foi tocada. */
 type LugarDoErro = 'tela' | 'busca' | 'comanda' | 'historico' | 'comprovante'
 
+/**
+ * O erro e, quando veio de uma leitura que a tela repete sozinha, qual: a leitura seguinte que responde tira só o
+ * erro dela, e a resposta a um gesto da pessoa continua à vista.
+ */
+type ErroNaTela = { texto: string; lugar: LugarDoErro; daLeitura?: 'busca' | 'clientes' }
+
 /** A quantidade não é dinheiro: tem três casas, para o que se vende por peso, e fica fora do critério dele. */
 function numero(texto: string): number { return Number(texto.replace(',', '.')) }
 
@@ -197,7 +203,7 @@ export function TelaDeVenda() {
   const [troco, setTroco] = useState<number>()
   const [copiado, setCopiado] = useState<string>()
   const [nomes, setNomes] = useState<Map<string, string>>(() => new Map())
-  const [erro, setErro] = useState<{ texto: string; lugar: LugarDoErro }>()
+  const [erro, setErro] = useState<ErroNaTela>()
   const [ocupado, setOcupado] = useState(false)
   const [carregando, setCarregando] = useState(true)
   const [todasAsVendas, setTodasAsVendas] = useState(false)
@@ -321,12 +327,17 @@ export function TelaDeVenda() {
     recusadasAntes.current = recusadasPorConferir
   }, [recusadasPorConferir])
 
+  // Relê também quando o servidor volta: o aparelho que entrou sem a cópia dos clientes a recebe nessa hora, e a
+  // lista da tela não ficaria vazia até a pessoa trocar de tela.
   useEffect(() => {
     let vivo = true
-    cadastro.clientes().then((lista) => { if (vivo) setClientes(lista) })
-      .catch((falha) => { if (vivo) setErro({ texto: erroDeCadastro(falha), lugar: 'tela' }) })
+    cadastro.clientes().then((lista) => {
+      if (!vivo) return
+      setClientes(lista)
+      setErro((atual) => atual?.daLeitura === 'clientes' ? undefined : atual)
+    }).catch((falha) => { if (vivo) setErro({ texto: erroDeCadastro(falha), lugar: 'tela', daLeitura: 'clientes' }) })
     return () => { vivo = false }
-  }, [])
+  }, [comServidor])
 
   useEffect(() => {
     if (identidade?.perfil !== 'ADMIN') return
@@ -385,9 +396,13 @@ export function TelaDeVenda() {
     let vivo = true
     const espera = window.setTimeout(() => {
       cadastro.buscarProdutos(procurado).then((produtos) => {
-        if (vivo) { setResultados(ordenarResultados(produtos, procurado)); setBuscado(procurado) }
+        if (!vivo) return
+        setResultados(ordenarResultados(produtos, procurado))
+        setBuscado(procurado)
+        // A busca que respondeu desmente a que falhou antes, como a do catálogo que ainda não estava no aparelho.
+        setErro((atual) => atual?.daLeitura === 'busca' ? undefined : atual)
       }).catch((falha) => {
-        if (vivo) setErro({ lugar: 'busca', texto: falha instanceof SemConexao
+        if (vivo) setErro({ lugar: 'busca', daLeitura: 'busca', texto: falha instanceof SemConexao
           ? 'Sem resposta do servidor na busca. Tente de novo.' : erroDeCadastro(falha) })
       })
     }, 180)
@@ -651,8 +666,8 @@ export function TelaDeVenda() {
       try {
         encontrados = await cadastro.buscarProdutos(procurado)
       } catch (falha) {
-        falhar('busca', falha instanceof SemConexao
-          ? 'Sem resposta do servidor na busca. Tente de novo.' : erroDeCadastro(falha))
+        setErro({ lugar: 'busca', daLeitura: 'busca', texto: falha instanceof SemConexao
+          ? 'Sem resposta do servidor na busca. Tente de novo.' : erroDeCadastro(falha) })
         return
       }
       setResultados(ordenarResultados(encontrados, procurado)); setBuscado(procurado)
