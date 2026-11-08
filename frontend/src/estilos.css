@@ -229,14 +229,45 @@ textarea:disabled {
   margin-top: 6px;
 }
 
+/* O olho fica dentro do campo, à direita, e o texto digitado para antes dele. O ícone, em texto
+   secundário, tem 7,56:1 sobre o fundo do campo; objeto gráfico pede 3:1. O anel do foco entra no
+   campo, para não sair da borda dele. */
 .campo__senha {
-  display: flex;
-  gap: 8px;
+  position: relative;
 }
 
 .campo__senha .campo__entrada {
-  flex: 1;
-  min-width: 0;
+  padding-right: var(--toque);
+}
+
+/* O Edge desenha um olho próprio no campo de senha; com o do aplicativo, seriam dois. */
+.campo__senha .campo__entrada::-ms-reveal {
+  display: none;
+}
+
+.campo__olho {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: grid;
+  place-items: center;
+  width: var(--toque);
+  height: var(--toque);
+  padding: 0;
+  border: 0;
+  border-radius: var(--raio);
+  background: transparent;
+  color: var(--cor-texto-secundario);
+  cursor: pointer;
+}
+
+.campo__olho:hover,
+.campo__olho[aria-pressed='true'] {
+  color: var(--cor-texto);
+}
+
+.campo__olho:focus-visible {
+  outline-offset: -4px;
 }
 
 /* Campo de dinheiro: o R$ fica dentro da caixa, à esquerda, e o toque nele cai no próprio campo. */
@@ -344,10 +375,13 @@ textarea:disabled {
 
 /* Login */
 
+/* O cartão e o rodapé da entrada ficam juntos no meio da tela, e não cada um no meio de uma metade. */
 .login {
   min-height: 100vh;
   display: grid;
   place-items: center;
+  align-content: center;
+  gap: var(--espaco);
   padding: var(--espaco);
 }
 
@@ -402,21 +436,53 @@ textarea:disabled {
   margin: 0 0 var(--espaco);
 }
 
-/* A dica da senha esquecida, em texto secundário: 6,78:1 sobre a superfície do cartão. */
-.login__ajuda {
-  margin: var(--espaco) 0 0;
+/* A senha esquecida: o resumo parece um link, porque é o que a pessoa procura, e o texto aberto fica
+   em texto secundário, com 6,78:1 sobre a superfície do cartão. */
+.login__esqueceu {
+  margin-top: 12px;
   color: var(--cor-texto-secundario);
   font-size: 0.9rem;
 }
 
-/* O apagar os dados do aparelho é raro e não se desfaz: na entrada ele é só um link, em texto
-   secundário, para não disputar a atenção com Entrar. */
-.links-de-apoio--discreto {
+.login__esqueceu summary {
+  display: inline-block;
+  padding: 4px 0;
+  color: var(--cor-texto);
+  text-decoration: underline;
+  text-decoration-color: var(--cor-primaria);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.login__esqueceu summary::-webkit-details-marker {
+  display: none;
+}
+
+.login__esqueceu summary:hover {
+  text-decoration-color: var(--cor-destaque);
+}
+
+.login__esqueceu p {
+  margin: 4px 0 0;
+}
+
+/* Privacidade, termos e o apagar os dados do aparelho saem do cartão, que fica só com a tarefa de
+   entrar. A letra é a do rodapé do aplicativo; o texto secundário tem 7,56:1 sobre o fundo. Apagar
+   é raro e não se desfaz, e por isso fica numa linha própria, por último. */
+.login__rodape {
+  width: min(100%, 420px);
+  color: var(--cor-texto-secundario);
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.login__rodape p {
   margin: 0;
 }
 
-.links-de-apoio--discreto a {
-  color: var(--cor-texto-secundario);
+.login__rodape a {
+  color: inherit;
 }
 
 /* Apagar os dados do aparelho: a página usa o cartão da entrada, que é de onde se chega a ela. */
@@ -648,7 +714,7 @@ textarea:disabled {
 /* Os links soltos do rodapé e da entrada não são texto corrido: precisam de 24px de altura para o
    toque, e a linha do texto sozinha dá 21. */
 .rodape a,
-.links-de-apoio a {
+.login__rodape a {
   display: inline-block;
   padding: 4px 0;
 }

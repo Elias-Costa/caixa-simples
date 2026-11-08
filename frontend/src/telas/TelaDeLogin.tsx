@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react'
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router'
 import { ErroDaApi, SemConexao } from '../api/cliente'
 import { estadoDaConexao } from '../api/conexao'
@@ -6,14 +6,20 @@ import { aoMudarMarcasDaEntrada, sessaoFoiEncerrada, sessaoVenceu, voltaPorOutra
 import { RelogioAdiantado } from '../sessao/token'
 import { useSessao } from '../sessao/useSessao'
 import { CampoDeSenha } from './CampoDeSenha'
+import { ErroDoCampo } from './Mensagem'
 
 export function TelaDeLogin() {
   const { identidade, entrar } = useSessao()
   const navegar = useNavigate()
+  const idDoEmail = useId()
   const [email, setEmail] = useState('')
   const [senha, setSenha] = useState('')
+  const [emailEmBranco, setEmailEmBranco] = useState(false)
+  const [senhaEmBranco, setSenhaEmBranco] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [enviando, setEnviando] = useState(false)
+  const campoDoEmail = useRef<HTMLInputElement>(null)
+  const campoDaSenha = useRef<HTMLInputElement>(null)
   const botaoDeEntrar = useRef<HTMLButtonElement>(null)
   const focarDepoisDoErro = useRef(false)
   // A marca pode mudar com a entrada à vista, quando alguém entra ou sai em outra aba.
@@ -33,6 +39,20 @@ export function TelaDeLogin() {
   async function enviar(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault()
     setErro(null)
+    // O servidor recusa o campo em branco, também só com espaços, e a recusa dele fala de campos destacados
+    // que esta tela não destacaria. O formato do e-mail fica com ele: o login não o confere.
+    const semEmail = email.trim() === ''
+    const semSenha = senha.trim() === ''
+    setEmailEmBranco(semEmail)
+    setSenhaEmBranco(semSenha)
+    if (semEmail) {
+      campoDoEmail.current?.focus()
+      return
+    }
+    if (semSenha) {
+      campoDaSenha.current?.focus()
+      return
+    }
     setEnviando(true)
     try {
       await entrar(email, senha)
@@ -58,22 +78,34 @@ export function TelaDeLogin() {
 
         {porQueVoltou && <p className="mensagem-info" role="status">{porQueVoltou}</p>}
 
-        <label className="campo">
-          <span className="campo__rotulo">E-mail</span>
+        <div className="campo">
+          <label className="campo__rotulo" htmlFor={idDoEmail}>E-mail</label>
           <input
+            ref={campoDoEmail}
+            id={idDoEmail}
             className="campo__entrada"
             type="email"
             name="email"
             autoComplete="username"
             inputMode="email"
             value={email}
-            onChange={(evento) => setEmail(evento.target.value)}
+            aria-invalid={emailEmBranco ? true : undefined}
+            aria-describedby={emailEmBranco ? `${idDoEmail}-erro` : undefined}
+            onChange={(evento) => {
+              setEmail(evento.target.value)
+              setEmailEmBranco(false)
+            }}
             required
           />
-        </label>
+          <ErroDoCampo id={`${idDoEmail}-erro`} texto={emailEmBranco ? 'Informe o e-mail.' : undefined} />
+        </div>
 
         <CampoDeSenha rotulo="Senha" name="senha" autoComplete="current-password" valor={senha}
-          aoMudar={setSenha} />
+          entrada={campoDaSenha} erro={senhaEmBranco ? 'Informe a senha.' : undefined}
+          aoMudar={(valor) => {
+            setSenha(valor)
+            setSenhaEmBranco(false)
+          }} />
 
         {erro && (
           <p className="login__erro" role="alert">
@@ -85,18 +117,23 @@ export function TelaDeLogin() {
           {enviando ? 'Entrando...' : 'Entrar'}
         </button>
         {/* Não há recuperação por e-mail: o administrador redefine a senha do operador, e o próprio
-            administrador é socorrido pelo atendimento. Fica à vista antes do primeiro erro. */}
-        <p className="login__ajuda">
-          Esqueceu a senha? Peça ao administrador da Conta uma senha provisória. Se você é o
-          administrador, fale com o atendimento do ECRX Caixa.
-        </p>
-        <p className="links-de-apoio"><Link to="/privacidade">Aviso de privacidade</Link> · <Link to="/termos">Termos de uso</Link></p>
+            administrador é socorrido pelo atendimento. O link fica à vista antes do primeiro erro, e o
+            texto abre no próprio cartão, sem sair da tela nem perder o e-mail digitado. */}
+        <details className="login__esqueceu">
+          <summary>Esqueceu sua senha?</summary>
+          <p>
+            Peça ao administrador da Conta uma senha provisória. Se você é o administrador, fale com o
+            atendimento do ECRX Caixa.
+          </p>
+        </details>
+      </form>
+
+      <footer className="login__rodape">
+        <p><Link to="/privacidade">Aviso de privacidade</Link> · <Link to="/termos">Termos de uso</Link></p>
         {/* Fica aqui, e não dentro do aplicativo, porque o aparelho de uma Conta encerrada ou de quem
             foi inativado não entra mais. A página explica e confirma antes de apagar. */}
-        <p className="links-de-apoio links-de-apoio--discreto">
-          <Link to="/aparelho">Apagar os dados deste aparelho</Link>
-        </p>
-      </form>
+        <p><Link to="/aparelho">Apagar os dados deste aparelho</Link></p>
+      </footer>
     </main>
   )
 }

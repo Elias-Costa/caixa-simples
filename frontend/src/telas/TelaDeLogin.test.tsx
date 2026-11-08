@@ -61,25 +61,121 @@ describe('TelaDeLogin', () => {
     expect(screen.getByText('Sistema de caixa e vendas')).toBeInTheDocument()
   })
 
-  it('diz a quem pedir a senha esquecida antes de qualquer erro', () => {
+  it('o link da senha esquecida fica à vista antes de qualquer erro e abre a instrução no próprio cartão', () => {
     vi.stubGlobal('fetch', vi.fn())
     renderizarLogin()
+    const instrucao = screen.getByText('Peça ao administrador da Conta uma senha provisória. Se você é o '
+      + 'administrador, fale com o atendimento do ECRX Caixa.')
+    expect(instrucao).not.toBeVisible()
 
-    expect(screen.getByText('Esqueceu a senha? Peça ao administrador da Conta uma senha provisória. '
-      + 'Se você é o administrador, fale com o atendimento do ECRX Caixa.')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Esqueceu sua senha?'))
+
+    expect(instrucao).toBeVisible()
+    expect(screen.getByLabelText('E-mail')).toBeInTheDocument()
   })
 
-  it('mostra a senha digitada a quem toca em Mostrar, e a esconde de novo', () => {
+  it('o olho mostra a senha digitada e a esconde de novo, com o mesmo nome e o estado no aria-pressed', () => {
     renderizarLogin()
     const senha = screen.getByLabelText('Senha')
+    const olho = screen.getByRole('button', { name: 'Mostrar a senha' })
     fireEvent.change(senha, { target: { value: 'abc' } })
     expect(senha).toHaveAttribute('type', 'password')
+    expect(olho).toHaveAttribute('aria-pressed', 'false')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Mostrar' }))
+    fireEvent.click(olho)
     expect(senha).toHaveAttribute('type', 'text')
-    expect(screen.getByRole('button', { name: 'Ocultar' })).toHaveAttribute('aria-pressed', 'true')
-    fireEvent.click(screen.getByRole('button', { name: 'Ocultar' }))
+    expect(screen.getByRole('button', { name: 'Mostrar a senha' })).toHaveAttribute('aria-pressed', 'true')
+
+    fireEvent.click(olho)
     expect(senha).toHaveAttribute('type', 'password')
+    expect(olho).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('os links de apoio ficam fora do cartão de entrar', () => {
+    vi.stubGlobal('fetch', vi.fn())
+    renderizarLogin()
+    const cartao = screen.getByRole('button', { name: 'Entrar' }).closest('form')
+
+    for (const nome of ['Aviso de privacidade', 'Termos de uso', 'Apagar os dados deste aparelho']) {
+      expect(cartao).not.toContainElement(screen.getByRole('link', { name: nome }))
+    }
+  })
+
+  describe('campo em branco', () => {
+    it('não vai ao servidor: diz o que falta embaixo de cada campo e põe o foco no primeiro', () => {
+      vi.stubGlobal('fetch', vi.fn())
+      renderizarLogin()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Entrar' }))
+
+      const email = screen.getByLabelText('E-mail')
+      const senha = screen.getByLabelText('Senha')
+      expect(fetch).not.toHaveBeenCalled()
+      expect(email).toHaveAttribute('aria-invalid', 'true')
+      expect(email).toHaveAccessibleDescription('Informe o e-mail.')
+      expect(senha).toHaveAttribute('aria-invalid', 'true')
+      expect(senha).toHaveAccessibleDescription('Informe a senha.')
+      expect(email).toHaveFocus()
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    })
+
+    it('só espaços também é em branco, como o servidor considera, e o foco vai à senha que falta', () => {
+      vi.stubGlobal('fetch', vi.fn())
+      renderizarLogin()
+      fireEvent.change(screen.getByLabelText('E-mail'), { target: { value: 'ana@exemplo.test' } })
+      fireEvent.change(screen.getByLabelText('Senha'), { target: { value: '   ' } })
+
+      fireEvent.click(screen.getByRole('button', { name: 'Entrar' }))
+
+      expect(fetch).not.toHaveBeenCalled()
+      expect(screen.getByLabelText('E-mail')).not.toHaveAttribute('aria-invalid')
+      expect(screen.getByText('Informe a senha.')).toBeInTheDocument()
+      expect(screen.getByLabelText('Senha')).toHaveFocus()
+    })
+
+    it('a mensagem do campo sai quando a pessoa digita nele, e a do outro continua', () => {
+      vi.stubGlobal('fetch', vi.fn())
+      renderizarLogin()
+      fireEvent.click(screen.getByRole('button', { name: 'Entrar' }))
+
+      fireEvent.change(screen.getByLabelText('Senha'), { target: { value: 'a' } })
+
+      expect(screen.queryByText('Informe a senha.')).not.toBeInTheDocument()
+      expect(screen.getByLabelText('Senha')).not.toHaveAttribute('aria-invalid')
+      expect(screen.getByText('Informe o e-mail.')).toBeInTheDocument()
+    })
+
+    it('o formato do e-mail fica com o servidor, que não o confere no login', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 401 })))
+      renderizarLogin()
+      fireEvent.change(screen.getByLabelText('E-mail'), { target: { value: 'ana' } })
+      fireEvent.change(screen.getByLabelText('Senha'), { target: { value: 'abc' } })
+
+      fireEvent.click(screen.getByRole('button', { name: 'Entrar' }))
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('E-mail ou senha incorretos.')
+      expect(fetch).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  it('avisa o Caps Lock ligado embaixo da senha, e o aviso some quando a tecla desliga ou o campo perde o foco', () => {
+    vi.stubGlobal('fetch', vi.fn())
+    renderizarLogin()
+    const senha = screen.getByLabelText('Senha')
+    expect(senha).toHaveAccessibleDescription('')
+
+    fireEvent.keyDown(senha, { key: 'A', modifierCapsLock: true })
+    expect(senha).toHaveAccessibleDescription('Caps Lock ligado.')
+    // Já montada antes do texto, para o leitor de tela anunciar; sem o papel status, que é o da mensagem da tela.
+    expect(screen.getByText('Caps Lock ligado.')).toHaveAttribute('aria-live', 'polite')
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+
+    fireEvent.keyUp(senha, { key: 'CapsLock', modifierCapsLock: false })
+    expect(screen.queryByText('Caps Lock ligado.')).not.toBeInTheDocument()
+
+    fireEvent.keyDown(senha, { key: 'A', modifierCapsLock: true })
+    fireEvent.blur(senha)
+    expect(screen.queryByText('Caps Lock ligado.')).not.toBeInTheDocument()
   })
 
   it('credencial recusada mostra a mensagem e não guarda nada', async () => {
