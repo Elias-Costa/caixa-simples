@@ -15,11 +15,13 @@
 #
 # O purl, com o tipo, o nome e a versão do pacote, sai no relatório da ferramenta em JSON. Sem
 # purls, a exceção valeria para o mesmo aviso em qualquer pacote, e por isso ele é obrigatório aqui.
+# Pelo mesmo motivo, a troca de uma base muda o purl, com a versão do pacote e a do Alpine, e a
+# exceção que continua precisa ganhar o purl novo na mesma troca.
 vulnerabilities:
   # O proxy da VPS, o Caddy 2.11.7, compilado com o Go 1.26.8. As correções estão no Go 1.26.9, de
-  # 2026-10-08, e no Go 1.26.10, de 2026-10-21, e ainda não saiu build do proxy com elas. Saindo um
-  # build com o Go 1.26.10 ou mais novo, troca-se o digest no compose da VPS, o HTTP/2 volta ao
-  # Caddyfile e estas exceções da versão do Go saem.
+  # 2026-10-08, e no Go 1.26.10, de 2026-10-21. O Caddy 2.11.9, de 2026-11-05, compilado com o Go
+  # 1.27.3, traz todas e entra depois de 7 dias publicado, como toda troca de imagem. Trocado o digest
+  # no compose da VPS, o HTTP/2 volta ao Caddyfile e estas exceções da versão do Go saem.
   - id: CVE-2026-78669
     purls:
       - pkg:golang/golang.org/x/net@v0.59.0
@@ -55,9 +57,8 @@ vulnerabilities:
       por essa verificação.
     expired_at: 2026-12-01
 
-  # O mesmo binário traz o go-jose 4.1.5 e o 3.0.5. A correção está no 4.1.6, e a versão 3 ainda não
-  # tem nenhuma. Saindo um build do proxy com o go-jose corrigido, troca-se o digest no compose da VPS
-  # e esta exceção sai.
+  # O mesmo binário traz o go-jose 4.1.5 e o 3.0.5. A correção está no 4.1.6, que o Caddy 2.11.9 traz,
+  # e a versão 3 ainda não tem nenhuma. Trocado o digest no compose da VPS, esta exceção sai.
   - id: CVE-2026-116587
     purls:
       - pkg:golang/github.com/go-jose/go-jose/v4@v4.1.5
@@ -68,9 +69,24 @@ vulnerabilities:
       certificado, assina os pedidos com a própria chave e não lê a chave de ninguém.
     expired_at: 2026-12-01
 
-  # A base Alpine do mesmo proxy traz a brotli 1.2.0 e o curl 8.22.0. As correções estão na brotli
-  # 1.2.1 e no curl 8.23.0, que o Alpine já publicou, e ainda não saiu imagem do proxy com elas.
-  # Saindo, troca-se o digest no compose da VPS e estas exceções saem.
+  # O mesmo binário traz o golang.org/x/net 0.59.0, cujo leitor de HTML entra pela biblioteca de linha
+  # de comando da smallstep, que monta a ajuda dos comandos. A correção está na 0.62.0, e o Caddy 2.11.9
+  # ainda traz a 0.60.0: na troca do digest, o purl desta exceção passa à 0.60.0, e ela sai com um
+  # build do proxy com a 0.62.0 ou mais nova.
+  - id: CVE-2026-78661
+    purls:
+      - pkg:golang/golang.org/x/net@v0.59.0
+    statement: >-
+      Custo quadrático de CPU e de memória ao ler um HTML com muitos trechos curtos de texto separados
+      por marcas de fim ignoradas. No proxy, o leitor de HTML só serve à ajuda dos comandos da linha de
+      comando. Ao atender, o proxy limita o tamanho do corpo e encaminha a requisição à aplicação sem
+      ler o conteúdo dela nem o da resposta.
+    expired_at: 2026-12-01
+
+  # A base Alpine 3.23.6 do mesmo proxy traz a brotli 1.2.0, o curl 8.22.0, a musl 1.2.5-r23 e a zlib
+  # 1.3.2-r0. As correções estão na brotli 1.2.1, no curl 8.23.0, na musl 1.2.5-r24 e na zlib 1.3.2-r1.
+  # O Caddy 2.11.9 vem sobre o Alpine 3.24.4, com as quatro corrigidas: trocado o digest no compose da
+  # VPS, estas exceções saem.
   - id: CVE-2026-111497
     purls:
       - pkg:apk/alpine/brotli-libs@1.2.0-r0?arch=x86_64&distro=3.23.6
@@ -89,12 +105,75 @@ vulnerabilities:
       curl nunca é chamado na imagem do proxy: o proxy não tem verificação de saúde, e a implantação
       só recarrega a configuração dele. O proxy é um binário estático, que não carrega a biblioteca.
     expired_at: 2026-12-01
+  - id: CVE-2026-107891
+    purls:
+      - pkg:apk/alpine/musl@1.2.5-r23?arch=x86_64&distro=3.23.6
+      - pkg:apk/alpine/musl-utils@1.2.5-r23?arch=x86_64&distro=3.23.6
+    statement: >-
+      Estouro de inteiro com escrita fora do buffer ao compilar, com regcomp, uma expressão regular não
+      confiável. O proxy é um binário estático, que não usa a biblioteca C da imagem. Na imagem, só
+      ferramentas do sistema, como o busybox, chamam o regcomp, e nenhuma roda: o proxy não tem
+      verificação de saúde, e a implantação só recarrega a configuração dele.
+    expired_at: 2026-12-01
+  - id: CVE-2026-85091
+    purls:
+      - pkg:apk/alpine/zlib@1.3.2-r0?arch=x86_64&distro=3.23.6
+    statement: >-
+      Escrita além do buffer em gzprintf e gzvprintf, depois de uma escrita travada num descritor não
+      bloqueante. O proxy é um binário estático, que não carrega a biblioteca, e nenhum programa da
+      imagem chama essas duas funções.
+    expired_at: 2026-12-01
 
-  # Os dois avisos da libexpat da base da imagem da aplicação valem até a 2.9.0 e só saem com uma base
-  # que traga a 2.10.0, que o Alpine já publicou, depois de 7 dias publicada, como toda troca de base.
+  # A base da imagem da cópia e da imagem do banco da VPS, o postgres 17 sobre o Alpine 3.24.2, traz a
+  # musl 1.2.6-r2 e a zlib 1.3.2-r0. As correções estão na musl 1.2.6-r3 e na zlib 1.3.2-r1, que a
+  # base nova da mesma tag, de 2026-11-05, com o PostgreSQL 17.11, traz; ela entra depois de 7 dias
+  # publicada, como toda troca de base. Trocado o digest nos dois Dockerfiles, estas exceções saem.
+  - id: CVE-2026-107891
+    purls:
+      - pkg:apk/alpine/musl@1.2.6-r2?arch=x86_64&distro=3.24.2
+      - pkg:apk/alpine/musl-utils@1.2.6-r2?arch=x86_64&distro=3.24.2
+    statement: >-
+      Estouro de inteiro com escrita fora do buffer ao compilar, com regcomp, uma expressão regular não
+      confiável. O PostgreSQL usa o próprio leitor de expressões regulares, e não o da biblioteca C.
+      Nas duas imagens, só o shell, o busybox, a biblioteca do Kerberos e a libedit chamam o regcomp,
+      com as expressões escritas nos scripts ou na configuração da própria imagem; nenhuma expressão
+      vem de dado.
+    expired_at: 2026-12-01
+  - id: CVE-2026-85091
+    purls:
+      - pkg:apk/alpine/zlib@1.3.2-r0?arch=x86_64&distro=3.24.2
+    statement: >-
+      Escrita além do buffer em gzprintf e gzvprintf, depois de uma escrita travada num descritor não
+      bloqueante. Nenhum programa das duas imagens chama essas funções: o pg_dump, o pg_restore e a
+      libxml2 escrevem pelo gzwrite, que não passa pelo trecho com a falha.
+    expired_at: 2026-12-01
+
+  # A base da imagem da aplicação, o eclipse-temurin 21 sobre o Alpine 3.24.3, traz a libexpat 2.9.0.
+  # Os quatro avisos dela valem até a 2.9.0 e saem com a base nova da mesma tag, de 2026-11-05, sobre o
+  # Alpine 3.24.4 e com a libexpat 2.10.0, trocada depois de 7 dias publicada, como toda troca de base.
+  - id: CVE-2026-113351
+    purls:
+      - pkg:apk/alpine/libexpat@2.9.0-r0?arch=x86_64&distro=3.24.3
+    statement: >-
+      Falta de memória nos documentos seguintes a um documento grande, num leitor reaproveitado com
+      XML_ParserReset. Na imagem, só o fontconfig usa a libexpat, e ele lê só os arquivos de
+      configuração de fontes da própria imagem. A aplicação não desenha texto nem imagem, que é o que
+      levaria a JVM ao fontconfig, e a JVM lê XML com o próprio leitor, sem a libexpat; nenhum dado
+      vindo de fora chega a ela.
+    expired_at: 2026-12-01
+  - id: CVE-2026-115506
+    purls:
+      - pkg:apk/alpine/libexpat@2.9.0-r0?arch=x86_64&distro=3.24.3
+    statement: >-
+      Dezenas de segundos de CPU por documento com uma DTD grande e entidades aninhadas, que a proteção
+      contra a expansão de entidades percebe tarde. Na imagem, só o fontconfig usa a libexpat, e ele lê
+      só os arquivos de configuração de fontes da própria imagem, sem DTD de fora. A aplicação não
+      desenha texto nem imagem, que é o que levaria a JVM ao fontconfig, e a JVM lê XML com o próprio
+      leitor, sem a libexpat; nenhum dado vindo de fora chega a ela.
+    expired_at: 2026-12-01
   - id: CVE-2026-117610
     purls:
-      - pkg:apk/alpine/libexpat@2.8.5-r0?arch=x86_64&distro=3.24.2
+      - pkg:apk/alpine/libexpat@2.9.0-r0?arch=x86_64&distro=3.24.3
     statement: >-
       Ponteiro nulo ao interpretar uma entidade externa entregue em pedaços escolhidos por quem envia o
       XML. Na imagem, só o fontconfig usa a libexpat, e ele lê só os arquivos de configuração de fontes
@@ -104,7 +183,7 @@ vulnerabilities:
     expired_at: 2026-12-01
   - id: CVE-2026-118370
     purls:
-      - pkg:apk/alpine/libexpat@2.8.5-r0?arch=x86_64&distro=3.24.2
+      - pkg:apk/alpine/libexpat@2.9.0-r0?arch=x86_64&distro=3.24.3
     statement: >-
       Estouro de inteiro com escrita fora do buffer num documento de vários gigabytes com mais de 2^30
       atributos numa marca. Na imagem, só o fontconfig usa a libexpat, e ele lê só os arquivos de
