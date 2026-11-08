@@ -245,7 +245,7 @@ class VendaCanceladaListenerTest extends TesteDeIntegracao {
             List<VendaConcluida.Parcela> pagas) {
         return new VendaConcluida(conta.contaId(), vendaId, sessaoId, conta.usuarioId(),
                 List.of(new VendaConcluida.Item(UUID.randomUUID(), BigDecimal.ONE)), pagas,
-                Instant.now());
+                Instant.now(), conta.usuarioId());
     }
 
     /** O cancelamento da venda com as mesmas parcelas com que ela foi concluída. */
@@ -256,7 +256,7 @@ class VendaCanceladaListenerTest extends TesteDeIntegracao {
                         parcela.status()))
                 .toList();
         return new VendaCancelada(conta.contaId(), vendaId, sessaoId, conta.usuarioId(),
-                List.of(new VendaCancelada.Item(UUID.randomUUID(), BigDecimal.ONE)), parcelas);
+                List.of(new VendaCancelada.Item(UUID.randomUUID(), BigDecimal.ONE)), parcelas, conta.usuarioId());
     }
 
     /** Como numa requisição: a conta no contexto antes de a transação abrir. */

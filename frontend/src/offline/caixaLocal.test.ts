@@ -150,8 +150,8 @@ describe('SessaoCaixa local', () => {
     const recarregado = criarCaixaLocal(remoto)
     expect(await recarregado.consultar(id)).toMatchObject({
       status: 'ABERTA', versao: 2, valorAbertura: 20, valorFechamentoEsperado: 18,
-      pendenteSincronizacao: true, movimentos: [{ tipo: 'SANGRIA', valor: 5 },
-        { tipo: 'SUPRIMENTO', valor: 3 }],
+      pendenteSincronizacao: true, movimentos: [{ tipo: 'SANGRIA', valor: 5, usuarioId: 'ana' },
+        { tipo: 'SUPRIMENTO', valor: 3, usuarioId: 'ana' }],
     })
     expect((await recarregado.historico(hojeNoBalcao())).map((sessao) => sessao.id)).toContain(id)
     expect(await recarregado.fechar(id, 16)).toEqual({ diferenca: 2 })
@@ -194,7 +194,7 @@ describe('SessaoCaixa local', () => {
 
     // Só o dinheiro entra na gaveta: 20 de abertura mais 10 da Venda; o cartão fica de fora.
     expect(await local.consultar(id)).toMatchObject({ valorFechamentoEsperado: 30, versao: 1,
-      pendenteSincronizacao: true, movimentos: [{ tipo: 'VENDA', valor: 10, vendaId: venda.id }] })
+      pendenteSincronizacao: true, movimentos: [{ tipo: 'VENDA', valor: 10, vendaId: venda.id, usuarioId: 'ana' }] })
     // A sangria de 25 só cabe por causa da Venda, e por isso depende da conclusão dela.
     await local.sangrar(id, 25, 'Depósito')
     expect(await local.fechar(id, 5)).toEqual({ diferenca: 0 })

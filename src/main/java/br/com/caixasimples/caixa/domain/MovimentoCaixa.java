@@ -32,14 +32,20 @@ import java.util.UUID;
  *                 {@link SessaoCaixa#suprir}, porque aqui o campo apenas aceita o que vier
  * @param vendaId  preenchido quando o tipo é VENDA ou ESTORNO, os dois que vêm de uma venda. É
  *                 referência entre agregados, então é um {@link UUID} e nunca um objeto navegável
- * @param criadoEm momento do lançamento, em UTC
+ * @param criadoEm  momento do lançamento, em UTC
+ * @param usuarioId quem lançou: quem concluiu a venda, quem a cancelou, quem lançou a sangria ou o
+ *                  suprimento, quem recebeu o fiado. Pode não ser o dono do caixa, porque o
+ *                  administrador lança e cancela em qualquer caixa da Conta, e é a trilha que ele
+ *                  confere no caixa. A raiz o exige no movimento novo; nulo só no movimento gravado
+ *                  antes de o caixa guardar quem lançou
  */
 public record MovimentoCaixa(UUID id, TipoMovimentoCaixa tipo, Money valor, String motivo,
-        UUID vendaId, UUID recebimentoId, Instant criadoEm) {
+        UUID vendaId, UUID recebimentoId, Instant criadoEm, UUID usuarioId) {
 
+    /** O movimento gravado antes de o caixa guardar quem lançou, sem recebimento. */
     public MovimentoCaixa(UUID id, TipoMovimentoCaixa tipo, Money valor, String motivo,
             UUID vendaId, Instant criadoEm) {
-        this(id, tipo, valor, motivo, vendaId, null, criadoEm);
+        this(id, tipo, valor, motivo, vendaId, null, criadoEm, null);
     }
 
     public MovimentoCaixa {
@@ -62,14 +68,11 @@ public record MovimentoCaixa(UUID id, TipoMovimentoCaixa tipo, Money valor, Stri
      * vem da raiz, que usa o relógio do servidor no caminho com rede e o do balcão quando o
      * movimento foi registrado no dispositivo sem rede.
      */
-    static MovimentoCaixa novo(TipoMovimentoCaixa tipo, Money valor, String motivo, UUID vendaId,
-            UUID recebimentoId, Instant criadoEm) {
-        return novo(UUID.randomUUID(), tipo, valor, motivo, vendaId, recebimentoId, criadoEm);
-    }
-
     static MovimentoCaixa novo(UUID id, TipoMovimentoCaixa tipo, Money valor, String motivo,
-            UUID vendaId, UUID recebimentoId, Instant criadoEm) {
-        return new MovimentoCaixa(id, tipo, valor, motivo, vendaId, recebimentoId, criadoEm);
+            UUID vendaId, UUID recebimentoId, Instant criadoEm, UUID usuarioId) {
+        Objects.requireNonNull(usuarioId, "quem lancou o movimento nao pode ser nulo");
+        return new MovimentoCaixa(id, tipo, valor, motivo, vendaId, recebimentoId, criadoEm,
+                usuarioId);
     }
 
     private static String textoOpcional(String valor) {

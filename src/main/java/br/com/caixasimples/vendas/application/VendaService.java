@@ -667,7 +667,9 @@ public class VendaService {
         linha.atualizarCom(venda);
         vendas.save(linha);
         if (concluir) {
-            eventos.publishEvent(eventoDe(venda));
+            // O aviso do banco chega sem ninguém autenticado. A entrada em dinheiro dessa venda foi
+            // recebida no balcão pelo operador dela, e é ele quem fica como autor no caixa.
+            eventos.publishEvent(eventoDe(venda, venda.getUsuarioId()));
         }
     }
 
@@ -751,7 +753,7 @@ public class VendaService {
         linha.atualizarCom(venda);
         vendas.save(linha);
 
-        eventos.publishEvent(eventoDe(venda));
+        eventos.publishEvent(eventoDe(venda, UsuarioContext.exigirAtual().usuarioId()));
     }
 
     /**
@@ -820,7 +822,7 @@ public class VendaService {
             }
         }
 
-        venda.cancelar();
+        venda.cancelar(UsuarioContext.exigirAtual().usuarioId(), Instant.now());
 
         linha.atualizarCom(venda);
         vendas.save(linha);
@@ -900,7 +902,8 @@ public class VendaService {
         linha.atualizarCom(venda);
         vendas.save(linha);
         eventos.publishEvent(new FiadoRecebido(TenantContext.exigirAtual(), vendaId,
-                recebimento.id(), sessaoId, recebimento.valor(), recebimento.forma()));
+                recebimento.id(), sessaoId, recebimento.valor(), recebimento.forma(),
+                UsuarioContext.exigirAtual().usuarioId()));
         return new RecebimentoRegistrado(recebimento.id(), venda.saldoDevedor());
     }
 
@@ -1083,7 +1086,8 @@ public class VendaService {
                 .map(VendaEntity::paraDominio)
                 .map(venda -> new ResumoDaVenda(venda.getId(), venda.getSessaoCaixaId(),
                         venda.getUsuarioId(), venda.getStatus(), venda.getValorTotal(),
-                        venda.getCriadoEm(), formasDa(venda)))
+                        venda.getCriadoEm(), formasDa(venda), venda.getCanceladaEm(),
+                        venda.getCanceladaPor()))
                 .toList();
     }
 
@@ -1131,11 +1135,20 @@ public class VendaService {
                         .toList(),
                 venda.getRecebimentos().stream().map(recebimento -> new RecebimentoParaTela(
                         recebimento.id(), recebimento.sessaoCaixaId(), recebimento.valor(),
-                        recebimento.forma(), recebimento.criadoEm(), recebimento.nsu())).toList());
+                        recebimento.forma(), recebimento.criadoEm(), recebimento.nsu())).toList(),
+                venda.getCanceladaEm(), venda.getCanceladaPor());
     }
 
+    /**
+     * Uma venda na lista do caixa.
+     *
+     * @param canceladaEm  quando foi cancelada; nulo fora de CANCELADA e na cancelada antes de a
+     *                     trilha existir
+     * @param canceladaPor quem cancelou, nulo nos mesmos casos
+     */
     public record ResumoDaVenda(UUID id, UUID sessaoCaixaId, UUID usuarioId,
-            StatusVenda status, Money total, Instant criadoEm, List<ValorDaForma> formas) {
+            StatusVenda status, Money total, Instant criadoEm, List<ValorDaForma> formas,
+            Instant canceladaEm, UUID canceladaPor) {
     }
 
     /** Quanto da venda entrou por uma forma de pagamento, somadas as parcelas dela. */
@@ -1146,7 +1159,8 @@ public class VendaService {
             Money saldoDevedor,
             StatusVenda status, Instant criadoEm, Money descontoDaVenda, Money total,
             Money pago, Money faltaPagar, List<ItemParaTela> itens,
-            List<ParcelaParaTela> parcelas, List<RecebimentoParaTela> recebimentos) {
+            List<ParcelaParaTela> parcelas, List<RecebimentoParaTela> recebimentos,
+            Instant canceladaEm, UUID canceladaPor) {
     }
 
     /** A unidade é a do cadastro de hoje, como o nome, e falta no produto cadastrado sem ela. */
@@ -1170,8 +1184,10 @@ public class VendaService {
     /**
      * O fato inteiro, no vocabulário que os outros módulos enxergam. A conta vem do contexto
      * autenticado, nunca de parâmetro (RNF05).
+     *
+     * @param concluidaPor quem concluiu, que o caixa grava como autor do dinheiro na gaveta
      */
-    private static VendaConcluida eventoDe(Venda venda) {
+    private static VendaConcluida eventoDe(Venda venda, UUID concluidaPor) {
         ContaId contaId = TenantContext.exigirAtual();
 
         List<VendaConcluida.Item> itens = venda.getItens().stream()
@@ -1183,7 +1199,7 @@ public class VendaService {
                 .toList();
 
         return new VendaConcluida(contaId, venda.getId(), venda.getSessaoCaixaId(),
-                venda.getUsuarioId(), itens, parcelas, venda.getConcluidoEm());
+                venda.getUsuarioId(), itens, parcelas, venda.getConcluidoEm(), concluidaPor);
     }
 
     /**
@@ -1207,7 +1223,7 @@ public class VendaService {
                         recebimento.valor())).toList();
 
         return new VendaCancelada(contaId, venda.getId(), venda.getSessaoCaixaId(),
-                venda.getUsuarioId(), itens, parcelas, recebimentos);
+                venda.getUsuarioId(), itens, parcelas, recebimentos, venda.getCanceladaPor());
     }
 
     /**

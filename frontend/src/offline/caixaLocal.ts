@@ -240,8 +240,10 @@ function projetar(base: SessaoGuardada | undefined, gestos: GestoNaFila[], id: s
       // leitura feita depois dela já o traz: contá-lo de novo dobraria a sangria.
       if (sessao.movimentos?.some((existente) => existente.id === idDoMovimento)) continue
       const tipo = gesto.tipo === 'caixa.sangrar' ? 'SANGRIA' : 'SUPRIMENTO'
+      // Quem lança é quem está no aparelho: a fila é dele, e é ele que o servidor grava.
       const movimento: MovimentoCaixa = { id: idDoMovimento, tipo, valor: dados.valor,
-        motivo: dados.motivo, vendaId: null, recebimentoId: null, criadoEm: dados.criadoEm }
+        motivo: dados.motivo, vendaId: null, recebimentoId: null, criadoEm: dados.criadoEm,
+        usuarioId: usuarioAtual() }
       const esperado = centavosDoSaldo(sessao.valorFechamentoEsperado)
       const quantia = centavos(dados.valor, 'Valor do movimento')
       sessao = { ...sessao, movimentos: sessao.movimentos && [...sessao.movimentos, movimento],
@@ -253,7 +255,8 @@ function projetar(base: SessaoGuardada | undefined, gestos: GestoNaFila[], id: s
     // Como no servidor: só o dinheiro em espécie entra na gaveta, e sem dinheiro não há movimento.
     if (venda && emDinheiro > 0) {
       const movimento: MovimentoCaixa = { id: gesto.operacaoId, tipo: 'VENDA', valor: reais(emDinheiro),
-        motivo: null, vendaId: venda.id, recebimentoId: null, criadoEm: venda.concluidoEm ?? gesto.criadoEm }
+        motivo: null, vendaId: venda.id, recebimentoId: null, criadoEm: venda.concluidoEm ?? gesto.criadoEm,
+        usuarioId: usuarioAtual() }
       // A Venda não devolve a revisão da sessão; o dispositivo conta a entrada do dinheiro.
       sessao = { ...sessao, movimentos: sessao.movimentos && [...sessao.movimentos, movimento],
         versao: versaoLida(sessao) + 1,

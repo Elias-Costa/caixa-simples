@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 import static org.assertj.core.api.Assertions.assertThatNoException;
+import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.assertj.core.api.Assertions.tuple;
 
 import br.com.caixasimples.caixa.StatusSessaoCaixa;
@@ -50,6 +51,45 @@ class SessaoCaixaTest {
     }
 
     @Test
+    @DisplayName("cada movimento grava quem o lançou, que pode não ser o dono do caixa")
+    void movimentoGravaQuemLancou() {
+        SessaoCaixa sessao = new SessaoCaixa(OPERADOR, Money.de("100.00"));
+        UUID administrador = UUID.randomUUID();
+        UUID vendaDoOperador = UUID.randomUUID();
+        UUID vendaFiada = UUID.randomUUID();
+
+        sessao.registrarVenda(Money.de("20.00"), vendaDoOperador, OPERADOR);
+        sessao.sangrar(Money.de("10.00"), "Deposito", administrador);
+        sessao.suprir(Money.de("5.00"), "Troco", administrador);
+        sessao.estornarVenda(vendaDoOperador, administrador);
+        sessao.registrarRecebimento(vendaFiada, UUID.randomUUID(), Money.de("7.00"), OPERADOR);
+
+        assertThat(sessao.getMovimentos())
+                .extracting(MovimentoCaixa::tipo, MovimentoCaixa::usuarioId)
+                .containsExactly(
+                        tuple(TipoMovimentoCaixa.VENDA, OPERADOR),
+                        tuple(TipoMovimentoCaixa.SANGRIA, administrador),
+                        tuple(TipoMovimentoCaixa.SUPRIMENTO, administrador),
+                        tuple(TipoMovimentoCaixa.ESTORNO, administrador),
+                        tuple(TipoMovimentoCaixa.RECEBIMENTO, OPERADOR));
+    }
+
+    @Test
+    @DisplayName("movimento novo sem quem o lançou é recusado e não deixa rastro")
+    void movimentoSemAutorERecusado() {
+        SessaoCaixa sessao = new SessaoCaixa(OPERADOR, Money.de("100.00"));
+
+        assertThatNullPointerException()
+                .isThrownBy(() -> sessao.sangrar(Money.de("10.00"), "Deposito", (UUID) null));
+        assertThatNullPointerException()
+                .isThrownBy(() -> sessao.registrarVenda(Money.de("10.00"), UUID.randomUUID(),
+                        (UUID) null));
+
+        assertThat(sessao.getMovimentos()).isEmpty();
+        assertThat(sessao.getValorFechamentoEsperado()).isEqualTo(Money.de("100.00"));
+    }
+
+    @Test
     @DisplayName("abrir com zero vale; com valor negativo, não")
     void aberturaAceitaZeroERecusaNegativo() {
         // Abrir a gaveta sem troco é situação real: primeiro dia, ou caixa que só recebe por Pix.
@@ -66,20 +106,20 @@ class SessaoCaixaTest {
     void esperadoAcompanhaOSinalDoTipo() {
         SessaoCaixa sessao = new SessaoCaixa(OPERADOR, Money.de("100.00"));
 
-        sessao.registrarVenda(Money.de("25.00"), UUID.randomUUID());
+        sessao.registrarVenda(Money.de("25.00"), UUID.randomUUID(), sessao.getUsuarioId());
         assertThat(sessao.getValorFechamentoEsperado()).isEqualTo(Money.de("125.00"));
 
         UUID movimentoId = UUID.randomUUID();
-        sessao.suprir(movimentoId, Money.de("50.00"), "Reforco de troco", Instant.now());
+        sessao.suprir(movimentoId, Money.de("50.00"), "Reforco de troco", Instant.now(), sessao.getUsuarioId());
         assertThat(sessao.getValorFechamentoEsperado()).isEqualTo(Money.de("175.00"));
         assertThatIllegalStateException().isThrownBy(() -> sessao.suprir(movimentoId,
-                Money.de("50.00"), "Reforco de troco", Instant.now()));
+                Money.de("50.00"), "Reforco de troco", Instant.now(), sessao.getUsuarioId()));
         assertThatIllegalStateException().isThrownBy(() -> sessao.sangrar(movimentoId,
-                Money.de("30.00"), "Pagamento do entregador", Instant.now()));
+                Money.de("30.00"), "Pagamento do entregador", Instant.now(), sessao.getUsuarioId()));
         assertThat(sessao.getValorFechamentoEsperado()).isEqualTo(Money.de("175.00"));
 
         // A sangria é lançada com 30 positivo; quem sabe que ela sai é o tipo do movimento.
-        sessao.sangrar(Money.de("30.00"), "Pagamento do entregador");
+        sessao.sangrar(Money.de("30.00"), "Pagamento do entregador", sessao.getUsuarioId());
         assertThat(sessao.getValorFechamentoEsperado()).isEqualTo(Money.de("145.00"));
 
         assertThat(sessao.getMovimentos()).hasSize(3);
@@ -94,15 +134,15 @@ class SessaoCaixaTest {
         SessaoCaixa sessao = new SessaoCaixa(OPERADOR, Money.de("100.00"));
 
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> sessao.sangrar(Money.de("10.00"), null));
+                .isThrownBy(() -> sessao.sangrar(Money.de("10.00"), null, sessao.getUsuarioId()));
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> sessao.suprir(Money.de("10.00"), null));
+                .isThrownBy(() -> sessao.suprir(Money.de("10.00"), null, sessao.getUsuarioId()));
 
         // Em branco é ausência, e não um motivo vazio que satisfaria a regra na letra.
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> sessao.sangrar(Money.de("10.00"), "   "));
+                .isThrownBy(() -> sessao.sangrar(Money.de("10.00"), "   ", sessao.getUsuarioId()));
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> sessao.suprir(Money.de("10.00"), "   "));
+                .isThrownBy(() -> sessao.suprir(Money.de("10.00"), "   ", sessao.getUsuarioId()));
 
         assertThat(sessao.getMovimentos())
                 .as("lançamento recusado não deixa rastro no agregado")
@@ -116,15 +156,15 @@ class SessaoCaixaTest {
         SessaoCaixa sessao = new SessaoCaixa(OPERADOR, Money.de("100.00"));
 
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> sessao.sangrar(Money.de("10.00"), "m".repeat(121)))
+                .isThrownBy(() -> sessao.sangrar(Money.de("10.00"), "m".repeat(121), sessao.getUsuarioId()))
                 .withMessage("motivo da sangria com 121 caracteres; o limite é 120.");
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> sessao.suprir(Money.de("10.00"), "m".repeat(121)))
+                .isThrownBy(() -> sessao.suprir(Money.de("10.00"), "m".repeat(121), sessao.getUsuarioId()))
                 .withMessage("motivo do suprimento com 121 caracteres; o limite é 120.");
         assertThat(sessao.getMovimentos()).isEmpty();
 
-        sessao.sangrar(Money.de("10.00"), "  " + "m".repeat(120) + "  ");
-        sessao.suprir(Money.de("10.00"), "m".repeat(120));
+        sessao.sangrar(Money.de("10.00"), "  " + "m".repeat(120) + "  ", sessao.getUsuarioId());
+        sessao.suprir(Money.de("10.00"), "m".repeat(120), sessao.getUsuarioId());
         assertThat(sessao.getMovimentos()).extracting(movimento -> movimento.motivo().length())
                 .containsExactly(120, 120);
     }
@@ -137,7 +177,7 @@ class SessaoCaixaTest {
         // Digitar 3000 em vez de 30,00 é o erro que esta regra pega no instante em que acontece,
         // em vez de só no fechamento.
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> sessao.sangrar(Money.de("100.01"), "Deposito bancario"));
+                .isThrownBy(() -> sessao.sangrar(Money.de("100.01"), "Deposito bancario", sessao.getUsuarioId()));
 
         assertThat(sessao.getMovimentos()).isEmpty();
         assertThat(sessao.getValorFechamentoEsperado()).isEqualTo(Money.de("100.00"));
@@ -148,7 +188,7 @@ class SessaoCaixaTest {
     void sangriaIgualAoEsperadoEhAceita() {
         SessaoCaixa sessao = new SessaoCaixa(OPERADOR, Money.de("100.00"));
 
-        sessao.sangrar(Money.de("100.00"), "Recolhimento do fim do expediente");
+        sessao.sangrar(Money.de("100.00"), "Recolhimento do fim do expediente", sessao.getUsuarioId());
 
         assertThat(sessao.getValorFechamentoEsperado()).isEqualTo(Money.ZERO);
     }
@@ -158,18 +198,18 @@ class SessaoCaixaTest {
     void sessaoFechadaNaoAceitaMovimento() {
         SessaoCaixa fechada = new SessaoCaixa(OPERADOR, Money.de("100.00"));
         UUID vendaDoExpediente = UUID.randomUUID();
-        fechada.registrarVenda(Money.de("10.00"), vendaDoExpediente);
+        fechada.registrarVenda(Money.de("10.00"), vendaDoExpediente, fechada.getUsuarioId());
         fechada.fechar(Money.de("110.00"));
 
         assertThatIllegalStateException()
-                .isThrownBy(() -> fechada.sangrar(Money.de("10.00"), "Almoco"));
+                .isThrownBy(() -> fechada.sangrar(Money.de("10.00"), "Almoco", fechada.getUsuarioId()));
         assertThatIllegalStateException()
-                .isThrownBy(() -> fechada.suprir(Money.de("10.00"), "Troco"));
+                .isThrownBy(() -> fechada.suprir(Money.de("10.00"), "Troco", fechada.getUsuarioId()));
         assertThatIllegalStateException()
-                .isThrownBy(() -> fechada.registrarVenda(Money.de("10.00"), UUID.randomUUID()));
+                .isThrownBy(() -> fechada.registrarVenda(Money.de("10.00"), UUID.randomUUID(), fechada.getUsuarioId()));
         assertThatIllegalStateException()
                 .as("nem o estorno de uma venda que entrou antes do fechamento")
-                .isThrownBy(() -> fechada.estornarVenda(vendaDoExpediente))
+                .isThrownBy(() -> fechada.estornarVenda(vendaDoExpediente, fechada.getUsuarioId()))
                 .withMessageContaining("não aceita movimento");
 
         assertThat(fechada.getMovimentos()).hasSize(1);
@@ -185,7 +225,7 @@ class SessaoCaixaTest {
 
         // Uma sangria de -30 subtrairia duas vezes: uma pelo sinal, outra pelo tipo.
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> sessao.sangrar(Money.de("-30.00"), "Sinal duplicado"));
+                .isThrownBy(() -> sessao.sangrar(Money.de("-30.00"), "Sinal duplicado", sessao.getUsuarioId()));
 
         assertThat(sessao.getValorFechamentoEsperado())
                 .as("movimento recusado não pode ter mexido no esperado")
@@ -198,7 +238,7 @@ class SessaoCaixaTest {
     void motivoEmBrancoViraNulo() {
         SessaoCaixa sessao = new SessaoCaixa(OPERADOR, Money.ZERO);
 
-        sessao.registrarVenda(Money.de("10.00"), UUID.randomUUID());
+        sessao.registrarVenda(Money.de("10.00"), UUID.randomUUID(), sessao.getUsuarioId());
         assertThat(sessao.getMovimentos().get(0).motivo())
                 .as("o RF14 exige motivo de sangria e suprimento, não de venda")
                 .isNull();
@@ -220,7 +260,7 @@ class SessaoCaixaTest {
 
         assertThat(sessao.jaRegistrouVenda(vendaId)).isFalse();
 
-        sessao.registrarVenda(Money.de("18.93"), vendaId);
+        sessao.registrarVenda(Money.de("18.93"), vendaId, sessao.getUsuarioId());
 
         assertThat(sessao.jaRegistrouVenda(vendaId)).isTrue();
         assertThat(sessao.jaRegistrouVenda(outraVenda))
@@ -230,7 +270,7 @@ class SessaoCaixaTest {
         // O evento de venda concluída é entregue ao menos uma vez; a segunda entrega é o listener
         // que reconhece e pula. A raiz recusa para que nenhum chamador conte o dinheiro em dobro.
         assertThatIllegalStateException()
-                .isThrownBy(() -> sessao.registrarVenda(Money.de("18.93"), vendaId))
+                .isThrownBy(() -> sessao.registrarVenda(Money.de("18.93"), vendaId, sessao.getUsuarioId()))
                 .withMessageContaining("ja foi lancada");
 
         assertThat(sessao.getValorFechamentoEsperado())
@@ -239,7 +279,7 @@ class SessaoCaixaTest {
         assertThat(sessao.getMovimentos()).hasSize(1);
 
         // Outra venda continua entrando normalmente.
-        sessao.registrarVenda(Money.de("1.07"), outraVenda);
+        sessao.registrarVenda(Money.de("1.07"), outraVenda, sessao.getUsuarioId());
         assertThat(sessao.getValorFechamentoEsperado()).isEqualTo(Money.de("70.00"));
     }
 
@@ -248,12 +288,12 @@ class SessaoCaixaTest {
     void estornoEspelhaAVenda() {
         SessaoCaixa sessao = new SessaoCaixa(OPERADOR, Money.de("50.00"));
         UUID vendaId = UUID.randomUUID();
-        sessao.registrarVenda(Money.de("18.93"), vendaId);
-        sessao.registrarVenda(Money.de("7.00"), UUID.randomUUID());
+        sessao.registrarVenda(Money.de("18.93"), vendaId, sessao.getUsuarioId());
+        sessao.registrarVenda(Money.de("7.00"), UUID.randomUUID(), sessao.getUsuarioId());
         assertThat(sessao.getValorFechamentoEsperado()).isEqualTo(Money.de("75.93"));
         assertThat(sessao.jaEstornouVenda(vendaId)).isFalse();
 
-        sessao.estornarVenda(vendaId);
+        sessao.estornarVenda(vendaId, sessao.getUsuarioId());
 
         // Sai o que entrou por aquela venda, e só por ela; a outra continua na gaveta.
         assertThat(sessao.getValorFechamentoEsperado()).isEqualTo(Money.de("57.00"));
@@ -277,20 +317,20 @@ class SessaoCaixaTest {
     void estornoExigeAVendaEUmaVezSo() {
         SessaoCaixa sessao = new SessaoCaixa(OPERADOR, Money.de("50.00"));
         UUID vendaId = UUID.randomUUID();
-        sessao.registrarVenda(Money.de("18.93"), vendaId);
+        sessao.registrarVenda(Money.de("18.93"), vendaId, sessao.getUsuarioId());
 
         // Uma venda paga só em Pix nunca entrou na gaveta: não há o que espelhar, e a recusa é
         // alta em vez de um estorno de zero.
         assertThatIllegalStateException()
-                .isThrownBy(() -> sessao.estornarVenda(UUID.randomUUID()))
+                .isThrownBy(() -> sessao.estornarVenda(UUID.randomUUID(), sessao.getUsuarioId()))
                 .withMessageContaining("nao entrou");
 
-        sessao.estornarVenda(vendaId);
+        sessao.estornarVenda(vendaId, sessao.getUsuarioId());
 
         // O evento de cancelamento é entregue ao menos uma vez; a segunda entrega é o listener que
         // reconhece e pula. A raiz recusa para que nenhum chamador devolva o dinheiro em dobro.
         assertThatIllegalStateException()
-                .isThrownBy(() -> sessao.estornarVenda(vendaId))
+                .isThrownBy(() -> sessao.estornarVenda(vendaId, sessao.getUsuarioId()))
                 .withMessageContaining("ja foi estornada");
 
         assertThat(sessao.getValorFechamentoEsperado())
@@ -304,25 +344,25 @@ class SessaoCaixaTest {
     void estornoNaoOlhaOPiso() {
         SessaoCaixa sessao = new SessaoCaixa(OPERADOR, Money.ZERO);
         UUID vendaId = UUID.randomUUID();
-        sessao.registrarVenda(Money.de("30.00"), vendaId);
-        sessao.sangrar(Money.de("30.00"), "Deposito");
+        sessao.registrarVenda(Money.de("30.00"), vendaId, sessao.getUsuarioId());
+        sessao.sangrar(Money.de("30.00"), "Deposito", sessao.getUsuarioId());
         assertThat(sessao.getValorFechamentoEsperado()).isEqualTo(Money.ZERO);
 
         // O cancelamento já aconteceu no balcão; recusar aqui não o desfaria, só deixaria o caixa
         // sem refletir o fato. O esperado negativo é o que se corrige com um suprimento.
-        sessao.estornarVenda(vendaId);
+        sessao.estornarVenda(vendaId, sessao.getUsuarioId());
         assertThat(sessao.getValorFechamentoEsperado()).isEqualTo(Money.de("-30.00"));
 
         assertThatIllegalArgumentException()
                 .as("sangria é decisão de agora, e continua recusando o que não está lá")
-                .isThrownBy(() -> sessao.sangrar(Money.de("0.01"), "Qualquer coisa"));
+                .isThrownBy(() -> sessao.sangrar(Money.de("0.01"), "Qualquer coisa", sessao.getUsuarioId()));
     }
 
     @Test
     @DisplayName("a lista de movimentos só se altera pela raiz")
     void movimentosNaoSaoAlteraveisPorFora() {
         SessaoCaixa sessao = new SessaoCaixa(OPERADOR, Money.de("100.00"));
-        sessao.sangrar(Money.de("10.00"), "Almoco");
+        sessao.sangrar(Money.de("10.00"), "Almoco", sessao.getUsuarioId());
 
         assertThat(sessao.getMovimentos()).isUnmodifiable();
     }
@@ -331,8 +371,8 @@ class SessaoCaixaTest {
     @DisplayName("fechar apura a diferença sobre o esperado de um expediente inteiro (RF15)")
     void fechamentoApuraADiferenca() {
         SessaoCaixa sessao = new SessaoCaixa(OPERADOR, Money.de("100.00"));
-        sessao.suprir(Money.de("50.00"), "Reforco de troco");
-        sessao.sangrar(Money.de("30.00"), "Pagamento do entregador");
+        sessao.suprir(Money.de("50.00"), "Reforco de troco", sessao.getUsuarioId());
+        sessao.sangrar(Money.de("30.00"), "Pagamento do entregador", sessao.getUsuarioId());
 
         // 100 mais 50 menos 30 dá 120 na gaveta; o operador contou 118.
         Money diferenca = sessao.fechar(Money.de("118.00"));
@@ -409,10 +449,10 @@ class SessaoCaixaTest {
         Instant fechou = Instant.parse("2026-09-20T20:00:00Z");
 
         SessaoCaixa sessao = new SessaoCaixa(sessaoId, OPERADOR, Money.de("20.00"), abriu);
-        sessao.registrarVenda(Money.de("20.00"), vendaId, vendeu);
+        sessao.registrarVenda(Money.de("20.00"), vendaId, vendeu, sessao.getUsuarioId());
         // Só cabe porque a venda entrou antes: 20,00 de abertura mais 20,00 da venda.
-        sessao.sangrar(Money.de("35.00"), "Deposito", sangrou);
-        sessao.suprir(Money.de("5.00"), "Troco", supriu);
+        sessao.sangrar(Money.de("35.00"), "Deposito", sangrou, sessao.getUsuarioId());
+        sessao.suprir(Money.de("5.00"), "Troco", supriu, sessao.getUsuarioId());
         Money diferenca = sessao.fechar(Money.de("10.00"), fechou);
 
         assertThat(sessao.getId()).isEqualTo(sessaoId);
@@ -435,7 +475,7 @@ class SessaoCaixaTest {
                 Instant.now());
 
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> sessao.sangrar(Money.de("35.00"), "Deposito", Instant.now()));
+                .isThrownBy(() -> sessao.sangrar(Money.de("35.00"), "Deposito", Instant.now(), sessao.getUsuarioId()));
         assertThat(sessao.getMovimentos()).isEmpty();
         assertThat(sessao.getValorFechamentoEsperado()).isEqualTo(Money.de("20.00"));
     }

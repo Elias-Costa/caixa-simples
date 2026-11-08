@@ -47,7 +47,7 @@ class MovimentoCaixaDoAgregadoTest extends TesteDeIntegracao {
         ContaCriada conta = criador.criar("Mercearia Teste", SENHA_DE_TESTE);
 
         SessaoCaixa sessao = new SessaoCaixa(conta.usuarioId(), Money.de("80.00"));
-        sessao.sangrar(Money.de("20.00"), "Deposito bancario");
+        sessao.sangrar(Money.de("20.00"), "Deposito bancario", sessao.getUsuarioId());
 
         conta.comoUsuario(() -> sessoes.save(SessaoCaixaEntity.de(sessao)));
 
@@ -70,7 +70,7 @@ class MovimentoCaixaDoAgregadoTest extends TesteDeIntegracao {
         ContaCriada contaB = criador.criar("Barbearia Teste", SENHA_DE_TESTE);
 
         SessaoCaixa sessaoDaContaA = new SessaoCaixa(contaA.usuarioId(), Money.de("40.00"));
-        sessaoDaContaA.suprir(Money.de("15.00"), "Troco inicial");
+        sessaoDaContaA.suprir(Money.de("15.00"), "Troco inicial", sessaoDaContaA.getUsuarioId());
 
         contaA.comoUsuario(() ->
                 sessoes.save(SessaoCaixaEntity.de(sessaoDaContaA)));

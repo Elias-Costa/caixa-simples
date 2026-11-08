@@ -86,6 +86,16 @@ public class VendaEntity {
     private Instant concluidoEm;
 
     /**
+     * Quando e por quem a venda foi cancelada, a trilha que o administrador confere no caixa.
+     * Gravados juntos pelo cancelamento; a migration V32 prende que vêm em par e só em CANCELADA.
+     */
+    @Column(name = "cancelada_em")
+    private Instant canceladaEm;
+
+    @Column(name = "cancelada_por")
+    private UUID canceladaPor;
+
+    /**
      * Os itens da venda, mapeados como membros do agregado e não como entidade independente.
      *
      * <p>{@code cascade} e {@code orphanRemoval} são o que faz o agregado ser gravado como uma
@@ -143,6 +153,8 @@ public class VendaEntity {
         this.valorDesconto = venda.getValorDesconto().valor();
         this.criadoEm = venda.getCriadoEm();
         this.concluidoEm = venda.getConcluidoEm();
+        this.canceladaEm = venda.getCanceladaEm();
+        this.canceladaPor = venda.getCanceladaPor();
         this.itens = venda.getItens().stream()
                 .map(ItemVendaEntity::de)
                 .collect(Collectors.toCollection(ArrayList::new));
@@ -159,8 +171,9 @@ public class VendaEntity {
     }
 
     /**
-     * Copia para a linha tudo o que a montagem, o pagamento e a conclusão podem ter mudado: o
-     * status, o instante da conclusão, os dois totais e as três listas.
+     * Copia para a linha tudo o que a montagem, o pagamento, a conclusão e o cancelamento podem ter
+     * mudado: o status, os instantes da conclusão e do cancelamento, quem cancelou, os dois totais
+     * e as três listas.
      *
      * <p><strong>Os itens são sincronizados por id, nos dois sentidos.</strong> O que saiu do
      * domínio sai da coleção, e {@code orphanRemoval} apaga a linha; o que entrou vira linha nova;
@@ -182,6 +195,8 @@ public class VendaEntity {
         this.clienteId = venda.getClienteId();
         this.status = venda.getStatus();
         this.concluidoEm = venda.getConcluidoEm();
+        this.canceladaEm = venda.getCanceladaEm();
+        this.canceladaPor = venda.getCanceladaPor();
         this.valorTotal = venda.getValorTotal().valor();
         this.valorDesconto = venda.getValorDesconto().valor();
 
@@ -238,7 +253,8 @@ public class VendaEntity {
 
         return Venda.reconstituir(id, sessaoCaixaId, usuarioId, clienteId, status,
                 Money.de(valorTotal), Money.de(valorDesconto), criadoEm, concluidoEm,
-                itensDoDominio, pagamentosDoDominio, recebimentosDoDominio);
+                canceladaEm, canceladaPor, itensDoDominio, pagamentosDoDominio,
+                recebimentosDoDominio);
     }
 
     public UUID getId() {

@@ -25,6 +25,10 @@ import br.com.caixasimples.contas.CriadorDeContaDeTeste.UsuarioCriado;
 import br.com.caixasimples.contas.Plano;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.Perfil;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -34,6 +38,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 /** Contrato HTTP do PDV: comanda, parcelas, comprovante e isolamento (RF06 a RF12, RNF05). */
@@ -812,6 +817,78 @@ class VendaHttpTest extends TesteDeIntegracao {
         http.perform(get("/api/vendas/{id}", venda).with(admin))
                 .andExpect(jsonPath("$.itens.length()").value(2))
                 .andExpect(jsonPath("$.total").value(30.2));
+    }
+
+    @Test
+    void aTrilhaGuardaQuemCancelouEQuemLancouCadaMovimentoTambemNoCaixaDeOutro() throws Exception {
+        ContaCriada conta = criador.criar("PDV Trilha", SENHA);
+        criador.contratar(conta.contaId(), Plano.COMPLETO);
+        RequestPostProcessor admin = autenticador.como(conta);
+        RequestPostProcessor operador = operadorNovo(admin);
+        UUID produto = produto(conta);
+        String item = "{\"produtoId\":\"" + produto + "\",\"quantidade\":1,\"desconto\":0}";
+        UUID sessao = uuidDaResposta(http.perform(post("/api/caixa/sessoes").with(operador)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"valorAbertura\":0}"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString());
+        UUID propria = criarVenda(operador, sessao);
+        UUID desfeitaPeloAdmin = criarVenda(operador, sessao);
+        for (UUID venda : new UUID[] {propria, desfeitaPeloAdmin}) {
+            http.perform(post("/api/vendas/{id}/itens", venda).with(operador)
+                    .contentType(MediaType.APPLICATION_JSON).content(item))
+                    .andExpect(status().isCreated());
+            pagar(operador, venda, UUID.randomUUID(), "DINHEIRO", "12.50", null)
+                    .andExpect(status().isOk());
+            http.perform(post("/api/vendas/{id}/conclusao", venda).with(operador))
+                    .andExpect(status().isNoContent());
+        }
+        String idDoOperador = json.readTree(http.perform(get("/api/vendas/{id}", propria)
+                .with(operador)).andReturn().getResponse().getContentAsString())
+                .get("usuarioId").asText();
+        String idDoAdmin = conta.usuarioId().toString();
+        Instant antes = Instant.now();
+
+        // O operador continua cancelando a própria venda concluída; a trilha diz que foi ele. O
+        // administrador cancela a do operador e lança sangria no caixa dele, e a trilha diz que
+        // foi o administrador, não o dono do caixa nem quem vendeu.
+        http.perform(post("/api/caixa/sessoes/{id}/sangrias", sessao).with(admin)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"movimentoId\":\"" + UUID.randomUUID()
+                        + "\",\"valor\":5.00,\"motivo\":\"Deposito\"}"))
+                .andExpect(status().isNoContent());
+        http.perform(post("/api/vendas/{id}/cancelamento", propria).with(operador))
+                .andExpect(status().isNoContent());
+        http.perform(post("/api/vendas/{id}/cancelamento", desfeitaPeloAdmin).with(admin))
+                .andExpect(status().isNoContent());
+
+        var lista = json.readTree(http.perform(get("/api/vendas")
+                .param("sessaoCaixaId", sessao.toString()).with(admin))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        Map<String, JsonNode> porId = new HashMap<>();
+        lista.forEach(venda -> porId.put(venda.get("id").asText(), venda));
+        assertThat(porId.get(propria.toString()).get("canceladaPor").asText())
+                .isEqualTo(idDoOperador);
+        assertThat(porId.get(desfeitaPeloAdmin.toString()).get("canceladaPor").asText())
+                .isEqualTo(idDoAdmin);
+        assertThat(Instant.parse(porId.get(propria.toString()).get("canceladaEm")
+                .asText())).isAfterOrEqualTo(antes.minusSeconds(1));
+        http.perform(get("/api/vendas/{id}", desfeitaPeloAdmin).with(operador))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.canceladaPor").value(idDoAdmin))
+                .andExpect(jsonPath("$.canceladaEm").exists());
+
+        var movimentos = json.readTree(http.perform(get("/api/caixa/sessoes/{id}", sessao)
+                .with(admin)).andExpect(status().isOk()).andReturn().getResponse()
+                .getContentAsString()).get("movimentos");
+        List<String> trilha = new ArrayList<>();
+        movimentos.forEach(movimento -> trilha.add(movimento.get("tipo").asText() + " "
+                + (movimento.has("vendaId") ? movimento.get("vendaId").asText() : "-") + " "
+                + movimento.get("usuarioId").asText()));
+        assertThat(trilha).containsExactlyInAnyOrder(
+                "VENDA " + propria + " " + idDoOperador,
+                "VENDA " + desfeitaPeloAdmin + " " + idDoOperador,
+                "ESTORNO " + propria + " " + idDoOperador,
+                "ESTORNO " + desfeitaPeloAdmin + " " + idDoAdmin,
+                "SANGRIA - " + idDoAdmin);
     }
 
     @Autowired br.com.caixasimples.vendas.application.VendaService vendaService;

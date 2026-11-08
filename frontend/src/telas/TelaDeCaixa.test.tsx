@@ -229,6 +229,66 @@ describe('caixa na tela', () => {
     expect(ver).toHaveAttribute('aria-expanded', 'false')
   })
 
+  it('o administrador vê quem lançou cada movimento e quem cancelou cada venda, e quando', async () => {
+    const daBia: SessaoCaixa = { ...aberta, id: 's-2', usuarioId: 'u-2', valorFechamentoEsperado: 27 }
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(undefined)
+    vi.spyOn(caixa, 'historico').mockResolvedValue([daBia])
+    vi.spyOn(caixa, 'consultar').mockResolvedValue({ ...daBia, movimentos: [
+      { id: 'm-0', tipo: 'SUPRIMENTO', valor: 2, motivo: 'Troco', vendaId: null, recebimentoId: null,
+        criadoEm: '2026-09-22T12:10:00Z' },
+      { id: 'm-1', tipo: 'VENDA', valor: 12.5, motivo: null, vendaId: 'v-3', recebimentoId: null,
+        criadoEm: '2026-09-22T13:00:00Z', usuarioId: 'u-2' },
+      { id: 'm-2', tipo: 'SANGRIA', valor: 5, motivo: 'Depósito', vendaId: null, recebimentoId: null,
+        criadoEm: '2026-09-22T13:30:00Z', usuarioId: 'u-1' },
+      { id: 'm-3', tipo: 'ESTORNO', valor: 12.5, motivo: null, vendaId: 'v-3', recebimentoId: null,
+        criadoEm: '2026-09-22T14:20:00Z', usuarioId: 'u-2' },
+    ] })
+    vi.spyOn(contas, 'usuarios').mockResolvedValue([
+      { id: 'u-2', nome: 'Bia', perfil: 'OPERADOR', ativo: true },
+    ])
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([
+      { ...resumo('v-3', 'CANCELADA', 12.5, '2026-09-22T13:00:00Z'), sessaoCaixaId: 's-2',
+        usuarioId: 'u-2', canceladaEm: '2026-09-22T14:20:00Z', canceladaPor: 'u-2' },
+      { ...resumo('v-4', 'CANCELADA', 8, '2026-09-22T13:40:00Z'), sessaoCaixaId: 's-2',
+        usuarioId: 'u-2', canceladaEm: '2026-09-23T13:05:00Z', canceladaPor: 'u-1' },
+      { ...resumo('v-5', 'CANCELADA', 3, '2026-09-22T13:50:00Z'), sessaoCaixaId: 's-2', usuarioId: 'u-2' },
+    ])
+    mostrar('ADMIN')
+
+    fireEvent.click(await screen.findByRole('button', { name: /^Bia/ }))
+    const extrato = await abrirLista(/^Movimentos \(4\)$/)
+    const movimentos = within(within(extrato).getByRole('table')).getAllByRole('row').slice(1)
+    expect(movimentos.map((linha) => within(linha).getAllByRole('cell')[1].textContent)).toEqual([
+      'SuprimentoTroco', 'Vendapor Bia', 'SangriaDepósitopor Ana', 'Estornopor Bia',
+    ])
+
+    const lista = await abrirLista(/^Vendas \(3\)$/)
+    expect(linhaDaVenda(lista, /R\$\s12,50/)).toHaveTextContent('cancelada por Bia às 11:20')
+    // Cancelada noutro dia que não o da abertura do caixa: o dia vem antes da hora.
+    expect(linhaDaVenda(lista, /R\$\s8,00/)).toHaveTextContent('cancelada por Ana em 23/09 às 10:05')
+    // A cancelada antes de o servidor guardar quem cancelou fica só com a situação.
+    expect(linhaDaVenda(lista, /R\$\s3,00/)).not.toHaveTextContent('cancelada por')
+  })
+
+  it('o operador não vê quem lançou nem quem cancelou no próprio caixa', async () => {
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(caixa, 'historico').mockResolvedValue([aberta])
+    vi.spyOn(caixa, 'consultar').mockResolvedValue({ ...aberta, movimentos: [
+      { id: 'm-1', tipo: 'SANGRIA', valor: 5, motivo: 'Depósito', vendaId: null, recebimentoId: null,
+        criadoEm: '2026-09-22T13:30:00Z', usuarioId: 'u-9' },
+    ] })
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([
+      { ...resumo('v-3', 'CANCELADA', 12.5, '2026-09-22T13:00:00Z'), canceladaEm: '2026-09-22T14:20:00Z',
+        canceladaPor: 'u-9' },
+    ])
+    mostrar()
+
+    const extrato = await abrirLista(/^Movimentos \(1\)$/)
+    expect(within(extrato).getByRole('table')).not.toHaveTextContent(/por /)
+    const lista = await abrirLista(/^Vendas \(1\)$/)
+    expect(within(lista).getByRole('table')).not.toHaveTextContent('cancelada por')
+  })
+
   it('o administrador é avisado de que o caixa de outro operador, aberto hoje, está em uso, antes de lançar e fechar', async () => {
     const deHoje: SessaoCaixa = { ...aberta, id: 's-2', usuarioId: 'u-2', abertaEm: new Date().toISOString() }
     vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(undefined)

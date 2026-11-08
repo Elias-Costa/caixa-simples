@@ -11,10 +11,11 @@ import java.util.UUID;
  *
  * <p>É ouvido dentro da transação que gravou o recebimento: o recebimento na Venda e o dinheiro na
  * gaveta de quem recebeu confirmam juntos ou não confirmam. Carrega a conta, lida do contexto
- * autenticado no momento da publicação, para o ouvinte conferir que roda nessa mesma conta.
+ * autenticado no momento da publicação, para o ouvinte conferir que roda nessa mesma conta, e o
+ * usuário autenticado que recebeu, que o caixa grava como autor da entrada na gaveta.
  */
 public record FiadoRecebido(ContaId contaId, UUID vendaId, UUID recebimentoId,
-        UUID sessaoCaixaId, Money valor, FormaPagamento forma) {
+        UUID sessaoCaixaId, Money valor, FormaPagamento forma, UUID recebidoPor) {
     public FiadoRecebido {
         Objects.requireNonNull(contaId);
         Objects.requireNonNull(vendaId);
@@ -22,5 +23,6 @@ public record FiadoRecebido(ContaId contaId, UUID vendaId, UUID recebimentoId,
         Objects.requireNonNull(sessaoCaixaId);
         Objects.requireNonNull(valor);
         Objects.requireNonNull(forma);
+        Objects.requireNonNull(recebidoPor);
     }
 }

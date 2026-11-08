@@ -95,7 +95,8 @@ class VendaConcluidaListener {
                             evento.sessaoCaixaId()));
             SessaoCaixa sessao = linha.paraDominio();
 
-            sessao.registrarVenda(emDinheiro, evento.vendaId(), evento.concluidoEm());
+            sessao.registrarVenda(emDinheiro, evento.vendaId(), evento.concluidoEm(),
+                    evento.concluidaPor());
 
             linha.atualizarCom(sessao);
             sessoes.save(linha);

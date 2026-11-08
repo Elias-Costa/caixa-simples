@@ -253,7 +253,7 @@ class BaixaDeEstoqueListenerTest extends TesteDeIntegracao {
         return new VendaConcluida(conta.contaId(), vendaId, sessaoId, conta.usuarioId(), itens,
                 List.of(new Parcela(FormaPagamento.PIX, Money.de("10.00"),
                         StatusPagamento.CONFIRMADO)),
-                Instant.now());
+                Instant.now(), conta.usuarioId());
     }
 
     /** Como numa requisição: a conta no contexto antes de a transação abrir. */

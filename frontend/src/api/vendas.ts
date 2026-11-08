@@ -17,6 +17,12 @@ export type ResumoDaVenda = {
    * por forma. Falta na resposta de um servidor anterior a ela.
    */
   formas?: ValorDaForma[]
+  /**
+   * Quando e por quem a venda foi cancelada. Faltam fora da venda cancelada, na cancelada antes de o
+   * servidor guardá-los e na resposta de um servidor anterior a eles.
+   */
+  canceladaEm?: string | null
+  canceladaPor?: string | null
 }
 
 export type ValorDaForma = { forma: FormaPagamento; valor: number }

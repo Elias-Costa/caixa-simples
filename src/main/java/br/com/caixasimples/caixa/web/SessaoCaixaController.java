@@ -141,14 +141,18 @@ class SessaoCaixaController {
         }
     }
 
+    /**
+     * Um movimento do extrato. Quem lançou chegou depois dos outros campos, e a resposta o omite no
+     * movimento gravado antes de o caixa guardá-lo.
+     */
     record MovimentoNaResposta(UUID id, String tipo, BigDecimal valor, String motivo,
-            UUID vendaId, UUID recebimentoId, Instant criadoEm) {
+            UUID vendaId, UUID recebimentoId, Instant criadoEm, UUID usuarioId) {
 
         static MovimentoNaResposta de(MovimentoCaixa movimento) {
             return new MovimentoNaResposta(movimento.id(), movimento.tipo().name(),
                     movimento.valor().valor(), movimento.motivo(), movimento.vendaId(),
                     movimento.recebimentoId(),
-                    movimento.criadoEm());
+                    movimento.criadoEm(), movimento.usuarioId());
         }
     }
 }

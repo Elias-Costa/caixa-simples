@@ -158,7 +158,7 @@ Venda continuam.
 | `relatorios` | Implementado | Faturamento do dia e de um período, produtos mais vendidos, pela quantidade ou pelo valor, fluxo de caixa da gaveta e as conferências do cartão e do Pix de um dia. Venda concluída com FIADO conta no faturamento no dia da conclusão; recebimento em dinheiro conta no fluxo no dia da entrada, sem faturar outra vez (RF33). Filtros combináveis de faturamento por forma e operador incluem a parcela FIADO pendente. A conferência lista cada pagamento em cartão no dia e na hora em que foi lançado, parcela de venda de qualquer situação ou fiado recebido, com quem lançou, a situação da venda e o NSU ou a marca de que falta, para bater com o extrato da operadora. A do Pix faz o mesmo com o extrato do banco: cada Pix de venda e de fiado recebido, com quem lançou, o cliente, a situação da venda e se foi lançado à mão ou cobrado pelo Pix integrado, a cobrança ainda não paga marcada e a recusada fora. O módulo lê mapeamentos imutáveis de venda, item, produto, pagamento, recebimento, sessão de caixa e movimento de caixa, e os cinco relatórios são do administrador, num plano pago sem suspensão. A API e o PWA mostram os três primeiros para o mesmo período, com o faturamento repartido por forma de pagamento, e as conferências quando o período é um dia; o filtro de operador vale para o faturamento, o ranking e as conferências |
 | `sincronizacao` | Implementado, com envio automático pelo PWA | Recebe o lote de gestos que o dispositivo registrou sem rede, até 100 por envio, e aplica cada um pelos casos de uso do módulo dono, que implementa a porta deste: cadastro, caixa e vendas. Uma transação por operação, com o resultado gravado junto, por Conta e id de operação: o reenvio devolve o gravado, o mesmo id com outro conteúdo é recusado, e duas requisições simultâneas não aplicam duas vezes. Dependência que ainda não chegou pede reenvio; o gesto seguinte de um registro recusado é recusado, e o de outro registro é tentado. O item fica com o preço visto no balcão e vai para revisão quando difere do vigente; também vão a conclusão que deixou o estoque negativo, a parcela em cartão que chega sem o NSU que a Conta exige, gravada mesmo assim, e o gesto com instante adiantado mais de cinco minutos, seja o da operação ou o que ele grava no registro. O administrador lista as revisões e recusas de todos os usuários da Conta e registra quem conferiu e quando. Ao editar Cliente, o conteúdo dos gestos gravados antes da edição é esvaziado, e ao removê-lo, anonimizado; nos dois casos o reenvio antigo entra em conflito. O PWA descarta o gesto enviado quando todo retrato que o usa já contém o efeito dele. A revisão traz o tipo, e o aparelho deixa a de estoque negativo para a lista da Conta, porque só o administrador ajusta estoque; a venda feita sem rede e recusada na volta aparece numa faixa no PDV e na tela Caixa, com a hora, o valor, o motivo e o dinheiro que ficou fora do saldo esperado |
 
-**Schema.** Trinta e uma migrations Flyway, de `V1` a `V31`: conta, usuário e credencial; produto; cliente;
+**Schema.** Trinta e duas migrations Flyway, de `V1` a `V32`: conta, usuário e credencial; produto; cliente;
 catálogo de referência; o agregado de caixa, com a regra de uma sessão aberta por operador; o
 agregado de venda, com a venda, seus itens e seus pagamentos; o outbox de eventos de domínio do
 Spring Modulith, cujo DDL foi gerado a partir da entidade do framework em vez de escrito de
@@ -190,7 +190,9 @@ ou nenhuma. A `V29` acentua os nomes do catálogo inicial da cafeteria, pelos id
 deu às linhas para uma correção futura; o produto já copiado para uma Conta fica como está. A `V30`
 marca como serviço, sem estoque, o que esse catálogo prepara na hora: os cafés, o cappuccino, o suco, o
 sanduíche e o bolo em fatia; a água e o pão de queijo continuam com estoque. A `V31` acrescenta ao registro
-das operações os tipos da revisão, gravados com o resultado para o reenvio devolver os mesmos.
+das operações os tipos da revisão, gravados com o resultado para o reenvio devolver os mesmos. A `V32`
+acrescenta à venda o instante e o usuário de quem a cancelou, que o banco exige juntos e só na venda
+cancelada, e ao movimento de caixa o usuário que o lançou; as linhas anteriores ficam nulas.
 
 O [aviso de privacidade](frontend/src/telas/TelaDePrivacidade.tsx) é público, inclusive antes do
 login, e o rodapé de toda tela do aplicativo aponta para ele e para os termos. Diz quem trata cada
@@ -263,7 +265,9 @@ Pix pagos que chegaram após a SessaoCaixa fechar ou após a Venda ser cancelada
 essas Vendas como concluídas;
 `PUT /api/vendas/{id}/cliente` vincula Cliente ativo, e `DELETE /api/vendas/{id}/cliente` o tira da
 Venda aberta que ainda não tem parcela FIADO;
-`POST /api/vendas/{id}/conclusao` e `POST /api/vendas/{id}/cancelamento` mudam o status;
+`POST /api/vendas/{id}/conclusao` e `POST /api/vendas/{id}/cancelamento` mudam o status; o
+cancelamento grava o usuário autenticado e o instante, que a lista do caixa e o detalhe devolvem em
+`canceladaPor` e `canceladaEm`, ausentes fora da venda cancelada e na cancelada antes desses campos;
 no cancelamento com Pix pendente, o servidor pede remoção à Efí e reconsulta antes de gravar,
 respondendo 503 quando não consegue comprovar que a cobrança parou de aceitar pagamento; repetir
 um cancelamento de Venda com Pix integrado já cancelada não repete o efeito;
@@ -284,7 +288,10 @@ aparelho, e repeti-la com o mesmo id e o mesmo valor devolve o mesmo caixa; o ge
 suprimento que chega no lote com o `movimentoId` segue a regra das rotas com rede, e a abertura do
 lote com o id de um caixa que já é do mesmo operador conta como aplicada. O histórico recebe o dia
 e, opcionalmente, o operador;
-a consulta por id devolve o extrato, e as listas carregam só os totais. As quatro rotas online de
+a consulta por id devolve o extrato, com o `usuarioId` de quem lançou cada movimento, que pode não ser
+o dono do caixa: quem concluiu a venda, quem a cancelou, quem lançou a sangria ou o suprimento, quem
+recebeu o fiado, e na venda concluída pelo aviso do Pix integrado, o operador dela. Ele falta no
+movimento gravado antes desse campo, e as listas carregam só os totais. As quatro rotas online de
 dinheiro aceitam o mesmo id e conteúdo sem repetir o efeito; conteúdo diferente para o id recebe
 409, inclusive quando só o NSU muda; o reenvio igual responde como da primeira vez mesmo que a
 exigência do NSU tenha ligado depois. Parcela repetida devolve o troco gravado, sangria e suprimento
@@ -390,7 +397,9 @@ saldo esperado à vista e a diferença apurada, dita como falta, sobra ou sem di
 diz de quem é e põe a gaveta ao lado do vendido nele por forma de pagamento, com o número de vendas;
 o extrato, com o saldo depois de cada movimento, e a lista das vendas vêm recolhidos, em tabela, e a
 lista abre logo abaixo da linha o detalhe de cada venda, só para conferir, e reimprime o comprovante da
-concluída como segunda via, com a data e a hora da reimpressão, também sem rede. O fechamento lista as
+concluída como segunda via, com a data e a hora da reimpressão, também sem rede. Para o administrador,
+cada movimento do extrato diz por quem foi lançado, e a venda cancelada diz por quem e a que horas,
+o controle do dono sobre o cancelamento que o operador faz no próprio caixa. O fechamento lista as
 vendas abertas com o que já receberam, porque o dinheiro delas fica fora do esperado e depois do
 fechamento elas só se cancelam, e a pergunta antes de fechar lembra delas. O administrador que abre o
 caixa de outro operador, aberto hoje, lê que ele está em uso antes de lançar ou fechar, e o histórico
@@ -771,7 +780,8 @@ de uso, provada por teste negativo, e nunca dependente de um valor que o cliente
   conta B recebe vazio. Usuário, credencial, produto, cliente, sessão de caixa e venda têm o seu, e
   os membros de agregado (movimento de caixa, item, pagamento e recebimento da venda, movimento de estoque) têm
   um teste próprio, que prova que a coluna de conta deles vem do contexto e não da raiz por
-  junção. O teste falha se a anotação de tenant for removida. O registro das operações
+  junção. O teste falha se a anotação de tenant for removida. Quem cancelou a venda e quem lançou
+  o movimento atravessam o banco na Conta do registro, e a outra Conta não os alcança. O registro das operações
   sincronizadas também tem o seu, que cobre a lista de revisões e a conferência. O pedido de plano
   também: a Conta B não o encontra por nenhuma consulta, e o código certo dele, aplicado pela Conta
   B, responde como pedido inexistente, sem gastar o código; o pedido que a Conta B faz não substitui
@@ -1034,6 +1044,14 @@ editar um agregado através de outro.
   duplicata. O estorno nasce do evento de venda cancelada, na transação do cancelamento, aponta
   para a mesma venda, vale exatamente o que a venda trouxe e sai uma vez só, com a mesma recusa na
   raiz; um índice único parcial por sessão, venda e tipo é a rede embaixo dos dois.
+- **A trilha de quem fez fica no banco, não no log.** A venda cancelada guarda quem a cancelou e
+  quando, e cada movimento de caixa guarda quem o lançou, sempre o usuário autenticado, também no
+  gesto que chega pelo lote. O operador cancela a própria venda concluída para desfazer o erro no
+  balcão sem chamar o dono, e é a trilha que deixa o dono descobrir, no caixa que ele já confere,
+  quem cancelou a venda que devolveu dinheiro da gaveta. O evento de domínio leva o autor, e o
+  ouvinte do caixa o grava sem ler o contexto; na venda concluída pelo aviso do Pix, que chega sem
+  ninguém autenticado, o autor é o operador dela. O log de segurança fica com o que é segurança, e
+  as linhas gravadas antes da trilha ficam sem autor.
 - **`estoque_atual` é consolidado na raiz**, e não somado do histórico a cada leitura, para o alerta
   de estoque baixo não pagar esse preço. Levado às últimas consequências: a raiz não carrega o
   histórico, ao contrário da sessão de caixa, cujo extrato é um expediente. O histórico de um
@@ -1348,7 +1366,7 @@ src
 │   │   ├── relatorios/     application, web, internal
 │   │   └── sincronizacao/  a porta que os módulos donos implementam; application, web, internal
 │   └── resources
-│       └── db/migration/   V1 a V31, imutáveis depois de publicadas
+│       └── db/migration/   V1 a V32, imutáveis depois de publicadas
 ├── test/java/br/com/caixasimples
 │   ├── ModularityTests     fitness function das fronteiras
 │   ├── TesteDeIntegracao   base com Testcontainers, herdada pelos testes de banco

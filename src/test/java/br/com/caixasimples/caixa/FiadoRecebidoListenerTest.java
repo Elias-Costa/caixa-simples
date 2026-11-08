@@ -94,7 +94,7 @@ class FiadoRecebidoListenerTest extends TesteDeIntegracao {
     private static FiadoRecebido recebimento(ContaCriada conta, UUID sessaoId,
             FormaPagamento forma) {
         return new FiadoRecebido(conta.contaId(), UUID.randomUUID(), UUID.randomUUID(), sessaoId,
-                Money.de("20.00"), forma);
+                Money.de("20.00"), forma, conta.usuarioId());
     }
 
     /** Como numa requisição: a conta no contexto antes de a transação abrir. */

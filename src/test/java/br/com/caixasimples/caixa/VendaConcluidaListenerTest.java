@@ -104,7 +104,7 @@ class VendaConcluidaListenerTest extends TesteDeIntegracao {
                                 StatusPagamento.CONFIRMADO),
                         new Parcela(FormaPagamento.DINHEIRO, Money.de("8.93"),
                                 StatusPagamento.CONFIRMADO)),
-                concluidaNoBalcao);
+                concluidaNoBalcao, conta.usuarioId());
 
         publicar(conta, evento);
 
@@ -116,9 +116,9 @@ class VendaConcluidaListenerTest extends TesteDeIntegracao {
             assertThat(sessao.getMovimentos())
                     .extracting(MovimentoCaixa::tipo, MovimentoCaixa::valor,
                             MovimentoCaixa::vendaId, MovimentoCaixa::motivo,
-                            MovimentoCaixa::criadoEm)
+                            MovimentoCaixa::criadoEm, MovimentoCaixa::usuarioId)
                     .containsExactly(tuple(TipoMovimentoCaixa.VENDA, Money.de("18.93"),
-                            vendaId, null, concluidaNoBalcao));
+                            vendaId, null, concluidaNoBalcao, conta.usuarioId()));
         });
     }
 
@@ -137,7 +137,7 @@ class VendaConcluidaListenerTest extends TesteDeIntegracao {
                                 StatusPagamento.CONFIRMADO),
                         new Parcela(FormaPagamento.CARTAO, Money.de("4.50"),
                                 StatusPagamento.CONFIRMADO)),
-                Instant.now()));
+                Instant.now(), conta.usuarioId()));
 
         conta.comoUsuario(() -> {
             SessaoCaixa sessao = sessoes.findById(sessaoId).orElseThrow().paraDominio();
@@ -157,7 +157,7 @@ class VendaConcluidaListenerTest extends TesteDeIntegracao {
                 List.of(new Item(UUID.randomUUID(), BigDecimal.ONE)),
                 List.of(new Parcela(FormaPagamento.DINHEIRO, Money.de("30.00"),
                         StatusPagamento.CONFIRMADO)),
-                Instant.now());
+                Instant.now(), conta.usuarioId());
 
         publicar(conta, evento);
         // Sem registro de publicação não há reentrega; publicar de novo é defeito de quem
@@ -191,7 +191,7 @@ class VendaConcluidaListenerTest extends TesteDeIntegracao {
                             List.of(new Item(UUID.randomUUID(), BigDecimal.ONE)),
                             List.of(new Parcela(FormaPagamento.DINHEIRO, Money.de("3.00"),
                                     StatusPagamento.CONFIRMADO)),
-                            Instant.now()));
+                            Instant.now(), conta.usuarioId()));
                 })))
                 .isInstanceOf(SessaoCaixaNaoEncontradaException.class);
 
@@ -212,7 +212,7 @@ class VendaConcluidaListenerTest extends TesteDeIntegracao {
                 List.of(new Item(UUID.randomUUID(), BigDecimal.ONE)),
                 List.of(new Parcela(FormaPagamento.DINHEIRO, Money.de("12.00"),
                         StatusPagamento.CONFIRMADO)),
-                Instant.now());
+                Instant.now(), contaA.usuarioId());
 
         // A transação de quem publica está na conta B: o ouvinte não troca de conta no meio
         // dela, recusa.
@@ -236,7 +236,7 @@ class VendaConcluidaListenerTest extends TesteDeIntegracao {
                 List.of(new Item(UUID.randomUUID(), new BigDecimal("0.750"))),
                 List.of(new Parcela(FormaPagamento.DINHEIRO, Money.de("10.00"),
                         StatusPagamento.CONFIRMADO)),
-                Instant.now());
+                Instant.now(), conta.usuarioId());
 
         publicar(conta, evento);
 

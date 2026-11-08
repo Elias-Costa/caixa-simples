@@ -184,22 +184,24 @@ public class SessaoCaixa {
     /**
      * Sangria (RF14): retirada de dinheiro do caixa. Não é estorno nem despesa.
      *
-     * @param valor  sempre positivo; quem carrega o sinal é o tipo do movimento
-     * @param motivo obrigatório (RF14), porque quem retira dinheiro justifica a retirada
+     * @param valor      sempre positivo; quem carrega o sinal é o tipo do movimento
+     * @param motivo     obrigatório (RF14), porque quem retira dinheiro justifica a retirada
+     * @param lancadoPor o usuário autenticado que lançou, que pode não ser o dono do caixa
      * @throws IllegalArgumentException se o motivo está ausente ou em branco, ou se a retirada
      *                                  deixaria o esperado negativo
      * @throws IllegalStateException    se a sessão já está FECHADA
      */
-    public void sangrar(Money valor, String motivo) {
-        sangrar(valor, motivo, Instant.now());
+    public void sangrar(Money valor, String motivo, UUID lancadoPor) {
+        sangrar(valor, motivo, Instant.now(), lancadoPor);
     }
 
     /** A mesma sangria, com o instante do balcão em que o dinheiro saiu da gaveta. */
-    public void sangrar(Money valor, String motivo, Instant criadoEm) {
-        sangrar(UUID.randomUUID(), valor, motivo, criadoEm);
+    public void sangrar(Money valor, String motivo, Instant criadoEm, UUID lancadoPor) {
+        sangrar(UUID.randomUUID(), valor, motivo, criadoEm, lancadoPor);
     }
 
-    public void sangrar(UUID movimentoId, Money valor, String motivo, Instant criadoEm) {
+    public void sangrar(UUID movimentoId, Money valor, String motivo, Instant criadoEm,
+            UUID lancadoPor) {
         exigirMotivo(motivo, TipoMovimentoCaixa.SANGRIA, "motivo da sangria");
         Objects.requireNonNull(valor, "valor da sangria nao pode ser nulo");
 
@@ -212,29 +214,33 @@ public class SessaoCaixa {
                             + " que deveriam estar na gaveta.");
         }
 
-        registrar(movimentoId, TipoMovimentoCaixa.SANGRIA, valor, motivo, null, null, criadoEm);
+        registrar(movimentoId, TipoMovimentoCaixa.SANGRIA, valor, motivo, null, null, criadoEm,
+                lancadoPor);
     }
 
     /**
      * Suprimento (RF14): reforço de troco. Não é venda nem receita.
      *
-     * @param valor  sempre positivo
-     * @param motivo obrigatório (RF14)
+     * @param valor      sempre positivo
+     * @param motivo     obrigatório (RF14)
+     * @param lancadoPor o usuário autenticado que lançou, que pode não ser o dono do caixa
      * @throws IllegalArgumentException se o motivo está ausente ou em branco
      * @throws IllegalStateException    se a sessão já está FECHADA
      */
-    public void suprir(Money valor, String motivo) {
-        suprir(valor, motivo, Instant.now());
+    public void suprir(Money valor, String motivo, UUID lancadoPor) {
+        suprir(valor, motivo, Instant.now(), lancadoPor);
     }
 
     /** O mesmo suprimento, com o instante do balcão em que o troco entrou na gaveta. */
-    public void suprir(Money valor, String motivo, Instant criadoEm) {
-        suprir(UUID.randomUUID(), valor, motivo, criadoEm);
+    public void suprir(Money valor, String motivo, Instant criadoEm, UUID lancadoPor) {
+        suprir(UUID.randomUUID(), valor, motivo, criadoEm, lancadoPor);
     }
 
-    public void suprir(UUID movimentoId, Money valor, String motivo, Instant criadoEm) {
+    public void suprir(UUID movimentoId, Money valor, String motivo, Instant criadoEm,
+            UUID lancadoPor) {
         exigirMotivo(motivo, TipoMovimentoCaixa.SUPRIMENTO, "motivo do suprimento");
-        registrar(movimentoId, TipoMovimentoCaixa.SUPRIMENTO, valor, motivo, null, null, criadoEm);
+        registrar(movimentoId, TipoMovimentoCaixa.SUPRIMENTO, valor, motivo, null, null, criadoEm,
+                lancadoPor);
     }
 
     /**
@@ -253,26 +259,27 @@ public class SessaoCaixa {
      * para qualquer chamador: dinheiro contado em dobro no esperado é uma diferença de fechamento
      * que nunca existiu.
      *
-     * @param vendaId a venda que trouxe o dinheiro; referência entre agregados, sempre por id
+     * @param vendaId      a venda que trouxe o dinheiro; referência entre agregados, sempre por id
+     * @param concluidaPor quem concluiu a venda, o autor da entrada na gaveta
      * @throws IllegalStateException se a sessão já está FECHADA, ou se esta venda já foi lançada
      *                               nesta sessão
      */
-    public void registrarVenda(Money valor, UUID vendaId) {
-        registrarVenda(valor, vendaId, Instant.now());
+    public void registrarVenda(Money valor, UUID vendaId, UUID concluidaPor) {
+        registrarVenda(valor, vendaId, Instant.now(), concluidaPor);
     }
 
     /**
      * A mesma entrada, com o instante em que a venda foi concluída no balcão: é quando o dinheiro
      * entrou na gaveta, mesmo que o servidor só saiba disso depois.
      */
-    public void registrarVenda(Money valor, UUID vendaId, Instant criadoEm) {
+    public void registrarVenda(Money valor, UUID vendaId, Instant criadoEm, UUID concluidaPor) {
         Objects.requireNonNull(vendaId, "vendaId nao pode ser nulo");
         if (jaRegistrouVenda(vendaId)) {
             throw new IllegalStateException(
                     "venda " + vendaId + " ja foi lancada na sessao de caixa " + id
                             + " e nao entra de novo. O dinheiro de uma venda conta uma vez so.");
         }
-        registrar(TipoMovimentoCaixa.VENDA, valor, null, vendaId, null, criadoEm);
+        registrar(TipoMovimentoCaixa.VENDA, valor, null, vendaId, null, criadoEm, concluidaPor);
     }
 
     /**
@@ -300,16 +307,17 @@ public class SessaoCaixa {
      *
      * <p>Não olha se o esperado fica negativo; ver o javadoc da classe.
      *
-     * @param vendaId a venda cancelada; referência entre agregados, sempre por id
+     * @param vendaId      a venda cancelada; referência entre agregados, sempre por id
+     * @param canceladaPor quem cancelou a venda, o autor da saída da gaveta
      * @throws IllegalStateException se a sessão já está FECHADA, se esta venda não entrou nesta
      *                               sessão, ou se já foi estornada
      */
-    public void estornarVenda(UUID vendaId) {
-        estornarVenda(vendaId, Money.ZERO);
+    public void estornarVenda(UUID vendaId, UUID canceladaPor) {
+        estornarVenda(vendaId, Money.ZERO, canceladaPor);
     }
 
     /** Estorna também o dinheiro de fiado recebido, inclusive quando entrou em outra sessão. */
-    public void estornarVenda(UUID vendaId, Money valorDeRecebimentos) {
+    public void estornarVenda(UUID vendaId, Money valorDeRecebimentos, UUID canceladaPor) {
         Objects.requireNonNull(vendaId, "vendaId nao pode ser nulo");
         Objects.requireNonNull(valorDeRecebimentos, "valor de recebimentos nao pode ser nulo");
         if (valorDeRecebimentos.isNegativo()) {
@@ -333,18 +341,23 @@ public class SessaoCaixa {
 
         Money valorDaVenda = entrada == null ? Money.ZERO : entrada.valor();
         registrar(TipoMovimentoCaixa.ESTORNO, valorDaVenda.somar(valorDeRecebimentos), null,
-                vendaId, null, Instant.now());
+                vendaId, null, Instant.now(), canceladaPor);
     }
 
-    /** Cada recebimento em dinheiro entra uma vez; a recusa vale para qualquer chamador. */
-    public void registrarRecebimento(UUID vendaId, UUID recebimentoId, Money valor) {
+    /**
+     * Cada recebimento em dinheiro entra uma vez; a recusa vale para qualquer chamador.
+     *
+     * @param recebidoPor quem recebeu o fiado, o autor da entrada na gaveta
+     */
+    public void registrarRecebimento(UUID vendaId, UUID recebimentoId, Money valor,
+            UUID recebidoPor) {
         Objects.requireNonNull(vendaId, "vendaId nao pode ser nulo");
         Objects.requireNonNull(recebimentoId, "recebimentoId nao pode ser nulo");
         if (jaRegistrouRecebimento(recebimentoId)) {
             throw new IllegalStateException("recebimento ja lancado nesta sessao: " + recebimentoId);
         }
         registrar(TipoMovimentoCaixa.RECEBIMENTO, valor, null, vendaId, recebimentoId,
-                Instant.now());
+                Instant.now(), recebidoPor);
     }
 
     public boolean jaRegistrouRecebimento(UUID recebimentoId) {
@@ -422,12 +435,13 @@ public class SessaoCaixa {
      * {@link #sangrar}, {@link #suprir}, {@link #registrarVenda} ou {@link #estornarVenda}.
      */
     private void registrar(TipoMovimentoCaixa tipo, Money valor, String motivo, UUID vendaId,
-            UUID recebimentoId, Instant criadoEm) {
-        registrar(UUID.randomUUID(), tipo, valor, motivo, vendaId, recebimentoId, criadoEm);
+            UUID recebimentoId, Instant criadoEm, UUID lancadoPor) {
+        registrar(UUID.randomUUID(), tipo, valor, motivo, vendaId, recebimentoId, criadoEm,
+                lancadoPor);
     }
 
     private void registrar(UUID movimentoId, TipoMovimentoCaixa tipo, Money valor, String motivo,
-            UUID vendaId, UUID recebimentoId, Instant criadoEm) {
+            UUID vendaId, UUID recebimentoId, Instant criadoEm, UUID lancadoPor) {
         Objects.requireNonNull(movimentoId, "id do movimento nao pode ser nulo");
         if (movimentos.stream().anyMatch(existente -> existente.id().equals(movimentoId))) {
             throw new IllegalStateException("Este movimento já foi registrado neste caixa.");
@@ -441,7 +455,7 @@ public class SessaoCaixa {
         }
 
         MovimentoCaixa movimento = MovimentoCaixa.novo(movimentoId, tipo, valor, motivo, vendaId,
-                recebimentoId, criadoEm);
+                recebimentoId, criadoEm, lancadoPor);
         movimentos.add(movimento);
 
         // O switch é exaustivo de propósito: acrescentar um valor em TipoMovimentoCaixa quebra a

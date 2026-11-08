@@ -14,6 +14,7 @@ import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.TenantContext;
 import br.com.caixasimples.vendas.CriadorDeVendaDeTeste;
+import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -110,8 +111,8 @@ class IsolamentoDeSessaoCaixaTest extends TesteDeIntegracao {
         ContaCriada conta = criador.criar("Padaria Teste", SENHA_DE_TESTE);
 
         SessaoCaixa original = new SessaoCaixa(conta.usuarioId(), Money.de("100.00"));
-        original.suprir(Money.de("50.00"), "Reforco de troco");
-        original.sangrar(Money.de("30.00"), "Pagamento do entregador");
+        original.suprir(Money.de("50.00"), "Reforco de troco", original.getUsuarioId());
+        original.sangrar(Money.de("30.00"), "Pagamento do entregador", original.getUsuarioId());
 
         // Uma chamada de save grava a raiz e os movimentos: o agregado é a unidade transacional,
         // e é o cascade de SessaoCaixaEntity que faz isso valer.
@@ -124,7 +125,7 @@ class IsolamentoDeSessaoCaixaTest extends TesteDeIntegracao {
         // mesmo caminho que uma sangria entra no meio do expediente.
         UUID vendaId = criadorDeVenda.criarAbertaEm(conta.contaId(), original.getId(),
                 conta.usuarioId());
-        original.registrarVenda(Money.de("25.00"), vendaId);
+        original.registrarVenda(Money.de("25.00"), vendaId, original.getUsuarioId());
         conta.comoUsuario(() -> {
             SessaoCaixaEntity gravada = sessoes.findById(original.getId()).orElseThrow();
             gravada.atualizarCom(original);
@@ -144,6 +145,10 @@ class IsolamentoDeSessaoCaixaTest extends TesteDeIntegracao {
 
             // A invariante do agregado atravessou o banco: 100 mais 25 mais 50 menos 30.
             assertThat(lida.getValorFechamentoEsperado()).isEqualTo(Money.de("145.00"));
+
+            // Quem lançou atravessa o banco com o movimento.
+            assertThat(lida.getMovimentos()).extracting(MovimentoCaixa::usuarioId)
+                    .containsOnly(conta.usuarioId());
 
             assertThat(lida.getMovimentos())
                     .extracting(MovimentoCaixa::tipo, MovimentoCaixa::valor, MovimentoCaixa::motivo,

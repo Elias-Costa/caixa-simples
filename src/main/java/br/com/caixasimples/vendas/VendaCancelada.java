@@ -39,13 +39,17 @@ import java.util.UUID;
  *                      as recusadas: o status diz o que cada uma valia
  * @param recebimentos  o que entrou de um FIADO antes do cancelamento, em qualquer sessão; vazio
  *                      quando a venda não teve fiado recebido
+ * @param canceladaPor  o usuário autenticado que cancelou, que pode não ser o operador que vendeu;
+ *                      é quem o caixa grava como autor do estorno
  */
 public record VendaCancelada(ContaId contaId, UUID vendaId, UUID sessaoCaixaId, UUID usuarioId,
-        List<Item> itens, List<Parcela> parcelas, List<Recebimento> recebimentos) {
+        List<Item> itens, List<Parcela> parcelas, List<Recebimento> recebimentos,
+        UUID canceladaPor) {
 
     public VendaCancelada(ContaId contaId, UUID vendaId, UUID sessaoCaixaId, UUID usuarioId,
-            List<Item> itens, List<Parcela> parcelas) {
-        this(contaId, vendaId, sessaoCaixaId, usuarioId, itens, parcelas, List.of());
+            List<Item> itens, List<Parcela> parcelas, UUID canceladaPor) {
+        this(contaId, vendaId, sessaoCaixaId, usuarioId, itens, parcelas, List.of(),
+                canceladaPor);
     }
 
     public VendaCancelada {
@@ -57,6 +61,7 @@ public record VendaCancelada(ContaId contaId, UUID vendaId, UUID sessaoCaixaId, 
         parcelas = List.copyOf(Objects.requireNonNull(parcelas, "parcelas nao pode ser nulo"));
         recebimentos = List.copyOf(
                 Objects.requireNonNull(recebimentos, "recebimentos nao pode ser nulo"));
+        Objects.requireNonNull(canceladaPor, "canceladaPor nao pode ser nulo");
     }
 
     /**

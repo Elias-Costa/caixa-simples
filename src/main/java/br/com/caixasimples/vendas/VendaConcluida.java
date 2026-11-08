@@ -37,9 +37,13 @@ import java.util.UUID;
  *                      recusadas: o status diz o que cada uma vale
  * @param concluidoEm   quando a venda foi concluída, o instante do balcão quando ela foi registrada
  *                      sem rede; é quando o dinheiro entrou na gaveta
+ * @param concluidaPor  o usuário autenticado que concluiu, que pode ser o administrador na venda
+ *                      do operador; na conclusão pelo aviso do banco, sem ninguém autenticado, o
+ *                      operador da venda, que recebeu o dinheiro no balcão. É quem o caixa grava
+ *                      como autor da entrada na gaveta
  */
 public record VendaConcluida(ContaId contaId, UUID vendaId, UUID sessaoCaixaId, UUID usuarioId,
-        List<Item> itens, List<Parcela> parcelas, Instant concluidoEm) {
+        List<Item> itens, List<Parcela> parcelas, Instant concluidoEm, UUID concluidaPor) {
 
     public VendaConcluida {
         Objects.requireNonNull(contaId, "contaId nao pode ser nulo");
@@ -49,6 +53,7 @@ public record VendaConcluida(ContaId contaId, UUID vendaId, UUID sessaoCaixaId, 
         itens = List.copyOf(Objects.requireNonNull(itens, "itens nao pode ser nulo"));
         parcelas = List.copyOf(Objects.requireNonNull(parcelas, "parcelas nao pode ser nulo"));
         Objects.requireNonNull(concluidoEm, "concluidoEm nao pode ser nulo");
+        Objects.requireNonNull(concluidaPor, "concluidaPor nao pode ser nulo");
     }
 
     /**

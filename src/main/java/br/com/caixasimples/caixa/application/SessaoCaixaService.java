@@ -156,7 +156,7 @@ public class SessaoCaixaService {
         SessaoCaixa sessao = linha.paraDominio();
         UsuarioContext.exigirDonoOuAdmin(sessao.getUsuarioId());
 
-        sessao.sangrar(valor, motivo, criadoEm);
+        sessao.sangrar(valor, motivo, criadoEm, UsuarioContext.exigirAtual().usuarioId());
 
         linha.atualizarCom(sessao);
         sessoes.save(linha);
@@ -228,10 +228,11 @@ public class SessaoCaixaService {
             }
             return;
         }
+        UUID lancadoPor = UsuarioContext.exigirAtual().usuarioId();
         if (tipo == TipoMovimentoCaixa.SANGRIA) {
-            sessao.sangrar(movimentoId, valor, motivo, criadoEm);
+            sessao.sangrar(movimentoId, valor, motivo, criadoEm, lancadoPor);
         } else {
-            sessao.suprir(movimentoId, valor, motivo, criadoEm);
+            sessao.suprir(movimentoId, valor, motivo, criadoEm, lancadoPor);
         }
         linha.atualizarCom(sessao);
         sessoes.save(linha);
@@ -244,7 +245,7 @@ public class SessaoCaixaService {
         SessaoCaixa sessao = linha.paraDominio();
         UsuarioContext.exigirDonoOuAdmin(sessao.getUsuarioId());
 
-        sessao.suprir(valor, motivo, criadoEm);
+        sessao.suprir(valor, motivo, criadoEm, UsuarioContext.exigirAtual().usuarioId());
 
         linha.atualizarCom(sessao);
         sessoes.save(linha);

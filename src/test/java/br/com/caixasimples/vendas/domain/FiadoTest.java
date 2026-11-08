@@ -9,6 +9,7 @@ import br.com.caixasimples.pagamentos.StatusPagamento;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.vendas.StatusVenda;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
@@ -109,7 +110,7 @@ class FiadoTest {
                 StatusPagamento.PENDENTE, Money.ZERO);
         venda.concluir();
         venda.receber(UUID.randomUUID(), Money.de("4.00"), FormaPagamento.CARTAO);
-        venda.cancelar();
+        venda.cancelar(venda.getUsuarioId(), Instant.now());
         assertThat(venda.saldoDevedor()).isEqualTo(Money.ZERO);
         assertThat(venda.getRecebimentos()).hasSize(1);
         assertThatIllegalStateException().isThrownBy(() ->

@@ -219,6 +219,32 @@ class IsolamentoDeVendaTest extends TesteDeIntegracao {
     }
 
     @Test
+    @DisplayName("quem cancelou e quando atravessam o banco na conta da venda, e a outra conta não os alcança")
+    void trilhaDoCancelamentoFicaNaContaDaVenda() {
+        ContaCriada contaA = criador.criar("Doceria Aurora", SENHA_DE_TESTE);
+        ContaCriada contaB = criador.criar("Banca da Esquina", SENHA_DE_TESTE);
+        Cenario cenario = prepararCenario(contaA);
+        Venda venda = vendaSimples(cenario, null);
+        Instant canceladaEm = Instant.now();
+        venda.cancelar(contaA.usuarioId(), canceladaEm);
+
+        contaA.comoUsuario(() -> vendas.save(VendaEntity.de(venda)));
+
+        contaA.comoUsuario(() -> {
+            VendaEntity linha = vendas.findById(venda.getId()).orElseThrow();
+            assertThat(linha.getContaId()).isEqualTo(contaA.contaId());
+            Venda lida = linha.paraDominio();
+            assertThat(lida.getCanceladaPor()).isEqualTo(contaA.usuarioId());
+            assertThat(lida.getCanceladaEm()).isCloseTo(canceladaEm, within(1, ChronoUnit.MICROS));
+        });
+        contaB.comoUsuario(() -> {
+            assertThat(vendas.findById(venda.getId())).isEmpty();
+            assertThat(vendas.findAll()).extracting(VendaEntity::getId)
+                    .doesNotContain(venda.getId());
+        });
+    }
+
+    @Test
     @DisplayName("venda CONCLUIDA guarda o instante da conclusão e o devolve")
     void vendaConcluidaAtravessaOBancoComOInstante() {
         ContaCriada conta = criador.criar("Sorveteria Teste", SENHA_DE_TESTE);

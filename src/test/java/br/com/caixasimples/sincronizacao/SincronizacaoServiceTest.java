@@ -9,6 +9,7 @@ import static br.com.caixasimples.sincronizacao.GestoDeTeste.parcelaNoCartao;
 import static br.com.caixasimples.sincronizacao.GestoDeTeste.sangria;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
 import br.com.caixasimples.TesteDeIntegracao;
 import br.com.caixasimples.cadastro.TipoProduto;
@@ -421,6 +422,37 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
                     .as("a comanda fica ABERTA no servidor, visível para o ADMIN resolver")
                     .isEqualTo(StatusVenda.ABERTA);
         });
+    }
+
+    @Test
+    @DisplayName("o movimento aplicado pelo lote sai com o usuário que enviou o gesto, não com o dono do caixa")
+    void movimentoDoLoteSaiComQuemEnviou() {
+        ContaCriada conta = criador.criar("Empório Aurora", SENHA);
+        var operador = criador.criarOperadorEm(conta.contaId(), "Atendente");
+        UUID produtoId = cadastrar(conta, "Cafe", "5.00");
+        UUID sessaoId = operador.comoUsuario(() -> sessoes.abrir(Money.de("20.00")));
+        UUID vendaId = UUID.randomUUID();
+        GestoDeTeste inicio = inicio(vendaId, sessaoId);
+        GestoDeTeste item = item(vendaId, UUID.randomUUID(), produtoId, "1", "5.00", inicio);
+        GestoDeTeste parcela = GestoDeTeste.de("venda.registrarPagamento", vendaId,
+                conteudo("pagamentoId", UUID.randomUUID(), "forma", "DINHEIRO",
+                        "valor", new BigDecimal("5.00"), "valorRecebido", new BigDecimal("5.00")),
+                item);
+        GestoDeTeste fim = conclusao(vendaId, parcela);
+        GestoDeTeste retirada = sangria(sessaoId, "3.00");
+
+        assertThat(operador.comoUsuario(() -> sincronizacao.sincronizar(
+                recebidas(List.of(inicio, item, parcela, fim)))))
+                .extracting(ResultadoDaOperacao::resultado).containsOnly(Resultado.APLICADA);
+        assertThat(conta.comoUsuario(() -> sincronizacao.sincronizar(recebidas(List.of(retirada)))))
+                .extracting(ResultadoDaOperacao::resultado).containsOnly(Resultado.APLICADA);
+
+        conta.comoUsuario(() -> assertThat(linhasDeSessao.findById(sessaoId).orElseThrow()
+                .paraDominio().getMovimentos())
+                .extracting(MovimentoCaixa::tipo, MovimentoCaixa::usuarioId)
+                .containsExactlyInAnyOrder(
+                        tuple(TipoMovimentoCaixa.VENDA, operador.usuarioId()),
+                        tuple(TipoMovimentoCaixa.SANGRIA, conta.usuarioId())));
     }
 
     @Test

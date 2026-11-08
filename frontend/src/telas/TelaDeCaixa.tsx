@@ -267,6 +267,17 @@ function SituacaoDaVenda({ status }: { status: ResumoDaVenda['status'] }) {
 }
 
 /** O valor do campo, ou o erro que diz qual campo corrigir, perto do botão que foi tocado. */
+/**
+ * Quem cancelou a venda e quando, na lista do caixa. Noutro dia que não o da abertura do caixa, o dia
+ * vem antes da hora, como no extrato.
+ */
+function quemCancelou(nome: string, canceladaEm: string, diaDaAbertura: string): string {
+  const instante = new Date(canceladaEm)
+  const quando = diaNoBalcao(instante) === diaDaAbertura ? `às ${hora.format(instante)}`
+    : `em ${diaEMes.format(instante)} às ${hora.format(instante)}`
+  return `cancelada por ${nome} ${quando}`
+}
+
 function dinheiroDoCampo(texto: string, nome: string): number {
   const valor = lerDinheiro(texto)
   if (valor === null) throw new Error(`Informe ${nome} com até duas casas decimais.`)
@@ -730,6 +741,9 @@ export function TelaDeCaixa() {
                     <td>
                       {ROTULO_DO_MOVIMENTO[movimento.tipo]}
                       {movimento.motivo && <span className="caixa__sob">{movimento.motivo}</span>}
+                      {/* A trilha é do dono: quem concluiu, cancelou, retirou, reforçou ou recebeu. */}
+                      {administrador && movimento.usuarioId && <span className="caixa__sob">
+                        por {nomeDoOperador(movimento.usuarioId)}</span>}
                     </td>
                     <td className="tabela__numero">{moeda.format(valor)}</td>
                     {!selecionada.saldoDesatualizado && <td className="tabela__numero">{moeda.format(saldo)}</td>}
@@ -765,6 +779,10 @@ export function TelaDeCaixa() {
                         <td className="tabela__hora">{horaNoDia(new Date(resumo.criadoEm), diaDaAbertura)}</td>
                         <td>
                           <SituacaoDaVenda status={resumo.status} />
+                          {administrador && cancelada && resumo.canceladaEm && resumo.canceladaPor
+                            && <span className="caixa__sob">
+                              {quemCancelou(nomeDoOperador(resumo.canceladaPor), resumo.canceladaEm, diaDaAbertura)}
+                            </span>}
                           {resumo.formas && resumo.formas.length > 0 && <span className="caixa__sob">
                             {listaDeFormas.format(resumo.formas.map((forma) => ROTULO_DA_FORMA[forma.forma]))}
                           </span>}

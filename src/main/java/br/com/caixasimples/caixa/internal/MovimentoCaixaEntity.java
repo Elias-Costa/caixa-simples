@@ -64,6 +64,10 @@ class MovimentoCaixaEntity {
     @Column(name = "criado_em", nullable = false, updatable = false)
     private Instant criadoEm;
 
+    /** Quem lançou; nulo só no movimento gravado antes da migration V32. */
+    @Column(name = "usuario_id", updatable = false)
+    private UUID usuarioId;
+
     protected MovimentoCaixaEntity() {
         // exigido pelo JPA
     }
@@ -76,6 +80,7 @@ class MovimentoCaixaEntity {
         this.vendaId = movimento.vendaId();
         this.recebimentoId = movimento.recebimentoId();
         this.criadoEm = movimento.criadoEm();
+        this.usuarioId = movimento.usuarioId();
     }
 
     static MovimentoCaixaEntity de(MovimentoCaixa movimento) {
@@ -89,7 +94,7 @@ class MovimentoCaixaEntity {
      */
     MovimentoCaixa paraDominio() {
         return new MovimentoCaixa(id, tipo, Money.de(valor), motivo, vendaId, recebimentoId,
-                criadoEm);
+                criadoEm, usuarioId);
     }
 
     /**

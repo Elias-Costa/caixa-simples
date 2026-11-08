@@ -259,7 +259,7 @@ class EstornoDeEstoqueListenerTest extends TesteDeIntegracao {
         return new VendaConcluida(conta.contaId(), vendaId, sessaoId, conta.usuarioId(), itens,
                 List.of(new VendaConcluida.Parcela(FormaPagamento.PIX, Money.de("10.00"),
                         StatusPagamento.CONFIRMADO)),
-                Instant.now());
+                Instant.now(), conta.usuarioId());
     }
 
     /** O cancelamento da mesma venda, também paga em Pix. */
@@ -267,7 +267,7 @@ class EstornoDeEstoqueListenerTest extends TesteDeIntegracao {
             List<VendaCancelada.Item> itens) {
         return new VendaCancelada(conta.contaId(), vendaId, sessaoId, conta.usuarioId(), itens,
                 List.of(new VendaCancelada.Parcela(FormaPagamento.PIX, Money.de("10.00"),
-                        StatusPagamento.CONFIRMADO)));
+                        StatusPagamento.CONFIRMADO)), conta.usuarioId());
     }
 
     /** Como numa requisição: a conta no contexto antes de a transação abrir. */

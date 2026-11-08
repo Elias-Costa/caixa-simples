@@ -148,6 +148,13 @@ public class Venda {
     /** Nulo até {@link #concluir}; depois disso nunca muda, nem no cancelamento. */
     private Instant concluidoEm;
 
+    /**
+     * Quando e por quem a venda foi cancelada. Os dois nascem juntos em {@link #cancelar} e nunca
+     * mais mudam; nulos na venda que não foi cancelada e na cancelada antes de a trilha existir.
+     */
+    private Instant canceladaEm;
+    private UUID canceladaPor;
+
     /** Invariante viva, descrita no javadoc da classe. Nunca escrita de fora. */
     private Money valorTotal;
 
@@ -195,7 +202,8 @@ public class Venda {
 
     private Venda(UUID id, UUID sessaoCaixaId, UUID usuarioId, UUID clienteId, StatusVenda status,
             Money valorTotal, Money valorDesconto, Instant criadoEm, Instant concluidoEm,
-            List<ItemVenda> itens, List<Pagamento> pagamentos, List<Recebimento> recebimentos) {
+            Instant canceladaEm, UUID canceladaPor, List<ItemVenda> itens,
+            List<Pagamento> pagamentos, List<Recebimento> recebimentos) {
         this.id = id;
         this.sessaoCaixaId = sessaoCaixaId;
         this.usuarioId = usuarioId;
@@ -205,6 +213,8 @@ public class Venda {
         this.valorDesconto = valorDesconto;
         this.criadoEm = criadoEm;
         this.concluidoEm = concluidoEm;
+        this.canceladaEm = canceladaEm;
+        this.canceladaPor = canceladaPor;
         this.itens = new ArrayList<>(itens);
         this.pagamentos = new ArrayList<>(pagamentos);
         this.recebimentos = new ArrayList<>(recebimentos);
@@ -248,8 +258,35 @@ public class Venda {
             StatusVenda status, Money valorTotal, Money valorDesconto, Instant criadoEm,
             Instant concluidoEm, List<ItemVenda> itens, List<Pagamento> pagamentos,
             List<Recebimento> recebimentos) {
+        return reconstituir(id, sessaoCaixaId, usuarioId, clienteId, status, valorTotal,
+                valorDesconto, criadoEm, concluidoEm, null, null, itens, pagamentos, recebimentos);
+    }
+
+    /**
+     * A remontagem completa, com quem cancelou e quando. As formas sem os dois remontam a venda
+     * sem trilha de cancelamento, como a linha gravada antes de ela existir.
+     *
+     * @param canceladaEm  nulo, ou o instante do cancelamento, sempre junto de {@code canceladaPor}
+     * @param canceladaPor nulo, ou o usuário que cancelou
+     * @throws IllegalStateException além dos casos acima, se só um dos dois veio, ou se vieram
+     *                               numa venda que não está CANCELADA
+     */
+    public static Venda reconstituir(UUID id, UUID sessaoCaixaId, UUID usuarioId, UUID clienteId,
+            StatusVenda status, Money valorTotal, Money valorDesconto, Instant criadoEm,
+            Instant concluidoEm, Instant canceladaEm, UUID canceladaPor, List<ItemVenda> itens,
+            List<Pagamento> pagamentos, List<Recebimento> recebimentos) {
         Venda venda = new Venda(id, sessaoCaixaId, usuarioId, clienteId, status, valorTotal,
-                valorDesconto, criadoEm, concluidoEm, itens, pagamentos, recebimentos);
+                valorDesconto, criadoEm, concluidoEm, canceladaEm, canceladaPor, itens,
+                pagamentos, recebimentos);
+
+        if ((canceladaEm == null) != (canceladaPor == null)) {
+            throw new IllegalStateException("venda " + id + " tem so metade da trilha do"
+                    + " cancelamento. O estado gravado nao pode ser remontado.");
+        }
+        if (canceladaEm != null && status != StatusVenda.CANCELADA) {
+            throw new IllegalStateException("venda " + id + " esta " + status + " com instante de"
+                    + " cancelamento. O estado gravado nao pode ser remontado.");
+        }
 
         Money totalPelosItens = venda.somaDosItens().subtrair(venda.valorDesconto);
         if (!venda.valorTotal.equals(totalPelosItens)) {
@@ -647,9 +684,17 @@ public class Venda {
      * cancela com a sessão em que nasceu ainda ABERTA mora no caso de uso, ao lado da regra
      * equivalente da conclusão.
      *
+     * <p>Grava quem cancelou e quando, a trilha que o administrador confere no caixa. O operador
+     * cancela a própria venda sem chamar o dono, e é essa trilha que deixa o dono saber quem
+     * desfez a venda e quando, inclusive a que devolveu dinheiro da gaveta.
+     *
+     * @param canceladaPor o usuário autenticado que cancelou; quem passa é o caso de uso
+     * @param canceladaEm  o instante do cancelamento
      * @throws IllegalStateException se a venda já está CANCELADA ou ainda tem Pix pendente
      */
-    public void cancelar() {
+    public void cancelar(UUID canceladaPor, Instant canceladaEm) {
+        Objects.requireNonNull(canceladaPor, "canceladaPor nao pode ser nulo");
+        Objects.requireNonNull(canceladaEm, "canceladaEm nao pode ser nulo");
         if (status == StatusVenda.CANCELADA) {
             throw new IllegalStateException("Esta venda já foi cancelada.");
         }
@@ -659,6 +704,8 @@ public class Venda {
                     "Remova a cobrança Pix pendente antes de cancelar a venda.");
         }
         this.status = StatusVenda.CANCELADA;
+        this.canceladaEm = canceladaEm;
+        this.canceladaPor = canceladaPor;
     }
 
     /** Cliente é opcional na comanda, mas obrigatório antes de concluir com FIADO. */
@@ -865,6 +912,16 @@ public class Venda {
      */
     public Instant getConcluidoEm() {
         return concluidoEm;
+    }
+
+    /** Quando a venda foi cancelada; nulo fora de CANCELADA e na cancelada antes da trilha. */
+    public Instant getCanceladaEm() {
+        return canceladaEm;
+    }
+
+    /** Quem cancelou a venda; nulo nos mesmos casos de {@link #getCanceladaEm}. */
+    public UUID getCanceladaPor() {
+        return canceladaPor;
     }
 
     /** Cópia imutável: item só entra pela raiz, nunca por quem leu a lista. */

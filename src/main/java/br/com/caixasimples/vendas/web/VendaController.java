@@ -238,14 +238,17 @@ class VendaController {
 
     /**
      * As formas chegaram depois dos outros campos: o aplicativo instalado antes delas lê a lista sem
-     * elas, e a venda sem parcela que vale responde a lista vazia.
+     * elas, e a venda sem parcela que vale responde a lista vazia. Quem cancelou e quando chegaram
+     * depois também, e a resposta os omite fora da venda cancelada com a trilha gravada.
      */
     record ResumoNaResposta(UUID id, UUID sessaoCaixaId, UUID usuarioId, StatusVenda status,
-            BigDecimal total, Instant criadoEm, List<FormaNaResposta> formas) {
+            BigDecimal total, Instant criadoEm, List<FormaNaResposta> formas,
+            Instant canceladaEm, UUID canceladaPor) {
         static ResumoNaResposta de(VendaService.ResumoDaVenda resumo) {
             return new ResumoNaResposta(resumo.id(), resumo.sessaoCaixaId(), resumo.usuarioId(),
                     resumo.status(), resumo.total().valor(), resumo.criadoEm(),
-                    resumo.formas().stream().map(FormaNaResposta::de).toList());
+                    resumo.formas().stream().map(FormaNaResposta::de).toList(),
+                    resumo.canceladaEm(), resumo.canceladaPor());
         }
     }
 
@@ -267,7 +270,7 @@ class VendaController {
             BigDecimal saldoDevedor, StatusVenda status,
             Instant criadoEm, BigDecimal descontoDaVenda, BigDecimal total, BigDecimal pago,
             BigDecimal faltaPagar, List<ItemNaResposta> itens, List<ParcelaNaResposta> parcelas,
-            List<RecebimentoNaResposta> recebimentos) {
+            List<RecebimentoNaResposta> recebimentos, Instant canceladaEm, UUID canceladaPor) {
         static VendaNaResposta de(VendaParaTela venda) {
             return new VendaNaResposta(venda.id(), venda.sessaoCaixaId(), venda.usuarioId(),
                     venda.clienteId(), venda.saldoDevedor().valor(),
@@ -275,7 +278,8 @@ class VendaController {
                     venda.total().valor(), venda.pago().valor(), venda.faltaPagar().valor(),
                     venda.itens().stream().map(ItemNaResposta::de).toList(),
                     venda.parcelas().stream().map(ParcelaNaResposta::de).toList(),
-                    venda.recebimentos().stream().map(RecebimentoNaResposta::de).toList());
+                    venda.recebimentos().stream().map(RecebimentoNaResposta::de).toList(),
+                    venda.canceladaEm(), venda.canceladaPor());
         }
     }
 

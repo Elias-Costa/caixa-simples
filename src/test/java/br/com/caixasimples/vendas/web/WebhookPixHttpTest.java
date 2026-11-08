@@ -35,6 +35,7 @@ import br.com.caixasimples.vendas.internal.VendaRepository;
 import java.math.BigDecimal;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -115,6 +116,10 @@ class WebhookPixHttpTest extends TesteDeIntegracao {
                     .satisfies(p -> assertThat(p.status()).isEqualTo(StatusPagamento.CONFIRMADO));
         });
         assertThat(eventos.stream(VendaConcluida.class)).hasSize(1);
+        // O aviso do banco chega sem ninguém autenticado: o autor da conclusão, que o caixa grava
+        // na entrada em dinheiro, é o operador da venda.
+        assertThat(eventos.stream(VendaConcluida.class).findFirst().orElseThrow().concluidaPor())
+                .isEqualTo(a.conta.usuarioId());
     }
 
     @Test
@@ -141,7 +146,7 @@ class WebhookPixHttpTest extends TesteDeIntegracao {
             var venda = linha.paraDominio();
             var parcela = venda.getPagamentos().getFirst();
             venda.recusarPix(parcela.id(), parcela.cobrancaPix().txid());
-            venda.cancelar();
+            venda.cancelar(venda.getUsuarioId(), Instant.now());
             linha.atualizarCom(venda);
             linhas.save(linha);
         }));

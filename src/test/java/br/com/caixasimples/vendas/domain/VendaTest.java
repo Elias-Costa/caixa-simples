@@ -79,11 +79,11 @@ class VendaTest {
                 cobranca.txid(), Money.de("10.00"), "chave-b"));
         assertThat(venda.getPagamentos().getFirst().status()).isEqualTo(StatusPagamento.PENDENTE);
 
-        assertThatIllegalStateException().isThrownBy(venda::cancelar)
+        assertThatIllegalStateException().isThrownBy(() -> venda.cancelar(OPERADOR, Instant.now()))
                 .withMessageContaining("cobrança Pix pendente");
         venda.recusarPix(tentativa, cobranca.txid());
         assertThat(venda.getPagamentos().getFirst().status()).isEqualTo(StatusPagamento.RECUSADO);
-        venda.cancelar();
+        venda.cancelar(venda.getUsuarioId(), Instant.now());
         assertThat(venda.confirmarPix(tentativa, cobranca.txid(), Money.de("10.00"),
                 "chave-a")).isTrue();
         assertThat(venda.confirmarPix(tentativa, cobranca.txid(), Money.de("10.00"),
@@ -648,7 +648,7 @@ class VendaTest {
         assertThat(concluidoEm).isAfterOrEqualTo(venda.getCriadoEm());
         assertThatInvarianteVale(venda);
 
-        venda.cancelar();
+        venda.cancelar(venda.getUsuarioId(), Instant.now());
         assertThat(venda.getConcluidoEm())
                 .as("a conclusao aconteceu, e o cancelamento nao apaga isso")
                 .isEqualTo(concluidoEm);
@@ -663,17 +663,74 @@ class VendaTest {
     }
 
     @Test
+    @DisplayName("o cancelamento grava quem cancelou e quando, que pode não ser o operador da venda")
+    void cancelamentoGravaQuemEQuando() {
+        UUID administrador = UUID.randomUUID();
+        Instant quando = Instant.parse("2026-11-08T18:42:00Z");
+
+        Venda aberta = new Venda(SESSAO, OPERADOR);
+        assertThat(aberta.getCanceladaEm()).isNull();
+        assertThat(aberta.getCanceladaPor()).isNull();
+        aberta.cancelar(OPERADOR, quando);
+        assertThat(aberta.getCanceladaPor()).isEqualTo(OPERADOR);
+        assertThat(aberta.getCanceladaEm()).isEqualTo(quando);
+
+        Venda concluida = new Venda(SESSAO, OPERADOR);
+        concluida.adicionarItem(CAFE, DOIS, Money.de("4.50"), Money.ZERO);
+        concluida.registrarPagamento(FormaPagamento.DINHEIRO, Money.de("9.00"),
+                StatusPagamento.CONFIRMADO, Money.ZERO);
+        concluida.concluir();
+        concluida.cancelar(administrador, quando);
+        assertThat(concluida.getCanceladaPor()).isEqualTo(administrador);
+        assertThat(concluida.getUsuarioId()).isEqualTo(OPERADOR);
+
+        // O segundo cancelamento é recusado e não reescreve a trilha do primeiro.
+        assertThatIllegalStateException().isThrownBy(() ->
+                concluida.cancelar(OPERADOR, Instant.now()));
+        assertThat(concluida.getCanceladaPor()).isEqualTo(administrador);
+        assertThat(concluida.getCanceladaEm()).isEqualTo(quando);
+
+        Venda semAutor = new Venda(SESSAO, OPERADOR);
+        assertThatNullPointerException().isThrownBy(() -> semAutor.cancelar(null, quando));
+        assertThatNullPointerException().isThrownBy(() -> semAutor.cancelar(OPERADOR, null));
+        assertThat(semAutor.getStatus()).isEqualTo(StatusVenda.ABERTA);
+    }
+
+    @Test
+    @DisplayName("a remontagem recusa a trilha do cancelamento pela metade ou fora de CANCELADA")
+    void remontagemConfereATrilhaDoCancelamento() {
+        UUID id = UUID.randomUUID();
+        Instant agora = Instant.now();
+
+        Venda antiga = Venda.reconstituir(id, SESSAO, OPERADOR, null, StatusVenda.CANCELADA,
+                Money.ZERO, Money.ZERO, agora, null, List.of(), List.of());
+        assertThat(antiga.getCanceladaPor()).as("a venda cancelada antes da trilha").isNull();
+
+        Venda comTrilha = Venda.reconstituir(id, SESSAO, OPERADOR, null, StatusVenda.CANCELADA,
+                Money.ZERO, Money.ZERO, agora, null, agora, OPERADOR, List.of(), List.of(),
+                List.of());
+        assertThat(comTrilha.getCanceladaEm()).isEqualTo(agora);
+
+        assertThatIllegalStateException().isThrownBy(() -> Venda.reconstituir(id, SESSAO,
+                OPERADOR, null, StatusVenda.CANCELADA, Money.ZERO, Money.ZERO, agora, null, agora,
+                null, List.of(), List.of(), List.of())).withMessageContaining("metade");
+        assertThatIllegalStateException().isThrownBy(() -> Venda.reconstituir(id, SESSAO,
+                OPERADOR, null, StatusVenda.ABERTA, Money.ZERO, Money.ZERO, agora, null, agora,
+                OPERADOR, List.of(), List.of(), List.of())).withMessageContaining("ABERTA");
+    }
+
+    @Test
     @DisplayName("cancelar desfaz a comanda ABERTA, com ou sem parcela, e a venda CONCLUIDA; itens e parcelas ficam (RF12)")
     void cancelaAbertaEConcluida() {
         Venda vazia = new Venda(SESSAO, OPERADOR);
-        vazia.cancelar();
+        vazia.cancelar(vazia.getUsuarioId(), Instant.now());
         assertThat(vazia.getStatus()).isEqualTo(StatusVenda.CANCELADA);
 
         Venda pelaMetade = new Venda(SESSAO, OPERADOR);
         pelaMetade.adicionarItem(CAFE, DOIS, Money.de("4.50"), Money.ZERO);
         pelaMetade.registrarPagamento(FormaPagamento.PIX, Money.de("5.00"),
                 StatusPagamento.CONFIRMADO, Money.ZERO);
-        pelaMetade.cancelar();
+        pelaMetade.cancelar(pelaMetade.getUsuarioId(), Instant.now());
         assertThat(pelaMetade.getStatus()).isEqualTo(StatusVenda.CANCELADA);
         assertThat(pelaMetade.getItens()).hasSize(1);
         assertThat(pelaMetade.getPagamentos())
@@ -686,7 +743,7 @@ class VendaTest {
         concluida.registrarPagamento(FormaPagamento.DINHEIRO, Money.de("9.00"),
                 StatusPagamento.CONFIRMADO, Money.ZERO);
         concluida.concluir();
-        concluida.cancelar();
+        concluida.cancelar(concluida.getUsuarioId(), Instant.now());
         assertThat(concluida.getStatus()).isEqualTo(StatusVenda.CANCELADA);
         // O que tinha sido vendido e como tinha sido pago continua contado: é o que permite ao
         // caixa e ao estoque desfazerem exatamente o que a conclusão fez.
@@ -703,10 +760,10 @@ class VendaTest {
     void canceladaEFinal() {
         Venda venda = new Venda(SESSAO, OPERADOR);
         venda.adicionarItem(CAFE, DOIS, Money.de("4.50"), Money.ZERO);
-        venda.cancelar();
+        venda.cancelar(venda.getUsuarioId(), Instant.now());
 
         assertThatIllegalStateException()
-                .isThrownBy(venda::cancelar)
+                .isThrownBy(() -> venda.cancelar(OPERADOR, Instant.now()))
                 .withMessageContaining("já foi cancelada");
         assertThatIllegalStateException()
                                 .isThrownBy(venda::concluir)

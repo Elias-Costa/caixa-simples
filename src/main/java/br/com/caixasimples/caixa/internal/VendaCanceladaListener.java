@@ -112,7 +112,7 @@ class VendaCanceladaListener {
                         + " tinha dinheiro e nao entrou na sessao de caixa "
                         + evento.sessaoCaixaId() + "; o estorno nao sai pela metade");
             }
-            sessao.estornarVenda(evento.vendaId(), fiadoRecebidoEmDinheiro);
+            sessao.estornarVenda(evento.vendaId(), fiadoRecebidoEmDinheiro, evento.canceladaPor());
 
             linha.atualizarCom(sessao);
             sessoes.save(linha);

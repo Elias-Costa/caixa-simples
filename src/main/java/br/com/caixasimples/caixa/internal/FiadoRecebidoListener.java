@@ -70,7 +70,7 @@ class FiadoRecebidoListener {
             SessaoCaixa sessao = linha.paraDominio();
 
             sessao.registrarRecebimento(evento.vendaId(), evento.recebimentoId(),
-                    evento.valor());
+                    evento.valor(), evento.recebidoPor());
 
             linha.atualizarCom(sessao);
             sessoes.save(linha);

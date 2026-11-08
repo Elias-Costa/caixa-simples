@@ -30,6 +30,12 @@ export type MovimentoCaixa = {
   vendaId: string | null
   recebimentoId: string | null
   criadoEm: string
+  /**
+   * Quem lançou: quem concluiu a venda, quem a cancelou, quem lançou a sangria ou o suprimento, quem
+   * recebeu o fiado. Falta no movimento gravado antes de o servidor guardá-lo e na resposta de um
+   * servidor anterior a ele.
+   */
+  usuarioId?: string | null
 }
 
 export const caixa = {
