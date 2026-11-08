@@ -53,6 +53,9 @@ public record ItemVenda(UUID id, UUID produtoId, BigDecimal quantidade, Money pr
     /** Três casas, porque é o que a coluna {@code numeric(12,3)} guarda. */
     public static final int CASAS_DA_QUANTIDADE = 3;
 
+    /** A unidade do produto vendido por peça, cuja quantidade não tem fração. */
+    public static final String UNIDADE_INTEIRA = "un";
+
     public ItemVenda {
         Objects.requireNonNull(id, "id nao pode ser nulo");
         Objects.requireNonNull(produtoId, "produtoId nao pode ser nulo");
@@ -93,6 +96,38 @@ public record ItemVenda(UUID id, UUID produtoId, BigDecimal quantidade, Money pr
     static ItemVenda novo(UUID id, UUID produtoId, BigDecimal quantidade, Money precoUnitario,
             Money desconto, Instant criadoEm) {
         return new ItemVenda(id, produtoId, quantidade, precoUnitario, desconto, criadoEm);
+    }
+
+    /**
+     * Recusa a quantidade com fração do produto vendido por {@code un} ou sem unidade.
+     *
+     * <p>A unidade é texto livre no cadastro, e só essas duas formas dizem com certeza que o produto
+     * é vendido por peça: {@code un} é a do catálogo inicial inteiro, e o produto sem unidade é
+     * vendido inteiro. Uma lista do que se fraciona erraria toda unidade escrita de outro jeito,
+     * então qualquer outra grafia, como {@code unid} ou {@code kg}, continua com três casas.
+     * Maiúscula e espaço nas pontas não contam.
+     *
+     * <p>Mora aqui, ao lado das outras regras da quantidade, mas quem chama é o caso de uso de
+     * montagem, que é onde o produto é consultado: o item não guarda a unidade. A regra vale para o
+     * item novo; o item já gravado não volta a ser conferido.
+     *
+     * @param nomeDoProduto o nome que a recusa cita
+     * @param unidade       a unidade do cadastro, nula quando não há
+     * @param quantidade    nula passa, porque a guarda do construtor a recusa
+     * @throws IllegalArgumentException se a unidade é {@code un} ou vazia e a quantidade tem fração
+     */
+    public static void exigirInteiraNaUnidade(String nomeDoProduto, String unidade,
+            BigDecimal quantidade) {
+        if (quantidade == null) {
+            return;
+        }
+        String aparada = unidade == null ? "" : unidade.trim();
+        boolean vendidoPorPeca = aparada.isEmpty() || aparada.equalsIgnoreCase(UNIDADE_INTEIRA);
+        boolean temFracao = quantidade.remainder(BigDecimal.ONE).signum() != 0;
+        if (vendidoPorPeca && temFracao) {
+            throw new IllegalArgumentException("O produto " + nomeDoProduto
+                    + " é vendido por unidade e só aceita quantidade inteira.");
+        }
     }
 
     /** Quantidade vezes preço unitário, já arredondado para centavos neste item. */

@@ -419,7 +419,7 @@ class ProdutoServiceTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("consultarParaVenda devolve o preço vigente e se o produto está ativo")
+    @DisplayName("consultarParaVenda devolve o nome, a unidade, o preço vigente e se o produto está ativo")
     void consultarParaVendaDevolvePrecoEEstado() {
         ContaCriada conta = criador.criar("Mercado do Bairro", SENHA_DE_TESTE);
 
@@ -429,6 +429,8 @@ class ProdutoServiceTest extends TesteDeIntegracao {
         conta.comoUsuario(() -> {
             ProdutoParaVenda ativo = produtoService.consultarParaVenda(id);
             assertThat(ativo.id()).isEqualTo(id);
+            assertThat(ativo.nome()).isEqualTo("Cafe coado");
+            assertThat(ativo.unidade()).isEqualTo("un");
             assertThat(ativo.preco()).isEqualTo(Money.de("6.50"));
             assertThat(ativo.ativo()).isTrue();
         });

@@ -490,6 +490,32 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
     }
 
     @Test
+    @DisplayName("fração em produto vendido por unidade, gravada por um aparelho antigo: recusada, e a venda para ali")
+    void fracaoEmProdutoPorUnidadeRecusaOItem() {
+        ContaCriada conta = criador.criar("Doceria Aurora", SENHA);
+        UUID produtoId = cadastrar(conta, "Bala de goma", "0.10");
+        UUID sessaoId = conta.comoUsuario(() -> sessoes.abrir(Money.ZERO));
+        UUID vendaId = UUID.randomUUID();
+        GestoDeTeste inicio = inicio(vendaId, sessaoId);
+        GestoDeTeste item = item(vendaId, UUID.randomUUID(), produtoId, "1.5", "0.10", inicio);
+        GestoDeTeste parcela = parcelaNoCartao(vendaId, "0.15", item);
+        GestoDeTeste fim = conclusao(vendaId, parcela);
+
+        List<ResultadoDaOperacao> resultados = conta.comoUsuario(() ->
+                sincronizacao.sincronizar(recebidas(List.of(inicio, item, parcela, fim))));
+
+        assertThat(resultados).extracting(ResultadoDaOperacao::resultado).containsExactly(
+                Resultado.APLICADA, Resultado.NAO_APLICADA, Resultado.NAO_APLICADA,
+                Resultado.NAO_APLICADA);
+        assertThat(resultados.get(1).detalhe()).isEqualTo("O produto Bala de goma é vendido por"
+                + " unidade e só aceita quantidade inteira.");
+        assertThat(resultados.get(3).detalhe())
+                .isEqualTo("A venda parou no passo anterior, que foi recusado.");
+        conta.comoUsuario(() -> assertThat(linhasDeVenda.findById(vendaId).orElseThrow()
+                .paraDominio().getItens()).isEmpty());
+    }
+
+    @Test
     @DisplayName("produto reativado sem rede: aplicado com a revisão nova, ou recusado se o código foi para outro")
     void reativacaoDeProdutoPeloLote() {
         ContaCriada conta = criador.criar("Armazem Aurora", SENHA);

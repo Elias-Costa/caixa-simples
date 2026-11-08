@@ -221,7 +221,37 @@ export function abrirVenda(dados: DadosDoInicio & { id: string; usuarioId: strin
   }
 }
 
+/** A unidade do produto vendido por peça, cuja quantidade não tem fração. */
+export const UNIDADE_INTEIRA = 'un'
+
+/**
+ * A mesma regra do servidor: o produto vendido por "un", ou sem unidade, só aceita quantidade
+ * inteira. A unidade é texto livre, e qualquer outra grafia, como "unid" ou "kg", continua com três
+ * casas; maiúscula e espaço nas pontas não contam. Quantidade que nem é número fica para a regra das
+ * três casas.
+ */
+export function exigirInteiraNaUnidade(nome: string, unidade: string | null | undefined,
+  quantidade: number): void {
+  const aparada = (unidade ?? '').trim().toLowerCase()
+  const vendidoPorPeca = aparada === '' || aparada === UNIDADE_INTEIRA
+  if (vendidoPorPeca && Number.isFinite(quantidade) && !Number.isInteger(quantidade)) {
+    throw new Error(`O produto ${nome} é vendido por unidade e só aceita quantidade inteira.`)
+  }
+}
+
+/** Lança o item novo da comanda, com a regra da unidade que o produto tem na busca. */
 export function adicionarItem(venda: VendaNoDispositivo, dados: DadosDoItem): VendaNoDispositivo {
+  exigirAberta(venda)
+  exigirInteiraNaUnidade(dados.nome, dados.unidade, dados.quantidade)
+  return lancarItem(venda, dados)
+}
+
+/**
+ * O lançamento sem a regra da unidade, para reaplicar o gesto que já está na fila. Um gesto gravado
+ * antes da regra, com fração num produto vendido por unidade, derrubaria a projeção inteira do PDV e
+ * do caixa; quem o recusa é o servidor, e o gesto recusado sai da projeção pela revisão.
+ */
+function lancarItem(venda: VendaNoDispositivo, dados: DadosDoItem): VendaNoDispositivo {
   exigirAberta(venda)
   const item: ItemNoDispositivo = {
     id: dados.itemId,
@@ -407,7 +437,7 @@ function vendaDoInicio(gesto: GestoNaFila, usuarioId: string): VendaNoDispositiv
 
 function aplicarGesto(venda: VendaNoDispositivo, gesto: GestoNaFila): VendaNoDispositivo {
   switch (gesto.tipo) {
-    case 'venda.adicionarItem': return adicionarItem(venda, gesto.payload as DadosDoItem)
+    case 'venda.adicionarItem': return lancarItem(venda, gesto.payload as DadosDoItem)
     case 'venda.removerItem': return removerItem(venda, (gesto.payload as DadosDaRemocao).itemId)
     case 'venda.aplicarDesconto': return aplicarDesconto(venda, (gesto.payload as DadosDoDesconto).valor)
     case 'venda.vincularCliente': return vincularCliente(venda, (gesto.payload as DadosDoVinculo).clienteId)

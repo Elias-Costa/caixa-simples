@@ -298,8 +298,8 @@ public class ProdutoService {
     }
 
     /**
-     * O que a montagem da venda precisa saber de um produto: o preço vigente, para copiar, e se
-     * ele está ativo, para recusar.
+     * O que a montagem da venda precisa saber de um produto: o preço vigente, para copiar, se ele
+     * está ativo e qual a unidade, para recusar, e o nome, para a recusa dizer qual produto.
      *
      * <p>Devolve o produto inativo em vez de recusá-lo, de propósito: quem decide o que entra numa
      * venda é o módulo de vendas, e a regra de recusar produto inativado mora lá, junto das outras
@@ -310,7 +310,8 @@ public class ProdutoService {
     @Transactional(readOnly = true)
     public ProdutoParaVenda consultarParaVenda(UUID id) {
         Produto produto = buscar(id).paraDominio();
-        return new ProdutoParaVenda(produto.getId(), produto.getPreco(), produto.isAtivo());
+        return new ProdutoParaVenda(produto.getId(), produto.getNome(), produto.getUnidade(),
+                produto.getPreco(), produto.isAtivo());
     }
 
     /**
@@ -618,14 +619,18 @@ public class ProdutoService {
      * A resposta de {@link #consultarParaVenda}.
      *
      * <p>Record próprio, e não {@link Produto}, porque atravessa a fronteira do módulo: o módulo de
-     * vendas recebe o preço para copiar e o estado para conferir, e nada mais. Se recebesse a raiz
-     * do agregado, receberia também os mutadores dela.
+     * vendas recebe o preço para copiar, o estado e a unidade para conferir e o nome para a recusa,
+     * e nada mais. Se recebesse a raiz do agregado, receberia também os mutadores dela.
      *
-     * @param id    o mesmo id consultado, devolvido para a chamada ser autoexplicativa
-     * @param preco o preço vigente, que a venda copia e nunca lê de novo
-     * @param ativo falso quando o produto foi inativado (RF05)
+     * @param id      o mesmo id consultado, devolvido para a chamada ser autoexplicativa
+     * @param nome    o nome de hoje, que a recusa da venda cita
+     * @param unidade nula quando o produto não tem unidade cadastrada; decide se a quantidade pode
+     *                ter fração
+     * @param preco   o preço vigente, que a venda copia e nunca lê de novo
+     * @param ativo   falso quando o produto foi inativado (RF05)
      */
-    public record ProdutoParaVenda(UUID id, Money preco, boolean ativo) {
+    public record ProdutoParaVenda(UUID id, String nome, String unidade, Money preco,
+            boolean ativo) {
     }
 
     /**

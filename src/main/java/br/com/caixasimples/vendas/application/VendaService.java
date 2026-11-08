@@ -258,7 +258,8 @@ public class VendaService {
      * @throws br.com.caixasimples.cadastro.application.ProdutoNaoEncontradoException se o
      *         produto não existe nesta conta
      * @throws IllegalStateException    se o produto está inativo, ou se a venda não está ABERTA
-     * @throws IllegalArgumentException se quantidade ou desconto violam as regras da raiz
+     * @throws IllegalArgumentException se quantidade ou desconto violam as regras da raiz, ou se
+     *                                  a quantidade tem fração num produto vendido por unidade
      */
     @Transactional
     public UUID adicionarItem(UUID vendaId, UUID produtoId, BigDecimal quantidade, Money desconto) {
@@ -285,7 +286,8 @@ public class VendaService {
      *         produto não existe nesta conta
      * @throws IllegalStateException    se o produto está inativo, se a venda não está ABERTA, ou se
      *                                  o id já foi usado com outro conteúdo
-     * @throws IllegalArgumentException se quantidade ou desconto violam as regras da raiz
+     * @throws IllegalArgumentException se quantidade ou desconto violam as regras da raiz, ou se
+     *                                  a quantidade tem fração num produto vendido por unidade
      */
     @Transactional
     public ItemLancado adicionarItemOnline(UUID vendaId, UUID itemId, UUID produtoId,
@@ -319,6 +321,7 @@ public class VendaService {
             throw new IllegalStateException(
                     "Este produto foi inativado e não entra em venda nova.");
         }
+        ItemVenda.exigirInteiraNaUnidade(produto.nome(), produto.unidade(), quantidade);
 
         venda.adicionarItem(itemId, produtoId, quantidade, produto.preco(), desconto, Instant.now());
 
@@ -345,7 +348,9 @@ public class VendaService {
      *         produto não existe nesta conta
      * @throws IllegalStateException    se o produto está inativo, se a venda não está ABERTA, ou se
      *                                  já existe item com este id nesta conta
-     * @throws IllegalArgumentException se quantidade, preço ou desconto violam as regras da raiz
+     * @throws IllegalArgumentException se quantidade, preço ou desconto violam as regras da raiz,
+     *                                  ou se a quantidade tem fração num produto vendido por
+     *                                  unidade
      */
     @Transactional
     public Money adicionarItemComPrecoVisto(UUID vendaId, UUID itemId, UUID produtoId,
@@ -368,6 +373,7 @@ public class VendaService {
                     "O produto foi inativado antes de a venda chegar ao servidor e não entra nela"
                             + " sem a conferência do administrador.");
         }
+        ItemVenda.exigirInteiraNaUnidade(produto.nome(), produto.unidade(), quantidade);
 
         venda.adicionarItem(itemId, produtoId, quantidade, precoVisto, desconto, criadoEm);
 

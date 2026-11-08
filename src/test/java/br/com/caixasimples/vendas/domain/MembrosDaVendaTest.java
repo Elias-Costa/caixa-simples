@@ -12,6 +12,7 @@ import br.com.caixasimples.vendas.StatusVenda;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
@@ -39,6 +40,31 @@ class MembrosDaVendaTest {
         assertThat(item.quantidade()).isEqualByComparingTo("0.750");
         assertThat(item.precoUnitario()).isEqualTo(Money.ZERO);
         assertThat(item.desconto()).isEqualTo(Money.ZERO);
+    }
+
+    @Test
+    @DisplayName("produto vendido por un ou sem unidade recusa fração e aceita quantidade inteira")
+    void unidadeInteiraRecusaFracao() {
+        Arrays.asList("un", "UN", " un ", "", "   ", null).forEach(unidade -> {
+            assertThatIllegalArgumentException()
+                    .isThrownBy(() -> ItemVenda.exigirInteiraNaUnidade("Bala de goma", unidade,
+                            new BigDecimal("1.5")))
+                    .withMessage("O produto Bala de goma é vendido por unidade e só aceita"
+                            + " quantidade inteira.");
+            ItemVenda.exigirInteiraNaUnidade("Bala de goma", unidade, new BigDecimal("2"));
+            ItemVenda.exigirInteiraNaUnidade("Bala de goma", unidade, new BigDecimal("2.000"));
+            ItemVenda.exigirInteiraNaUnidade("Bala de goma", unidade, new BigDecimal("20"));
+        });
+        // A quantidade nula fica para a guarda do construtor.
+        ItemVenda.exigirInteiraNaUnidade("Bala de goma", "un", null);
+    }
+
+    @Test
+    @DisplayName("qualquer outra unidade continua com fração")
+    void outraUnidadeAceitaFracao() {
+        for (String unidade : List.of("kg", "unid", "pç", "hora", "Un.")) {
+            ItemVenda.exigirInteiraNaUnidade("Queijo minas", unidade, new BigDecimal("0.750"));
+        }
     }
 
     @Test

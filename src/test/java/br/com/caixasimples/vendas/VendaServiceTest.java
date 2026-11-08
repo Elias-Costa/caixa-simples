@@ -186,7 +186,7 @@ class VendaServiceTest extends TesteDeIntegracao {
         ContaCriada conta = criador.criar("Empório do Bairro", SENHA_DE_TESTE);
         UUID sessaoId = abrirCaixa(conta);
         UUID cafeId = cadastrar(conta, "Cafe coado", Money.de("4.50"));
-        UUID queijoId = cadastrar(conta, "Queijo minas", Money.de("39.90"));
+        UUID queijoId = cadastrarAoQuilo(conta, "Queijo minas", Money.de("39.90"));
 
         UUID vendaId = conta.comoUsuario(() ->
                 vendaService.iniciar(sessaoId));
@@ -218,7 +218,7 @@ class VendaServiceTest extends TesteDeIntegracao {
         ContaCriada conta = criador.criar("Quitanda do Centro", SENHA_DE_TESTE);
         UUID sessaoId = abrirCaixa(conta);
         UUID cafeId = cadastrar(conta, "Cafe coado", Money.de("4.50"));
-        UUID queijoId = cadastrar(conta, "Queijo minas", Money.de("39.90"));
+        UUID queijoId = cadastrarAoQuilo(conta, "Queijo minas", Money.de("39.90"));
 
         UUID vendaId = conta.comoUsuario(() ->
                 vendaService.iniciar(sessaoId));
@@ -354,7 +354,7 @@ class VendaServiceTest extends TesteDeIntegracao {
         ContaCriada conta = criador.criar("Cafeteria Aurora", SENHA_DE_TESTE);
         UUID sessaoId = abrirCaixa(conta);
         UUID cafeId = cadastrar(conta, "Cafe coado", Money.de("4.50"));
-        UUID queijoId = cadastrar(conta, "Queijo minas", Money.de("39.90"));
+        UUID queijoId = cadastrarAoQuilo(conta, "Queijo minas", Money.de("39.90"));
 
         UUID vendaId = conta.comoUsuario(() ->
                 vendaService.iniciar(sessaoId));
@@ -608,7 +608,7 @@ class VendaServiceTest extends TesteDeIntegracao {
         criador.habilitarEstoque(conta.contaId());
         UUID sessaoId = abrirCaixa(conta);
         UUID cafeId = cadastrar(conta, "Cafe coado", Money.de("4.50"));
-        UUID queijoId = cadastrar(conta, "Queijo minas", Money.de("39.90"));
+        UUID queijoId = cadastrarAoQuilo(conta, "Queijo minas", Money.de("39.90"));
 
         UUID vendaId = conta.comoUsuario(() ->
                 vendaService.iniciar(sessaoId));
@@ -988,6 +988,13 @@ class VendaServiceTest extends TesteDeIntegracao {
         return conta.comoUsuario(() ->
                 produtos.cadastrar(TipoProduto.PRODUTO,
                         new DadosDoProduto(nome, preco, null, null, "un", null)));
+    }
+
+    /** O produto vendido em fração, porque o vendido por unidade só aceita quantidade inteira. */
+    private UUID cadastrarAoQuilo(ContaCriada conta, String nome, Money preco) {
+        return conta.comoUsuario(() ->
+                produtos.cadastrar(TipoProduto.PRODUTO,
+                        new DadosDoProduto(nome, preco, null, null, "kg", null)));
     }
 
     /** O que o ouvinte do caixa gravou, lido pelo repositório dele. */

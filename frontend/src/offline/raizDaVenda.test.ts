@@ -26,8 +26,8 @@ function parcela(dados: Partial<DadosDaParcela> & Pick<DadosDaParcela, 'forma' |
 describe('raiz da Venda no dispositivo', () => {
   it('mantém o total igual à soma dos itens menos o desconto, arredondando cada item', () => {
     let venda = nova()
-    venda = adicionarItem(venda, item({ quantidade: 0.333, precoUnitario: 10 }))
-    venda = adicionarItem(venda, item({ quantidade: 1.5, precoUnitario: 3.33 }))
+    venda = adicionarItem(venda, item({ quantidade: 0.333, unidade: 'kg', precoUnitario: 10 }))
+    venda = adicionarItem(venda, item({ quantidade: 1.5, unidade: 'kg', precoUnitario: 3.33 }))
     venda = adicionarItem(venda, item({ quantidade: 2, precoUnitario: 6.25, desconto: 0.5 }))
     venda = aplicarDesconto(venda, 0.33)
 
@@ -61,11 +61,11 @@ describe('raiz da Venda no dispositivo', () => {
 
   it('recusa quantidade e preço fora da regra', () => {
     for (const quantidade of [0, -1, 1.0005, Number.NaN]) {
-      expect(() => adicionarItem(nova(), item({ quantidade }))).toThrow('três casas')
+      expect(() => adicionarItem(nova(), item({ quantidade, unidade: 'kg' }))).toThrow('três casas')
     }
     expect(() => adicionarItem(nova(), item({ precoUnitario: -1 }))).toThrow('Preço unitário')
     expect(() => adicionarItem(nova(), item({ precoUnitario: 1.001 }))).toThrow('Preço unitário')
-    expect(adicionarItem(nova(), item({ quantidade: 0.75, precoUnitario: 0 })).itens).toHaveLength(1)
+    expect(adicionarItem(nova(), item({ quantidade: 0.75, unidade: 'kg', precoUnitario: 0 })).itens).toHaveLength(1)
   })
 
   it('recusa parcela acima do que falta, não positiva ou fora da regra da forma', () => {
@@ -207,6 +207,33 @@ describe('raiz da Venda no dispositivo', () => {
     const venda = projetarVendas([inicio, cafe, semCampo, comNsu, conclusao], 'ana').get('venda-1')
     expect(venda?.status).toBe('CONCLUIDA')
     expect(venda?.parcelas.map((parcela) => parcela.nsu)).toEqual([null, '004512'])
+  })
+
+  it('recusa fração no produto vendido por un ou sem unidade, com a frase do servidor', () => {
+    const venda = adicionarItem(nova(), item({ quantidade: 2, unidade: 'un' }))
+    for (const unidade of ['un', 'UN', ' un ', null, undefined, '']) {
+      expect(() => adicionarItem(venda, item({ nome: 'Bala de goma', quantidade: 1.5, unidade })))
+        .toThrow('O produto Bala de goma é vendido por unidade e só aceita quantidade inteira.')
+      expect(adicionarItem(venda, item({ quantidade: 3, unidade })).itens).toHaveLength(2)
+    }
+    expect(venda.itens).toHaveLength(1)
+    for (const unidade of ['kg', 'unid', 'pç', 'hora', 'Un.']) {
+      expect(adicionarItem(venda, item({ quantidade: 1.5, unidade })).itens).toHaveLength(2)
+    }
+  })
+
+  it('reaplica sem a regra da unidade o gesto que já estava na fila, para o servidor decidir', () => {
+    const gesto = (operacaoId: string, tipo: string, payload: GestoNaFila['payload'],
+      dependeDe: string[]): GestoNaFila => ({
+      operacaoId, registroId: 'venda-1', tipo, payload, dependeDe, estado: 'queued', criadoEm: agora,
+    })
+    const inicio = gesto('op-1', 'venda.iniciar', { sessaoCaixaId: 'sessao-1', criadoEm: agora }, [])
+    const bala = gesto('op-2', 'venda.adicionarItem', { itemId: 'item-1', produtoId: 'produto-1',
+      nome: 'Bala de goma', unidade: 'un', quantidade: 1.5, precoUnitario: 0.1, desconto: 0,
+      versaoProduto: 1 }, ['op-1'])
+
+    const venda = projetarVendas([inicio, bala], 'ana').get('venda-1')
+    expect(venda?.itens.map((guardado) => guardado.milesimos)).toEqual([1500])
   })
 
   it('põe na gaveta só o dinheiro confirmado', () => {

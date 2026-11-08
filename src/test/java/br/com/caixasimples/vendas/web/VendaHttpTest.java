@@ -777,6 +777,43 @@ class VendaHttpTest extends TesteDeIntegracao {
                 .andExpect(jsonPath("$.total").value(12.5));
     }
 
+    @Test
+    void produtoVendidoPorUnidadeRecusaFracaoEOReenvioIgualContinuaRespondendo() throws Exception {
+        ContaCriada conta = criador.criar("PDV Bala", SENHA);
+        UUID bala = conta.comoUsuario(() -> produtos.cadastrar(TipoProduto.PRODUTO,
+                new DadosDoProduto("Bala de goma", Money.de("0.10"), null, null, "un", Map.of())));
+        UUID queijo = conta.comoUsuario(() -> produtos.cadastrar(TipoProduto.PRODUTO,
+                new DadosDoProduto("Queijo minas", Money.de("40.00"), null, null, "kg", Map.of())));
+        UUID sessao = conta.comoUsuario(() -> caixas.abrir(Money.ZERO));
+        RequestPostProcessor admin = autenticador.como(conta);
+        UUID venda = criarVenda(admin, sessao);
+
+        http.perform(lancarItem(admin, venda, UUID.randomUUID(), bala, "1.5"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("O produto Bala de goma é vendido por unidade"
+                        + " e só aceita quantidade inteira."));
+        http.perform(lancarItem(admin, venda, UUID.randomUUID(), bala, "2"))
+                .andExpect(status().isCreated());
+        UUID fracionado = UUID.randomUUID();
+        http.perform(lancarItem(admin, venda, fracionado, queijo, "0.750"))
+                .andExpect(status().isCreated());
+
+        // O queijo passa a ser vendido por unidade depois de lançado; o reenvio igual do item já
+        // gravado responde como da primeira vez, e só o item novo segue a unidade de hoje.
+        conta.comoUsuario(() -> produtos.editar(queijo,
+                new DadosDoProduto("Queijo minas", Money.de("40.00"), null, null, " UN ", Map.of())));
+        http.perform(lancarItem(admin, venda, fracionado, queijo, "0.750"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.id").value(fracionado.toString()));
+        http.perform(lancarItem(admin, venda, UUID.randomUUID(), queijo, "0.5"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("O produto Queijo minas é vendido por unidade"
+                        + " e só aceita quantidade inteira."));
+
+        http.perform(get("/api/vendas/{id}", venda).with(admin))
+                .andExpect(jsonPath("$.itens.length()").value(2))
+                .andExpect(jsonPath("$.total").value(30.2));
+    }
+
     @Autowired br.com.caixasimples.vendas.application.VendaService vendaService;
 
     private MockHttpServletRequestBuilder lancarItem(RequestPostProcessor usuario, UUID venda,

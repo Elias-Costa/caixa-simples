@@ -1062,6 +1062,12 @@ editar um agregado através de outro.
   Brinde é preço zero, não desconto acima do valor.
 - **Item lançado não se edita.** Quantidade e desconto entram junto com o item; corrigir é remover
   e lançar de novo, e o mesmo produto pode aparecer em duas linhas da mesma venda.
+- **Fração só fora da unidade "un".** A quantidade tem até três casas, para o que se vende por peso
+  ou por hora, mas o produto de unidade "un", ou sem unidade, só aceita quantidade inteira. A
+  unidade é texto livre no cadastro, e uma lista do que se fraciona erraria toda unidade escrita de
+  outro jeito; por isso só essas duas formas fecham a fração, sem diferença de maiúscula nem de
+  espaço nas pontas. Recusam o lançamento com rede, o gesto que chega pelo lote e a montagem da
+  venda no aparelho sem rede, com a mesma frase.
 - **`Pagamento` é entidade própria**, e não colunas na venda, porque uma venda pode ser dividida
   entre formas: metade em dinheiro e metade no cartão são dois registros, cada um com o seu valor e
   o seu estado.
