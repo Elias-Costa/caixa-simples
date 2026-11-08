@@ -93,13 +93,29 @@ function perguntaDoCancelamento(venda: Venda): Pergunta {
 }
 
 /**
- * Sem resposta, a operação pode ter chegado ao servidor mesmo assim; a comanda relida mostra se ela
- * valeu, e repetir sem olhar poderia lançar duas vezes.
+ * Sem resposta, a operação pode ter chegado ao servidor mesmo assim; a comanda, relida quando ele
+ * responde, mostra se ela valeu, e repetir sem olhar poderia lançar duas vezes.
  */
 function erroDaComanda(falha: unknown): string {
   if (falha instanceof SemConexao) return 'Sem resposta do servidor. Confira a comanda antes de repetir.'
   return erroDeCadastro(falha)
 }
+
+/**
+ * A conclusão sem resposta pode ter valido, e a comanda à vista ainda é a de antes dela. Com a parcela
+ * respondida, a frase diz que o dinheiro já está registrado: a comanda antiga não mostra a parcela, e
+ * quem a lesse cobraria o cliente de novo.
+ */
+const CONCLUSAO_SEM_RESPOSTA = 'O servidor não respondeu à conclusão. A comanda mostra se a venda foi '
+  + 'concluída quando ele responder.'
+const PARCELA_SEM_CONCLUSAO = 'A parcela foi registrada, mas o servidor não respondeu à conclusão. A comanda '
+  + 'mostra se a venda foi concluída quando ele responder.'
+
+/**
+ * A venda cuja escrita ficou sem resposta, relida quando o servidor responde de novo. A intenção é a do
+ * id que a escrita levou, liberada quando a comanda relida mostra o item ou a parcela com ele.
+ */
+type ConferirNaVolta = { vendaId: string; intencao?: IntencaoOnline }
 
 function tentativaPix(vendaId: string, valor: number): string {
   const chave = `ecrx-caixa-pix-${vendaId}`
@@ -204,6 +220,7 @@ export function TelaDeVenda() {
   const [copiado, setCopiado] = useState<string>()
   const [nomes, setNomes] = useState<Map<string, string>>(() => new Map())
   const [erro, setErro] = useState<ErroNaTela>()
+  const [conferirNaVolta, setConferirNaVolta] = useState<ConferirNaVolta>()
   const [ocupado, setOcupado] = useState(false)
   const [carregando, setCarregando] = useState(true)
   const [todasAsVendas, setTodasAsVendas] = useState(false)
@@ -273,6 +290,11 @@ export function TelaDeVenda() {
   function falhar(lugar: LugarDoErro, texto: string) { setErro({ texto, lugar }) }
   function erroEm(lugar: LugarDoErro) { return erro?.lugar === lugar ? erro.texto : undefined }
 
+  /** Sem resposta, a venda fica marcada para ser relida quando o servidor responder; outra falha é recusa, e não marca. */
+  function conferirSeSemResposta(falha: unknown, vendaId: string | undefined, intencao?: IntencaoOnline) {
+    if (falha instanceof SemConexao && vendaId) setConferirNaVolta({ vendaId, intencao })
+  }
+
   /**
    * A venda terminou, e a próxima começa pela busca. No celular, quem desceu até as notas só voltaria até
    * o foco centralizar a busca, com o alto do cabeçalho (sem conexão, vencimento da sessão) fora da vista,
@@ -314,6 +336,54 @@ export function TelaDeVenda() {
     })
     return () => { vivo = false }
   }, [rodada])
+
+  // Depois de uma escrita sem resposta, a comanda à vista é a de antes dela, e o servidor pode ter gravado. Na volta
+  // dele, a venda é relida antes de o operador repetir: o item gravado aparece, e a venda que concluiu mostra o
+  // comprovante, como numa conclusão comum. A comanda vazia é a da venda nova cujo primeiro item ficou sem resposta;
+  // outra venda à vista foi escolha de quem vende, e a marca espera.
+  const idNaComanda = atual?.id
+  const statusNaComanda = atual?.status
+  const sessaoId = sessao?.id
+  useEffect(() => {
+    const pendente = conferirNaVolta
+    if (!comServidor || !pendente) return
+    if (idNaComanda !== undefined && idNaComanda !== pendente.vendaId) return
+    const concluidaAntes = statusNaComanda === 'CONCLUIDA'
+    let vivo = true
+    void (async () => {
+      try {
+        const venda = await vendas.consultar(pendente.vendaId)
+        const concluiuAgora = !concluidaAntes && venda.status === 'CONCLUIDA'
+        const recibo = concluiuAgora ? await vendas.comprovante(venda.id) : undefined
+        const lista = sessaoId ? await vendas.daSessao(sessaoId) : undefined
+        if (!vivo) return
+        setConferirNaVolta(undefined)
+        setAtual(venda)
+        if (lista) setHistorico(lista)
+        const idDaIntencao = pendente.intencao?.id
+        if (venda.itens.some((item) => item.id === idDaIntencao)) pendente.intencao?.confirmar()
+        if (venda.parcelas.some((parcela) => parcela.id === idDaIntencao)) {
+          pendente.intencao?.confirmar()
+          setValorPagamento(''); setValorRecebido(''); setNsu('')
+        }
+        if (venda.status === 'CANCELADA') setComprovante(undefined)
+        if (recibo) {
+          setComprovante(recibo); setSegundaViaEm(undefined)
+          // O resultado que a frase deixava em aberto agora está na tela, e a próxima venda começa pela busca,
+          // como em voltarABusca depois de concluir.
+          setErro((anterior) => anterior?.lugar === 'comanda' ? undefined : anterior)
+          if (celular) window.scrollTo(0, 0)
+          buscaRef.current?.focus()
+          if (celular) mostrarORodape(rodapeRef.current)
+        }
+      } catch (falha) {
+        // Sem resposta de novo, a marca fica para a próxima volta; outra falha deixa a comanda como está, e a
+        // próxima ação a relê.
+        if (vivo && !(falha instanceof SemConexao)) setConferirNaVolta(undefined)
+      }
+    })()
+    return () => { vivo = false }
+  }, [comServidor, conferirNaVolta, idNaComanda, statusNaComanda, sessaoId, celular])
 
   // Ao abrir a comanda, o botão principal aparece sem a pessoa procurar. Depois disso, quem rola é ela.
   useLayoutEffect(() => {
@@ -462,9 +532,17 @@ export function TelaDeVenda() {
     const continua = atual?.status === 'ABERTA' && !comandaSoLeitura
     if (!continua) { setComprovante(undefined); setTroco(undefined) }
     let id: string | undefined
+    let intencao: IntencaoOnline | undefined
     try {
       id = continua ? atual.id : (await vendas.iniciar(sessao.id)).id
-      await vendas.adicionarItem(id, produto, numero(quantidade), desconto)
+      const quantos = numero(quantidade)
+      // O mesmo produto, na mesma quantidade e com o mesmo desconto, depois de uma resposta perdida, leva o mesmo
+      // id, e o servidor responde o item que já gravou. O id sai quando o lançamento responde ou quando a comanda
+      // relida mostra o item: daí em diante, o mesmo código é mais uma unidade.
+      intencao = await intencaoOnline(`/api/vendas/${id}/itens`,
+        { produtoId: produto.id, quantidade: quantos, desconto }, identidade)
+      await vendas.adicionarItem(id, produto, quantos, desconto, intencao.id)
+      intencao.confirmar()
       // O termo buscado sai junto com os resultados: guardado, o mesmo código passado de novo pareceria
       // já buscado e sem resultado, e o Enter do leitor não lançaria nada. E sai antes de a comanda aparecer:
       // a lista ainda na tela empurraria o rodapé, e a rolagem que mostra o botão principal desceria a mais.
@@ -473,6 +551,10 @@ export function TelaDeVenda() {
       await atualizar(id)
     } catch (falha) {
       falhar('busca', erroDaComanda(falha))
+      conferirSeSemResposta(falha, id, intencao)
+      // Sem resposta, a venda nova toma o lugar da que estava na comanda, já concluída: é a nova que a releitura
+      // mostra quando o servidor voltar.
+      if (id && !continua && falha instanceof SemConexao) setAtual(undefined)
       if (id && !atual) await atualizar(id).catch(() => undefined)
     }
     finally { setOcupado(false) }
@@ -482,7 +564,7 @@ export function TelaDeVenda() {
     if (!atual) return
     setOcupado(true); setErro(undefined)
     try { await vendas.removerItem(atual.id, itemId); await atualizar(atual.id) }
-    catch (falha) { falhar('comanda', erroDaComanda(falha)) }
+    catch (falha) { falhar('comanda', erroDaComanda(falha)); conferirSeSemResposta(falha, atual.id) }
     finally { setOcupado(false) }
   }
 
@@ -496,7 +578,7 @@ export function TelaDeVenda() {
     }
     setOcupado(true); setErro(undefined)
     try { await vendas.descontar(atual.id, desconto); await atualizar(atual.id) }
-    catch (falha) { falhar('comanda', erroDaComanda(falha)) }
+    catch (falha) { falhar('comanda', erroDaComanda(falha)); conferirSeSemResposta(falha, atual.id) }
     finally { setOcupado(false) }
   }
 
@@ -507,7 +589,7 @@ export function TelaDeVenda() {
       await vendas.vincularCliente(atual.id, clienteId); await atualizar(atual.id)
       setBuscaCliente('')
     }
-    catch (falha) { falhar('comanda', erroDaComanda(falha)) }
+    catch (falha) { falhar('comanda', erroDaComanda(falha)); conferirSeSemResposta(falha, atual.id) }
     finally { setOcupado(false) }
   }
 
@@ -518,7 +600,7 @@ export function TelaDeVenda() {
       await vendas.desvincularCliente(atual.id); await atualizar(atual.id)
       setBuscaCliente('')
     }
-    catch (falha) { falhar('comanda', erroDaComanda(falha)) }
+    catch (falha) { falhar('comanda', erroDaComanda(falha)); conferirSeSemResposta(falha, atual.id) }
     finally { setOcupado(false) }
   }
 
@@ -549,6 +631,7 @@ export function TelaDeVenda() {
     const nsuDaParcela = formaEscolhida === 'CARTAO' ? nsu : undefined
     setOcupado(true); setErro(undefined)
     let intencao: IntencaoOnline | undefined
+    let parcelaRespondida = false
     try {
       if (opcaoEscolhida === 'PIX_INTEGRADO') {
         const parcela = await vendas.cobrarPix(atual.id, tentativaPix(atual.id, valor), valor)
@@ -565,15 +648,18 @@ export function TelaDeVenda() {
         identidade)
       const resultado = await vendas.pagar(atual.id, formaEscolhida, valor, recebido, intencao.id,
         nsuDaParcela)
+      parcelaRespondida = true
       setTroco(resultado.troco)
       if (concluirJunto) await concluir(atual.id)
       else await atualizar(atual.id)
       intencao.confirmar()
       setValorPagamento(''); setValorRecebido(''); setNsu('')
     } catch (falha) {
-      falhar('comanda', falha instanceof SemConexao && intencao
-        ? 'Sem conexão. Tente registrar a mesma parcela quando a rede voltar.'
-        : erroDaComanda(falha))
+      // Com a parcela respondida, a falta de resposta depois dela deixa a conclusão em aberto. O id da parcela continua
+      // guardado mesmo assim: se a comanda antiga oferecer de novo o recebimento, o reenvio não grava outra.
+      falhar('comanda', falha instanceof SemConexao && parcelaRespondida && concluirJunto
+        ? PARCELA_SEM_CONCLUSAO : erroDaComanda(falha))
+      conferirSeSemResposta(falha, atual.id, intencao)
       const atualizada = await atualizar(atual.id).catch(() => undefined)
       const idDaIntencao = intencao?.id
       if (idDaIntencao && atualizada?.parcelas.some((parcela) => parcela.id === idDaIntencao)) {
@@ -591,6 +677,7 @@ export function TelaDeVenda() {
       await atualizar(atual.id)
     } catch (falha) {
       falhar('comanda', erroDaComanda(falha))
+      conferirSeSemResposta(falha, atual.id)
       await atualizar(atual.id).catch(() => undefined)
     } finally { setOcupado(false) }
   }
@@ -610,7 +697,10 @@ export function TelaDeVenda() {
     if (!atual) return
     setOcupado(true); setErro(undefined)
     try { await concluir(atual.id) }
-    catch (falha) { falhar('comanda', erroDaComanda(falha)) }
+    catch (falha) {
+      falhar('comanda', falha instanceof SemConexao ? CONCLUSAO_SEM_RESPOSTA : erroDaComanda(falha))
+      conferirSeSemResposta(falha, atual.id)
+    }
     finally { setOcupado(false) }
   }
 
@@ -622,7 +712,7 @@ export function TelaDeVenda() {
       await vendas.cancelar(atual.id); await atualizar(atual.id); setComprovante(undefined)
       voltarABusca()
     }
-    catch (falha) { falhar('comanda', erroDaComanda(falha)) }
+    catch (falha) { falhar('comanda', erroDaComanda(falha)); conferirSeSemResposta(falha, atual.id) }
     finally { setOcupado(false) }
   }
 
@@ -689,6 +779,8 @@ export function TelaDeVenda() {
   function novaVenda() {
     setAtual(undefined); setComprovante(undefined); setTroco(undefined); setForma('DINHEIRO'); setNsu('')
     setErro(undefined); setCopiado(undefined); setBuscaCliente('')
+    // Quem começa outra venda deixou a anterior para trás: a volta do servidor não a traz de novo para a comanda.
+    setConferirNaVolta(undefined)
     voltarABusca()
   }
 

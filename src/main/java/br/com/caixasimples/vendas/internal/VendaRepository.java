@@ -41,6 +41,13 @@ public interface VendaRepository extends JpaRepository<VendaEntity, UUID> {
      */
     boolean existsByItensId(UUID itemId);
 
+    /**
+     * A Venda desta conta que tem o item com este id. O item lançado com rede também chega com o id
+     * do aparelho, e o reenvio depois de uma resposta perdida precisa achar o que foi gravado para
+     * comparar o conteúdo.
+     */
+    Optional<VendaEntity> findByItensId(UUID itemId);
+
     /** A mesma pergunta para a parcela lançada no dispositivo sem rede. */
     boolean existsByPagamentosId(UUID pagamentoId);
 

@@ -75,13 +75,24 @@ class VendaController {
         return VendaNaResposta.de(vendas.consultar(id));
     }
 
+    /**
+     * Com o id do aparelho, o reenvio igual responde 200 com o mesmo item; sem ele, o servidor gera
+     * o id, e o reenvio grava outro item.
+     */
     @PostMapping("/{id}/itens")
     ResponseEntity<Criada> adicionarItem(@PathVariable UUID id,
             @Valid @RequestBody PedidoDeItem pedido) {
-        UUID itemId = vendas.adicionarItem(id, pedido.produtoId(), pedido.quantidade(),
-                Money.de(pedido.desconto()));
-        return ResponseEntity.created(URI.create("/api/vendas/" + id + "/itens/" + itemId))
-                .body(new Criada(itemId));
+        Money desconto = Money.de(pedido.desconto());
+        if (pedido.itemId() == null) {
+            UUID itemId = vendas.adicionarItem(id, pedido.produtoId(), pedido.quantidade(), desconto);
+            return ResponseEntity.created(URI.create("/api/vendas/" + id + "/itens/" + itemId))
+                    .body(new Criada(itemId));
+        }
+        var lancado = vendas.adicionarItemOnline(id, pedido.itemId(), pedido.produtoId(),
+                pedido.quantidade(), desconto);
+        return ResponseEntity.status(lancado.repetido() ? HttpStatus.OK : HttpStatus.CREATED)
+                .location(URI.create("/api/vendas/" + id + "/itens/" + lancado.id()))
+                .body(new Criada(lancado.id()));
     }
 
     @DeleteMapping("/{id}/itens/{itemId}")
@@ -164,7 +175,11 @@ class VendaController {
     record PedidoDeInicio(@NotNull UUID sessaoCaixaId) {
     }
 
-    record PedidoDeItem(@NotNull UUID produtoId,
+    /**
+     * O itemId é opcional porque o contrato com o aparelho só cresce: o aplicativo instalado que
+     * não o manda continua lançando item.
+     */
+    record PedidoDeItem(UUID itemId, @NotNull UUID produtoId,
             @NotNull @DecimalMin("0.001") @Digits(integer = 9, fraction = 3)
             BigDecimal quantidade,
             @NotNull @DecimalMin("0.00") @Digits(integer = 10, fraction = 2)

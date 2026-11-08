@@ -113,7 +113,9 @@ aplicação põe o aparelho a operar pela fila, o cabeçalho diz que o servidor 
 pergunta leve a cada quinze segundos descobre a volta, quando a fila sai e a tela Caixa relê
 sozinha. A abertura, a sangria e o suprimento cuja resposta se perdeu vão à fila com o mesmo id que
 a chamada levou, e o servidor não os grava de novo. A comanda que existe no servidor fica só para
-leitura enquanto ele não responde, e o próximo item começa outra venda no aparelho. O cabeçalho
+leitura enquanto ele não responde, e o próximo item começa outra venda no aparelho. Quando ele volta,
+a comanda cuja escrita ficou sem resposta é relida antes de alguém repetir: o item gravado aparece, e
+a venda que concluiu aparece concluída, com o comprovante. O cabeçalho
 mostra quantos registros faltam enviar e quantos estão em revisão, e a tela de sincronização mostra
 uma linha por registro (a venda, o movimento de caixa, o cliente ou o produto), com a hora, o total,
 a forma e o detalhe do servidor, os gestos recolhidos e um Conferir que vale para o registro inteiro.
@@ -133,7 +135,9 @@ e o servidor não o alcança.
 Nas rotas online de recebimento de fiado, parcela, sangria e suprimento, o aparelho envia um UUID
 para cada intenção. Se a resposta se perder, a aba conserva esse id e o usa na nova tentativa;
 o servidor confirma o mesmo lançamento sem somar dinheiro outra vez e recusa o mesmo id com
-conteúdo diferente.
+conteúdo diferente. O lançamento de item leva o id do mesmo jeito, opcional na rota, e o reenvio,
+também o que o navegador repete sozinho, não grava outro item; o id sai quando a comanda mostra o
+item, e o mesmo código passado depois disso é mais uma unidade.
 A Conta nasce no plano gratuito e troca de plano pela tela Plano, sem ninguém agir dentro dela: o
 administrador pede a adesão ao plano pago ou a renovação, manda o texto do pedido pelo canal de
 atendimento e paga por Pix; depois de conferir o pagamento, o mantenedor entrega um código que ativa
@@ -238,7 +242,9 @@ para listar as vendas de uma SessaoCaixa, cada uma com o valor de cada forma de 
 uma comanda. A lista segue o dono do caixa, como o extrato: o operador vê no próprio caixa também a
 venda que o administrador fez nele, e abri-la continua com quem a fez. `GET /api/vendas/{id}` devolve
 itens com a unidade do cadastro, total, parcelas e recebimentos, com o NSU de cada um em cartão; `POST /api/vendas/{id}/itens` e
-`DELETE /api/vendas/{id}/itens/{itemId}` montam a comanda; SessaoCaixa ou produto que não existe
+`DELETE /api/vendas/{id}/itens/{itemId}` montam a comanda; o lançamento aceita `itemId` no corpo,
+opcional, e o reenvio com o mesmo id e o mesmo produto, quantidade e desconto devolve 200 com o mesmo
+item, enquanto outro conteúdo para o id recebe 409; SessaoCaixa ou produto que não existe
 na Conta responde 404 ao iniciar a comanda ou lançar o item;
 `PUT /api/vendas/{id}/desconto` é só do administrador;
 `POST /api/vendas/{id}/pagamentos` exige `pagamentoId` no corpo, aceita `nsu` no cartão e devolve o

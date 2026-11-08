@@ -262,12 +262,55 @@ public class VendaService {
      */
     @Transactional
     public UUID adicionarItem(UUID vendaId, UUID produtoId, BigDecimal quantidade, Money desconto) {
+        return adicionarItemOnline(vendaId, UUID.randomUUID(), produtoId, quantidade, desconto).id();
+    }
+
+    /**
+     * O item lançado com rede com o id que o aparelho gerou. O pedido cuja resposta se perdeu pode
+     * ter gravado, e o navegador ainda reenvia sozinho o pedido cuja conexão fechou sem resposta:
+     * com o mesmo id, nenhum dos dois grava outro item.
+     *
+     * <p>Repetido com o mesmo id, responde o item existente sem gravar apenas quando ele é desta
+     * Venda, com o mesmo produto, a mesma quantidade e o mesmo desconto. Vale também com a venda já
+     * concluída ou o produto inativado depois, porque o reenvio igual responde como da primeira
+     * vez. O id de um item de outra conta não aparece na consulta, e quem recusa é a chave primária,
+     * sem ler nem alterar a outra conta.
+     *
+     * @param desconto desconto deste item (RF08); {@code Money.ZERO} quando não há
+     * @return o id do item e se ele já estava gravado
+     * @throws VendaNaoEncontradaException se a venda não existe nesta conta
+     * @throws br.com.caixasimples.shared.AcessoNegadoException se a venda é de outro operador e
+     *                                     quem chama não é ADMIN
+     * @throws br.com.caixasimples.cadastro.application.ProdutoNaoEncontradoException se o
+     *         produto não existe nesta conta
+     * @throws IllegalStateException    se o produto está inativo, se a venda não está ABERTA, ou se
+     *                                  o id já foi usado com outro conteúdo
+     * @throws IllegalArgumentException se quantidade ou desconto violam as regras da raiz
+     */
+    @Transactional
+    public ItemLancado adicionarItemOnline(UUID vendaId, UUID itemId, UUID produtoId,
+            BigDecimal quantidade, Money desconto) {
+        Objects.requireNonNull(itemId, "id do item nao pode ser nulo");
         if (desconto != null && !desconto.equals(Money.ZERO)) {
             UsuarioContext.exigirAdmin();
         }
         VendaEntity linha = travar(vendaId);
         Venda venda = linha.paraDominio();
         UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
+        var anterior = vendas.findByItensId(itemId);
+        if (anterior.isPresent()) {
+            ItemVenda gravado = anterior.get().paraDominio().getItens().stream()
+                    .filter(existente -> existente.id().equals(itemId))
+                    .findFirst().orElseThrow();
+            if (!anterior.get().getId().equals(vendaId)
+                    || !gravado.produtoId().equals(produtoId)
+                    || gravado.quantidade().compareTo(quantidade) != 0
+                    || !gravado.desconto().equals(desconto)) {
+                throw new IllegalStateException("Este item já foi lançado com outro produto,"
+                        + " quantidade ou desconto; abra a venda de novo para ver o que ficou.");
+            }
+            return new ItemLancado(itemId, true);
+        }
 
         ProdutoParaVenda produto = produtos.consultarParaVenda(produtoId);
         if (!produto.ativo()) {
@@ -277,11 +320,11 @@ public class VendaService {
                     "Este produto foi inativado e não entra em venda nova.");
         }
 
-        UUID itemId = venda.adicionarItem(produtoId, quantidade, produto.preco(), desconto);
+        venda.adicionarItem(itemId, produtoId, quantidade, produto.preco(), desconto, Instant.now());
 
         linha.atualizarCom(venda);
         vendas.save(linha);
-        return itemId;
+        return new ItemLancado(itemId, false);
     }
 
     /**
@@ -910,6 +953,10 @@ public class VendaService {
         return new ComprovanteDeRecebimento(vendaId, alvo.id(), venda.getClienteId(),
                 clientes.nomeDe(venda.getClienteId()), alvo.sessaoCaixaId(), alvo.criadoEm(),
                 alvo.forma(), alvo.valor(), fiado.subtrair(totalRecebidoAteAqui));
+    }
+
+    /** O item lançado com rede, e se o pedido era o reenvio de um item já gravado. */
+    public record ItemLancado(UUID id, boolean repetido) {
     }
 
     public record RecebimentoRegistrado(UUID id, Money saldoDevedor, boolean repetido) {

@@ -3,8 +3,8 @@ import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cadastro } from '../api/cadastro'
 import { caixa } from '../api/caixa'
-import { ErroDaApi } from '../api/cliente'
-import { registrarSemResposta } from '../api/conexao'
+import { ErroDaApi, SemConexao } from '../api/cliente'
+import { comServidor as alcancaOServidor, registrarResposta, registrarSemResposta } from '../api/conexao'
 import { fiado } from '../api/fiado'
 import { vendas, type Comprovante, type Venda } from '../api/vendas'
 import type { VendaDaFila } from '../offline/registrosDaFila'
@@ -339,7 +339,7 @@ describe('PDV no tablet', () => {
     document.addEventListener('click', contar)
     fireEvent.change(busca, { target: { value: 'CA-1' } })
     fireEvent.click(await screen.findByRole('button', { name: /Café · R\$\s*12,50/ }))
-    await waitFor(() => expect(adicionar).toHaveBeenCalledWith('venda-1', 'produto-1', 1, 0))
+    await waitFor(() => expect(adicionar).toHaveBeenCalledWith('venda-1', 'produto-1', 1, 0, expect.any(String)))
     expect(iniciar).toHaveBeenCalledWith('sessao-1')
     fireEvent.click(screen.getByLabelText('Valor recebido em dinheiro'))
     fireEvent.change(screen.getByLabelText('Valor recebido em dinheiro'), { target: { value: '15.00' } })
@@ -579,7 +579,7 @@ describe('PDV no tablet', () => {
     fireEvent.change(busca, { target: { value: '7891' } })
     fireEvent.keyDown(busca, { key: 'Enter' })
 
-    await waitFor(() => expect(adicionar).toHaveBeenCalledWith('venda-1', 'produto-1', 1, 0))
+    await waitFor(() => expect(adicionar).toHaveBeenCalledWith('venda-1', 'produto-1', 1, 0, expect.any(String)))
     await waitFor(() => expect(busca).toHaveValue(''))
 
     // O mesmo código passado de novo lança outra unidade: o termo da busca anterior não fica valendo.
@@ -606,13 +606,13 @@ describe('PDV no tablet', () => {
     const busca = screen.getByLabelText('Produto por nome ou código')
     fireEvent.change(busca, { target: { value: '7891' } })
     fireEvent.keyDown(busca, { key: 'Enter' })
-    await waitFor(() => expect(adicionar).toHaveBeenCalledWith('venda-1', 'produto-1', 1, 0))
+    await waitFor(() => expect(adicionar).toHaveBeenCalledWith('venda-1', 'produto-1', 1, 0, expect.any(String)))
 
     await waitFor(() => expect(busca).toHaveValue(''))
     fireEvent.change(desconto, { target: { value: '2,90' } })
     fireEvent.change(busca, { target: { value: '7891' } })
     fireEvent.keyDown(busca, { key: 'Enter' })
-    await waitFor(() => expect(adicionar).toHaveBeenLastCalledWith('venda-1', 'produto-1', 1, 2.9))
+    await waitFor(() => expect(adicionar).toHaveBeenLastCalledWith('venda-1', 'produto-1', 1, 2.9, expect.any(String)))
     await waitFor(() => expect(desconto).toHaveValue(''))
   })
 
@@ -1457,9 +1457,273 @@ describe('comanda do servidor sem servidor', () => {
     fireEvent.change(screen.getByLabelText('Produto por nome ou código'), { target: { value: 'PA-1' } })
     fireEvent.click(await screen.findByRole('button', { name: /Pão · R\$\s*12,50/ }))
 
-    await waitFor(() => expect(adicionar).toHaveBeenCalledWith('venda-2', 'produto-2', 1, 0))
+    await waitFor(() => expect(adicionar).toHaveBeenCalledWith('venda-2', 'produto-2', 1, 0, expect.any(String)))
     expect(iniciar).toHaveBeenCalledWith('sessao-1')
-    expect(adicionar).not.toHaveBeenCalledWith('venda-1', expect.anything(), expect.anything(), expect.anything())
+    expect(adicionar).not.toHaveBeenCalledWith('venda-1', expect.anything(), expect.anything(), expect.anything(),
+      expect.anything())
     expect(await screen.findByText(/Venda venda-2/)).toBeInTheDocument()
+  })
+})
+
+describe('escrita sem resposta, relida quando o servidor volta', () => {
+  // Uma chamada atrasada do teste anterior pode ter deixado o aparelho sem servidor.
+  beforeEach(() => { registrarResposta() })
+
+  const parcelaGravada = { id: 'parcela-1', forma: 'DINHEIRO' as const, valor: 12.5, status: 'CONFIRMADO' as const,
+    troco: 7.5 }
+  const pao = { id: 'produto-2', tipo: 'PRODUTO' as const, nome: 'Pão', preco: 12.5, codigo: 'PA-1',
+    categoria: null, unidade: 'un', atributos: {} }
+
+  /** O cliente HTTP marca o servidor sem resposta antes de recusar a chamada; o simulado faz o mesmo. */
+  function semResposta(): never {
+    registrarSemResposta()
+    throw new SemConexao()
+  }
+
+  /**
+   * O servidor simulado guarda as vendas, e sem servidor a leitura também fica sem resposta, como a chamada de
+   * verdade: a comanda à vista continua a de antes.
+   */
+  function servidorCom(...iniciais: Venda[]) {
+    const gravadas = new Map(iniciais.map((venda) => [venda.id, venda]))
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockImplementation(async () => [...gravadas.values()].map((venda) => ({
+      id: venda.id, sessaoCaixaId: venda.sessaoCaixaId, usuarioId: venda.usuarioId, status: venda.status,
+      total: venda.total, criadoEm: venda.criadoEm })))
+    const consultar = vi.spyOn(vendas, 'consultar').mockImplementation(async (id: string) => {
+      if (!alcancaOServidor()) throw new SemConexao()
+      return ler(id)
+    })
+    function ler(id: string): Venda {
+      const venda = gravadas.get(id)
+      if (!venda) throw new Error('venda desconhecida no teste')
+      return venda
+    }
+    return { consultar, ler, gravar(venda: Venda) { gravadas.set(venda.id, venda) } }
+  }
+
+  function comPao(venda: Venda, itemId: string): Venda {
+    return { ...venda, total: venda.total + 12.5, faltaPagar: venda.faltaPagar + 12.5,
+      itens: [...venda.itens, { id: itemId, produtoId: pao.id, nome: 'Pão', quantidade: 1, precoUnitario: 12.5,
+        desconto: 0, subtotal: 12.5 }] }
+  }
+
+  async function passarOPao() {
+    fireEvent.change(screen.getByLabelText('Produto por nome ou código'), { target: { value: 'PA-1' } })
+    fireEvent.click(await screen.findByRole('button', { name: /Pão · R\$\s*12,50/ }))
+  }
+
+  it('a conclusão sem resposta depois da parcela diz que a parcela foi registrada, e na volta a venda aparece concluída com o comprovante', async () => {
+    const servidor = servidorCom(comanda)
+    const pagar = vi.spyOn(vendas, 'pagar').mockImplementation(async () => {
+      servidor.gravar({ ...servidor.ler('venda-1'), pago: 12.5, faltaPagar: 0, parcelas: [parcelaGravada] })
+      return { troco: 7.5 }
+    })
+    const concluir = vi.spyOn(vendas, 'concluir').mockImplementation(async () => {
+      // A conclusão grava, e a resposta se perde.
+      servidor.gravar({ ...servidor.ler('venda-1'), status: 'CONCLUIDA' })
+      return semResposta()
+    })
+    const recibo = vi.spyOn(vendas, 'comprovante').mockResolvedValue(comprovante)
+    mostrar()
+
+    fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'R$ 20' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Receber e concluir' }))
+
+    expect(await screen.findByText('A parcela foi registrada, mas o servidor não respondeu à conclusão. A comanda '
+      + 'mostra se a venda foi concluída quando ele responder.')).toBeInTheDocument()
+    expect(screen.queryByText(/Sem conexão/)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Comprovante não fiscal')).not.toBeInTheDocument()
+
+    act(() => registrarResposta())
+
+    const papel = await screen.findByLabelText('Comprovante não fiscal')
+    expect(papel).not.toHaveTextContent('Segunda via')
+    expect(screen.getByText('Venda venda-1 · Concluída')).toBeInTheDocument()
+    expect(screen.queryByText(/não respondeu à conclusão/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Receber e concluir' })).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByLabelText('Produto por nome ou código')).toHaveFocus())
+    expect(pagar).toHaveBeenCalledTimes(1)
+    expect(concluir).toHaveBeenCalledTimes(1)
+    expect(recibo).toHaveBeenCalledWith('venda-1')
+  })
+
+  it('Concluir venda sem resposta diz que o servidor não respondeu, e na volta a venda aparece concluída', async () => {
+    const paga: Venda = { ...comanda, pago: 12.5, faltaPagar: 0, parcelas: [parcelaGravada] }
+    const servidor = servidorCom(paga)
+    vi.spyOn(vendas, 'concluir').mockImplementation(async () => {
+      servidor.gravar({ ...servidor.ler('venda-1'), status: 'CONCLUIDA' })
+      return semResposta()
+    })
+    vi.spyOn(vendas, 'comprovante').mockResolvedValue(comprovante)
+    mostrar()
+
+    fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Concluir venda' }))
+    expect(await screen.findByText('O servidor não respondeu à conclusão. A comanda mostra se a venda foi '
+      + 'concluída quando ele responder.')).toBeInTheDocument()
+
+    act(() => registrarResposta())
+
+    expect(await screen.findByLabelText('Comprovante não fiscal')).toBeInTheDocument()
+    expect(screen.getByText('Venda venda-1 · Concluída')).toBeInTheDocument()
+    expect(screen.queryByText(/não respondeu à conclusão/)).not.toBeInTheDocument()
+  })
+
+  it('a conclusão que não chegou deixa a venda aberta na volta, com a frase até o próximo toque', async () => {
+    const paga: Venda = { ...comanda, pago: 12.5, faltaPagar: 0, parcelas: [parcelaGravada] }
+    servidorCom(paga)
+    vi.spyOn(vendas, 'concluir').mockImplementation(async () => semResposta())
+    const recibo = vi.spyOn(vendas, 'comprovante')
+    mostrar()
+
+    fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Concluir venda' }))
+    await screen.findByText(/O servidor não respondeu à conclusão/)
+
+    act(() => registrarResposta())
+
+    expect(await screen.findByRole('button', { name: 'Concluir venda' })).toBeEnabled()
+    expect(screen.getByText('Venda venda-1 · Aberta')).toBeInTheDocument()
+    expect(screen.getByText(/O servidor não respondeu à conclusão/)).toBeInTheDocument()
+    expect(recibo).not.toHaveBeenCalled()
+  })
+
+  it('a parcela sem resposta manda conferir a comanda, sem dizer sem conexão, e na volta a comanda mostra a parcela e libera o id', async () => {
+    const servidor = servidorCom(comanda)
+    const pagar = vi.spyOn(vendas, 'pagar').mockImplementationOnce(async (_id, forma, valor, _recebido,
+      pagamentoId) => {
+      servidor.gravar({ ...servidor.ler('venda-1'), pago: valor, faltaPagar: 12.5 - valor,
+        parcelas: [{ ...parcelaGravada, id: pagamentoId, forma, valor, troco: 0 }] })
+      return semResposta()
+    }).mockResolvedValue({ troco: 0 })
+    mostrar()
+
+    fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
+    fireEvent.change(await screen.findByLabelText('Valor da parcela'), { target: { value: '5,00' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Registrar parcela' }))
+    expect(await screen.findByText('Sem resposta do servidor. Confira a comanda antes de repetir.'))
+      .toBeInTheDocument()
+    expect(screen.queryByText(/Sem conexão/)).not.toBeInTheDocument()
+
+    act(() => registrarResposta())
+
+    expect(await screen.findByText(/Falta lançar/)).toHaveTextContent('R$ 7,50')
+    expect(screen.getByLabelText('Valor da parcela')).toHaveValue('')
+    // A parcela que a comanda mostra já valeu: a próxima, mesmo de igual valor, é outra.
+    fireEvent.change(screen.getByLabelText('Valor da parcela'), { target: { value: '5,00' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Registrar parcela' }))
+    await waitFor(() => expect(pagar).toHaveBeenCalledTimes(2))
+    expect(pagar.mock.calls[1][4]).not.toBe(pagar.mock.calls[0][4])
+  })
+
+  it('o item gravado sem resposta aparece na comanda na volta do servidor, e o mesmo código depois disso é outra unidade', async () => {
+    const servidor = servidorCom(comanda)
+    vi.spyOn(cadastro, 'buscarProdutos').mockResolvedValue([pao])
+    const adicionar = vi.spyOn(vendas, 'adicionarItem').mockImplementationOnce(async (id, _produto, _quantidade,
+      _desconto, itemId) => {
+      servidor.gravar(comPao(servidor.ler(id), itemId ?? 'sem-id'))
+      return semResposta()
+    }).mockImplementation(async (id, _produto, _quantidade, _desconto, itemId) => {
+      servidor.gravar(comPao(servidor.ler(id), itemId ?? 'sem-id'))
+      return { id: itemId ?? 'sem-id' }
+    })
+    mostrar()
+
+    fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
+    await screen.findByRole('button', { name: 'Receber e concluir' })
+    await passarOPao()
+    expect(await screen.findByText('Sem resposta do servidor. Confira a comanda antes de repetir.'))
+      .toBeInTheDocument()
+    expect(screen.queryByText(/× Pão/)).not.toBeInTheDocument()
+
+    act(() => registrarResposta())
+
+    expect(await screen.findByText(/1 × Pão/)).toBeInTheDocument()
+    expect(adicionar).toHaveBeenCalledTimes(1)
+    const primeiroId = adicionar.mock.calls[0][4]
+    expect(primeiroId).toEqual(expect.any(String))
+
+    // Quem vê o item na comanda e passa o código de novo quer mais um.
+    await passarOPao()
+    await waitFor(() => expect(adicionar).toHaveBeenCalledTimes(2))
+    expect(adicionar.mock.calls[1][4]).not.toBe(primeiroId)
+    await waitFor(() => expect(screen.getAllByText(/1 × Pão/)).toHaveLength(2))
+  })
+
+  it('o item que não chegou ao servidor é repetido com o mesmo id', async () => {
+    servidorCom(comanda)
+    vi.spyOn(cadastro, 'buscarProdutos').mockResolvedValue([pao])
+    const adicionar = vi.spyOn(vendas, 'adicionarItem').mockImplementationOnce(async () => semResposta())
+      .mockResolvedValue({ id: 'item-2' })
+    mostrar()
+
+    fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
+    await screen.findByRole('button', { name: 'Receber e concluir' })
+    await passarOPao()
+    await screen.findByText('Sem resposta do servidor. Confira a comanda antes de repetir.')
+    act(() => registrarResposta())
+    await screen.findByRole('button', { name: 'Receber e concluir' })
+
+    await passarOPao()
+    await waitFor(() => expect(adicionar).toHaveBeenCalledTimes(2))
+    expect(adicionar.mock.calls[0][4]).toEqual(expect.any(String))
+    expect(adicionar.mock.calls[1][4]).toBe(adicionar.mock.calls[0][4])
+  })
+
+  it('a venda nova cujo primeiro item ficou sem resposta toma o lugar da concluída e aparece com ele na volta', async () => {
+    const concluida: Venda = { ...comanda, status: 'CONCLUIDA', pago: 12.5, faltaPagar: 0, parcelas: [parcelaGravada] }
+    const nova: Venda = { ...comanda, id: 'venda-2', total: 0, faltaPagar: 0, itens: [] }
+    const servidor = servidorCom(concluida)
+    vi.spyOn(vendas, 'comprovante').mockResolvedValue(comprovante)
+    vi.spyOn(cadastro, 'buscarProdutos').mockResolvedValue([pao])
+    vi.spyOn(vendas, 'iniciar').mockImplementation(async () => {
+      servidor.gravar(nova)
+      return { id: nova.id }
+    })
+    vi.spyOn(vendas, 'adicionarItem').mockImplementation(async (id, _produto, _quantidade, _desconto, itemId) => {
+      servidor.gravar(comPao(servidor.ler(id), itemId ?? 'sem-id'))
+      return semResposta()
+    })
+    mostrar()
+
+    fireEvent.click(await screen.findByRole('button', { name: /Concluída/ }))
+    await screen.findByLabelText('Comprovante não fiscal')
+    await passarOPao()
+    await screen.findByText('Sem resposta do servidor. Confira a comanda antes de repetir.')
+    expect(await screen.findByText('Busque e escolha o primeiro produto para iniciar.')).toBeInTheDocument()
+
+    act(() => registrarResposta())
+
+    expect(await screen.findByText('Venda venda-2 · Aberta')).toBeInTheDocument()
+    expect(screen.getByText(/1 × Pão/)).toBeInTheDocument()
+  })
+
+  it('Nova venda sem servidor deixa a comanda anterior para trás também na volta', async () => {
+    const servidor = servidorCom(comanda)
+    vi.spyOn(cadastro, 'buscarProdutos').mockResolvedValue([pao])
+    vi.spyOn(vendas, 'adicionarItem').mockImplementation(async (id, _produto, _quantidade, _desconto, itemId) => {
+      servidor.gravar(comPao(servidor.ler(id), itemId ?? 'sem-id'))
+      return semResposta()
+    })
+    mostrar()
+
+    fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
+    await screen.findByRole('button', { name: 'Receber e concluir' })
+    await passarOPao()
+    await screen.findByText('Sem resposta do servidor. Confira a comanda antes de repetir.')
+    fireEvent.click(await screen.findByRole('button', { name: 'Nova venda' }))
+    expect(await screen.findByText('Busque e escolha o primeiro produto para iniciar.')).toBeInTheDocument()
+    const leiturasAntes = servidor.consultar.mock.calls.length
+    const listasAntes = vi.mocked(vendas.daSessao).mock.calls.length
+
+    act(() => registrarResposta())
+
+    // A volta relê a lista do caixa; a comanda continua vazia, e a venda anterior não é lida de novo.
+    await waitFor(() => expect(vi.mocked(vendas.daSessao).mock.calls.length).toBeGreaterThan(listasAntes))
+    await act(async () => { await new Promise((resolver) => setTimeout(resolver, 50)) })
+    expect(screen.getByText('Busque e escolha o primeiro produto para iniciar.')).toBeInTheDocument()
+    expect(servidor.consultar.mock.calls.length).toBe(leiturasAntes)
   })
 })

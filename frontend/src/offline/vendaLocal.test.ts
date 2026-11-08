@@ -68,14 +68,17 @@ describe('Venda no dispositivo', () => {
     const local = criarVendaLocal(api, caixaLocal)
 
     const { id } = await local.iniciar(sessaoId)
-    await local.adicionarItem(id, cafe, 2, 0)
+    // O id que a tela gerou para o item é o que o gesto leva ao servidor.
+    expect(await local.adicionarItem(id, cafe, 2, 0, 'item-da-tela')).toEqual({ id: 'item-da-tela' })
+    expect(api.adicionarItem).not.toHaveBeenCalled()
     expect(await local.pagar(id, 'DINHEIRO', 12.5, 20)).toEqual({ troco: 7.5 })
     await local.concluir(id)
 
     const recarregada = criarVendaLocal(api, criarCaixaLocal())
     expect(await recarregada.consultar(id)).toMatchObject({
       status: 'CONCLUIDA', total: 12.5, pago: 12.5, faltaPagar: 0, pendenteSincronizacao: true,
-      itens: [{ nome: 'Café expresso', unidade: 'un', quantidade: 2, precoUnitario: 6.25, subtotal: 12.5 }],
+      itens: [{ id: 'item-da-tela', nome: 'Café expresso', unidade: 'un', quantidade: 2, precoUnitario: 6.25,
+        subtotal: 12.5 }],
       parcelas: [{ forma: 'DINHEIRO', valor: 12.5, troco: 7.5, status: 'CONFIRMADO' }],
     })
     const comprovante = await recarregada.comprovante(id)
@@ -331,10 +334,11 @@ describe('Venda no dispositivo', () => {
     const local = criarVendaLocal(api, criarCaixaLocal())
 
     expect(await local.iniciar('sessao-do-servidor')).toEqual({ id: 'venda-do-servidor' })
-    await local.adicionarItem('venda-do-servidor', cafe, 1, 0)
+    await local.adicionarItem('venda-do-servidor', cafe, 1, 0, 'item-da-tela')
     await local.pagar('venda-do-servidor', 'CARTAO', 6.25)
     await local.concluir('venda-do-servidor')
-    expect(api.adicionarItem).toHaveBeenCalledWith('venda-do-servidor', cafe.id, 1, 0)
+    // O id do item vai ao servidor: o reenvio depois de uma resposta perdida não grava outro.
+    expect(api.adicionarItem).toHaveBeenCalledWith('venda-do-servidor', cafe.id, 1, 0, 'item-da-tela')
     expect(api.pagar).toHaveBeenCalledWith('venda-do-servidor', 'CARTAO', 6.25, undefined,
       expect.any(String), undefined)
     expect(api.concluir).toHaveBeenCalledWith('venda-do-servidor')

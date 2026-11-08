@@ -110,9 +110,10 @@ export const vendas = {
     chamarApi<void>(`/api/vendas/${id}/cliente`, { metodo: 'PUT', corpo: { clienteId } }),
   desvincularCliente: (id: string) =>
     chamarApi<void>(`/api/vendas/${id}/cliente`, { metodo: 'DELETE' }),
-  adicionarItem: (id: string, produtoId: string, quantidade: number, desconto: number) =>
+  /** Com o id do item gerado no aparelho, o reenvio depois de uma resposta perdida não grava outro. */
+  adicionarItem: (id: string, produtoId: string, quantidade: number, desconto: number, itemId?: string) =>
     chamarApi<{ id: string }>(`/api/vendas/${id}/itens`, {
-      metodo: 'POST', corpo: { produtoId, quantidade, desconto },
+      metodo: 'POST', corpo: { itemId, produtoId, quantidade, desconto },
     }),
   removerItem: (id: string, itemId: string) =>
     chamarApi<void>(`/api/vendas/${id}/itens/${itemId}`, { metodo: 'DELETE' }),

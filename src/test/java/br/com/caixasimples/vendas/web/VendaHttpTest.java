@@ -32,6 +32,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import tools.jackson.databind.ObjectMapper;
 
@@ -692,7 +693,99 @@ class VendaHttpTest extends TesteDeIntegracao {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.itens").isEmpty());
     }
 
+    @Test
+    void itemComIdDoAparelhoNaoGravaDeNovoNoReenvioERecusaOutroConteudo() throws Exception {
+        ContaCriada conta = criador.criar("PDV Reenvio", SENHA);
+        UUID produto = produto(conta);
+        UUID sessao = conta.comoUsuario(() -> caixas.abrir(Money.ZERO));
+        RequestPostProcessor admin = autenticador.como(conta);
+        UUID venda = criarVenda(admin, sessao);
+        UUID outraVenda = criarVenda(admin, sessao);
+        UUID itemId = UUID.randomUUID();
+
+        http.perform(lancarItem(admin, venda, itemId, produto, "2"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(itemId.toString()));
+        // A resposta perdida faz o aparelho, ou o próprio navegador, mandar o mesmo pedido de novo.
+        http.perform(lancarItem(admin, venda, itemId, produto, "2"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.id").value(itemId.toString()));
+        // A mesma quantidade escrita de outro jeito é o mesmo conteúdo.
+        http.perform(lancarItem(admin, venda, itemId, produto, "2.000"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.id").value(itemId.toString()));
+        http.perform(lancarItem(admin, venda, itemId, produto, "3"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.detail").value(
+                        "Este item já foi lançado com outro produto, quantidade ou desconto; abra a"
+                                + " venda de novo para ver o que ficou."));
+        http.perform(lancarItem(admin, outraVenda, itemId, produto, "2"))
+                .andExpect(status().isConflict());
+        http.perform(get("/api/vendas/{id}", venda).with(admin))
+                .andExpect(jsonPath("$.itens.length()").value(1))
+                .andExpect(jsonPath("$.itens[0].id").value(itemId.toString()))
+                .andExpect(jsonPath("$.total").value(25.0));
+        http.perform(get("/api/vendas/{id}", outraVenda).with(admin))
+                .andExpect(jsonPath("$.itens").isEmpty());
+
+        // O corpo sem o id continua valendo, e o servidor gera outro item.
+        UUID semId = uuidDaResposta(http.perform(post("/api/vendas/{id}/itens", venda).with(admin)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"produtoId\":\"" + produto + "\",\"quantidade\":2,\"desconto\":0}"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString());
+        assertThat(semId).isNotEqualTo(itemId);
+
+        pagar(admin, venda, UUID.randomUUID(), "DINHEIRO", "50.00", null)
+                .andExpect(status().isOk());
+        http.perform(post("/api/vendas/{id}/conclusao", venda).with(admin))
+                .andExpect(status().isNoContent());
+        // O reenvio igual responde como da primeira vez, mesmo com a venda já concluída.
+        http.perform(lancarItem(admin, venda, itemId, produto, "2"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.id").value(itemId.toString()));
+        http.perform(get("/api/vendas/{id}", venda).with(admin))
+                .andExpect(jsonPath("$.status").value("CONCLUIDA"))
+                .andExpect(jsonPath("$.itens.length()").value(2));
+    }
+
+    @Test
+    void itemComIdDeItemDeOutraContaERecusadoSemTocarNela() throws Exception {
+        ContaCriada contaA = criador.criar("PDV Aurora", SENHA);
+        ContaCriada contaB = criador.criar("PDV Esquina", SENHA);
+        UUID produtoA = produto(contaA);
+        UUID produtoB = produto(contaB);
+        UUID sessaoA = contaA.comoUsuario(() -> caixas.abrir(Money.ZERO));
+        UUID sessaoB = contaB.comoUsuario(() -> caixas.abrir(Money.ZERO));
+        RequestPostProcessor adminA = autenticador.como(contaA);
+        RequestPostProcessor adminB = autenticador.como(contaB);
+        UUID vendaA = criarVenda(adminA, sessaoA);
+        UUID vendaB = criarVenda(adminB, sessaoB);
+        UUID itemId = UUID.randomUUID();
+        http.perform(lancarItem(adminB, vendaB, itemId, produtoB, "1"))
+                .andExpect(status().isCreated());
+
+        // A consulta da Conta A não enxerga o item da B, e quem recusa é a chave primária; a
+        // resposta não diz nada sobre a outra Conta.
+        String corpo = http.perform(lancarItem(adminA, vendaA, itemId, produtoA, "1"))
+                .andExpect(status().isInternalServerError())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(corpo).doesNotContain(itemId.toString()).doesNotContain(vendaB.toString());
+
+        http.perform(get("/api/vendas/{id}", vendaA).with(adminA))
+                .andExpect(jsonPath("$.itens").isEmpty());
+        http.perform(get("/api/vendas/{id}", vendaB).with(adminB))
+                .andExpect(jsonPath("$.itens.length()").value(1))
+                .andExpect(jsonPath("$.itens[0].id").value(itemId.toString()))
+                .andExpect(jsonPath("$.itens[0].produtoId").value(produtoB.toString()))
+                .andExpect(jsonPath("$.total").value(12.5));
+    }
+
     @Autowired br.com.caixasimples.vendas.application.VendaService vendaService;
+
+    private MockHttpServletRequestBuilder lancarItem(RequestPostProcessor usuario, UUID venda,
+            UUID itemId, UUID produto, String quantidade) {
+        return post("/api/vendas/{id}/itens", venda).with(usuario)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"itemId\":\"" + itemId + "\",\"produtoId\":\"" + produto
+                        + "\",\"quantidade\":" + quantidade + ",\"desconto\":0}");
+    }
 
     private UUID produto(ContaCriada conta) {
         return conta.comoUsuario(() -> produtos.cadastrar(TipoProduto.PRODUTO,

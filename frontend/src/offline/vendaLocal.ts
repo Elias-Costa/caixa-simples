@@ -17,7 +17,8 @@ type ClientesDoDispositivo = Pick<typeof cadastro, 'clientes' | 'clientesInativo
 
 /** O contrato da API de vendas, com o item levando o Produto como o operador o viu na busca. */
 export type VendasDoPdv = Omit<VendasDaApi, 'adicionarItem' | 'pagar' | 'receber'> & {
-  adicionarItem(id: string, produto: Produto, quantidade: number, desconto: number): Promise<{ id: string }>
+  adicionarItem(id: string, produto: Produto, quantidade: number, desconto: number,
+    itemId?: string): Promise<{ id: string }>
   pagar(id: string, forma: Parameters<VendasDaApi['pagar']>[1], valor: number,
     valorRecebido?: number, pagamentoId?: string, nsu?: string): Promise<{ troco: number }>
   receber(id: string, valor: number, forma: Parameters<VendasDaApi['receber']>[2],
@@ -303,15 +304,15 @@ export function criarVendaLocal(remoto: VendasDaApi = vendas, caixa: CaixaDoDisp
       await enfileirar('venda.desvincularCliente', id, {}, operacoes(ultimoGesto(alvo.gestos, 'venda.', id)),
         alvo.venda.versao)
     },
-    async adicionarItem(id, produto, quantidade, desconto) {
+    async adicionarItem(id, produto, quantidade, desconto, itemId) {
       const alvo = await localizar(id, false)
-      if (alvo === 'servidor') return remoto.adicionarItem(id, produto.id, quantidade, desconto)
+      if (alvo === 'servidor') return remoto.adicionarItem(id, produto.id, quantidade, desconto, itemId)
       if (desconto !== 0) exigirAdmin('Só ADMIN concede desconto.')
       // A busca só devolve item ativo, e o preço que fica na Venda é o que o operador viu. Um
       // Produto reajustado ou inativado no servidor antes de a Venda chegar lá vira revisão na
       // sincronização, sem mudar o que foi cobrado.
       const dados: raiz.DadosDoItem = {
-        itemId: crypto.randomUUID(), produtoId: produto.id, nome: produto.nome,
+        itemId: itemId ?? crypto.randomUUID(), produtoId: produto.id, nome: produto.nome,
         unidade: produto.unidade, quantidade, precoUnitario: produto.preco, desconto,
         versaoProduto: typeof produto.versao === 'number' ? produto.versao : null,
       }
