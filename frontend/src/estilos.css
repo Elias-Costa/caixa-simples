@@ -5,8 +5,8 @@
  *
  * Tema escuro único, sobre o azul-marinho. Onde a cor da paleta e a legibilidade divergem, o
  * contraste decide: o azul royal sobre o fundo fica em 3,2:1, abaixo dos 4,5:1 que texto comum
- * pede, então o link é texto claro sublinhado de royal, e não texto royal. Roxo e violeta só
- * aparecem dentro do gradiente, que fica em poucos lugares.
+ * pede, então o link é um royal clareado só o bastante para ser lido, e não o royal da paleta. Roxo
+ * e violeta só aparecem dentro do gradiente, que fica em poucos lugares.
  */
 
 :root {
@@ -36,6 +36,10 @@
      campo, que pede 3:1. */
   --cor-primaria-realce: #2a5aff;
   --cor-borda-controle: #5a6a94;
+  /* O link, sem sublinhado: 5,05:1 sobre a superfície e 5,63:1 sobre o fundo, e 3,17:1 contra o texto
+     claro, o que basta para o link no meio de uma frase se separar dela sem o traço. Sobre o realce
+     fica em 4,47:1, e por isso nenhum link fica sobre ele. */
+  --cor-link: #5c84ff;
 
   /* Funcionais, todas acima de 5:1 sobre o fundo e as superfícies. A informação usa o ciano dos
      indicadores. O fundo de cada uma é a mesma cor quase transparente sobre o azul-marinho. */
@@ -74,15 +78,18 @@ body {
   min-height: 100vh;
 }
 
-a {
-  color: var(--cor-texto);
-  text-decoration-color: var(--cor-primaria);
-  text-decoration-thickness: 2px;
+/* O link se destaca pela cor, sem o traço embaixo. O traço volta ao passar o mouse e no foco, que é o
+   sinal além da cor que o link no meio de uma frase precisa. O :where deixa a regra sem peso, e o
+   link com cara de botão ou de item do menu continua com o estilo da classe dele. */
+:where(a) {
+  color: var(--cor-link);
+  text-decoration: none;
   text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
 }
 
-a:hover {
-  text-decoration-color: var(--cor-destaque);
+:where(a:hover, a:focus-visible) {
+  text-decoration: underline;
 }
 
 :focus-visible {
@@ -375,13 +382,10 @@ textarea:disabled {
 
 /* Login */
 
-/* O cartão e o rodapé da entrada ficam juntos no meio da tela, e não cada um no meio de uma metade. */
 .login {
   min-height: 100vh;
   display: grid;
   place-items: center;
-  align-content: center;
-  gap: var(--espaco);
   padding: var(--espaco);
 }
 
@@ -404,11 +408,15 @@ textarea:disabled {
   background: var(--gradiente-marca);
 }
 
+/* O cartão da entrada tem três partes, e a linha da borda dos cartões separa uma da outra: a marca
+   em cima, os links de apoio embaixo. */
 .login__marca {
   display: flex;
   align-items: center;
   gap: 12px;
   margin: 0 0 calc(var(--espaco) * 1.25);
+  padding-bottom: calc(var(--espaco) * 1.25);
+  border-bottom: 1px solid var(--cor-borda);
 }
 
 .login__icone {
@@ -436,22 +444,28 @@ textarea:disabled {
   margin: 0 0 var(--espaco);
 }
 
+/* Os campos de e-mail e senha da entrada ficam mais arredondados que os do resto do aplicativo. */
+.login__formulario .campo__entrada {
+  border-radius: calc(var(--raio) * 1.8);
+}
+
 /* A senha esquecida: o resumo parece um link, porque é o que a pessoa procura, e o texto aberto fica
    em texto secundário, com 6,78:1 sobre a superfície do cartão. */
+/* Logo abaixo da senha e à direita, como o pé do campo: a margem negativa desconta metade da folga
+   que todo campo deixa embaixo dele. O texto aberto volta à esquerda, que lê melhor em duas linhas. */
 .login__esqueceu {
-  margin-top: 12px;
+  margin: calc(var(--espaco) * -0.5) 0 var(--espaco);
   color: var(--cor-texto-secundario);
   font-size: 0.9rem;
+  text-align: right;
 }
 
 .login__esqueceu summary {
   display: inline-block;
   padding: 4px 0;
-  color: var(--cor-texto);
-  text-decoration: underline;
-  text-decoration-color: var(--cor-primaria);
-  text-decoration-thickness: 2px;
+  color: var(--cor-link);
   text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
   cursor: pointer;
 }
 
@@ -459,19 +473,24 @@ textarea:disabled {
   display: none;
 }
 
-.login__esqueceu summary:hover {
-  text-decoration-color: var(--cor-destaque);
+.login__esqueceu summary:hover,
+.login__esqueceu summary:focus-visible {
+  text-decoration: underline;
 }
 
 .login__esqueceu p {
   margin: 4px 0 0;
+  text-align: left;
 }
 
-/* Privacidade, termos e o apagar os dados do aparelho saem do cartão, que fica só com a tarefa de
-   entrar. A letra é a do rodapé do aplicativo; o texto secundário tem 7,56:1 sobre o fundo. Apagar
-   é raro e não se desfaz, e por isso fica numa linha própria, por último. */
+/* Privacidade, termos e o apagar os dados do aparelho ficam no pé do cartão, abaixo de uma linha, fora
+   da tarefa de entrar. A letra é a do rodapé do aplicativo; sobre o cartão, o link tem 5,05:1 e o
+   texto secundário, 6,78:1. Apagar é raro e não se desfaz, e por isso fica numa linha própria, por
+   último. */
 .login__rodape {
-  width: min(100%, 420px);
+  margin-top: calc(var(--espaco) * 1.25);
+  padding-top: var(--espaco);
+  border-top: 1px solid var(--cor-borda);
   color: var(--cor-texto-secundario);
   font-size: 0.9rem;
   text-align: center;
@@ -479,10 +498,6 @@ textarea:disabled {
 
 .login__rodape p {
   margin: 0;
-}
-
-.login__rodape a {
-  color: inherit;
 }
 
 /* Apagar os dados do aparelho: a página usa o cartão da entrada, que é de onde se chega a ela. */
@@ -707,10 +722,6 @@ textarea:disabled {
   font-size: 0.9rem;
 }
 
-.rodape a {
-  color: inherit;
-}
-
 /* Os links soltos do rodapé e da entrada não são texto corrido: precisam de 24px de altura para o
    toque, e a linha do texto sozinha dá 21. */
 .rodape a,
@@ -928,22 +939,21 @@ main.cadastro {
 .relatorios__cliente { display: block; color: var(--cor-texto-secundario); }
 
 .estoque { max-width: 1100px; margin: 0 auto; }
-/* O nome que escolhe o produto nos formulários: texto sublinhado, como um link, com a altura de toque. */
+/* O nome que escolhe o produto nos formulários: na cor do link, como um link, com a altura de toque. */
 .estoque__escolher {
   min-height: var(--toque);
   padding: 0;
   border: 0;
   background: none;
-  color: var(--cor-texto);
+  color: var(--cor-link);
   font: inherit;
   text-align: left;
-  text-decoration: underline;
-  text-decoration-color: var(--cor-primaria);
-  text-decoration-thickness: 2px;
   text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
   cursor: pointer;
 }
-.estoque__escolher:hover { text-decoration-color: var(--cor-destaque); }
+.estoque__escolher:hover,
+.estoque__escolher:focus-visible { text-decoration: underline; }
 /* A marca do negativo fica embaixo do nome, colada no botão, que já tem a folga da altura de toque. */
 .estoque__escolher + .marcas { margin: 0 0 8px; }
 .estoque__negativo { color: var(--cor-alerta); font-weight: 700; }
@@ -1089,6 +1099,9 @@ html:has(.pdv__rodape) { scroll-padding-bottom: 240px; }
 .qr-pix__imagem { display: inline-flex; max-width: 100%; padding: 12px; background: #fff; border-radius: var(--raio); }
 .qr-pix__imagem svg { max-width: 100%; height: auto; }
 .qr-pix__ajuda { margin: 8px 0 0; color: var(--cor-texto-secundario); font-size: 0.85rem; }
+/* Link no meio de texto secundário: a cor do link fica a 1,34:1 do cinza, e só a cor não o separa da
+   frase. Aqui o traço continua. */
+.qr-pix__ajuda a { text-decoration: underline; }
 .qr-pix__codigo { overflow-wrap: anywhere; }
 .pdv__historico { grid-column: 1 / -1; }
 .pdv__desconto { display: flex; align-items: end; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }

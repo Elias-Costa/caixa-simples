@@ -66,7 +66,9 @@ export function TelaDeLogin() {
 
   return (
     <main className="login">
-      <form className="login__cartao" onSubmit={enviar} noValidate>
+      {/* Um cartão só, em três partes separadas por uma linha: quem é o aplicativo, a entrada e os links
+          de apoio. Os links ficam fora do formulário, que é só a tarefa de entrar. */}
+      <div className="login__cartao">
         <div className="login__marca">
           <img className="login__icone" src="/icone.svg" alt="" width="48" height="48" />
           {/* O nome sozinho não diz para que o aplicativo serve; a categoria vem logo abaixo dele. */}
@@ -76,64 +78,68 @@ export function TelaDeLogin() {
           </div>
         </div>
 
-        {porQueVoltou && <p className="mensagem-info" role="status">{porQueVoltou}</p>}
+        <form className="login__formulario" onSubmit={enviar} noValidate>
+          {porQueVoltou && <p className="mensagem-info" role="status">{porQueVoltou}</p>}
 
-        <div className="campo">
-          <label className="campo__rotulo" htmlFor={idDoEmail}>E-mail</label>
-          <input
-            ref={campoDoEmail}
-            id={idDoEmail}
-            className="campo__entrada"
-            type="email"
-            name="email"
-            autoComplete="username"
-            inputMode="email"
-            value={email}
-            aria-invalid={emailEmBranco ? true : undefined}
-            aria-describedby={emailEmBranco ? `${idDoEmail}-erro` : undefined}
-            onChange={(evento) => {
-              setEmail(evento.target.value)
-              setEmailEmBranco(false)
-            }}
-            required
-          />
-          <ErroDoCampo id={`${idDoEmail}-erro`} texto={emailEmBranco ? 'Informe o e-mail.' : undefined} />
-        </div>
+          <div className="campo">
+            <label className="campo__rotulo" htmlFor={idDoEmail}>E-mail</label>
+            <input
+              ref={campoDoEmail}
+              id={idDoEmail}
+              className="campo__entrada"
+              type="email"
+              name="email"
+              autoComplete="username"
+              inputMode="email"
+              value={email}
+              aria-invalid={emailEmBranco ? true : undefined}
+              aria-describedby={emailEmBranco ? `${idDoEmail}-erro` : undefined}
+              onChange={(evento) => {
+                setEmail(evento.target.value)
+                setEmailEmBranco(false)
+              }}
+              required
+            />
+            <ErroDoCampo id={`${idDoEmail}-erro`} texto={emailEmBranco ? 'Informe o e-mail.' : undefined} />
+          </div>
 
-        <CampoDeSenha rotulo="Senha" name="senha" autoComplete="current-password" valor={senha}
-          entrada={campoDaSenha} erro={senhaEmBranco ? 'Informe a senha.' : undefined}
-          aoMudar={(valor) => {
-            setSenha(valor)
-            setSenhaEmBranco(false)
-          }} />
+          <CampoDeSenha rotulo="Senha" name="senha" autoComplete="current-password" valor={senha}
+            entrada={campoDaSenha} erro={senhaEmBranco ? 'Informe a senha.' : undefined}
+            aoMudar={(valor) => {
+              setSenha(valor)
+              setSenhaEmBranco(false)
+            }} />
 
-        {erro && (
-          <p className="login__erro" role="alert">
-            {erro}
-          </p>
-        )}
+          {/* Não há recuperação por e-mail: o administrador redefine a senha do operador, e o próprio
+              administrador é socorrido pelo atendimento. O link fica logo abaixo da senha, onde quem a
+              esqueceu procura, à vista antes do primeiro erro; o texto abre no próprio cartão, sem sair da
+              tela nem perder o e-mail digitado. */}
+          <details className="login__esqueceu">
+            <summary>Esqueceu sua senha?</summary>
+            <p>
+              Peça ao administrador da Conta uma senha provisória. Se você é o administrador, fale com o
+              atendimento do ECRX Caixa.
+            </p>
+          </details>
 
-        <button ref={botaoDeEntrar} type="submit" className="botao botao--largo" disabled={enviando}>
-          {enviando ? 'Entrando...' : 'Entrar'}
-        </button>
-        {/* Não há recuperação por e-mail: o administrador redefine a senha do operador, e o próprio
-            administrador é socorrido pelo atendimento. O link fica à vista antes do primeiro erro, e o
-            texto abre no próprio cartão, sem sair da tela nem perder o e-mail digitado. */}
-        <details className="login__esqueceu">
-          <summary>Esqueceu sua senha?</summary>
-          <p>
-            Peça ao administrador da Conta uma senha provisória. Se você é o administrador, fale com o
-            atendimento do ECRX Caixa.
-          </p>
-        </details>
-      </form>
+          {erro && (
+            <p className="login__erro" role="alert">
+              {erro}
+            </p>
+          )}
 
-      <footer className="login__rodape">
-        <p><Link to="/privacidade">Aviso de privacidade</Link> · <Link to="/termos">Termos de uso</Link></p>
-        {/* Fica aqui, e não dentro do aplicativo, porque o aparelho de uma Conta encerrada ou de quem
-            foi inativado não entra mais. A página explica e confirma antes de apagar. */}
-        <p><Link to="/aparelho">Apagar os dados deste aparelho</Link></p>
-      </footer>
+          <button ref={botaoDeEntrar} type="submit" className="botao botao--largo" disabled={enviando}>
+            {enviando ? 'Entrando...' : 'Entrar'}
+          </button>
+        </form>
+
+        <footer className="login__rodape">
+          <p><Link to="/privacidade">Aviso de privacidade</Link> · <Link to="/termos">Termos de uso</Link></p>
+          {/* Fica aqui, e não dentro do aplicativo, porque o aparelho de uma Conta encerrada ou de quem
+              foi inativado não entra mais. A página explica e confirma antes de apagar. */}
+          <p><Link to="/aparelho">Apagar os dados deste aparelho</Link></p>
+        </footer>
+      </div>
     </main>
   )
 }

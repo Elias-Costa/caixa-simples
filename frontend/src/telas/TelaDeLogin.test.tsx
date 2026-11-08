@@ -67,6 +67,11 @@ describe('TelaDeLogin', () => {
     const instrucao = screen.getByText('Peça ao administrador da Conta uma senha provisória. Se você é o '
       + 'administrador, fale com o atendimento do ECRX Caixa.')
     expect(instrucao).not.toBeVisible()
+    // Logo depois da senha e antes de Entrar, na ordem da leitura e do Tab.
+    expect(screen.getByLabelText('Senha').compareDocumentPosition(screen.getByText('Esqueceu sua senha?')))
+      .toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(screen.getByText('Esqueceu sua senha?').compareDocumentPosition(
+      screen.getByRole('button', { name: 'Entrar' }))).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
 
     fireEvent.click(screen.getByText('Esqueceu sua senha?'))
 
@@ -91,13 +96,15 @@ describe('TelaDeLogin', () => {
     expect(olho).toHaveAttribute('aria-pressed', 'false')
   })
 
-  it('os links de apoio ficam fora do cartão de entrar', () => {
+  it('os links de apoio ficam no pé do cartão, fora do formulário de entrar', () => {
     vi.stubGlobal('fetch', vi.fn())
     renderizarLogin()
-    const cartao = screen.getByRole('button', { name: 'Entrar' }).closest('form')
+    const formulario = screen.getByRole('button', { name: 'Entrar' }).closest('form')
 
     for (const nome of ['Aviso de privacidade', 'Termos de uso', 'Apagar os dados deste aparelho']) {
-      expect(cartao).not.toContainElement(screen.getByRole('link', { name: nome }))
+      const link = screen.getByRole('link', { name: nome })
+      expect(formulario).not.toContainElement(link)
+      expect(formulario?.compareDocumentPosition(link)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
     }
   })
 
