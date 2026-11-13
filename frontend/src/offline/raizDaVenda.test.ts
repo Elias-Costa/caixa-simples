@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { GestoNaFila } from './fila'
 import {
   abrirVenda, adicionarItem, aplicarDesconto, concluir, desvincularCliente, dinheiroNaGaveta, faltaPagar,
-  lancado, normalizarNsu, projetarVendas, registrarPagamento, removerItem, TAMANHO_MAXIMO_DO_NSU, total,
-  vincularCliente, type DadosDaParcela, type DadosDoItem, type VendaNoDispositivo,
+  lancado, normalizarNsu, projetarVendas, recusaDaQuantidade, registrarPagamento, removerItem,
+  TAMANHO_MAXIMO_DO_NSU, total, vincularCliente, type DadosDaParcela, type DadosDoItem, type VendaNoDispositivo,
 } from './raizDaVenda'
 
 const agora = '2026-09-25T15:00:00.000Z'
@@ -60,9 +60,12 @@ describe('raiz da Venda no dispositivo', () => {
   })
 
   it('recusa quantidade e preço fora da regra', () => {
-    for (const quantidade of [0, -1, 1.0005, Number.NaN]) {
-      expect(() => adicionarItem(nova(), item({ quantidade, unidade: 'kg' }))).toThrow('três casas')
+    for (const quantidade of [0, -1, Number.NaN]) {
+      expect(() => adicionarItem(nova(), item({ quantidade, unidade: 'kg' })))
+        .toThrow('Informe uma quantidade maior que zero.')
     }
+    expect(() => adicionarItem(nova(), item({ quantidade: 1.0005, unidade: 'kg' })))
+      .toThrow('Informe uma quantidade com até três casas decimais.')
     expect(() => adicionarItem(nova(), item({ precoUnitario: -1 }))).toThrow('Preço unitário')
     expect(() => adicionarItem(nova(), item({ precoUnitario: 1.001 }))).toThrow('Preço unitário')
     expect(adicionarItem(nova(), item({ quantidade: 0.75, unidade: 'kg', precoUnitario: 0 })).itens).toHaveLength(1)
@@ -220,6 +223,29 @@ describe('raiz da Venda no dispositivo', () => {
     for (const unidade of ['kg', 'unid', 'pç', 'hora', 'Un.']) {
       expect(adicionarItem(venda, item({ quantidade: 1.5, unidade })).itens).toHaveLength(2)
     }
+  })
+
+  it('recusa a quantidade que não vale com as frases do servidor, na mesma ordem', () => {
+    const venda = nova()
+    const recusas: [number, string][] = [
+      [0, 'Informe uma quantidade maior que zero.'],
+      [-2, 'Informe uma quantidade maior que zero.'],
+      [Number.NaN, 'Informe uma quantidade maior que zero.'],
+      [1.2345, 'Informe uma quantidade com até três casas decimais.'],
+      [1_000_000_000, 'Informe uma quantidade menor que um bilhão.'],
+      [Number.POSITIVE_INFINITY, 'Informe uma quantidade menor que um bilhão.'],
+    ]
+    for (const [quantidade, frase] of recusas) {
+      expect(recusaDaQuantidade(quantidade)).toBe(frase)
+      expect(() => adicionarItem(venda, item({ quantidade, unidade: 'kg' }))).toThrow(frase)
+    }
+    // -1,5 bala não é fração de bala, é quantidade que não vale: a frase é a do zero, como no servidor.
+    expect(() => adicionarItem(venda, item({ nome: 'Bala de goma', quantidade: -1.5, unidade: 'un' })))
+      .toThrow('Informe uma quantidade maior que zero.')
+    for (const quantidade of [0.001, 0.35, 2, 999_999_999.999]) {
+      expect(recusaDaQuantidade(quantidade)).toBeUndefined()
+    }
+    expect(adicionarItem(venda, item({ quantidade: 0.35, unidade: 'kg' })).itens).toHaveLength(1)
   })
 
   it('reaplica sem a regra da unidade o gesto que já estava na fila, para o servidor decidir', () => {

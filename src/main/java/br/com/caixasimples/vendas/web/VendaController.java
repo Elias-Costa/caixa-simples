@@ -178,10 +178,13 @@ class VendaController {
     /**
      * O itemId é opcional porque o contrato com o aparelho só cresce: o aplicativo instalado que
      * não o manda continua lançando item.
+     *
+     * <p>A quantidade só é conferida aqui quanto ao nulo: zero, negativo, a quarta casa e o tamanho
+     * são recusados pelo item da venda, com a frase que o lote e o aparelho sem rede também mostram.
+     * O validador daria à tela o texto do framework, com o número no formato americano.
      */
     record PedidoDeItem(UUID itemId, @NotNull UUID produtoId,
-            @NotNull @DecimalMin("0.001") @Digits(integer = 9, fraction = 3)
-            BigDecimal quantidade,
+            @NotNull BigDecimal quantidade,
             @NotNull @DecimalMin("0.00") @Digits(integer = 10, fraction = 2)
             BigDecimal desconto) {
     }

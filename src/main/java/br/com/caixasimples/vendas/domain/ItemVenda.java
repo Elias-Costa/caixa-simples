@@ -31,8 +31,8 @@ import java.util.UUID;
  *
  * <h2>O que este record valida, e o que deixa para a raiz</h2>
  *
- * <p>As guardas do construtor espelham as restrições da coluna: sinal, nulo e a escala da
- * quantidade. Que o desconto não passe do valor bruto é regra de {@link Venda#adicionarItem}, e
+ * <p>As guardas do construtor espelham as restrições da coluna: sinal, nulo, a escala e o tamanho
+ * da quantidade. Que o desconto não passe do valor bruto é regra de {@link Venda#adicionarItem}, e
  * fica lá de propósito: uma linha gravada por fora do código, sem essa regra, continua legível
  * quando remontada do banco, e o defeito aparece no total em vez de derrubar a leitura.
  *
@@ -40,8 +40,8 @@ import java.util.UUID;
  *                      identidade definitiva mesmo criado sem conexão (RNF01)
  * @param produtoId     referência entre agregados, então é um {@link UUID} e nunca um objeto
  *                      navegável
- * @param quantidade    sempre positiva, com no máximo três casas, porque venda fracionada é real
- *                      (0,750 kg) e é isso que a coluna guarda
+ * @param quantidade    sempre positiva e abaixo de um bilhão, com no máximo três casas, porque
+ *                      venda fracionada é real (0,750 kg) e é isso que a coluna guarda
  * @param precoUnitario cópia do preço do produto no momento da venda; zero vale, negativo não
  * @param desconto      desconto deste item (RF08); zero quando não há, nunca nulo
  * @param criadoEm      momento em que o item entrou na comanda, em UTC; é o que dá ordem de
@@ -52,6 +52,12 @@ public record ItemVenda(UUID id, UUID produtoId, BigDecimal quantidade, Money pr
 
     /** Três casas, porque é o que a coluna {@code numeric(12,3)} guarda. */
     public static final int CASAS_DA_QUANTIDADE = 3;
+
+    /**
+     * A partir daqui a quantidade não cabe na coluna {@code numeric(12,3)}, que guarda nove algarismos
+     * antes da vírgula. Sem esta guarda, o gesto do lote levaria o valor até o banco.
+     */
+    public static final BigDecimal QUANTIDADE_ACIMA_DO_LIMITE = new BigDecimal("1000000000");
 
     /** A unidade do produto vendido por peça, cuja quantidade não tem fração. */
     public static final String UNIDADE_INTEIRA = "un";
@@ -64,17 +70,21 @@ public record ItemVenda(UUID id, UUID produtoId, BigDecimal quantidade, Money pr
         Objects.requireNonNull(desconto, "desconto nao pode ser nulo; use Money.ZERO quando nao ha");
         Objects.requireNonNull(criadoEm, "criadoEm nao pode ser nulo");
 
+        // As três recusas da quantidade chegam ao balcão como vieram, com rede e na revisão do lote, e
+        // o aparelho sem rede repete o mesmo texto: por isso são frases de tela, que dizem a saída.
         if (quantidade.signum() <= 0) {
             // Item com quantidade zero não é item: nada foi vendido. Negativa seria devolução, e
             // devolução não é um item de venda com sinal trocado.
-            throw new IllegalArgumentException("A quantidade do item tem de ser positiva.");
+            throw new IllegalArgumentException("Informe uma quantidade maior que zero.");
         }
         if (quantidade.stripTrailingZeros().scale() > CASAS_DA_QUANTIDADE) {
             // O banco arredondaria a quarta casa em silêncio, e o total calculado aqui deixaria de
             // bater com a quantidade gravada. Mesma postura de Money, que recusa fração de centavo
             // em vez de arredondar escondido. Zeros à direita não contam: 2,0000 é 2.
-            throw new IllegalArgumentException(
-                    "A quantidade do item tem no máximo " + CASAS_DA_QUANTIDADE + " casas decimais.");
+            throw new IllegalArgumentException("Informe uma quantidade com até três casas decimais.");
+        }
+        if (quantidade.compareTo(QUANTIDADE_ACIMA_DO_LIMITE) >= 0) {
+            throw new IllegalArgumentException("Informe uma quantidade menor que um bilhão.");
         }
         if (precoUnitario.isNegativo()) {
             throw new IllegalArgumentException("O preço unitário não pode ser negativo.");
@@ -113,12 +123,13 @@ public record ItemVenda(UUID id, UUID produtoId, BigDecimal quantidade, Money pr
      *
      * @param nomeDoProduto o nome que a recusa cita
      * @param unidade       a unidade do cadastro, nula quando não há
-     * @param quantidade    nula passa, porque a guarda do construtor a recusa
+     * @param quantidade    nula, zero ou negativa passa, porque a guarda do construtor a recusa com a
+     *                      frase dela: -1,5 em un é quantidade que não vale, não fração
      * @throws IllegalArgumentException se a unidade é {@code un} ou vazia e a quantidade tem fração
      */
     public static void exigirInteiraNaUnidade(String nomeDoProduto, String unidade,
             BigDecimal quantidade) {
-        if (quantidade == null) {
+        if (quantidade == null || quantidade.signum() <= 0) {
             return;
         }
         String aparada = unidade == null ? "" : unidade.trim();

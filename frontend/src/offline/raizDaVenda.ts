@@ -112,13 +112,24 @@ function emReais(valorEmCentavos: number): string {
   return moeda.format(valorEmCentavos / 100)
 }
 
-function milesimos(quantidade: number): number {
-  const resultado = Math.round(quantidade * 1000)
-  if (!Number.isFinite(quantidade) || resultado <= 0 || Math.abs(resultado / 1000 - quantidade) > 1e-9
-    || resultado > MAIOR_QUANTIDADE_EM_MILESIMOS) {
-    throw new Error('A quantidade deve ser positiva, com até três casas decimais.')
+/**
+ * A recusa da quantidade do item, com o texto e a ordem do servidor (sinal, casas, tamanho), ou nada quando ela vale.
+ * A tela Vender confere com ela antes de mandar, e a regra sem rede é a mesma. O que nem é número fica com a frase do
+ * zero: o campo numérico do navegador entrega vazio quando não entende o que se digitou.
+ */
+export function recusaDaQuantidade(quantidade: number): string | undefined {
+  if (Number.isNaN(quantidade) || quantidade <= 0) return 'Informe uma quantidade maior que zero.'
+  if (Number.isFinite(quantidade) && Math.abs(Math.round(quantidade * 1000) / 1000 - quantidade) > 1e-9) {
+    return 'Informe uma quantidade com até três casas decimais.'
   }
-  return resultado
+  if (Math.round(quantidade * 1000) > MAIOR_QUANTIDADE_EM_MILESIMOS) return 'Informe uma quantidade menor que um bilhão.'
+  return undefined
+}
+
+function milesimos(quantidade: number): number {
+  const recusa = recusaDaQuantidade(quantidade)
+  if (recusa) throw new Error(recusa)
+  return Math.round(quantidade * 1000)
 }
 
 /**
@@ -227,14 +238,14 @@ export const UNIDADE_INTEIRA = 'un'
 /**
  * A mesma regra do servidor: o produto vendido por "un", ou sem unidade, só aceita quantidade
  * inteira. A unidade é texto livre, e qualquer outra grafia, como "unid" ou "kg", continua com três
- * casas; maiúscula e espaço nas pontas não contam. Quantidade que nem é número fica para a regra das
- * três casas.
+ * casas; maiúscula e espaço nas pontas não contam. Quantidade que nem é número, zero ou negativa fica para a
+ * recusa da quantidade: -1,5 bala é quantidade que não vale, não fração.
  */
 export function exigirInteiraNaUnidade(nome: string, unidade: string | null | undefined,
   quantidade: number): void {
   const aparada = (unidade ?? '').trim().toLowerCase()
   const vendidoPorPeca = aparada === '' || aparada === UNIDADE_INTEIRA
-  if (vendidoPorPeca && Number.isFinite(quantidade) && !Number.isInteger(quantidade)) {
+  if (vendidoPorPeca && Number.isFinite(quantidade) && quantidade > 0 && !Number.isInteger(quantidade)) {
     throw new Error(`O produto ${nome} é vendido por unidade e só aceita quantidade inteira.`)
   }
 }

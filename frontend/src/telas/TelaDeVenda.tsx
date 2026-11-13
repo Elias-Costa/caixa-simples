@@ -12,7 +12,7 @@ import type { Comprovante as DadosDoComprovante, ConciliacaoPix, FormaPagamento,
 import { diaNoBalcao, hojeNoBalcao } from '../dataDoBalcao'
 import { dataHora, diaEMes, hora, horaNoDia, lerDinheiro, moeda, quantidadeComUnidade, valorNoCampo } from '../formatos'
 import { criarCaixaLocal } from '../offline/caixaLocal'
-import { normalizarNsu } from '../offline/raizDaVenda'
+import { normalizarNsu, recusaDaQuantidade } from '../offline/raizDaVenda'
 import { criarVendaLocal } from '../offline/vendaLocal'
 import { useContextoDoShell } from '../shell/ContextoDoShell'
 import { useSincronizacao } from '../shell/sincronizacao'
@@ -625,6 +625,11 @@ export function TelaDeVenda() {
       falhar('busca', 'Informe o desconto do item com até duas casas decimais.')
       return
     }
+    const recusa = recusaDaQuantidade(numero(quantidade))
+    if (recusa) {
+      falhar('busca', recusa)
+      return
+    }
     const tocado = busca
     setOcupado(true); setErro(undefined)
     try {
@@ -887,6 +892,13 @@ export function TelaDeVenda() {
     if (!termoLido || !sessao) return
     if (descontoDigitado(descontoItem) === null) {
       falhar('busca', 'Informe o desconto do item com até duas casas decimais.')
+      return
+    }
+    // A quantidade que o servidor recusaria é recusada antes, com o mesmo texto: com a comanda concluída ou vazia, a
+    // ida abriria antes da recusa uma venda nova, que ficaria aberta e vazia no caixa.
+    const recusa = recusaDaQuantidade(numero(quantidade))
+    if (recusa) {
+      falhar('busca', recusa)
       return
     }
     let produto: Produto | undefined

@@ -60,6 +60,18 @@ class MembrosDaVendaTest {
     }
 
     @Test
+    @DisplayName("zero e negativo em un passam pela regra da fração e caem na guarda do construtor")
+    void negativoComFracaoEmUnRecebeAFraseDoZero() {
+        // -1,5 bala não é fração de bala, é quantidade que não vale: a frase é a do zero.
+        ItemVenda.exigirInteiraNaUnidade("Bala de goma", "un", new BigDecimal("-1.5"));
+        ItemVenda.exigirInteiraNaUnidade("Bala de goma", "un", new BigDecimal("-0.5"));
+        ItemVenda.exigirInteiraNaUnidade("Bala de goma", "un", BigDecimal.ZERO);
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> item(new BigDecimal("-1.5"), Money.de("0.10"), Money.ZERO))
+                .withMessage("Informe uma quantidade maior que zero.");
+    }
+
+    @Test
     @DisplayName("qualquer outra unidade continua com fração")
     void outraUnidadeAceitaFracao() {
         for (String unidade : List.of("kg", "unid", "pç", "hora", "Un.")) {
@@ -70,12 +82,14 @@ class MembrosDaVendaTest {
     @Test
     @DisplayName("item recusa quantidade zero ou negativa: nada foi vendido")
     void itemRecusaQuantidadeNaoPositiva() {
+        // A frase chega ao balcão como veio, com rede e na revisão do lote, e o aparelho sem rede
+        // repete o mesmo texto.
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> item(BigDecimal.ZERO, Money.de("10.00"), Money.ZERO))
-                .withMessageContaining("quantidade");
+                .withMessage("Informe uma quantidade maior que zero.");
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> item(new BigDecimal("-1"), Money.de("10.00"), Money.ZERO))
-                .withMessageContaining("quantidade");
+                .withMessage("Informe uma quantidade maior que zero.");
     }
 
     @Test
@@ -85,10 +99,25 @@ class MembrosDaVendaTest {
         // bater com o gravado. Já 2,0000 é 2, e passa.
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> item(new BigDecimal("0.7505"), Money.de("10.00"), Money.ZERO))
-                .withMessageContaining("casas decimais");
+                .withMessage("Informe uma quantidade com até três casas decimais.");
 
         ItemVenda item = item(new BigDecimal("2.0000"), Money.de("10.00"), Money.ZERO);
         assertThat(item.quantidade()).isEqualByComparingTo("2");
+    }
+
+    @Test
+    @DisplayName("item recusa quantidade de um bilhão ou mais, que a coluna não guarda")
+    void itemRecusaQuantidadeAcimaDoLimite() {
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> item(new BigDecimal("1000000000"), Money.de("0.01"), Money.ZERO))
+                .withMessage("Informe uma quantidade menor que um bilhão.");
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> item(new BigDecimal("1e15"), Money.de("0.01"), Money.ZERO))
+                .withMessage("Informe uma quantidade menor que um bilhão.");
+
+        // O maior valor da coluna numeric(12,3) continua valendo.
+        ItemVenda maior = item(new BigDecimal("999999999.999"), Money.ZERO, Money.ZERO);
+        assertThat(maior.quantidade()).isEqualByComparingTo("999999999.999");
     }
 
     @Test

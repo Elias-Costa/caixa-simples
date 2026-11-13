@@ -548,6 +548,40 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
     }
 
     @Test
+    @DisplayName("quantidade que não vale, gravada por um aparelho antigo: recusada com a frase que a tela mostra")
+    void quantidadeQueNaoValeRecusaOItemComFraseDeTela() {
+        ContaCriada conta = criador.criar("Mercearia Aurora", SENHA);
+        // Em kg, para a quarta casa cair na recusa das casas e não na da fração de quem vende por unidade.
+        UUID produtoId = conta.comoUsuario(() -> produtos.cadastrar(TipoProduto.PRODUTO,
+                new DadosDoProduto("Queijo minas", Money.de("40.00"), null, null, "kg", Map.of())));
+        UUID sessaoId = conta.comoUsuario(() -> sessoes.abrir(Money.ZERO));
+        List<UUID> vendaIds = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+        List<GestoDeTeste> lote = new ArrayList<>();
+        List<String> quantidades = List.of("0", "1.2345", "1000000000");
+        for (int i = 0; i < vendaIds.size(); i++) {
+            GestoDeTeste inicio = inicio(vendaIds.get(i), sessaoId);
+            lote.add(inicio);
+            lote.add(item(vendaIds.get(i), UUID.randomUUID(), produtoId, quantidades.get(i), "40.00", inicio));
+        }
+
+        List<ResultadoDaOperacao> resultados = conta.comoUsuario(() ->
+                sincronizacao.sincronizar(recebidas(lote)));
+
+        assertThat(resultados).extracting(ResultadoDaOperacao::resultado).containsExactly(
+                Resultado.APLICADA, Resultado.NAO_APLICADA, Resultado.APLICADA, Resultado.NAO_APLICADA,
+                Resultado.APLICADA, Resultado.NAO_APLICADA);
+        // A revisão mostra o detalhe ao ADMIN como veio: a mesma frase da tela com rede e do aparelho.
+        assertThat(resultados.get(1).detalhe()).isEqualTo("Informe uma quantidade maior que zero.");
+        assertThat(resultados.get(3).detalhe())
+                .isEqualTo("Informe uma quantidade com até três casas decimais.");
+        assertThat(resultados.get(5).detalhe()).isEqualTo("Informe uma quantidade menor que um bilhão.");
+        for (UUID vendaId : vendaIds) {
+            conta.comoUsuario(() -> assertThat(linhasDeVenda.findById(vendaId).orElseThrow()
+                    .paraDominio().getItens()).isEmpty());
+        }
+    }
+
+    @Test
     @DisplayName("produto reativado sem rede: aplicado com a revisão nova, ou recusado se o código foi para outro")
     void reativacaoDeProdutoPeloLote() {
         ContaCriada conta = criador.criar("Armazem Aurora", SENHA);

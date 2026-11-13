@@ -207,6 +207,8 @@ describe('Venda no dispositivo', () => {
     await expect(local.adicionarItem(id, cafe, 1, 1)).rejects.toThrow('Só ADMIN concede desconto')
     await expect(local.adicionarItem(id, cafe, 1.5, 0)).rejects
       .toThrow('O produto Café expresso é vendido por unidade e só aceita quantidade inteira.')
+    await expect(local.adicionarItem(id, cafe, 0, 0)).rejects.toThrow('Informe uma quantidade maior que zero.')
+    await expect(local.adicionarItem(id, cafe, -2, 0)).rejects.toThrow('Informe uma quantidade maior que zero.')
     await expect(local.descontar(id, 1)).rejects.toThrow('Só ADMIN concede desconto')
     await expect(local.pagar(id, 'FIADO', 12.5)).rejects.toThrow('Só ADMIN registra')
     await expect(local.pagar(id, 'CARTAO', 12.51)).rejects.toThrow('maior que o que falta pagar')

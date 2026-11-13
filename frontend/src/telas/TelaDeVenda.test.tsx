@@ -2164,3 +2164,70 @@ describe('o desconto da venda na comanda', () => {
       expect(servidor.descontar).not.toHaveBeenCalled()
     })
 })
+
+describe('a quantidade recusada antes de mandar', () => {
+  // Uma chamada atrasada do teste anterior pode ter deixado o aparelho sem servidor.
+  beforeEach(() => { registrarResposta() })
+
+  const queijo: Produto = { id: 'produto-queijo', tipo: 'PRODUTO', nome: 'Queijo minas', preco: 40,
+    codigo: '2000002', categoria: null, unidade: 'kg', atributos: {} }
+
+  function semVendaAberta() {
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([])
+    vi.spyOn(cadastro, 'buscarProdutos').mockResolvedValue([queijo])
+    const iniciar = vi.spyOn(vendas, 'iniciar').mockResolvedValue({ id: 'venda-1' })
+    const adicionar = vi.spyOn(vendas, 'adicionarItem').mockResolvedValue({ id: 'item-1' })
+    vi.spyOn(vendas, 'consultar').mockResolvedValue(comanda)
+    return { iniciar, adicionar }
+  }
+  function painelDaBusca() { return screen.getByRole('heading', { name: 'Busca de produtos' }).closest('section')! }
+
+  it('o Enter com quantidade zero mostra a frase do servidor e não abre venda, e a quantidade certa lança', async () => {
+    const { iniciar, adicionar } = semVendaAberta()
+    mostrar()
+
+    const busca = await screen.findByLabelText('Produto por nome ou código')
+    fireEvent.change(screen.getByLabelText('Quantidade'), { target: { value: '0' } })
+    fireEvent.change(busca, { target: { value: queijo.codigo } })
+    fireEvent.keyDown(busca, { key: 'Enter' })
+
+    expect(await within(painelDaBusca()).findByRole('alert'))
+      .toHaveTextContent('Informe uma quantidade maior que zero.')
+    // Com a comanda vazia, a ida abriria uma venda no caixa antes da recusa, e ela ficaria aberta e vazia.
+    expect(iniciar).not.toHaveBeenCalled()
+    expect(adicionar).not.toHaveBeenCalled()
+    expect(busca).toHaveValue(queijo.codigo)
+
+    fireEvent.change(screen.getByLabelText('Quantidade'), { target: { value: '0.35' } })
+    fireEvent.keyDown(busca, { key: 'Enter' })
+    await waitFor(() => expect(adicionar).toHaveBeenCalledWith('venda-1', queijo.id, 0.35, 0, expect.any(String)))
+    expect(iniciar).toHaveBeenCalledTimes(1)
+  })
+
+  it('o toque num resultado recusa o negativo e a quarta casa com as frases do servidor', async () => {
+    const { iniciar, adicionar } = semVendaAberta()
+    mostrar()
+
+    const busca = await screen.findByLabelText('Produto por nome ou código')
+    fireEvent.change(busca, { target: { value: 'queijo' } })
+    const resultado = await screen.findByRole('button', { name: /Queijo minas/ })
+
+    fireEvent.change(screen.getByLabelText('Quantidade'), { target: { value: '-2' } })
+    fireEvent.click(resultado)
+    expect(await within(painelDaBusca()).findByRole('alert'))
+      .toHaveTextContent('Informe uma quantidade maior que zero.')
+
+    fireEvent.change(screen.getByLabelText('Quantidade'), { target: { value: '1.2345' } })
+    fireEvent.click(resultado)
+    await waitFor(() => expect(within(painelDaBusca()).getByRole('alert'))
+      .toHaveTextContent('Informe uma quantidade com até três casas decimais.'))
+
+    fireEvent.change(screen.getByLabelText('Quantidade'), { target: { value: '1000000000' } })
+    fireEvent.click(resultado)
+    await waitFor(() => expect(within(painelDaBusca()).getByRole('alert'))
+      .toHaveTextContent('Informe uma quantidade menor que um bilhão.'))
+    expect(iniciar).not.toHaveBeenCalled()
+    expect(adicionar).not.toHaveBeenCalled()
+  })
+})

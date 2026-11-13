@@ -28,6 +28,7 @@ import br.com.caixasimples.shared.Perfil;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -817,6 +818,55 @@ class VendaHttpTest extends TesteDeIntegracao {
         http.perform(get("/api/vendas/{id}", venda).with(admin))
                 .andExpect(jsonPath("$.itens.length()").value(2))
                 .andExpect(jsonPath("$.total").value(30.2));
+    }
+
+    @Test
+    void quantidadeQueNaoValeVoltaComFraseDeTelaNoDetalheESemCampos() throws Exception {
+        ContaCriada conta = criador.criar("PDV Quantidade", SENHA);
+        UUID queijo = conta.comoUsuario(() -> produtos.cadastrar(TipoProduto.PRODUTO,
+                new DadosDoProduto("Queijo minas", Money.de("40.00"), null, null, "kg", Map.of())));
+        UUID bala = conta.comoUsuario(() -> produtos.cadastrar(TipoProduto.PRODUTO,
+                new DadosDoProduto("Bala de goma", Money.de("0.10"), null, null, "un", Map.of())));
+        UUID sessao = conta.comoUsuario(() -> caixas.abrir(Money.ZERO));
+        RequestPostProcessor admin = autenticador.como(conta);
+        UUID venda = criarVenda(admin, sessao);
+
+        // A tela mostra o detalhe como veio: frase de tela, sem o texto do validador nem o número
+        // no formato americano.
+        Map<String, String> recusas = new LinkedHashMap<>();
+        recusas.put("0", "Informe uma quantidade maior que zero.");
+        recusas.put("-2", "Informe uma quantidade maior que zero.");
+        recusas.put("1.2345", "Informe uma quantidade com até três casas decimais.");
+        recusas.put("1000000000", "Informe uma quantidade menor que um bilhão.");
+        for (var recusa : recusas.entrySet()) {
+            http.perform(lancarItem(admin, venda, UUID.randomUUID(), queijo, recusa.getKey()))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.detail").value(recusa.getValue()))
+                    .andExpect(jsonPath("$.campos").doesNotExist());
+        }
+        // Negativo com fração em un é quantidade que não vale, não fração.
+        http.perform(lancarItem(admin, venda, UUID.randomUUID(), bala, "-1.5"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Informe uma quantidade maior que zero."));
+        // O pedido sem itemId, do aplicativo instalado antes dele, recebe a mesma frase.
+        http.perform(post("/api/vendas/{id}/itens", venda).with(admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"produtoId\":\"" + queijo + "\",\"quantidade\":0,\"desconto\":0}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Informe uma quantidade maior que zero."));
+        // A quantidade nula continua recusada pelo pedido.
+        http.perform(post("/api/vendas/{id}/itens", venda).with(admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"produtoId\":\"" + queijo + "\",\"desconto\":0}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.campos.quantidade").exists());
+
+        // Nada do que foi recusado entrou, e a quantidade que vale continua lançando.
+        http.perform(lancarItem(admin, venda, UUID.randomUUID(), queijo, "0.750"))
+                .andExpect(status().isCreated());
+        http.perform(get("/api/vendas/{id}", venda).with(admin))
+                .andExpect(jsonPath("$.itens.length()").value(1))
+                .andExpect(jsonPath("$.total").value(30.0));
     }
 
     @Test
