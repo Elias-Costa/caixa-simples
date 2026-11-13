@@ -416,7 +416,8 @@ obrigatório, mesmo quando é zero. No PDV, a busca aceita nome, sem diferença 
 maiúscula, código e multiplicador de quantidade, e o Enter do leitor de código de barras lança o produto do
 código exato ou o resultado único; os resultados trazem primeiro esse produto e depois os nomes que
 começam pelo termo, com o preço pela unidade de venda. A quantidade sai com vírgula e unidade, como
-0,35 kg, na comanda e no comprovante, que aparece logo abaixo da comanda concluída. A comanda admite
+0,35 kg, na comanda e no comprovante, que aparece logo abaixo da comanda concluída. Quando a quantidade
+não é 1, a linha do item na comanda mostra também o preço da unidade, no formato da busca. A comanda admite
 pagamento dividido, e o total, o que falta
 lançar e o botão de concluir ficam num rodapé preso ao fim da tela. Com desconto da venda, a soma dos itens
 e o desconto aparecem logo abaixo dos itens, como no comprovante. A lista das vendas do caixa mostra

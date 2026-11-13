@@ -825,7 +825,7 @@ describe('PDV no tablet', () => {
       mostrar()
 
       fireEvent.click(await screen.findByRole('button', { name: /Concluída.*R\$/ }))
-      expect(await screen.findByText(/^0,35 kg × Pão francês · R\$\s5,92$/)).toBeInTheDocument()
+      expect(await screen.findByText(/^0,35 kg × Pão francês · R\$\s16,90\/kg · R\$\s5,92$/)).toBeInTheDocument()
       const papel = await screen.findByLabelText('Comprovante não fiscal')
       expect(papel).toHaveTextContent('0,35 kg × Pão francês')
       // O papel vem logo depois da comanda, antes da lista do caixa, que pode ter milhares de pixels.
@@ -1347,6 +1347,9 @@ describe('o último item no rodapé', () => {
     await waitFor(() => expect(regiao()).toHaveTextContent('Último: 2 un × Pão de queijo'))
     expect(within(regiao()).getByText('R$ 7,00')).toBeInTheDocument()
     expect(regiao()).not.toHaveTextContent('Café')
+    // A lista mostra o preço da unidade; o rodapé não, porque lá o nome já cabe em poucas letras.
+    expect(screen.getByText(/^2 un × Pão de queijo/)).toHaveTextContent('R$ 3,50/un')
+    expect(regiao()).not.toHaveTextContent('3,50')
   })
 
   it('a prévia do troco tira a linha, e ela volta quando a prévia sai', async () => {
@@ -1381,6 +1384,56 @@ describe('o último item no rodapé', () => {
     act(() => { registrarSemResposta() })
     await screen.findByText(/Esta venda está no servidor/)
     expect(screen.queryByText(/Último:/)).not.toBeInTheDocument()
+  })
+})
+
+describe('o preço da unidade na comanda', () => {
+  const itens: Venda['itens'] = [
+    { id: 'item-chiclete', produtoId: 'produto-chiclete', nome: 'Chiclete de menta', unidade: 'un', quantidade: 3,
+      precoUnitario: 0.2, desconto: 0, subtotal: 0.6 },
+    { id: 'item-queijo', produtoId: 'produto-queijo', nome: 'Queijo minas', unidade: 'kg', quantidade: 0.35,
+      precoUnitario: 45, desconto: 0, subtotal: 15.75 },
+    { id: 'item-agua', produtoId: 'produto-agua', nome: 'Água mineral', unidade: 'un', quantidade: 1,
+      precoUnitario: 4, desconto: 0, subtotal: 4 },
+    { id: 'item-bala', produtoId: 'produto-bala', nome: 'Bala de goma', quantidade: 3,
+      precoUnitario: 0.5, desconto: 0, subtotal: 1.5 },
+    { id: 'item-pao', produtoId: 'produto-pao', nome: 'Pão de queijo', unidade: 'un', quantidade: 2,
+      precoUnitario: 3, desconto: 0.5, subtotal: 5.5 },
+  ]
+
+  /** A linha como a pessoa lê, com o espaço do símbolo da moeda igual aos outros. */
+  function linha(nome: string) {
+    return screen.getByText(new RegExp(`× ${nome}`)).textContent!.replace(/\s+/g, ' ')
+  }
+
+  async function abrir() {
+    const venda: Venda = { ...comanda, itens, total: 27.35, faltaPagar: 27.35 }
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([{ id: venda.id, sessaoCaixaId: venda.sessaoCaixaId,
+      usuarioId: venda.usuarioId, status: 'ABERTA', total: venda.total, criadoEm: venda.criadoEm }])
+    vi.spyOn(vendas, 'consultar').mockResolvedValue(venda)
+    mostrar()
+    fireEvent.click(await screen.findByRole('button', { name: /Aberta/ }))
+    await screen.findByText(/× Chiclete de menta/)
+  }
+
+  it('com quantidade diferente de 1, o preço da unidade vem entre o nome e o subtotal, como na busca', async () => {
+    await abrir()
+    expect(linha('Chiclete de menta')).toBe('3 un × Chiclete de menta · R$ 0,20/un · R$ 0,60')
+    expect(linha('Queijo minas')).toBe('0,35 kg × Queijo minas · R$ 45,00/kg · R$ 15,75')
+  })
+
+  it('com uma unidade a linha fica como era, e sem unidade no cadastro o preço leva cada', async () => {
+    await abrir()
+    expect(linha('Água mineral')).toBe('1 un × Água mineral · R$ 4,00')
+    expect(linha('Bala de goma')).toBe('3 × Bala de goma · R$ 0,50 cada · R$ 1,50')
+  })
+
+  it('o desconto do item continua no fim da linha, depois do subtotal', async () => {
+    await abrir()
+    expect(linha('Pão de queijo')).toBe('2 un × Pão de queijo · R$ 3,00/un · R$ 5,50 (desconto R$ 0,50)')
+    // Remover continua ao lado de cada linha, também na que ficou mais longa.
+    expect(screen.getAllByRole('button', { name: 'Remover' })).toHaveLength(itens.length)
   })
 })
 

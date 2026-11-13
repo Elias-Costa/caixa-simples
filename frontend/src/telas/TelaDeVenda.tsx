@@ -8,7 +8,9 @@ import { comServidor as alcancaOServidor } from '../api/conexao'
 import { contas } from '../api/contas'
 import { fiado } from '../api/fiado'
 import { intencaoOnline, type IntencaoOnline } from '../api/intencaoOnline'
-import type { Comprovante as DadosDoComprovante, ConciliacaoPix, FormaPagamento, ResumoDaVenda, Venda } from '../api/vendas'
+import type {
+  Comprovante as DadosDoComprovante, ConciliacaoPix, FormaPagamento, ItemDaVenda, ResumoDaVenda, Venda,
+} from '../api/vendas'
 import { diaNoBalcao, hojeNoBalcao } from '../dataDoBalcao'
 import { dataHora, diaEMes, hora, horaNoDia, lerDinheiro, moeda, quantidadeComUnidade, valorNoCampo } from '../formatos'
 import { criarCaixaLocal } from '../offline/caixaLocal'
@@ -209,6 +211,15 @@ function textoDoDescontoDaVenda(venda: Venda | undefined, digitado: DescontoDaVe
 /** O servidor define o total como a soma dos itens menos o desconto da venda; a conta volta em centavos. */
 function somaDosItens(venda: Venda): number {
   return (Math.round(venda.total * 100) + Math.round(venda.descontoDaVenda * 100)) / 100
+}
+
+/**
+ * O preço de uma unidade do item, gravado ao lançar, no formato da busca, para quem confere a linha com o cliente sem
+ * fazer a conta de cabeça. Sem unidade no cadastro, leva cada: dois valores seguidos pareceriam dois totais. O espaço
+ * antes de cada não quebra, como o do símbolo da moeda, para a linha estreita não separar o preço da palavra.
+ */
+function precoDaUnidade(item: ItemDaVenda): string {
+  return `${moeda.format(item.precoUnitario)}${item.unidade ? `/${item.unidade}` : ' cada'}`
 }
 
 /** Quem passou códigos depois do que falhou precisa saber que eles não entraram, e não só que aquele falhou. */
@@ -1052,9 +1063,12 @@ export function TelaDeVenda() {
                 </li>)}
               </ul>}
             </>}
+            {/* Com uma unidade, o preço dela é o próprio subtotal e só alongaria a linha mais comum. O rodapé do
+                celular fica sem ele: lá o nome já cabe em poucas letras. */}
             {atual.itens.length === 0 ? <p>Nenhum item lançado.</p> : <ul className="pdv__itens">
               {atual.itens.map((item) => <li key={item.id}>
-                <span>{quantidadeComUnidade(item.quantidade, item.unidade)} × {item.nome} · {moeda.format(item.subtotal)}
+                <span>{quantidadeComUnidade(item.quantidade, item.unidade)} × {item.nome}
+                  {item.quantidade !== 1 && ` · ${precoDaUnidade(item)}`} · {moeda.format(item.subtotal)}
                   {item.desconto > 0 && ` (desconto ${moeda.format(item.desconto)})`}</span>
                 {editavel && <button className="botao botao--secundario" type="button"
                   disabled={comandaOcupada} onClick={() => void remover(item.id)}>Remover</button>}
