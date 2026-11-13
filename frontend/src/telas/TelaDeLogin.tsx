@@ -33,6 +33,13 @@ export function TelaDeLogin() {
     botaoDeEntrar.current?.focus()
   })
 
+  // No computador do caixa, o foco no e-mail poupa um clique a cada entrada. Com ponteiro de toque, ele abriria o teclado
+  // virtual, que cobre metade da tela e os links do pé do cartão antes de a pessoa escolher onde tocar. O ponteiro diz
+  // isso melhor que a largura: quem tem mouse ou trackpad tem teclado físico, e o tablet deitado é largo sem ter um.
+  useEffect(() => {
+    if (window.matchMedia?.('(pointer: fine)').matches) campoDoEmail.current?.focus()
+  }, [])
+
   // Quem já está autenticado neste dispositivo não vê o login de novo.
   if (identidade) return <Navigate to="/" replace />
 

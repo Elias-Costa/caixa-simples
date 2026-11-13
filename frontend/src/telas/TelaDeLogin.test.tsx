@@ -699,3 +699,38 @@ describe('a entrada trazida por outra aba do aplicativo', () => {
     expect(voltaPorOutraAba()).toBeNull()
   })
 })
+
+describe('o foco ao abrir a entrada', () => {
+  /** O ponteiro principal do aparelho: fino no computador, de toque no celular e no tablet. */
+  function ponteiro(fino: boolean) {
+    vi.stubGlobal('matchMedia', (consulta: string) => ({ matches: consulta === '(pointer: fine)' && fino,
+      addEventListener: vi.fn(), removeEventListener: vi.fn() }))
+  }
+
+  it('com mouse ou trackpad, o foco já está no e-mail', () => {
+    vi.stubGlobal('fetch', vi.fn())
+    ponteiro(true)
+    renderizarLogin()
+
+    expect(screen.getByLabelText('E-mail')).toHaveFocus()
+  })
+
+  it('com ponteiro de toque, nenhum campo recebe o foco, para o teclado virtual não abrir sozinho', () => {
+    vi.stubGlobal('fetch', vi.fn())
+    ponteiro(false)
+    renderizarLogin()
+
+    expect(screen.getByLabelText('E-mail')).not.toHaveFocus()
+    expect(document.body).toHaveFocus()
+  })
+
+  it('com a frase de por que voltou à vista, o foco também vai ao e-mail', () => {
+    vi.stubGlobal('fetch', vi.fn())
+    marcarSessaoVencida()
+    ponteiro(true)
+    renderizarLogin()
+
+    expect(screen.getByRole('status')).toHaveTextContent(FRASE_DO_VENCIMENTO)
+    expect(screen.getByLabelText('E-mail')).toHaveFocus()
+  })
+})
