@@ -25,6 +25,9 @@ RUN sh mvnw -B -ntp dependency:go-offline
 
 COPY frontend/ frontend/
 COPY src/main/ src/main/
+# O commit do build, que o CI passa e o aplicativo mostra como a versão dele. Declarado depois das dependências,
+# para o commit novo não refazer a camada delas; o build sem ele, como o da verificação de avisos, diz local.
+ARG VITE_VERSAO
 RUN sh mvnw -B -ntp package -Dmaven.test.skip=true
 
 # Separa o jar em camadas, das que mudam menos para as que mudam mais. Uma versão nova que só

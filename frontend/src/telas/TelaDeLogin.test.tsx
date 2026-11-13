@@ -108,6 +108,17 @@ describe('TelaDeLogin', () => {
     }
   })
 
+  it('o pé do cartão mostra a versão do aplicativo, abaixo dos links, também para quem não consegue entrar', () => {
+    vi.stubEnv('VITE_VERSAO', '0a557ae4c1d2e3f4')
+    vi.stubGlobal('fetch', vi.fn())
+    renderizarLogin()
+
+    const versao = screen.getByText('Versão 0a557ae')
+    const apagar = screen.getByRole('link', { name: 'Apagar os dados deste aparelho' })
+    expect(screen.getByRole('button', { name: 'Entrar' }).closest('form')).not.toContainElement(versao)
+    expect(apagar.compareDocumentPosition(versao)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+  })
+
   describe('campo em branco', () => {
     it('não vai ao servidor: diz o que falta embaixo de cada campo e põe o foco no primeiro', () => {
       vi.stubGlobal('fetch', vi.fn())

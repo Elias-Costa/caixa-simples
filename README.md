@@ -1304,7 +1304,9 @@ não esgote a memória dele. As imagens de terceiros que vão ao ar, a do proxy 
 aplicação, do banco e da cópia, ficam presas por digest, e a verificação de avisos examina
 exatamente o que está no ar.
 
-O CI publica as imagens no registro do GitHub só no commit em que tudo passou. De madrugada, uma
+O CI publica as imagens no registro do GitHub só no commit em que tudo passou, e o commit vai também
+para dentro do aplicativo: a tela de entrada e Minha conta mostram os sete primeiros caracteres dele
+como a versão que o aparelho roda, e o build feito na máquina diz local. De madrugada, uma
 tarefa agendada da própria máquina pergunta à API pública do GitHub qual é o último commit aprovado e
 chama o script de deploy; a agenda do GitHub atrasou horas todos os dias e cairia fora da janela. Para
 urgência, um botão do CI entra no servidor por uma chave que só roda o script de deploy, e o script

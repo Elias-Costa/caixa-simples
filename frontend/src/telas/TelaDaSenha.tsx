@@ -3,6 +3,7 @@ import { ErroDaApi, SemConexao } from '../api/cliente'
 import { contas, type MeusDados } from '../api/contas'
 import { marcarSessaoEncerrada, renovarTokenDaSessao, sessaoAtual } from '../sessao/armazenamento'
 import { useSessao } from '../sessao/useSessao'
+import { versaoDoAplicativo } from '../versaoDoAplicativo'
 import { CampoDeSenha } from './CampoDeSenha'
 import { problemaDoTamanhoDaSenha } from './regrasDaSenha'
 import { useConfirmacao } from './useConfirmacao'
@@ -125,6 +126,8 @@ export function TelaDaSenha({ obrigatoria = false }: Props) {
         Sair de todos os aparelhos
       </button>
     </div>
+    {/* No fim da tela, longe do balcão: é o que se lê para quem dá suporte, quando ele pergunta. */}
+    <p className="cadastro__apoio">Versão {versaoDoAplicativo()}</p>
     {dialogoDeConfirmacao}
   </section>
 }

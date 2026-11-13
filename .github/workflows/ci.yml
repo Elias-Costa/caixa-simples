@@ -103,7 +103,8 @@ jobs:
         run: |
           registro="ghcr.io/$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
           echo "$TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
-          docker build --pull --tag "$registro:$GITHUB_SHA" .
+          # O commit vai também para dentro do aplicativo, que o mostra como a versão dele.
+          docker build --pull --build-arg VITE_VERSAO="$GITHUB_SHA" --tag "$registro:$GITHUB_SHA" .
           docker build --pull --tag "$registro-copia:$GITHUB_SHA" --file operacao/copia/Dockerfile operacao
           docker push "$registro:$GITHUB_SHA"
           docker push "$registro-copia:$GITHUB_SHA"

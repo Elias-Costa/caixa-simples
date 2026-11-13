@@ -18,12 +18,13 @@ if (typeof HTMLDialogElement.prototype.showModal !== 'function') {
   }
 }
 
-// Cada teste começa sem sessão guardada e sem fetch falso do teste anterior.
+// Cada teste começa sem sessão guardada e sem fetch nem variável do build falsos do teste anterior.
 afterEach(() => {
   cleanup()
   localStorage.clear()
   sessionStorage.clear()
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
 })
 
 // E com o servidor respondendo, porque o estado da conexão é do módulo e passaria de um teste ao outro.

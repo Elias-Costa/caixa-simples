@@ -5,6 +5,7 @@ import { estadoDaConexao } from '../api/conexao'
 import { aoMudarMarcasDaEntrada, sessaoFoiEncerrada, sessaoVenceu, voltaPorOutraAba } from '../sessao/armazenamento'
 import { RelogioAdiantado } from '../sessao/token'
 import { useSessao } from '../sessao/useSessao'
+import { versaoDoAplicativo } from '../versaoDoAplicativo'
 import { CampoDeSenha } from './CampoDeSenha'
 import { ErroDoCampo } from './Mensagem'
 
@@ -145,6 +146,8 @@ export function TelaDeLogin() {
           {/* Fica aqui, e não dentro do aplicativo, porque o aparelho de uma Conta encerrada ou de quem
               foi inativado não entra mais. A página explica e confirma antes de apagar. */}
           <p><Link to="/aparelho">Apagar os dados deste aparelho</Link></p>
+          {/* Quem não consegue entrar é quem mais procura ajuda, e a versão diz o que este aparelho roda. */}
+          <p>Versão {versaoDoAplicativo()}</p>
         </footer>
       </div>
     </main>

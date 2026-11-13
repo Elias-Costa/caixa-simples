@@ -140,6 +140,27 @@ describe('TelaDaSenha', () => {
     expect(lerToken()).toBe('token-novo')
   })
 
+  it('mostra no fim a versão do aplicativo que este aparelho roda', async () => {
+    vi.stubEnv('VITE_VERSAO', '0a557ae4c1d2e3f4')
+    entrarComo(ana)
+    servidor({})
+    abrir('/senha')
+
+    const versao = await screen.findByText('Versão 0a557ae')
+    const sairDeTodos = screen.getByRole('button', { name: 'Sair de todos os aparelhos' })
+    expect(sairDeTodos.compareDocumentPosition(versao)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+  })
+
+  it('sem o commit no build, a versão diz local', async () => {
+    // Fixada vazia: o teste também roda dentro do build da imagem, que recebe o commit.
+    vi.stubEnv('VITE_VERSAO', undefined)
+    entrarComo(ana)
+    servidor({})
+    abrir('/senha')
+
+    expect(await screen.findByText('Versão local')).toBeInTheDocument()
+  })
+
   it('mostra o nome, o e-mail e o perfil lidos do servidor, sem guardar o e-mail no aparelho', async () => {
     entrarComo(ana)
     servidor({
