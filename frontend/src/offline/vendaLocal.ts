@@ -31,6 +31,12 @@ const CANCELAR_DEPOIS_DE_SINCRONIZAR = 'Esta venda foi registrada neste aparelho
   + 'ao servidor. O cancelamento fica disponível depois da sincronização.'
 export const NSU_EXIGIDO = 'Informe o NSU do comprovante da maquininha: esta Conta exige o NSU no '
   + 'pagamento em cartão.'
+/**
+ * O mesmo texto do servidor. A recusa chega antes de o operador receber o dinheiro: a conclusão seria recusada
+ * adiante. Só no balcão; o gesto já gravado continua sendo reaplicado na projeção, e o servidor o aceita no lote.
+ */
+const CAIXA_FECHADO_SEM_ITEM_NEM_PAGAMENTO = 'O caixa em que esta venda nasceu já foi fechado, e ela não recebe '
+  + 'item nem pagamento. Cancele a venda e faça de novo num caixa aberto.'
 
 /** Uma Venda que continua neste dispositivo, remontada dos gestos gravados. */
 type NoDispositivo = { gestos: GestoNaFila[]; venda: raiz.VendaNoDispositivo; pendente: boolean }
@@ -207,6 +213,12 @@ async function nomeDoClienteDoFiado(venda: raiz.VendaNoDispositivo,
  */
 export function criarVendaLocal(remoto: VendasDaApi = vendas, caixa: CaixaDoDispositivo = criarCaixaLocal(),
   clientes: ClientesDoDispositivo = cadastro): VendasDoPdv {
+  async function exigirCaixaAbertoParaReceber(venda: raiz.VendaNoDispositivo): Promise<void> {
+    if ((await caixa.consultar(venda.sessaoCaixaId)).status !== 'ABERTA') {
+      throw new Error(CAIXA_FECHADO_SEM_ITEM_NEM_PAGAMENTO)
+    }
+  }
+
   return {
     async iniciar(sessaoCaixaId) {
       if (!temBanco()) return remoto.iniciar(sessaoCaixaId)
@@ -308,6 +320,7 @@ export function criarVendaLocal(remoto: VendasDaApi = vendas, caixa: CaixaDoDisp
       const alvo = await localizar(id, false)
       if (alvo === 'servidor') return remoto.adicionarItem(id, produto.id, quantidade, desconto, itemId)
       if (desconto !== 0) exigirAdmin('Só ADMIN concede desconto.')
+      await exigirCaixaAbertoParaReceber(alvo.venda)
       // A busca só devolve item ativo, e o preço que fica na Venda é o que o operador viu. Um
       // Produto reajustado ou inativado no servidor antes de a Venda chegar lá vira revisão na
       // sincronização, sem mudar o que foi cobrado.
@@ -348,6 +361,7 @@ export function criarVendaLocal(remoto: VendasDaApi = vendas, caixa: CaixaDoDisp
       if (alvo === 'servidor') return remoto.pagar(id, forma, valor, valorRecebido,
         pagamentoId ?? crypto.randomUUID(), nsuDaParcela ?? undefined)
       if (forma === 'FIADO') exigirAdmin('Só ADMIN registra Venda com FIADO.')
+      await exigirCaixaAbertoParaReceber(alvo.venda)
       const dados: raiz.DadosDaParcela = {
         pagamentoId: crypto.randomUUID(), forma, valor, valorRecebido: valorRecebido ?? null,
         nsu: nsuDaParcela,

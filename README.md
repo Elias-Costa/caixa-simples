@@ -728,7 +728,9 @@ são somas; os filtros entraram como parâmetro opcional nas consultas que já e
   concluída só cancela com a sessão em que nasceu ainda aberta, porque a gaveta de uma sessão
   fechada já foi conferida; a comanda aberta sem cobrança Pix integrada cancela sem perguntar,
   porque nunca tocou a gaveta, e é a saída para a comanda que ficou presa quando o caixa fechou
-  antes. Pix lançado à mão e cartão confirmados ficam como estão: não há provedor a quem pedir
+  antes. Essa comanda não recebe mais item nem pagamento no balcão, com rede ou sem, para a recusa
+  chegar antes do troco; o que o aparelho já tinha registrado sem rede entra pelo lote, e a
+  conclusão recusada leva a venda à revisão. Pix lançado à mão e cartão confirmados ficam como estão: não há provedor a quem pedir
   estorno, e a devolução ao cliente acontece no balcão. Uma Venda com Pix integrado pendente só
   cancela após o PSP comprovar que a cobrança foi removida; falha ou resposta incerta mantém a
   Venda e permite repetir. Se o Pix já foi pago, a parcela segue CONFIRMADO e o PWA avisa que a

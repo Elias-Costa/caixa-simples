@@ -490,6 +490,65 @@ class VendaServiceTest extends TesteDeIntegracao {
     }
 
     @Test
+    @DisplayName("com o caixa fechado, a venda aberta não recebe item nem parcela no balcão; o reenvio igual responde, e remover e cancelar continuam")
+    void caixaFechadoRecusaItemEParcelaComRede() {
+        ContaCriada conta = criador.criar("Quitanda da Praça", SENHA_DE_TESTE);
+        UUID sessaoId = abrirCaixa(conta);
+        UUID cafeId = cadastrar(conta, "Cafe coado", Money.de("4.50"));
+        UUID vendaId = conta.comoUsuario(() -> vendaService.iniciar(sessaoId));
+        UUID itemId = UUID.randomUUID();
+        UUID outroItemId = UUID.randomUUID();
+        UUID parcelaId = UUID.randomUUID();
+        SolicitacaoPagamento cartao = SolicitacaoPagamento.de(FormaPagamento.CARTAO, Money.de("2.00"));
+        conta.comoUsuario(() -> {
+            vendaService.adicionarItemOnline(vendaId, itemId, cafeId, new BigDecimal("2"), Money.ZERO);
+            vendaService.adicionarItemOnline(vendaId, outroItemId, cafeId, BigDecimal.ONE, Money.ZERO);
+            vendaService.registrarPagamentoOnline(vendaId, parcelaId, cartao, null);
+        });
+        // A comanda continua aberta noutro aparelho quando o caixa fecha.
+        conta.comoUsuario(() -> caixas.fechar(sessaoId, Money.ZERO));
+
+        String frase = "O caixa em que esta venda nasceu já foi fechado, e ela não recebe item nem"
+                + " pagamento. Cancele a venda e faça de novo num caixa aberto.";
+        assertThatIllegalStateException()
+                .isThrownBy(() -> conta.comoUsuario(() -> vendaService.adicionarItemOnline(vendaId,
+                        UUID.randomUUID(), cafeId, BigDecimal.ONE, Money.ZERO)))
+                .withMessage(frase);
+        assertThatIllegalStateException()
+                .isThrownBy(() -> conta.comoUsuario(() -> vendaService.adicionarItem(vendaId, cafeId,
+                        BigDecimal.ONE, Money.ZERO)))
+                .withMessage(frase);
+        // O dinheiro recebido a mais que o troco devolveria: a recusa chega antes do troco.
+        assertThatIllegalStateException()
+                .isThrownBy(() -> conta.comoUsuario(() -> vendaService.registrarPagamento(vendaId,
+                        SolicitacaoPagamento.emDinheiro(Money.de("7.00"), Money.de("20.00")))))
+                .withMessage(frase);
+        assertThatIllegalStateException()
+                .isThrownBy(() -> conta.comoUsuario(() -> vendaService.reservarPix(vendaId,
+                        UUID.randomUUID(), Money.de("1.00"), "chave@pix.test")))
+                .withMessage(frase);
+
+        // O reenvio igual do que foi gravado antes do fechamento responde como da primeira vez.
+        assertThat(conta.comoUsuario(() -> vendaService.adicionarItemOnline(vendaId, itemId, cafeId,
+                new BigDecimal("2"), Money.ZERO)).repetido()).isTrue();
+        assertThat(conta.comoUsuario(() -> vendaService.registrarPagamentoOnline(vendaId, parcelaId,
+                cartao, null))).isEqualTo(Money.ZERO);
+
+        conta.comoUsuario(() -> {
+            Venda gravada = vendas.findById(vendaId).orElseThrow().paraDominio();
+            assertThat(gravada.getItens()).extracting(ItemVenda::id)
+                    .containsExactlyInAnyOrder(itemId, outroItemId);
+            assertThat(gravada.getPagamentos()).extracting(Pagamento::id).containsExactly(parcelaId);
+        });
+
+        // Remover item não mexe em dinheiro e continua; cancelar é a saída.
+        conta.comoUsuario(() -> vendaService.removerItem(vendaId, outroItemId));
+        conta.comoUsuario(() -> vendaService.cancelar(vendaId));
+        conta.comoUsuario(() -> assertThat(vendas.findById(vendaId).orElseThrow().paraDominio()
+                .getStatus()).isEqualTo(StatusVenda.CANCELADA));
+    }
+
+    @Test
     @DisplayName("parcela maior que o que falta pagar é recusada pelo serviço e nada é gravado")
     void parcelaAcimaDoSaldoNaoEGravada() {
         ContaCriada conta = criador.criar("Padaria Central", SENHA_DE_TESTE);

@@ -276,6 +276,38 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
     }
 
     @Test
+    @DisplayName("caixa fechado depois de a venda chegar: item e parcela gravados sem rede entram, e a conclusão vai à revisão")
+    void itemEParcelaSemRedeEntramComOCaixaFechado() {
+        ContaCriada conta = criador.criar("Mercearia do Largo", SENHA);
+        UUID produtoId = cadastrar(conta, "Arroz", "7.00");
+        UUID sessaoId = conta.comoUsuario(() -> sessoes.abrir(Money.ZERO));
+        UUID vendaId = UUID.randomUUID();
+        GestoDeTeste inicio = inicio(vendaId, sessaoId);
+        assertThat(conta.comoUsuario(() -> sincronizacao.sincronizar(recebidas(List.of(inicio)))))
+                .extracting(ResultadoDaOperacao::resultado).containsExactly(Resultado.APLICADA);
+        // O caixa fecha com rede enquanto o aparelho, sem rede, segue com a venda no balcão.
+        conta.comoUsuario(() -> sessoes.fechar(sessaoId, Money.ZERO));
+        GestoDeTeste item = item(vendaId, UUID.randomUUID(), produtoId, "1", "7.00", inicio);
+        GestoDeTeste parcela = parcelaNoCartao(vendaId, "7.00", item);
+        GestoDeTeste fim = conclusao(vendaId, parcela);
+
+        List<ResultadoDaOperacao> resultados = conta.comoUsuario(() ->
+                sincronizacao.sincronizar(recebidas(List.of(item, parcela, fim))));
+
+        // O dinheiro já mudou de mão no balcão: a venda guarda o que foi vendido e pago, e a
+        // recusa do balcão com o caixa fechado não vale para o lote.
+        assertThat(resultados).extracting(ResultadoDaOperacao::resultado).containsExactly(
+                Resultado.APLICADA, Resultado.APLICADA, Resultado.NAO_APLICADA);
+        assertThat(resultados.get(2).detalhe()).startsWith("O caixa em que esta venda nasceu já foi"
+                + " fechado, e ela não conclui");
+        conta.comoUsuario(() -> {
+            var venda = linhasDeVenda.findById(vendaId).orElseThrow().paraDominio();
+            assertThat(venda.getItens()).hasSize(1);
+            assertThat(venda.getPagamentos()).hasSize(1);
+        });
+    }
+
+    @Test
     @DisplayName("com rede, a venda nova no caixa fechado continua com a frase de quem ainda vai vender")
     void vendaNovaComRedeNoCaixaFechado() {
         ContaCriada conta = criador.criar("Mercearia da Esquina", SENHA);

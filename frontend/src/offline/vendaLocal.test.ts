@@ -229,6 +229,34 @@ describe('Venda no dispositivo', () => {
     expect((await local.consultar(id)).status).toBe('ABERTA')
   })
 
+  it('sem rede, a venda cujo caixa o aparelho já fechou não recebe item nem parcela, com a frase do servidor',
+    async () => {
+      entrar(operadora)
+      rede(false)
+      await prepararCadastro()
+      const caixaLocal = criarCaixaLocal()
+      const { id: sessaoId } = await caixaLocal.abrir(20)
+      const local = criarVendaLocal(apiDeVendas(), caixaLocal)
+      const { id } = await local.iniciar(sessaoId)
+      const { id: itemId } = await local.adicionarItem(id, cafe, 2, 0)
+      await caixaLocal.fechar(sessaoId, 20)
+      const antes = (await listarGestos()).length
+
+      const frase = 'O caixa em que esta venda nasceu já foi fechado, e ela não recebe item nem pagamento. '
+        + 'Cancele a venda e faça de novo num caixa aberto.'
+      await expect(local.adicionarItem(id, cafe, 1, 0)).rejects.toThrow(frase)
+      await expect(local.pagar(id, 'DINHEIRO', 12.5, 20)).rejects.toThrow(frase)
+      await expect(local.pagar(id, 'CARTAO', 12.5)).rejects.toThrow(frase)
+      expect(await listarGestos()).toHaveLength(antes)
+      const venda = await local.consultar(id)
+      expect(venda.itens).toHaveLength(1)
+      expect(venda.parcelas).toHaveLength(0)
+
+      // Remover item não mexe em dinheiro e continua.
+      await local.removerItem(id, itemId)
+      expect((await local.consultar(id)).itens).toHaveLength(0)
+    })
+
   it('sem rede, o Pix lançado à mão vai para a fila como o cartão e conclui a Venda', async () => {
     entrar(operadora)
     rede(false)

@@ -257,7 +257,8 @@ public class VendaService {
      *                                     quem chama não é ADMIN
      * @throws br.com.caixasimples.cadastro.application.ProdutoNaoEncontradoException se o
      *         produto não existe nesta conta
-     * @throws IllegalStateException    se o produto está inativo, ou se a venda não está ABERTA
+     * @throws IllegalStateException    se o produto está inativo, se a venda não está ABERTA, ou se
+     *                                  o caixa em que ela nasceu já foi fechado
      * @throws IllegalArgumentException se quantidade ou desconto violam as regras da raiz, ou se
      *                                  a quantidade tem fração num produto vendido por unidade
      */
@@ -284,7 +285,8 @@ public class VendaService {
      *                                     quem chama não é ADMIN
      * @throws br.com.caixasimples.cadastro.application.ProdutoNaoEncontradoException se o
      *         produto não existe nesta conta
-     * @throws IllegalStateException    se o produto está inativo, se a venda não está ABERTA, ou se
+     * @throws IllegalStateException    se o produto está inativo, se a venda não está ABERTA, se o
+     *                                  caixa em que ela nasceu já foi fechado e o item é novo, ou se
      *                                  o id já foi usado com outro conteúdo
      * @throws IllegalArgumentException se quantidade ou desconto violam as regras da raiz, ou se
      *                                  a quantidade tem fração num produto vendido por unidade
@@ -313,6 +315,7 @@ public class VendaService {
             }
             return new ItemLancado(itemId, true);
         }
+        exigirCaixaAbertoParaReceber(venda);
 
         ProdutoParaVenda produto = produtos.consultarParaVenda(produtoId);
         if (!produto.ativo()) {
@@ -443,7 +446,8 @@ public class VendaService {
      *         nenhuma estratégia atende a forma pedida
      * @throws IllegalArgumentException se a solicitação não serve para a forma, como dinheiro
      *                                  recebido a menos, ou se a parcela passa do que falta pagar
-     * @throws IllegalStateException    se a venda não está ABERTA
+     * @throws IllegalStateException    se a venda não está ABERTA, ou se o caixa em que ela nasceu
+     *                                  já foi fechado
      */
     @Transactional
     public Money registrarPagamento(UUID vendaId, SolicitacaoPagamento solicitacao) {
@@ -459,7 +463,8 @@ public class VendaService {
      * @throws IllegalArgumentException além dos casos acima, se o NSU vem fora do cartão ou passa
      *                                  do tamanho máximo, ou se falta no cartão e a Conta o exige
      * @throws IllegalStateException    além dos casos acima, se o id já foi usado com outro
-     *                                  conteúdo
+     *                                  conteúdo; a parcela já gravada com o mesmo conteúdo responde
+     *                                  como da primeira vez, mesmo com o caixa fechado depois
      */
     @Transactional
     public Money registrarPagamentoOnline(UUID vendaId, UUID pagamentoId,
@@ -492,6 +497,7 @@ public class VendaService {
             }
             return parcela.troco();
         }
+        exigirCaixaAbertoParaReceber(venda);
         exigirNsuSeAContaExige(resultado.forma(), nsuNormalizado);
         venda.registrarPagamento(pagamentoId, resultado.forma(), resultado.valor(),
                 resultado.status(), resultado.troco(), Instant.now(), nsuNormalizado);
@@ -560,13 +566,17 @@ public class VendaService {
      * outra conta, assim como recusa a segunda de duas reservas simultâneas com o mesmo id novo.
      *
      * @throws IllegalStateException se o id da tentativa já é de uma parcela de outra Venda desta
-     *                               conta, ou se a mesma Venda já o usou com outro conteúdo
+     *                               conta, se a mesma Venda já o usou com outro conteúdo, ou se a
+     *                               venda está aberta e o caixa em que ela nasceu já foi fechado
      */
     @Transactional
     public Pagamento reservarPix(UUID vendaId, UUID tentativaId, Money valor, String chave) {
         VendaEntity linha = travar(vendaId);
         Venda venda = linha.paraDominio();
         UsuarioContext.exigirDonoOuAdmin(venda.getUsuarioId());
+        // Também na retomada de uma tentativa já reservada: ela cria a cobrança no provedor, e o
+        // cliente pagaria para um caixa já fechado. A parcela pendente segue para a conciliação.
+        exigirCaixaAbertoParaReceber(venda);
         Objects.requireNonNull(tentativaId, "id da tentativa Pix nao pode ser nulo");
         var dona = vendas.findByPagamentosId(tentativaId);
         if (dona.isPresent() && !dona.get().getId().equals(vendaId)) {
@@ -1224,6 +1234,20 @@ public class VendaService {
 
         return new VendaCancelada(contaId, venda.getId(), venda.getSessaoCaixaId(),
                 venda.getUsuarioId(), itens, parcelas, recebimentos, venda.getCanceladaPor());
+    }
+
+    /**
+     * A venda aberta de um caixa já fechado não recebe item nem pagamento no balcão. A conclusão
+     * seria recusada adiante, e a recusa tem de chegar antes de o operador receber o dinheiro e dar
+     * o troco. Vale só para o que se lança com rede: o gesto gravado sem rede já aconteceu no
+     * balcão, entra como antes e guarda o que foi vendido e pago, e é a conclusão recusada que leva
+     * o caso à revisão do administrador. A venda que não está aberta segue para a recusa da raiz.
+     */
+    private void exigirCaixaAbertoParaReceber(Venda venda) {
+        if (venda.getStatus() == StatusVenda.ABERTA && !caixa.estaAberto(venda.getSessaoCaixaId())) {
+            throw new IllegalStateException("O caixa em que esta venda nasceu já foi fechado, e ela não"
+                    + " recebe item nem pagamento. Cancele a venda e faça de novo num caixa aberto.");
+        }
     }
 
     /**
