@@ -192,6 +192,25 @@ function escolhidoPeloEnter(encontrados: Produto[], termo: string): Produto | un
   return doCodigo ?? (encontrados.length === 1 ? encontrados[0] : undefined)
 }
 
+/** O desconto da venda digitado e ainda não aplicado, com a venda em que foi digitado. */
+type DescontoDaVendaDigitado = { vendaId: string; texto: string }
+
+/**
+ * O campo do desconto da venda: o que se digitou nesta venda ou, sem isso, o desconto que ela já tem. Aplicar troca o
+ * desconto, não soma, e quem vai trocá-lo precisa ver o que vale; o texto de outra venda passaria por desconto
+ * aplicado nesta.
+ */
+function textoDoDescontoDaVenda(venda: Venda | undefined, digitado: DescontoDaVendaDigitado | undefined): string {
+  if (!venda) return ''
+  if (digitado?.vendaId === venda.id) return digitado.texto
+  return venda.descontoDaVenda > 0 ? valorNoCampo(venda.descontoDaVenda) : ''
+}
+
+/** O servidor define o total como a soma dos itens menos o desconto da venda; a conta volta em centavos. */
+function somaDosItens(venda: Venda): number {
+  return (Math.round(venda.total * 100) + Math.round(venda.descontoDaVenda * 100)) / 100
+}
+
 /** Quem passou códigos depois do que falhou precisa saber que eles não entraram, e não só que aquele falhou. */
 function codigosDescartados(quantos: number): string {
   if (quantos === 0) return ''
@@ -232,7 +251,7 @@ export function TelaDeVenda() {
   const [quantidade, setQuantidade] = useState('1')
   // Vazio vale zero; com 0 dentro, o que se digita depois dele vira 02,90.
   const [descontoItem, setDescontoItem] = useState('')
-  const [descontoVenda, setDescontoVenda] = useState('')
+  const [descontoDaVendaDigitado, setDescontoDaVendaDigitado] = useState<DescontoDaVendaDigitado>()
   const [resultados, setResultados] = useState<Produto[]>([])
   const [forma, setForma] = useState<OpcaoDePagamento>('DINHEIRO')
   const [valorPagamento, setValorPagamento] = useState('')
@@ -273,6 +292,7 @@ export function TelaDeVenda() {
     ? vendasRecusadas.find((venda) => venda.vendaId === atual.id) : undefined
   const recusadasPorConferir = vendasRecusadas.filter((venda) => !venda.conferida).length
   const editavel = atual?.status === 'ABERTA' && !comandaSoLeitura
+  const descontoVenda = textoDoDescontoDaVenda(atual, descontoDaVendaDigitado)
   const comFiado = atual?.parcelas.some((parcela) => parcela.forma === 'FIADO') ?? false
   // O Pix integrado depende do provedor, com o cliente presente, e de a Conta poder cobrar por ele
   // hoje; a Venda registrada sem rede não o recebe. A opção escolhida antes de a rede cair volta
@@ -686,7 +706,11 @@ export function TelaDeVenda() {
       return
     }
     setOcupado(true); setErro(undefined)
-    try { await vendas.descontar(atual.id, desconto); await atualizar(atual.id) }
+    try {
+      await vendas.descontar(atual.id, desconto); await atualizar(atual.id)
+      // O que foi digitado já está gravado: o campo passa a mostrar o valor da venda, 0,5 como 0,50.
+      setDescontoDaVendaDigitado(undefined)
+    }
     catch (falha) { falhar('comanda', erroDaComanda(falha)); conferirSeSemResposta(falha, atual.id) }
     finally { setOcupado(false) }
   }
@@ -1020,10 +1044,16 @@ export function TelaDeVenda() {
                   disabled={comandaOcupada} onClick={() => void remover(item.id)}>Remover</button>}
               </li>)}
             </ul>}
+            {/* Com desconto da venda, a comanda diz de onde sai o Total do rodapé, como o comprovante: quem confere com o
+                cliente e quem retoma a venda veem o desconto dado. Sem ele, uma linha de R$ 0,00 faria o cliente perguntar. */}
+            {atual.descontoDaVenda > 0 && <div className="pdv__soma">
+              <p className="pdv__linha"><span>Soma dos itens:</span> <span>{moeda.format(somaDosItens(atual))}</span></p>
+              <p className="pdv__linha"><span>Desconto da venda:</span> <span>{moeda.format(atual.descontoDaVenda)}</span></p>
+            </div>}
             {identidade?.perfil === 'ADMIN' && editavel && <form onSubmit={(evento) => void descontar(evento)} className="pdv__desconto">
               <div className="pdv__desconto-campo">
                 <CampoDeDinheiro rotulo="Desconto da venda" placeholder="0,00" valor={descontoVenda}
-                  aoMudar={setDescontoVenda} />
+                  aoMudar={(texto) => setDescontoDaVendaDigitado({ vendaId: atual.id, texto })} />
               </div>
               <button className="botao botao--secundario" disabled={comandaOcupada}>Aplicar</button>
             </form>}

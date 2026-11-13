@@ -2027,3 +2027,140 @@ describe('leituras seguidas do leitor de código', () => {
     expect(await screen.findByText(/1 × Pão/)).toBeInTheDocument()
   })
 })
+
+describe('o desconto da venda na comanda', () => {
+  // Uma chamada atrasada do teste anterior pode ter deixado o aparelho sem servidor.
+  beforeEach(() => { registrarResposta() })
+
+  const cafe: Produto = { id: 'produto-cafe', tipo: 'PRODUTO', nome: 'Café expresso', preco: 6,
+    codigo: '7890000000010', categoria: null, unidade: 'un', atributos: {} }
+
+  /** Dois itens que somam R$ 14,50, o duplo com um real de desconto no item, como no balcão do achado. */
+  function comDesconto(id: string, desconto: number): Venda {
+    return { ...comanda, id, descontoDaVenda: desconto, total: 14.5 - desconto, faltaPagar: 14.5 - desconto,
+      itens: [
+        { id: `${id}-duplo`, produtoId: 'produto-duplo', nome: 'Café expresso duplo', quantidade: 1,
+          precoUnitario: 9.5, desconto: 1, subtotal: 8.5 },
+        { id: `${id}-cafe`, produtoId: cafe.id, nome: cafe.nome, quantidade: 1, precoUnitario: 6, desconto: 0,
+          subtotal: 6 },
+      ] }
+  }
+
+  /**
+   * O servidor simulado guarda as vendas, e a comanda relida mostra o que ele tem. O desconto da venda troca o que
+   * havia, como no servidor: o total é a soma dos itens menos ele.
+   */
+  function balcao(...iniciais: Venda[]) {
+    const gravadas = new Map(iniciais.map((venda) => [venda.id, venda]))
+    const ler = (id: string) => gravadas.get(id)!
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockImplementation(async () => [...gravadas.values()].map((venda) => ({
+      id: venda.id, sessaoCaixaId: venda.sessaoCaixaId, usuarioId: venda.usuarioId, status: venda.status,
+      total: venda.total, criadoEm: venda.criadoEm })))
+    vi.spyOn(cadastro, 'buscarProdutos').mockImplementation(async (termo: string) =>
+      [cafe].filter((produto) => produto.codigo === termo))
+    vi.spyOn(vendas, 'consultar').mockImplementation(async (id: string) => ler(id))
+    vi.spyOn(vendas, 'iniciar').mockImplementation(async () => {
+      const id = `venda-nova-${gravadas.size + 1}`
+      gravadas.set(id, { ...comanda, id, total: 0, faltaPagar: 0, itens: [] })
+      return { id }
+    })
+    const adicionar = vi.spyOn(vendas, 'adicionarItem').mockImplementation(async (id, produtoId, quantidade,
+      desconto, itemId) => {
+      const venda = ler(id)
+      const subtotal = cafe.preco * quantidade - desconto
+      gravadas.set(id, { ...venda, total: venda.total + subtotal, faltaPagar: venda.faltaPagar + subtotal,
+        itens: [...venda.itens, { id: itemId ?? 'sem-id', produtoId, nome: cafe.nome, quantidade,
+          precoUnitario: cafe.preco, desconto, subtotal }] })
+      return { id: itemId ?? 'sem-id' }
+    })
+    const descontar = vi.spyOn(vendas, 'descontar').mockImplementation(async (id, valor) => {
+      const venda = ler(id)
+      const soma = venda.total + venda.descontoDaVenda
+      gravadas.set(id, { ...venda, descontoDaVenda: valor, total: soma - valor, faltaPagar: soma - valor - venda.pago })
+    })
+    vi.spyOn(vendas, 'pagar').mockImplementation(async (id, forma, valor) => {
+      const venda = ler(id)
+      gravadas.set(id, { ...venda, pago: valor, faltaPagar: 0,
+        parcelas: [{ id: 'parcela-1', forma, valor, status: 'CONFIRMADO', troco: 0 }] })
+      return { troco: 0 }
+    })
+    vi.spyOn(vendas, 'concluir').mockImplementation(async (id) => {
+      gravadas.set(id, { ...ler(id), status: 'CONCLUIDA' })
+    })
+    vi.spyOn(vendas, 'comprovante').mockResolvedValue(comprovante)
+    return { adicionar, descontar }
+  }
+
+  function painelDaComanda() { return screen.getByRole('heading', { name: 'Comanda' }).closest('section')! }
+  function comandaLivre() { return waitFor(() => expect(painelDaComanda()).toHaveAttribute('aria-busy', 'false')) }
+  function passar(busca: HTMLElement, codigo: string) {
+    fireEvent.change(busca, { target: { value: codigo } })
+    fireEvent.keyDown(busca, { key: 'Enter' })
+  }
+
+  it('com desconto, a comanda mostra a soma dos itens e o desconto da venda, também ao operador', async () => {
+    balcao(comDesconto('venda-1', 0.5), { ...comanda, id: 'venda-2' })
+    mostrar()
+
+    fireEvent.click(await screen.findByRole('button', { name: /R\$\s14,00.*retomar ou cancelar/ }))
+    await waitFor(() => expect(painelDaComanda()).toHaveTextContent('Soma dos itens: R$ 14,50'))
+    expect(painelDaComanda()).toHaveTextContent('Desconto da venda: R$ 0,50')
+    expect(screen.getByText('Total:').closest('p')).toHaveTextContent('R$ 14,00')
+    // O operador não dá desconto: as linhas aparecem, e o campo não.
+    expect(screen.queryByLabelText('Desconto da venda')).not.toBeInTheDocument()
+
+    // Sem desconto da venda, nenhuma das duas linhas: uma linha de R$ 0,00 faz o cliente perguntar.
+    fireEvent.click(screen.getByRole('button', { name: /R\$\s12,50.*retomar ou cancelar/ }))
+    await waitFor(() => expect(painelDaComanda()).not.toHaveTextContent('Soma dos itens'))
+    expect(painelDaComanda()).not.toHaveTextContent('Desconto da venda')
+  })
+
+  it('depois de Aplicar o campo mostra o desconto gravado, e a venda que o leitor abre depois de concluir começa vazia',
+    async () => {
+      const servidor = balcao({ ...comanda })
+      mostrar('ADMIN')
+
+      fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
+      const campo = await screen.findByLabelText('Desconto da venda')
+      expect(campo).toHaveValue('')
+      fireEvent.change(campo, { target: { value: '0,5' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }))
+      await waitFor(() => expect(servidor.descontar).toHaveBeenCalledWith('venda-1', 0.5))
+      await waitFor(() => expect(painelDaComanda()).toHaveTextContent('Desconto da venda: R$ 0,50'))
+      expect(painelDaComanda()).toHaveTextContent('Soma dos itens: R$ 12,50')
+      expect(screen.getByLabelText('Desconto da venda')).toHaveValue('0,50')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Receber e concluir' }))
+      await screen.findByLabelText('Comprovante não fiscal')
+      passar(screen.getByLabelText('Produto por nome ou código'), cafe.codigo!)
+      await waitFor(() => expect(servidor.adicionar).toHaveBeenCalledTimes(1))
+      await comandaLivre()
+      expect(servidor.adicionar.mock.calls[0][0]).not.toBe('venda-1')
+      expect(await screen.findByLabelText('Desconto da venda')).toHaveValue('')
+      expect(painelDaComanda()).not.toHaveTextContent('Soma dos itens')
+    })
+
+  it('cada venda na comanda mostra o desconto dela no campo, e o que se digitou não passa para a venda seguinte',
+    async () => {
+      const servidor = balcao({ ...comanda }, comDesconto('venda-2', 0.3))
+      mostrar('ADMIN')
+
+      // A venda retomada com desconto diz que ele existe, na comanda e no campo.
+      fireEvent.click(await screen.findByRole('button', { name: /R\$\s14,20.*retomar ou cancelar/ }))
+      await waitFor(() => expect(screen.getByLabelText('Desconto da venda')).toHaveValue('0,30'))
+      expect(painelDaComanda()).toHaveTextContent('Desconto da venda: R$ 0,30')
+
+      fireEvent.click(screen.getByRole('button', { name: /R\$\s12,50.*retomar ou cancelar/ }))
+      await waitFor(() => expect(screen.getByLabelText('Desconto da venda')).toHaveValue(''))
+      fireEvent.change(screen.getByLabelText('Desconto da venda'), { target: { value: '0,10' } })
+
+      // Digitado e não aplicado, o 0,10 fica com a venda em que foi digitado.
+      fireEvent.click(screen.getByRole('button', { name: 'Nova venda' }))
+      passar(screen.getByLabelText('Produto por nome ou código'), cafe.codigo!)
+      await waitFor(() => expect(servidor.adicionar).toHaveBeenCalledTimes(1))
+      await comandaLivre()
+      expect(await screen.findByLabelText('Desconto da venda')).toHaveValue('')
+      expect(servidor.descontar).not.toHaveBeenCalled()
+    })
+})

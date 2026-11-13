@@ -1104,6 +1104,9 @@ html:has(.pdv__rodape) { scroll-padding-bottom: 240px; }
 .qr-pix__ajuda a { text-decoration: underline; }
 .qr-pix__codigo { overflow-wrap: anywhere; }
 .pdv__historico { grid-column: 1 / -1; }
+/* A soma e o desconto da venda são uma conta só, que termina no Total: juntos, sem a folga de parágrafo entre eles. */
+.pdv__soma { display: grid; gap: 4px; margin: 8px 0 12px; }
+.pdv__soma > p { margin: 0; }
 .pdv__desconto { display: flex; align-items: end; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 .pdv__desconto-campo { flex: 1 1 180px; min-width: 0; }
 /* A folga do rótulo vai para o formulário, e Aplicar fica na linha do campo, não abaixo dela. */

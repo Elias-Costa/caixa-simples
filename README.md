@@ -411,7 +411,8 @@ código exato ou o resultado único; os resultados trazem primeiro esse produto 
 começam pelo termo, com o preço pela unidade de venda. A quantidade sai com vírgula e unidade, como
 0,35 kg, na comanda e no comprovante, que aparece logo abaixo da comanda concluída. A comanda admite
 pagamento dividido, e o total, o que falta
-lançar e o botão de concluir ficam num rodapé preso ao fim da tela. A lista das vendas do caixa mostra
+lançar e o botão de concluir ficam num rodapé preso ao fim da tela. Com desconto da venda, a soma dos itens
+e o desconto aparecem logo abaixo dos itens, como no comprovante. A lista das vendas do caixa mostra
 as dez mais recentes, com a hora e as formas de pagamento, e a venda que ficou aberta no caixa é
 avisada na comanda, com o valor, a hora e um botão para retomá-la. No celular, a tela de venda deixa
 no menu só a venda e o Mais, para a busca ficar no alto da tela. O troco aparece em destaque, com
