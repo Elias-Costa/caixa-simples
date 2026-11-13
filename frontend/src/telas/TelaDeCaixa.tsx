@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useId, useState, type FormEvent } from 'react'
+import { Fragment, useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { caixa as caixaNoServidor, type MovimentoCaixa, type SessaoCaixa } from '../api/caixa'
 import { SemConexao } from '../api/cliente'
 import { contas } from '../api/contas'
@@ -12,6 +12,7 @@ import { criarCaixaLocal } from '../offline/caixaLocal'
 import { criarVendaLocal } from '../offline/vendaLocal'
 import { useSincronizacao } from '../shell/sincronizacao'
 import { useConexao } from '../shell/useConexao'
+import { apagarRascunho, chaveDoRascunho, guardarRascunho, lerRascunho } from '../sessao/rascunhos'
 import { useSessao } from '../sessao/useSessao'
 import { CampoDeDinheiro } from './CampoDeDinheiro'
 import { nomesDosClientesNoAparelho } from './clientesNoAparelho'
@@ -34,6 +35,11 @@ const vendasDoCaixa = (sessaoId: string) => vendas.daSessao(sessaoId)
 
 /** A ordem em que as formas aparecem no vendido, a mesma do comprovante e dos relatórios. */
 const FORMAS: FormaPagamento[] = ['DINHEIRO', 'PIX', 'CARTAO', 'FIADO']
+
+type TipoDoMovimento = 'SANGRIA' | 'SUPRIMENTO'
+
+/** O movimento começado e deixado ao ir a outra tela, com o caixa em que foi digitado. */
+type RascunhoDoMovimento = { caixaId: string; tipo: TipoDoMovimento; valor: string; motivo: string }
 const listaDeFormas = new Intl.ListFormat('pt-BR', { style: 'long', type: 'conjunction' })
 /** A forma no meio de uma frase: o Pix é nome próprio e continua com maiúscula. */
 const EM_FORMA: Record<FormaPagamento, string> = {
@@ -305,7 +311,7 @@ export function TelaDeCaixa() {
   // obrigatório, e abrir sem troco é digitar 0, para o esquecimento não abrir a gaveta em zero e
   // virar sobra no fechamento.
   const [valorAbertura, setValorAbertura] = useState('')
-  const [tipoMovimento, setTipoMovimento] = useState<'SANGRIA' | 'SUPRIMENTO'>('SANGRIA')
+  const [tipoMovimento, setTipoMovimento] = useState<TipoDoMovimento>('SANGRIA')
   const [valorMovimento, setValorMovimento] = useState('')
   const [motivo, setMotivo] = useState('')
   const [valorContado, setValorContado] = useState('')
@@ -326,6 +332,8 @@ export function TelaDeCaixa() {
   // A entrada traz para cá quem está sem caixa aberto; o tour mora nesta tela, e não no alto de todas.
   const tour = useTourDoCaixa({ identidade, aberta, historico, carregando, vendasDoCaixa })
   const sessaoSelecionada = selecionada?.id
+  const chaveDoMovimento = chaveDoRascunho(identidade, 'caixa')
+  const rascunhoConferido = useRef(false)
   const listaDaSessao = vendasDaSessao?.sessaoId === sessaoSelecionada ? vendasDaSessao?.lista : undefined
   const detalheDaSessao = emDetalhe?.venda.sessaoCaixaId === sessaoSelecionada ? emDetalhe : undefined
   const segundaViaDoDetalhe = segundaVia?.comprovante.vendaId === detalheDaSessao?.venda.id
@@ -357,6 +365,17 @@ export function TelaDeCaixa() {
           ?? (sessaoAberta?.id === atual.id ? sessaoAberta : atual)
         return sessaoAberta
       })
+      // O movimento começado volta uma vez, quando a tela abre, se ela abre no caixa em que a pessoa o digitou: num
+      // caixa fechado depois, ou em outro, uma sangria pela metade não teria onde entrar.
+      if (!rascunhoConferido.current) {
+        rascunhoConferido.current = true
+        const rascunho = lerRascunho<RascunhoDoMovimento>(chaveDoMovimento)
+        if (rascunho && rascunho.caixaId === sessaoAberta?.id) {
+          setTipoMovimento(rascunho.tipo)
+          setValorMovimento(rascunho.valor)
+          setMotivo(rascunho.motivo)
+        }
+      }
       // A releitura só apaga o erro da própria leitura: a resposta de uma ação continua à vista.
       setMensagem((atual) => atual?.lugar === 'tela' ? undefined : atual)
       return sessaoAberta
@@ -366,7 +385,7 @@ export function TelaDeCaixa() {
     } finally {
       setCarregando(false)
     }
-  }, [dia])
+  }, [chaveDoMovimento, dia])
 
   // A rodada de envio que grava resultado muda o que o servidor sabe da sessão, e a volta do servidor
   // traz o que a escrita com rede mudou: nos dois casos, a tela relê, sem esperar outra tela.
@@ -383,6 +402,19 @@ export function TelaDeCaixa() {
     })
     return () => { ativo = false }
   }, [selecionada])
+
+  /**
+   * Cada mudança no movimento vai também para o rascunho, ligado ao caixa selecionado. O tipo sozinho é a escolha de um
+   * toque e não se guarda: sem valor nem motivo, não há o que devolver.
+   */
+  function mudarMovimento(mudanca: Partial<Omit<RascunhoDoMovimento, 'caixaId'>>) {
+    const atual = { tipo: tipoMovimento, valor: valorMovimento, motivo, ...mudanca }
+    setTipoMovimento(atual.tipo)
+    setValorMovimento(atual.valor)
+    setMotivo(atual.motivo)
+    if (!selecionada || (atual.valor.trim() === '' && atual.motivo.trim() === '')) apagarRascunho(chaveDoMovimento)
+    else guardarRascunho<RascunhoDoMovimento>(chaveDoMovimento, { caixaId: selecionada.id, ...atual })
+  }
 
   // As vendas da sessão, abertas, concluídas e canceladas: o administrador vê as de qualquer operador,
   // e o operador, as das próprias sessões. A rodada de envio relê, porque a venda feita sem rede deixa
@@ -506,6 +538,7 @@ export function TelaDeCaixa() {
       intencao.confirmar()
       setValorMovimento('')
       setMotivo('')
+      apagarRascunho(chaveDoMovimento)
       setMensagem(respostaDaAcao(relida, 'movimento', tipo === 'SANGRIA'
         ? { noServidor: 'Sangria registrada.',
           noAparelho: 'Sangria registrada neste aparelho. Aguardando sincronização com o servidor.' }
@@ -679,14 +712,15 @@ export function TelaDeCaixa() {
           <h4>Lançar movimento</h4>
           <label>Tipo
             <select value={tipoMovimento}
-              onChange={(evento) => setTipoMovimento(evento.target.value as 'SANGRIA' | 'SUPRIMENTO')}>
+              onChange={(evento) => mudarMovimento({ tipo: evento.target.value as TipoDoMovimento })}>
               <option value="SANGRIA">Sangria</option>
               <option value="SUPRIMENTO">Suprimento</option>
             </select>
           </label>
-          <CampoDeDinheiro rotulo="Valor" required valor={valorMovimento} aoMudar={setValorMovimento} />
+          <CampoDeDinheiro rotulo="Valor" required valor={valorMovimento}
+            aoMudar={(valor) => mudarMovimento({ valor })} />
           <label>Motivo
-            <input required value={motivo} onChange={(evento) => setMotivo(evento.target.value)} />
+            <input required value={motivo} onChange={(evento) => mudarMovimento({ motivo: evento.target.value })} />
           </label>
           <button className="botao" disabled={ocupado !== null}>
             {ocupado === 'lancar' ? 'Registrando...' : `Registrar ${tipoMovimento.toLowerCase()}`}

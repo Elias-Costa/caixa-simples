@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto'
 import { deleteDB } from 'idb'
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cadastro } from '../api/cadastro'
 import { caixa, type SessaoCaixa } from '../api/caixa'
@@ -1013,5 +1013,75 @@ describe('caixa fechado e o que o aparelho sabe dele', () => {
     const leituras = vi.spyOn(Storage.prototype, 'getItem')
     await new Promise((pronto) => setTimeout(pronto, 300))
     expect(leituras).not.toHaveBeenCalled()
+  })
+})
+
+describe('o movimento começado, ao voltar à tela', () => {
+  function caixaAberto(sessao: SessaoCaixa = aberta) {
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(sessao)
+    vi.spyOn(caixa, 'historico').mockResolvedValue([sessao])
+    vi.spyOn(caixa, 'consultar').mockResolvedValue({ ...sessao, movimentos: [] })
+  }
+
+  /** Começa um suprimento e sai da tela sem registrar, como quem vai a Vender pelo menu. */
+  async function comecarESair() {
+    mostrar()
+    await screen.findByRole('button', { name: 'Registrar sangria' })
+    fireEvent.change(screen.getByLabelText('Tipo'), { target: { value: 'SUPRIMENTO' } })
+    fireEvent.change(screen.getByLabelText('Valor'), { target: { value: '30,00' } })
+    fireEvent.change(screen.getByLabelText('Motivo'), { target: { value: 'Troco para a tarde' } })
+    cleanup()
+  }
+
+  it('volta com o tipo, o valor e o motivo no mesmo caixa', async () => {
+    caixaAberto()
+    await comecarESair()
+
+    mostrar()
+    expect(await screen.findByRole('button', { name: 'Registrar suprimento' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Tipo')).toHaveValue('SUPRIMENTO')
+    expect(screen.getByLabelText('Valor')).toHaveValue('30,00')
+    expect(screen.getByLabelText('Motivo')).toHaveValue('Troco para a tarde')
+  })
+
+  it('registrado o movimento, a volta à tela encontra os campos vazios', async () => {
+    caixaAberto()
+    const suprir = vi.spyOn(caixa, 'suprir').mockResolvedValue(undefined)
+    await comecarESair()
+    mostrar()
+    fireEvent.click(await screen.findByRole('button', { name: 'Registrar suprimento' }))
+    await waitFor(() => expect(suprir).toHaveBeenCalledWith('s-1', 30, 'Troco para a tarde', expect.any(String)))
+    expect(await screen.findByRole('status')).toHaveTextContent('Suprimento registrado.')
+    cleanup()
+
+    mostrar()
+    await screen.findByRole('button', { name: /^Registrar/ })
+    expect(screen.getByLabelText('Valor')).toHaveValue('')
+    expect(screen.getByLabelText('Motivo')).toHaveValue('')
+  })
+
+  it('apagar o valor e o motivo descarta o rascunho', async () => {
+    caixaAberto()
+    await comecarESair()
+    mostrar()
+    await screen.findByRole('button', { name: 'Registrar suprimento' })
+    fireEvent.change(screen.getByLabelText('Valor'), { target: { value: '' } })
+    fireEvent.change(screen.getByLabelText('Motivo'), { target: { value: '' } })
+    cleanup()
+
+    mostrar()
+    await screen.findByRole('button', { name: /^Registrar/ })
+    expect(screen.getByLabelText('Motivo')).toHaveValue('')
+  })
+
+  it('o rascunho é do caixa em que foi digitado: com outro caixa aberto, os campos voltam vazios', async () => {
+    caixaAberto()
+    await comecarESair()
+
+    caixaAberto({ ...aberta, id: 's-2' })
+    mostrar()
+    expect(await screen.findByRole('button', { name: 'Registrar sangria' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Valor')).toHaveValue('')
+    expect(screen.getByLabelText('Motivo')).toHaveValue('')
   })
 })

@@ -2,6 +2,7 @@ import '@testing-library/jest-dom/vitest'
 import { cleanup } from '@testing-library/react'
 import { afterEach, beforeEach, vi } from 'vitest'
 import { registrarResposta } from './api/conexao'
+import { apagarRascunhos } from './sessao/rascunhos'
 
 // O jsdom não abre diálogo modal. O mínimo de que as telas dependem: abrir marca o diálogo como
 // aberto, e fechar guarda a resposta e avisa pelo evento close, como o navegador. O resto do modal
@@ -18,11 +19,12 @@ if (typeof HTMLDialogElement.prototype.showModal !== 'function') {
   }
 }
 
-// Cada teste começa sem sessão guardada e sem fetch nem variável do build falsos do teste anterior.
+// Cada teste começa sem sessão guardada, sem rascunho de tela e sem fetch nem variável do build falsos do teste anterior.
 afterEach(() => {
   cleanup()
   localStorage.clear()
   sessionStorage.clear()
+  apagarRascunhos()
   vi.unstubAllGlobals()
   vi.unstubAllEnvs()
 })

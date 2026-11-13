@@ -399,7 +399,9 @@ nome do negócio e de quem opera, a navegação por perfil e as telas de produto
 Venda, fiado e relatórios. A entrada leva ao PDV com o caixa aberto, e ao caixa sem ele; no tablet e
 no celular, os itens do balcão ficam à vista e o resto num botão Mais. Nelas se listam, se filtram pelo nome, sem diferença de acento, e se alteram os cadastros, com pares livres de chave e valor para os atributos do
 produto. Os valores em dinheiro vão em campos de texto com o teclado decimal do aparelho, que aceitam
-vírgula e até duas casas. No caixa, quem opera abre a sessão, lança sangria e suprimento e fecha com o
+vírgula e até duas casas. A sangria ou o suprimento começados no caixa e o item começado em Produtos voltam
+como ficaram quando a pessoa vai a outra tela e volta, até registrar, salvar, cancelar, recarregar ou
+sair, sem nada gravado no aparelho. No caixa, quem opera abre a sessão, lança sangria e suprimento e fecha com o
 saldo esperado à vista e a diferença apurada, dita como falta, sobra ou sem diferença. O caixa escolhido
 diz de quem é e põe a gaveta ao lado do vendido nele por forma de pagamento, com o número de vendas;
 o extrato, com o saldo depois de cada movimento, e a lista das vendas vêm recolhidos, em tabela, e a

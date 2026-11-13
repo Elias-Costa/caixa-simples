@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cadastro } from '../api/cadastro'
 import { ErroDaApi } from '../api/cliente'
@@ -278,5 +278,74 @@ describe('cadastro na tela', () => {
     await waitFor(() => expect(inativar).toHaveBeenCalledTimes(2))
     expect(await screen.findByText('Lia inativado.')).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Editar cliente' })).not.toBeInTheDocument()
+  })
+})
+
+describe('o item começado, ao voltar à tela', () => {
+  /** Sai da tela de Produtos e volta, como quem vai a outra pelo menu: a tela desmonta e monta de novo. */
+  async function sairEVoltar() {
+    cleanup()
+    mostrarProdutos('ADMIN')
+    await screen.findByText('Café')
+  }
+
+  it('o Novo item começado volta aberto, com o que foi digitado', async () => {
+    vi.spyOn(cadastro, 'produtos').mockResolvedValue([produto])
+    mostrarProdutos('ADMIN')
+    await screen.findByText('Café')
+    fireEvent.click(screen.getByRole('button', { name: 'Novo item' }))
+    fireEvent.change(screen.getByLabelText('Nome'), { target: { value: 'Bolo de cenoura' } })
+    fireEvent.change(screen.getByLabelText('Preço (R$)'), { target: { value: '12,00' } })
+
+    await sairEVoltar()
+
+    expect(screen.getByRole('heading', { name: 'Novo item' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Nome')).toHaveValue('Bolo de cenoura')
+    expect(screen.getByLabelText('Preço (R$)')).toHaveValue('12,00')
+    // Com a lista já à vista, o formulário recebe o foco no primeiro campo, como ao tocar Novo item.
+    await waitFor(() => expect(screen.getByLabelText('Nome')).toHaveFocus())
+  })
+
+  it('o Editar item volta no mesmo item, e Salvar grava nele a edição', async () => {
+    vi.spyOn(cadastro, 'produtos').mockResolvedValue([produto])
+    const editar = vi.spyOn(cadastro, 'editarProduto').mockResolvedValue(undefined)
+    mostrarProdutos('ADMIN')
+    fireEvent.click(await screen.findByRole('button', { name: 'Editar' }))
+    fireEvent.change(screen.getByLabelText('Preço (R$)'), { target: { value: '9,90' } })
+
+    await sairEVoltar()
+
+    expect(screen.getByRole('heading', { name: 'Editar item' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Preço (R$)')).toHaveValue('9,90')
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar' }))
+    await waitFor(() => expect(editar).toHaveBeenCalledWith('item-1', expect.objectContaining({ preco: 9.9 })))
+  })
+
+  it('Cancelar descarta o rascunho, e a volta à tela não abre formulário', async () => {
+    vi.spyOn(cadastro, 'produtos').mockResolvedValue([produto])
+    mostrarProdutos('ADMIN')
+    fireEvent.click(await screen.findByRole('button', { name: 'Novo item' }))
+    fireEvent.change(screen.getByLabelText('Nome'), { target: { value: 'Bolo de cenoura' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }))
+
+    await sairEVoltar()
+
+    expect(screen.queryByRole('heading', { name: 'Novo item' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Nome')).not.toBeInTheDocument()
+  })
+
+  it('salvo o item, a volta à tela não abre formulário', async () => {
+    vi.spyOn(cadastro, 'produtos').mockResolvedValue([produto])
+    vi.spyOn(cadastro, 'criarProduto').mockResolvedValue({ id: 'item-2' })
+    mostrarProdutos('ADMIN')
+    fireEvent.click(await screen.findByRole('button', { name: 'Novo item' }))
+    fireEvent.change(screen.getByLabelText('Nome'), { target: { value: 'Bolo de cenoura' } })
+    fireEvent.change(screen.getByLabelText('Preço (R$)'), { target: { value: '12,00' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar' }))
+    expect(await screen.findByText('Bolo de cenoura salvo.')).toBeInTheDocument()
+
+    await sairEVoltar()
+
+    expect(screen.queryByRole('heading', { name: 'Novo item' })).not.toBeInTheDocument()
   })
 })

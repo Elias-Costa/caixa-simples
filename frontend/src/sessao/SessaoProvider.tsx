@@ -3,6 +3,7 @@ import { chamarApi, ErroDaApi, SessaoAlterada } from '../api/cliente'
 import { SessaoContext, type Sessao } from './contexto'
 import type { Identidade } from './Identidade'
 import { copiarCadastroSeFaltar, prepararCadastroLocal } from './prepararCadastroLocal'
+import { apagarRascunhos } from './rascunhos'
 import {
   aoVencerToken,
   CHAVE_DA_SESSAO,
@@ -154,6 +155,13 @@ export function SessaoProvider({ children }: { children: ReactNode }) {
   // rede que volta e a fila que recusa. O vencimento é julgado pelo relógio do aparelho, porque sem rede
   // não há outro; a fila fica guardada, por Conta e Usuário, para quando essa pessoa entrar de novo.
   const autenticado = identidade !== null
+
+  // O rascunho de uma tela é de quem estava na sessão. Toda saída passa por aqui, a de Sair, a do servidor que
+  // encerrou, a do vencimento e a da troca em outra aba, e em todas ele some.
+  useEffect(() => {
+    if (!autenticado) apagarRascunhos()
+  }, [autenticado])
+
   useEffect(() => {
     if (!autenticado) return
     const conferir = () => {

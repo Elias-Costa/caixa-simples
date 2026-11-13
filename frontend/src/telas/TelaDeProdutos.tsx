@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { cadastro, type DadosDoProduto, type Produto, type TipoProduto } from '../api/cadastro'
 import { comServidor } from '../api/conexao'
 import { lerDinheiro, moeda, valorNoCampo } from '../formatos'
+import { apagarRascunho, chaveDoRascunho, guardarRascunho, lerRascunho } from '../sessao/rascunhos'
 import { useSessao } from '../sessao/useSessao'
 import { listarGestos } from '../offline/fila'
 import { paraBusca } from '../textoDeBusca'
@@ -27,6 +28,9 @@ type Formulario = {
 const vazio: Formulario = {
   tipo: 'PRODUTO', nome: '', preco: '', codigo: '', categoria: '', unidade: '', atributos: [],
 }
+
+/** O formulário aberto e deixado ao ir a outra tela: o item novo, sem id, ou o item em edição. */
+type RascunhoDoItem = { editando: string | null; formulario: Formulario }
 
 /** Em ordem alfabética, como os clientes: o servidor e o aparelho devolvem na ordem em que guardam. */
 function emOrdem(produtos: Produto[]): Produto[] {
@@ -87,13 +91,16 @@ function dadosDo(formulario: Formulario): DadosDoProduto {
 export function TelaDeProdutos() {
   const { identidade } = useSessao()
   const admin = identidade?.perfil === 'ADMIN'
+  const chaveDoItem = chaveDoRascunho(identidade, 'produtos')
+  // O formulário deixado aberto volta aberto, com o que foi digitado e no mesmo item.
+  const [rascunho] = useState(() => lerRascunho<RascunhoDoItem>(chaveDoItem))
   const [produtos, setProdutos] = useState<Produto[]>([])
   const [inativos, setInativos] = useState<Produto[]>([])
   const [busca, setBusca] = useState('')
   const [categoria, setCategoria] = useState(TODAS)
-  const [editando, setEditando] = useState<string | null>(null)
-  const [formulario, setFormulario] = useState<Formulario>(vazio)
-  const [aberto, setAberto] = useState(false)
+  const [editando, setEditando] = useState<string | null>(rascunho?.editando ?? null)
+  const [formulario, setFormulario] = useState<Formulario>(rascunho?.formulario ?? vazio)
+  const [aberto, setAberto] = useState(rascunho !== undefined)
   const [carregando, setCarregando] = useState(true)
   const [salvando, setSalvando] = useState(false)
   // O erro da lista fica no alto; o do formulário, dentro dele, perto do botão que o causou.
@@ -128,11 +135,17 @@ export function TelaDeProdutos() {
   }, [admin])
 
   useEffect(() => { queueMicrotask(() => void carregar()) }, [carregar])
+  // Enquanto o formulário está aberto, ele é o rascunho da tela; fechado, ao salvar ou em Cancelar, não há rascunho.
   useEffect(() => {
-    if (!aberto) return
+    if (aberto) guardarRascunho<RascunhoDoItem>(chaveDoItem, { editando, formulario })
+    else apagarRascunho(chaveDoItem)
+  }, [aberto, chaveDoItem, editando, formulario])
+  // Espera a lista: o formulário que volta do rascunho abre antes dela, e ela o empurraria para fora da vista.
+  useEffect(() => {
+    if (!aberto || carregando) return
     formularioRef.current?.scrollIntoView?.({ block: 'start' })
     formularioRef.current?.querySelector('input')?.focus()
-  }, [aberto])
+  }, [aberto, carregando])
   // A recusa do servidor marca os campos; o foco vai ao primeiro, para corrigir sem procurar.
   useEffect(() => {
     if (Object.keys(camposComErro).length === 0) return
