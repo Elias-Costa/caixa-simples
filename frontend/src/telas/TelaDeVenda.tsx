@@ -798,6 +798,10 @@ export function TelaDeVenda() {
       falhar('comanda', falha instanceof SemConexao && parcelaRespondida && concluirJunto
         ? PARCELA_SEM_CONCLUSAO : erroDaComanda(falha))
       conferirSeSemResposta(falha, atual.id, intencao)
+      // A recusa do servidor diz que a parcela não entrou: o recebido sai do campo, e com ele a prévia do troco, que
+      // logo abaixo da recusa ainda convidaria a dar o troco. Sem resposta, a parcela pode ter entrado, e o recebido fica
+      // até a comanda relida dizer.
+      if (!parcelaRespondida && falha instanceof ErroDaApi) setValorRecebido('')
       const atualizada = await atualizar(atual.id).catch(() => undefined)
       const idDaIntencao = intencao?.id
       if (idDaIntencao && atualizada?.parcelas.some((parcela) => parcela.id === idDaIntencao)) {

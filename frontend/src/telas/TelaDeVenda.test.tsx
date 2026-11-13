@@ -2231,3 +2231,57 @@ describe('a quantidade recusada antes de mandar', () => {
     expect(adicionar).not.toHaveBeenCalled()
   })
 })
+
+describe('a prévia do troco depois da parcela que não entrou', () => {
+  // Uma chamada atrasada do teste anterior pode ter deixado o aparelho sem servidor.
+  beforeEach(() => { registrarResposta() })
+
+  const CAIXA_FECHADO = 'O caixa em que esta venda nasceu já foi fechado, e ela não recebe item nem pagamento. '
+    + 'Cancele a venda e faça de novo num caixa aberto.'
+
+  function comAVendaNaLista() {
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([{ id: comanda.id, sessaoCaixaId: comanda.sessaoCaixaId,
+      usuarioId: comanda.usuarioId, status: 'ABERTA', total: comanda.total, criadoEm: comanda.criadoEm }])
+    vi.spyOn(vendas, 'consultar').mockResolvedValue(comanda)
+  }
+
+  /** Abre a comanda, digita a parcela e toca a nota de R$ 20, que mostra a prévia de R$ 7,50. */
+  async function receberComNotaDeVinte() {
+    fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
+    fireEvent.change(await screen.findByLabelText('Valor da parcela'), { target: { value: '12,50' } })
+    fireEvent.click(within(screen.getByRole('group', { name: 'Nota recebida' })).getByRole('button', { name: 'R$ 20' }))
+    expect(screen.getByLabelText('Valor recebido em dinheiro')).toHaveValue('20,00')
+    expect(screen.getByText('Troco previsto:').closest('p')).toHaveTextContent('R$ 7,50')
+    const receber = screen.getByRole('button', { name: 'Receber e concluir' })
+    await waitFor(() => expect(receber).toBeEnabled())
+    fireEvent.click(receber)
+  }
+
+  it('a recusa do servidor tira o valor recebido do campo, e a prévia some; a parcela digitada fica', async () => {
+    comAVendaNaLista()
+    const pagar = vi.spyOn(vendas, 'pagar').mockRejectedValue(new ErroDaApi(409, 'Conflict', CAIXA_FECHADO, {}))
+    mostrar()
+
+    await receberComNotaDeVinte()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(CAIXA_FECHADO)
+    expect(pagar).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(screen.getByLabelText('Valor recebido em dinheiro')).toHaveValue(''))
+    expect(screen.queryByText('Troco previsto:')).not.toBeInTheDocument()
+    expect(screen.queryByText('Troco:')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Valor da parcela')).toHaveValue('12,50')
+  })
+
+  it('sem resposta do servidor, a parcela pode ter entrado, e o recebido e a prévia ficam', async () => {
+    comAVendaNaLista()
+    vi.spyOn(vendas, 'pagar').mockRejectedValue(new SemConexao())
+    mostrar()
+
+    await receberComNotaDeVinte()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Sem resposta do servidor')
+    expect(screen.getByLabelText('Valor recebido em dinheiro')).toHaveValue('20,00')
+    expect(screen.getByText('Troco previsto:').closest('p')).toHaveTextContent('R$ 7,50')
+  })
+})
