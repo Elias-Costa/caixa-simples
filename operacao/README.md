@@ -429,6 +429,13 @@ salto: a falha é fechada, e nenhum endereço escrito pelo cliente vira origem.
 O proxy não tem access log: a aplicação não registra cada requisição, e o endereço de quem acessa só vai
 aos logs nos eventos de segurança dela, como o login e a recusa de acesso.
 
+**Compressão.** O proxy comprime a resposta para quem manda `Accept-Encoding`, com zstd antes de gzip,
+acima de 512 bytes: o aplicativo e o JSON da API. Quem não manda o cabeçalho recebe a resposta como
+antes. No ensaio, o JS do aplicativo caiu de 491.120 para 150.266 bytes com zstd e 151.756 com gzip,
+com o corpo descomprimido idêntico. A API vai junto porque o token viaja no cabeçalho `Authorization`, e
+não num cookie que o navegador mandaria sozinho: o tamanho da resposta comprimida não serve para
+adivinhar um segredo. O corpo da requisição não é comprimido nem descomprimido.
+
 **Tamanho do corpo.** A aplicação recusa com 413, em Problem Details e com a explicação em português, o
 corpo acima do limite da rota: 4 KB no login, 256 KB no aviso de pagamento Pix e 512 KB no resto, o
 lote de sincronização incluído. O pedido que declara o tamanho é recusado pelo cabeçalho, sem ser

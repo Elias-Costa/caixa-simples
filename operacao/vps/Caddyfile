@@ -18,6 +18,14 @@
 }
 
 {$ECRX_CAIXA_DOMINIO} {
+	# Respostas comprimidas para quem aceita, com zstd antes de gzip; quem não manda Accept-Encoding recebe
+	# como antes. O JS do aplicativo é o grosso do primeiro acesso e de cada atualização, baixado no balcão
+	# com a rede que houver, e cai a menos de um terço. As respostas JSON da API vão juntas: o token viaja
+	# no cabeçalho Authorization, posto pelo aplicativo, e não num cookie que o navegador mandaria sozinho,
+	# então o tamanho da resposta comprimida não serve para adivinhar um segredo. Só a resposta é
+	# comprimida; o corpo da requisição passa como chega, e o teto abaixo não muda.
+	encode zstd gzip
+
 	# Teto único para o corpo de toda requisição, o dobro do maior limite por rota da aplicação. Quem
 	# recusa o pedido grande demais é a aplicação, com o 413 e a explicação em português, ao ler o
 	# cabeçalho ou ao passar do limite da rota. Este teto só age quando ela ainda não respondeu: corta

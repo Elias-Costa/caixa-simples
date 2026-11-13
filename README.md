@@ -1286,7 +1286,7 @@ ou registro de execução deixados nas pastas do código ficam fora dele, para n
 serem servidos pela aplicação.
 
 Um compose versionado descreve a máquina inteira, com os segredos só pelo nome: o proxy do HTTPS, que
-obtém e renova o certificado do domínio, a aplicação, o PostgreSQL 17 e as execuções avulsas do seed,
+obtém e renova o certificado do domínio e comprime as respostas com zstd ou gzip, a aplicação, o PostgreSQL 17 e as execuções avulsas do seed,
 da senha provisória para o administrador que perdeu o acesso, da suspensão imediata de uma Conta e do
 reverso dela, da cópia, da restauração e do encerramento de Conta. Só o proxy publica porta, e só em IPv4. Um script
 versionado prepara a máquina: atualização automática de segurança, firewall, SSH só por chave, swap,
