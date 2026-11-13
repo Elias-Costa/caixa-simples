@@ -9,6 +9,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import java.net.URI;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.http.ResponseEntity;
@@ -44,10 +45,20 @@ class ClienteController {
         return clientes.listarInativosComVersao();
     }
 
+    /**
+     * Com o id do aparelho, o reenvio igual responde 200 com o mesmo cliente; sem ele, o servidor
+     * gera o id, e o reenvio grava outro cliente.
+     */
     @PostMapping
     ResponseEntity<Criado> cadastrar(@Valid @RequestBody PedidoDeCliente pedido) {
-        UUID id = clientes.cadastrar(pedido.dados());
-        return ResponseEntity.created(URI.create("/api/clientes/" + id)).body(new Criado(id));
+        if (pedido.clienteId() == null) {
+            UUID id = clientes.cadastrar(pedido.dados());
+            return ResponseEntity.created(URI.create("/api/clientes/" + id)).body(new Criado(id));
+        }
+        var cadastrado = clientes.cadastrar(pedido.clienteId(), pedido.dados(), Instant.now());
+        return ResponseEntity.status(cadastrado.repetido() ? HttpStatus.OK : HttpStatus.CREATED)
+                .location(URI.create("/api/clientes/" + cadastrado.id()))
+                .body(new Criado(cadastrado.id()));
     }
 
     @PutMapping("/{id}")
@@ -88,7 +99,11 @@ class ClienteController {
         return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, excecao.getMessage());
     }
 
-    record PedidoDeCliente(@NotBlank String nome, String contato) {
+    /**
+     * O clienteId é opcional porque o contrato com o aparelho só cresce: o aplicativo instalado que
+     * não o manda continua cadastrando. A edição usa o mesmo pedido e ignora o id.
+     */
+    record PedidoDeCliente(UUID clienteId, @NotBlank String nome, String contato) {
 
         DadosDoCliente dados() {
             return new DadosDoCliente(nome, contato);

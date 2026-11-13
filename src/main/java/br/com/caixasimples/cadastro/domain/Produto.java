@@ -334,6 +334,17 @@ public class Produto {
      *                                  branco
      */
     public MovimentoEstoque ajustarEstoque(BigDecimal diferenca, String motivo) {
+        return ajustarEstoque(UUID.randomUUID(), diferenca, motivo);
+    }
+
+    /**
+     * O mesmo ajuste, com o id do movimento vindo de fora: o dispositivo o gera, para que o pedido
+     * repetido depois de uma resposta perdida seja reconhecido como o mesmo movimento. As regras
+     * são as mesmas.
+     *
+     * @param movimentoId o id do movimento de AJUSTE que nasce aqui
+     */
+    public MovimentoEstoque ajustarEstoque(UUID movimentoId, BigDecimal diferenca, String motivo) {
         Objects.requireNonNull(diferenca, "diferenca nao pode ser nula");
         if (!controlaEstoque()) {
             throw new IllegalStateException(
@@ -352,7 +363,7 @@ public class Produto {
                     "A diferença do ajuste não pode ser zero: nada entrou nem saiu.");
         }
         this.estoqueAtual = this.estoqueAtual.add(diferenca);
-        return MovimentoEstoque.ajuste(diferenca, motivo);
+        return MovimentoEstoque.ajuste(movimentoId, diferenca, motivo);
     }
 
     /**
@@ -376,6 +387,17 @@ public class Produto {
      *                                  se o motivo passa do tamanho da coluna
      */
     public MovimentoEstoque registrarEntrada(BigDecimal quantidade, String motivo) {
+        return registrarEntrada(UUID.randomUUID(), quantidade, motivo);
+    }
+
+    /**
+     * A mesma entrada, com o id do movimento vindo de fora, pela razão do ajuste com id. As regras
+     * são as mesmas.
+     *
+     * @param movimentoId o id do movimento de ENTRADA que nasce aqui
+     */
+    public MovimentoEstoque registrarEntrada(UUID movimentoId, BigDecimal quantidade,
+            String motivo) {
         Objects.requireNonNull(quantidade, "quantidade nao pode ser nula");
         if (!controlaEstoque()) {
             throw new IllegalStateException(
@@ -392,7 +414,7 @@ public class Produto {
         String motivoInformado = textoOpcional(motivo, "motivo da entrada de estoque",
                 TAMANHO_DO_MOTIVO);
         this.estoqueAtual = this.estoqueAtual.add(quantidade);
-        return MovimentoEstoque.entradaPorCompra(quantidade, motivoInformado);
+        return MovimentoEstoque.entradaPorCompra(movimentoId, quantidade, motivoInformado);
     }
 
     /**

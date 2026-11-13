@@ -100,26 +100,59 @@ public class ProdutoService {
      */
     @Transactional
     public UUID cadastrar(TipoProduto tipo, DadosDoProduto dados) {
-        return cadastrar(UUID.randomUUID(), tipo, dados, Instant.now());
+        return cadastrar(UUID.randomUUID(), tipo, dados, Instant.now()).id();
     }
 
     /**
-     * O mesmo cadastro, com o id e o instante que o dispositivo gravou ao cadastrar o item sem
-     * rede (RNF01). Um id que já existe é recusado pela chave primária, porque a linha nova é
-     * inserida e nunca mesclada sobre outra: a entidade tem versão, e a versão vazia diz que ela é
-     * nova.
+     * O mesmo cadastro, com o id que o dispositivo gerou: o item que ele cadastrou sem rede, ou o
+     * cadastro com rede cuja resposta pode se perder (RNF01, RNF03). O navegador ainda reenvia
+     * sozinho o pedido cuja conexão fechou sem resposta, e o gesto que o aparelho guardou depois da
+     * perda leva o mesmo id: nenhum dos dois grava outro item.
      *
+     * <p>Repetido com o mesmo id, devolve o item existente sem gravar apenas quando tipo, nome,
+     * preço, código, categoria, unidade e atributos, como ficam gravados, são os mesmos; com outro
+     * conteúdo, recusa. Vale também com o item já inativado, porque o reenvio igual responde como
+     * da primeira vez; um item editado depois do primeiro envio recusa o envio antigo. O id de um
+     * item de outra conta não aparece na consulta, e quem recusa é a chave primária, porque a linha
+     * nova é inserida e nunca mesclada sobre outra: a entidade tem versão, e a versão vazia diz que
+     * ela é nova.
+     *
+     * @return o id e se o item já estava gravado
      * @throws br.com.caixasimples.shared.AcessoNegadoException se quem chama não é ADMIN
+     * @throws IllegalStateException se o id já foi usado com outros dados
      */
     @Transactional
-    public UUID cadastrar(UUID id, TipoProduto tipo, DadosDoProduto dados, Instant criadoEm) {
+    public ProdutoCadastrado cadastrar(UUID id, TipoProduto tipo, DadosDoProduto dados,
+            Instant criadoEm) {
         UsuarioContext.exigirAdmin();
         Objects.requireNonNull(dados, "dados do produto nao podem ser nulos");
 
         Produto produto = new Produto(id, criadoEm, dados.nome(), dados.preco(), tipo,
                 dados.codigo(), dados.categoria(), dados.unidade(), dados.atributos());
 
-        return produtos.save(ProdutoEntity.de(produto)).getId();
+        var anterior = produtos.findById(id);
+        if (anterior.isPresent()) {
+            if (!mesmoCadastro(anterior.get().paraDominio(), produto)) {
+                throw new IllegalStateException("Este item já foi cadastrado com outros dados; abra"
+                        + " a lista de produtos de novo para ver o que ficou.");
+            }
+            return new ProdutoCadastrado(id, true);
+        }
+        return new ProdutoCadastrado(produtos.save(ProdutoEntity.de(produto)).getId(), false);
+    }
+
+    /**
+     * Os dois já passaram pela normalização da raiz, então o texto aparado e o preço em centavos
+     * se comparam como gravados.
+     */
+    private static boolean mesmoCadastro(Produto gravado, Produto pedido) {
+        return gravado.getTipo() == pedido.getTipo()
+                && gravado.getNome().equals(pedido.getNome())
+                && gravado.getPreco().equals(pedido.getPreco())
+                && Objects.equals(gravado.getCodigo(), pedido.getCodigo())
+                && Objects.equals(gravado.getCategoria(), pedido.getCategoria())
+                && Objects.equals(gravado.getUnidade(), pedido.getUnidade())
+                && Objects.equals(gravado.getAtributos(), pedido.getAtributos());
     }
 
     /**
@@ -222,6 +255,10 @@ public class ProdutoService {
         return produtos.findByAtivoFalse().stream()
                 .map(linha -> new ProdutoComVersao(linha.paraDominio(), linha.getVersao()))
                 .toList();
+    }
+
+    /** O cadastro com o id do dispositivo, e se ele repetia um cadastro já gravado. */
+    public record ProdutoCadastrado(UUID id, boolean repetido) {
     }
 
     public record ProdutoComVersao(Produto produto, long versao) {
@@ -507,10 +544,33 @@ public class ProdutoService {
      */
     @Transactional
     public void ajustarEstoque(UUID produtoId, BigDecimal diferenca, String motivo) {
+        ajustarEstoque(produtoId, UUID.randomUUID(), diferenca, motivo);
+    }
+
+    /**
+     * O mesmo ajuste, com o id do movimento gerado no dispositivo. A resposta perdida faz o
+     * navegador reenviar sozinho o pedido, e o operador pode tocar de novo antes de conferir: com o
+     * mesmo id, nenhum dos dois move o saldo outra vez.
+     *
+     * <p>Repetido com o mesmo id, não grava nada apenas quando o movimento é deste produto, um
+     * AJUSTE, com a mesma diferença e o mesmo motivo aparado; com outro conteúdo, recusa. Vale
+     * também com o produto já inativado, porque o reenvio igual responde como da primeira vez. O id
+     * de um movimento de outra conta não aparece na consulta, e quem recusa é a chave primária.
+     *
+     * @throws IllegalStateException além dos casos acima, se o id já foi usado com outro conteúdo
+     */
+    @Transactional
+    public void ajustarEstoque(UUID produtoId, UUID movimentoId, BigDecimal diferenca,
+            String motivo) {
+        if (movimentoJaGravado(produtoId, movimentoId, TipoMovimentoEstoque.AJUSTE, diferenca,
+                motivo, "Este ajuste já foi registrado com outro produto, diferença ou motivo;"
+                        + " abra o estoque de novo para ver o saldo.")) {
+            return;
+        }
         ProdutoEntity linha = buscar(produtoId);
         Produto produto = linha.paraDominio();
 
-        MovimentoEstoque movimento = produto.ajustarEstoque(diferenca, motivo);
+        MovimentoEstoque movimento = produto.ajustarEstoque(movimentoId, diferenca, motivo);
 
         linha.registrarMovimento(produto, movimento);
         produtos.save(linha);
@@ -530,13 +590,61 @@ public class ProdutoService {
      */
     @Transactional
     public void registrarEntrada(UUID produtoId, BigDecimal quantidade, String motivo) {
+        registrarEntrada(produtoId, UUID.randomUUID(), quantidade, motivo);
+    }
+
+    /**
+     * A mesma entrada, com o id do movimento gerado no dispositivo, pelas razões do ajuste com id.
+     * Repetida com o mesmo id, não grava nada apenas quando o movimento é deste produto, uma
+     * ENTRADA, com a mesma quantidade e o mesmo motivo aparado, o ausente igual ao em branco.
+     *
+     * @throws IllegalStateException além dos casos acima, se o id já foi usado com outro conteúdo
+     */
+    @Transactional
+    public void registrarEntrada(UUID produtoId, UUID movimentoId, BigDecimal quantidade,
+            String motivo) {
+        if (movimentoJaGravado(produtoId, movimentoId, TipoMovimentoEstoque.ENTRADA, quantidade,
+                motivo, "Esta entrada já foi registrada com outro produto, quantidade ou motivo;"
+                        + " abra o estoque de novo para ver o saldo.")) {
+            return;
+        }
         ProdutoEntity linha = buscar(produtoId);
         Produto produto = linha.paraDominio();
 
-        MovimentoEstoque movimento = produto.registrarEntrada(quantidade, motivo);
+        MovimentoEstoque movimento = produto.registrarEntrada(movimentoId, quantidade, motivo);
 
         linha.registrarMovimento(produto, movimento);
         produtos.save(linha);
+    }
+
+    /**
+     * Se o movimento com este id já está gravado nesta conta, e é o mesmo. A raiz não carrega o
+     * histórico, então as duas perguntas vão ao repositório dela, sem trazer os movimentos à
+     * memória: a primeira diz se o id existe, em qualquer produto; a segunda, se é o mesmo produto,
+     * tipo, quantidade e motivo. A quantidade se compara pelo valor no banco, então 2 e 2,000 são a
+     * mesma. O motivo é comparado como o movimento o grava: aparado, e o em branco como ausente.
+     *
+     * @return verdadeiro quando o mesmo movimento já está gravado e não há o que fazer
+     * @throws IllegalStateException com a recusa dada, se o id existe com outro conteúdo
+     */
+    private boolean movimentoJaGravado(UUID produtoId, UUID movimentoId,
+            TipoMovimentoEstoque tipo, BigDecimal quantidade, String motivo, String recusa) {
+        Objects.requireNonNull(produtoId, "id do produto nao pode ser nulo");
+        Objects.requireNonNull(movimentoId, "id do movimento nao pode ser nulo");
+        Objects.requireNonNull(quantidade, "quantidade nao pode ser nula");
+        if (!produtos.existsByMovimentosId(movimentoId)) {
+            return false;
+        }
+        String motivoGravado = motivo == null || motivo.isBlank() ? null : motivo.trim();
+        boolean mesmo = motivoGravado == null
+                ? produtos.existsByIdAndMovimentosIdAndMovimentosTipoAndMovimentosQuantidadeAndMovimentosMotivoIsNull(
+                        produtoId, movimentoId, tipo, quantidade)
+                : produtos.existsByIdAndMovimentosIdAndMovimentosTipoAndMovimentosQuantidadeAndMovimentosMotivo(
+                        produtoId, movimentoId, tipo, quantidade, motivoGravado);
+        if (!mesmo) {
+            throw new IllegalStateException(recusa);
+        }
+        return true;
     }
 
     /**

@@ -366,6 +366,8 @@ describe('Venda no dispositivo', () => {
     const local = criarVendaLocal(api, criarCaixaLocal())
 
     expect(await local.iniciar('sessao-do-servidor')).toEqual({ id: 'venda-do-servidor' })
+    // O id da venda vai ao servidor: o reenvio depois de uma resposta perdida não abre outra.
+    expect(api.iniciar).toHaveBeenCalledWith('sessao-do-servidor', expect.stringMatching(/^[0-9a-f-]{36}$/))
     await local.adicionarItem('venda-do-servidor', cafe, 1, 0, 'item-da-tela')
     await local.pagar('venda-do-servidor', 'CARTAO', 6.25)
     await local.concluir('venda-do-servidor')
@@ -546,6 +548,9 @@ describe('Venda nova com o servidor fora e o Wi-Fi ligado', () => {
     await local.adicionarItem(id, cafe, 1, 0)
 
     expect(api.iniciar).toHaveBeenCalledTimes(1)
+    // A venda do aparelho tem o id que a chamada levou: se ela abriu a venda no servidor, o lote a
+    // reconhece, e o item entra nela.
+    expect(api.iniciar).toHaveBeenCalledWith(sessaoId, id)
     expect(api.adicionarItem).not.toHaveBeenCalled()
     expect(comServidor()).toBe(false)
     const gestos = await listarGestos()

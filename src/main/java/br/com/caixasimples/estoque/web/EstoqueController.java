@@ -41,9 +41,15 @@ class EstoqueController {
         return estoque.produtosComEstoqueBaixo();
     }
 
+    /**
+     * A resposta é a mesma no primeiro pedido e no reenvio igual, porque não devolve nada: o
+     * movimento repetido com o id do aparelho só deixa de ser gravado. Sem o id, o servidor gera um,
+     * e o reenvio move o saldo de novo.
+     */
     @PostMapping("/produtos/{id}/ajustes")
     ResponseEntity<Void> ajustar(@PathVariable UUID id, @Valid @RequestBody PedidoDeAjuste pedido) {
-        estoque.ajustar(id, pedido.diferenca(), pedido.motivo());
+        estoque.ajustar(id, idDoMovimento(pedido.movimentoId()), pedido.diferenca(),
+                pedido.motivo());
         return ResponseEntity.noContent().build();
     }
 
@@ -51,8 +57,13 @@ class EstoqueController {
     @PostMapping("/produtos/{id}/entradas")
     ResponseEntity<Void> registrarEntrada(@PathVariable UUID id,
             @Valid @RequestBody PedidoDeEntrada pedido) {
-        estoque.registrarEntrada(id, pedido.quantidade(), pedido.motivo());
+        estoque.registrarEntrada(id, idDoMovimento(pedido.movimentoId()), pedido.quantidade(),
+                pedido.motivo());
         return ResponseEntity.noContent().build();
+    }
+
+    private static UUID idDoMovimento(UUID doAparelho) {
+        return doAparelho != null ? doAparelho : UUID.randomUUID();
     }
 
     @PutMapping("/produtos/{id}/minimo")
@@ -62,11 +73,17 @@ class EstoqueController {
         return ResponseEntity.noContent().build();
     }
 
-    record PedidoDeAjuste(@NotNull @Digits(integer = 9, fraction = 3) BigDecimal diferenca,
+    /**
+     * O movimentoId é opcional porque o contrato com o aparelho só cresce: o aplicativo instalado
+     * que não o manda continua ajustando.
+     */
+    record PedidoDeAjuste(UUID movimentoId,
+            @NotNull @Digits(integer = 9, fraction = 3) BigDecimal diferenca,
             @NotBlank String motivo) {
     }
 
-    record PedidoDeEntrada(@NotNull @Positive @Digits(integer = 9, fraction = 3)
+    /** O movimentoId é opcional pela mesma razão do ajuste. */
+    record PedidoDeEntrada(UUID movimentoId, @NotNull @Positive @Digits(integer = 9, fraction = 3)
             BigDecimal quantidade, String motivo) {
     }
 

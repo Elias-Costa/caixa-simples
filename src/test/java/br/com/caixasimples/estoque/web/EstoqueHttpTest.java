@@ -17,6 +17,7 @@ import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
 import br.com.caixasimples.contas.Plano;
 import br.com.caixasimples.shared.Money;
 import br.com.caixasimples.shared.Perfil;
+import java.math.BigDecimal;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -24,7 +25,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 
 /** Contrato HTTP do estoque: ajuste, mínimo, alerta, perfil e isolamento entre Contas. */
 class EstoqueHttpTest extends TesteDeIntegracao {
@@ -35,6 +38,7 @@ class EstoqueHttpTest extends TesteDeIntegracao {
     @Autowired CriadorDeContaDeTeste criador;
     @Autowired AutenticadorDeTeste autenticador;
     @Autowired ProdutoService produtos;
+    @Autowired JdbcTemplate jdbc;
 
     @Test
     void adminAjustaDefineMinimoEConsultaAlerta() throws Exception {
@@ -138,6 +142,108 @@ class EstoqueHttpTest extends TesteDeIntegracao {
     private UUID cadastrar(ContaCriada conta, TipoProduto tipo, String nome) {
         return conta.comoUsuario(() -> produtos.cadastrar(tipo,
                 new DadosDoProduto(nome, Money.de("5.00"), null, null, "un", null)));
+    }
+
+    @Test
+    void ajusteComIdDoAparelhoNaoMoveOSaldoDeNovoNoReenvioERecusaOutroConteudo()
+            throws Exception {
+        ContaCriada conta = contaComEstoque("Mercado do Reenvio");
+        UUID arroz = cadastrar(conta, TipoProduto.PRODUTO, "Arroz");
+        UUID feijao = cadastrar(conta, TipoProduto.PRODUTO, "Feijão");
+        UUID movimento = UUID.randomUUID();
+        String quebra = ajusteCom(movimento, "-2", "quebra");
+
+        ajuste(conta, arroz, quebra).andExpect(status().isNoContent());
+        // A resposta perdida faz o navegador, ou um segundo toque, mandar o mesmo pedido de novo.
+        ajuste(conta, arroz, quebra).andExpect(status().isNoContent());
+        // A mesma diferença escrita de outro jeito e o motivo com espaços são o mesmo conteúdo.
+        ajuste(conta, arroz, ajusteCom(movimento, "-2.000", "  quebra "))
+                .andExpect(status().isNoContent());
+        String recusa = "Este ajuste já foi registrado com outro produto, diferença ou motivo; abra"
+                + " o estoque de novo para ver o saldo.";
+        ajuste(conta, arroz, ajusteCom(movimento, "-3", "quebra"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.detail").value(recusa));
+        ajuste(conta, arroz, ajusteCom(movimento, "-2", "perda"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.detail").value(recusa));
+        ajuste(conta, feijao, quebra)
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.detail").value(recusa));
+        // O id de um ajuste mandado como entrada também é outro conteúdo.
+        http.perform(post("/api/estoque/produtos/{id}/entradas", arroz)
+                        .with(autenticador.como(conta)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"movimentoId\":\"" + movimento + "\",\"quantidade\":2,"
+                                + "\"motivo\":\"quebra\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.detail").value("Esta entrada já foi registrada com outro"
+                        + " produto, quantidade ou motivo; abra o estoque de novo para ver o saldo."));
+
+        assertThat(saldo(arroz)).isEqualByComparingTo("-2");
+        assertThat(saldo(feijao)).isEqualByComparingTo("0");
+        assertThat(jdbc.queryForList("SELECT produto_id, tipo, quantidade, motivo"
+                + " FROM movimento_estoque WHERE id = ?", movimento))
+                .singleElement()
+                .satisfies(linha -> {
+                    assertThat(linha.get("produto_id")).isEqualTo(arroz);
+                    assertThat(linha.get("tipo")).isEqualTo("AJUSTE");
+                    assertThat((BigDecimal) linha.get("quantidade")).isEqualByComparingTo("-2");
+                    assertThat(linha.get("motivo")).isEqualTo("quebra");
+                });
+
+        // O corpo sem o id continua valendo, e o servidor gera outro movimento.
+        ajuste(conta, arroz, "{\"diferenca\":-2,\"motivo\":\"quebra\"}")
+                .andExpect(status().isNoContent());
+        assertThat(saldo(arroz)).isEqualByComparingTo("-4");
+
+        // Com o produto já inativado, o reenvio igual responde como da primeira vez.
+        conta.comoUsuario(() -> produtos.inativar(arroz));
+        ajuste(conta, arroz, quebra).andExpect(status().isNoContent());
+        assertThat(saldo(arroz)).isEqualByComparingTo("-4");
+    }
+
+    @Test
+    void ajusteComIdDeMovimentoDeOutraContaERecusadoSemTocarNela() throws Exception {
+        ContaCriada primeira = contaComEstoque("Mercado Aurora");
+        ContaCriada segunda = contaComEstoque("Mercado Esquina");
+        UUID daPrimeira = cadastrar(primeira, TipoProduto.PRODUTO, "Arroz");
+        UUID daSegunda = cadastrar(segunda, TipoProduto.PRODUTO, "Arroz");
+        UUID movimento = UUID.randomUUID();
+        ajuste(segunda, daSegunda, ajusteCom(movimento, "5", "contagem"))
+                .andExpect(status().isNoContent());
+
+        // A consulta da primeira Conta não enxerga o movimento da segunda, e quem recusa é a chave
+        // primária; a resposta não diz nada sobre a outra Conta.
+        String corpo = ajuste(primeira, daPrimeira, ajusteCom(movimento, "5", "contagem"))
+                .andExpect(status().isInternalServerError())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(corpo).doesNotContain(movimento.toString()).doesNotContain(daSegunda.toString());
+
+        assertThat(saldo(daPrimeira)).isEqualByComparingTo("0");
+        assertThat(saldo(daSegunda)).isEqualByComparingTo("5");
+        assertThat(jdbc.queryForObject("SELECT produto_id FROM movimento_estoque WHERE id = ?",
+                UUID.class, movimento)).isEqualTo(daSegunda);
+    }
+
+    private ContaCriada contaComEstoque(String nome) {
+        ContaCriada conta = criador.criar(nome, SENHA);
+        criador.contratar(conta.contaId(), Plano.COMPLETO);
+        criador.habilitarEstoque(conta.contaId());
+        return conta;
+    }
+
+    private static String ajusteCom(UUID movimento, String diferenca, String motivo) {
+        return "{\"movimentoId\":\"" + movimento + "\",\"diferenca\":" + diferenca
+                + ",\"motivo\":\"" + motivo + "\"}";
+    }
+
+    private ResultActions ajuste(ContaCriada conta, UUID produto, String corpo) throws Exception {
+        return http.perform(post("/api/estoque/produtos/{id}/ajustes", produto)
+                .with(autenticador.como(conta)).contentType(MediaType.APPLICATION_JSON)
+                .content(corpo));
+    }
+
+    /** Pelo banco, porque a lista do estoque deixa de fora o produto inativado. */
+    private BigDecimal saldo(UUID produto) {
+        return jdbc.queryForObject("SELECT estoque_atual FROM produto WHERE id = ?",
+                BigDecimal.class, produto);
     }
 
     /** O motivo de 121 caracteres respondia 500, com a pilha no log. */

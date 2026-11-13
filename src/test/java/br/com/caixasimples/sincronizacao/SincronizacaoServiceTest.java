@@ -908,7 +908,7 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
     }
 
     @Test
-    @DisplayName("id de Venda ou de item já usado nesta Conta é recusado e o registro existente não muda")
+    @DisplayName("id de Venda já usado vale no mesmo caixa e é recusado em outro, id de item já usado é recusado, e o registro existente não muda")
     void idJaUsadoNaoSobrescreve() {
         ContaCriada conta = criador.criar("Quitanda Aurora", SENHA);
         UUID produtoId = cadastrar(conta, "Banana", "5.00");
@@ -917,19 +917,25 @@ class SincronizacaoServiceTest extends TesteDeIntegracao {
         UUID itemComRede = conta.comoUsuario(() -> vendas.adicionarItem(vendaComRede, produtoId,
                 new BigDecimal("3"), Money.ZERO));
 
+        // O mesmo início no mesmo caixa é o gesto que o aparelho guardou depois de uma abertura com
+        // rede sem resposta: vale como aplicado, sem abrir outra venda.
         GestoDeTeste mesmaVenda = inicio(vendaComRede, sessaoId);
+        GestoDeTeste mesmaVendaEmOutroCaixa = inicio(vendaComRede, UUID.randomUUID());
         UUID outraVenda = UUID.randomUUID();
         GestoDeTeste outroInicio = inicio(outraVenda, sessaoId);
         GestoDeTeste mesmoItem = item(outraVenda, itemComRede, produtoId, "1", "5.00",
                 outroInicio);
 
         List<ResultadoDaOperacao> resultados = conta.comoUsuario(() ->
-                sincronizacao.sincronizar(recebidas(List.of(mesmaVenda, outroInicio, mesmoItem))));
+                sincronizacao.sincronizar(recebidas(List.of(mesmaVenda, mesmaVendaEmOutroCaixa,
+                        outroInicio, mesmoItem))));
 
         assertThat(resultados).extracting(ResultadoDaOperacao::resultado).containsExactly(
-                Resultado.NAO_APLICADA, Resultado.APLICADA, Resultado.NAO_APLICADA);
-        assertThat(resultados.get(0).detalhe()).contains("Já existe uma venda");
-        assertThat(resultados.get(2).detalhe()).contains("Este item já está registrado");
+                Resultado.APLICADA, Resultado.NAO_APLICADA, Resultado.APLICADA,
+                Resultado.NAO_APLICADA);
+        assertThat(resultados.get(1).detalhe()).isEqualTo("Esta venda já foi aberta em outro"
+                + " caixa ou por outro operador; comece uma nova venda.");
+        assertThat(resultados.get(3).detalhe()).contains("Este item já está registrado");
         conta.comoUsuario(() -> {
             Venda original = linhasDeVenda.findById(vendaComRede).map(VendaEntity::paraDominio)
                     .orElseThrow();

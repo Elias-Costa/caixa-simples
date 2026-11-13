@@ -221,15 +221,16 @@ export function criarVendaLocal(remoto: VendasDaApi = vendas, caixa: CaixaDoDisp
 
   return {
     async iniciar(sessaoCaixaId) {
-      if (!temBanco()) return remoto.iniciar(sessaoCaixaId)
+      const id = crypto.randomUUID()
+      if (!temBanco()) return remoto.iniciar(sessaoCaixaId, id)
       const gestos = await listarGestos()
       if (comServidor() && !sessaoTemPendencia(gestos, sessaoCaixaId)) {
         try {
-          return await remoto.iniciar(sessaoCaixaId)
+          return await remoto.iniciar(sessaoCaixaId, id)
         } catch (falha) {
-          // Sem resposta, o aparelho passa a operar pela fila, e a venda começa nele. Se a chamada
-          // perdida chegou a criar a venda no servidor, ela fica lá aberta e vazia, sem dinheiro, e
-          // se cancela a qualquer hora.
+          // Sem resposta, o aparelho passa a operar pela fila, e a venda começa nele com o mesmo
+          // id. Se a chamada perdida chegou a abrir a venda no servidor, o lote a reconhece, e os
+          // itens do aparelho entram nela, sem deixar outra aberta e vazia no caixa.
           if (!(falha instanceof SemConexao)) throw falha
         }
       }
@@ -237,7 +238,6 @@ export function criarVendaLocal(remoto: VendasDaApi = vendas, caixa: CaixaDoDisp
       if (sessao.status !== 'ABERTA') {
         throw new Error('Este caixa já foi fechado e não aceita venda nova; abra um caixa antes de vender.')
       }
-      const id = crypto.randomUUID()
       const abertura = gestos.find((gesto) => gesto.tipo === 'caixa.abrir' && gesto.registroId === sessaoCaixaId)
       const dados: raiz.DadosDoInicio = { sessaoCaixaId, criadoEm: new Date().toISOString() }
       await enfileirar('venda.iniciar', id, dados, operacoes(abertura))

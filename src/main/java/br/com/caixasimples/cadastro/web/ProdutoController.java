@@ -12,9 +12,11 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
 import java.net.URI;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -56,10 +58,21 @@ class ProdutoController {
                 .map(item -> ProdutoNaLista.de(item.produto(), item.versao())).toList();
     }
 
+    /**
+     * Com o id do aparelho, o reenvio igual responde 200 com o mesmo item; sem ele, o servidor gera
+     * o id, e o reenvio de um item sem código grava outro item.
+     */
     @PostMapping
     ResponseEntity<Criado> cadastrar(@Valid @RequestBody PedidoDeCadastro pedido) {
-        UUID id = produtos.cadastrar(pedido.tipo(), pedido.dados());
-        return ResponseEntity.created(URI.create("/api/produtos/" + id)).body(new Criado(id));
+        if (pedido.produtoId() == null) {
+            UUID id = produtos.cadastrar(pedido.tipo(), pedido.dados());
+            return ResponseEntity.created(URI.create("/api/produtos/" + id)).body(new Criado(id));
+        }
+        var cadastrado = produtos.cadastrar(pedido.produtoId(), pedido.tipo(), pedido.dados(),
+                Instant.now());
+        return ResponseEntity.status(cadastrado.repetido() ? HttpStatus.OK : HttpStatus.CREATED)
+                .location(URI.create("/api/produtos/" + cadastrado.id()))
+                .body(new Criado(cadastrado.id()));
     }
 
     @PutMapping("/{id}")
@@ -80,7 +93,11 @@ class ProdutoController {
         return ResponseEntity.noContent().build();
     }
 
-    record PedidoDeCadastro(@NotNull TipoProduto tipo, @NotBlank String nome,
+    /**
+     * O produtoId é opcional porque o contrato com o aparelho só cresce: o aplicativo instalado que
+     * não o manda continua cadastrando.
+     */
+    record PedidoDeCadastro(UUID produtoId, @NotNull TipoProduto tipo, @NotBlank String nome,
             @NotNull @DecimalMin("0.00") @Digits(integer = 10, fraction = 2) BigDecimal preco,
             String codigo, String categoria, String unidade, Map<String, Object> atributos) {
 

@@ -239,9 +239,14 @@ que recusa o produto cujo código passou a outro item ativo; para clientes, `GET
 `GET /api/clientes/inativos`, `PUT /api/clientes/{id}`,
 `POST /api/clientes/{id}/inativar`, `POST /api/clientes/{id}/reativar` e
 `POST /api/clientes/{id}/remover`, esta última só do administrador.
+O cadastro aceita no corpo um id gerado no aparelho, opcional: `produtoId` em `POST /api/produtos` e
+`clienteId` em `POST /api/clientes`. O reenvio com o mesmo id e o mesmo conteúdo devolve 200 com o
+mesmo id, sem gravar outro registro, e o mesmo id com outro conteúdo devolve 409; o gesto que o
+aparelho guardou sem resposta leva o mesmo id, e o lote o reconhece do mesmo jeito.
 O PDV busca produto em `GET /api/produtos/busca?termo=...` e usa `GET` e `POST /api/vendas`
 para listar as vendas de uma SessaoCaixa, cada uma com o valor de cada forma de pagamento, e iniciar
-uma comanda. A lista segue o dono do caixa, como o extrato: o operador vê no próprio caixa também a
+uma comanda; o início aceita `vendaId` no corpo, opcional, e o reenvio com o mesmo id, o mesmo caixa
+e o mesmo operador devolve 200 com a mesma venda, sem abrir outra. A lista segue o dono do caixa, como o extrato: o operador vê no próprio caixa também a
 venda que o administrador fez nele, e abri-la continua com quem a fez. `GET /api/vendas/{id}` devolve
 itens com a unidade do cadastro, total, parcelas e recebimentos, com o NSU de cada um em cartão; `POST /api/vendas/{id}/itens` e
 `DELETE /api/vendas/{id}/itens/{itemId}` montam a comanda; o lançamento aceita `itemId` no corpo,
@@ -345,6 +350,8 @@ O estoque oferece `GET /api/estoque/produtos` para os saldos e mínimos,
 mercadoria que chegou, com a quantidade positiva e o motivo opcional,
 `POST /api/estoque/produtos/{id}/ajustes` para lançar uma diferença com motivo e
 `PUT /api/estoque/produtos/{id}/minimo` para o limiar. As cinco rotas exigem ADMIN, o estoque no plano e controle ligado; produto de outra Conta recebe 404.
+A entrada e o ajuste aceitam `movimentoId` no corpo, opcional: o reenvio com o mesmo id e o mesmo
+produto, quantidade e motivo não move o saldo de novo, e o mesmo id com outro conteúdo recebe 409.
 O lote de sincronização usa `POST /api/sincronizacao`, com até 100 operações por envio, cada uma
 com o id gerado no dispositivo, o registro, o tipo do gesto, o conteúdo, a versão lida, as
 dependências e o instante do balcão. A resposta é 200 com um resultado por operação, na ordem do

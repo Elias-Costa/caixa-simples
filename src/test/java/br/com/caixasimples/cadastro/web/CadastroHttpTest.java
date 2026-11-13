@@ -12,7 +12,9 @@ import br.com.caixasimples.contas.AutenticadorDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste;
 import br.com.caixasimples.contas.CriadorDeContaDeTeste.ContaCriada;
 import br.com.caixasimples.shared.Perfil;
+import java.math.BigDecimal;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -22,6 +24,7 @@ import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import tools.jackson.databind.ObjectMapper;
@@ -282,6 +285,152 @@ class CadastroHttpTest extends TesteDeIntegracao {
                 .andExpect(jsonPath("$[0].versao").value(0));
 
         assertThat(log).doesNotContain("Erro inesperado");
+    }
+
+    @Test
+    void clienteComIdDoAparelhoNaoGravaDeNovoNoReenvioERecusaOutroConteudo() throws Exception {
+        ContaCriada conta = criador.criar("Mercearia do Reenvio", SENHA);
+        RequestPostProcessor admin = autenticador.como(conta);
+        UUID id = UUID.randomUUID();
+        Map<String, Object> cliente = Map.of("clienteId", id, "nome", "Dona Marta",
+                "contato", "(75) 90000-0000");
+
+        enviar("/api/clientes", admin, cliente).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(id.toString()));
+        // A resposta perdida faz o navegador, ou a fila do aparelho, mandar o mesmo pedido de novo.
+        enviar("/api/clientes", admin, cliente).andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(id.toString()));
+        // O nome e o contato com espaços nas pontas são o mesmo conteúdo, como ficam gravados.
+        enviar("/api/clientes", admin, Map.of("clienteId", id, "nome", "  Dona Marta ",
+                "contato", " (75) 90000-0000")).andExpect(status().isOk());
+        for (Map<String, Object> outro : List.of(com(cliente, "nome", "Dona Rita"),
+                com(cliente, "contato", "(75) 91111-1111"), com(cliente, "contato", null))) {
+            enviar("/api/clientes", admin, outro).andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.detail").value("Este cliente já foi cadastrado com"
+                            + " outro nome ou contato; abra a lista de clientes de novo para ver o"
+                            + " que ficou."));
+        }
+        http.perform(get("/api/clientes").with(admin))
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].nome").value("Dona Marta"));
+
+        // O cliente inativado continua o mesmo cadastro para o reenvio igual.
+        http.perform(post("/api/clientes/{id}/inativar", id).with(admin))
+                .andExpect(status().isNoContent());
+        enviar("/api/clientes", admin, cliente).andExpect(status().isOk());
+
+        // O corpo sem o id continua valendo, e o servidor gera outro cliente.
+        UUID semId = criado("/api/clientes", admin, Map.of("nome", "Dona Marta"));
+        assertThat(semId).isNotEqualTo(id);
+    }
+
+    @Test
+    void clienteComIdDeOutraContaERecusadoSemTocarNela() throws Exception {
+        ContaCriada contaA = criador.criar("Mercearia Aurora", SENHA);
+        ContaCriada contaB = criador.criar("Mercearia Esquina", SENHA);
+        RequestPostProcessor adminA = autenticador.como(contaA);
+        RequestPostProcessor adminB = autenticador.como(contaB);
+        UUID id = UUID.randomUUID();
+        enviar("/api/clientes", adminB, Map.of("clienteId", id, "nome", "Seu Jorge"))
+                .andExpect(status().isCreated());
+
+        // A consulta da Conta A não enxerga o cliente da B, e quem recusa é a chave primária; a
+        // resposta é a genérica do cadastro, sem nada da outra Conta.
+        String corpo = enviar("/api/clientes", adminA, Map.of("clienteId", id, "nome", "Seu Jorge"))
+                .andExpect(status().isConflict())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(corpo).doesNotContain(id.toString()).doesNotContain("Jorge");
+
+        http.perform(get("/api/clientes").with(adminA)).andExpect(jsonPath("$").isEmpty());
+        http.perform(get("/api/clientes").with(adminB))
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value(id.toString()))
+                .andExpect(jsonPath("$[0].nome").value("Seu Jorge"));
+    }
+
+    @Test
+    void produtoComIdDoAparelhoNaoGravaDeNovoNoReenvioERecusaOutroConteudo() throws Exception {
+        ContaCriada conta = criador.criar("Padaria do Reenvio", SENHA);
+        RequestPostProcessor admin = autenticador.como(conta);
+        UUID id = UUID.randomUUID();
+        Map<String, Object> atributos = new LinkedHashMap<>();
+        atributos.put("recheio", "queijo");
+        atributos.put("gramas", 80);
+        atributos.put("peso", 1.5);
+        Map<String, Object> produto = new LinkedHashMap<>();
+        produto.put("produtoId", id);
+        produto.put("tipo", "PRODUTO");
+        produto.put("nome", "Pão de queijo");
+        produto.put("preco", 4.5);
+        produto.put("unidade", "un");
+        produto.put("atributos", atributos);
+
+        enviar("/api/produtos", admin, produto).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(id.toString()));
+        // Sem código, o reenvio gravava outro item; com o id, responde o que já gravou, com os
+        // atributos lidos de volta do banco.
+        enviar("/api/produtos", admin, produto).andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(id.toString()));
+        // O preço escrito de outro jeito e o nome com espaços são o mesmo conteúdo.
+        enviar("/api/produtos", admin, com(com(produto, "preco", new BigDecimal("4.50")), "nome",
+                " Pão de queijo ")).andExpect(status().isOk());
+        for (Map<String, Object> outro : List.of(com(produto, "preco", 5),
+                com(produto, "tipo", "SERVICO"), com(produto, "codigo", "PQ-1"),
+                com(produto, "unidade", "kg"), com(produto, "atributos", Map.of("recheio", "goiabada")))) {
+            enviar("/api/produtos", admin, outro).andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.detail").value("Este item já foi cadastrado com outros"
+                            + " dados; abra a lista de produtos de novo para ver o que ficou."));
+        }
+        http.perform(get("/api/produtos").with(admin))
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].preco").value(4.5));
+
+        // O item inativado continua o mesmo cadastro para o reenvio igual.
+        http.perform(post("/api/produtos/{id}/inativar", id).with(admin))
+                .andExpect(status().isNoContent());
+        enviar("/api/produtos", admin, produto).andExpect(status().isOk());
+
+        // Com código, o reenvio igual também responde o que já gravou, em vez da recusa do código
+        // repetido.
+        UUID comCodigo = UUID.randomUUID();
+        Map<String, Object> cafe = com(com(com(produto, "produtoId", comCodigo), "nome", "Café"),
+                "codigo", "CF-1");
+        enviar("/api/produtos", admin, cafe).andExpect(status().isCreated());
+        enviar("/api/produtos", admin, cafe).andExpect(status().isOk());
+
+        // O corpo sem o id continua valendo, e o servidor gera outro item.
+        Map<String, Object> semId = new LinkedHashMap<>(produto);
+        semId.remove("produtoId");
+        assertThat(criado("/api/produtos", admin, semId)).isNotEqualTo(id);
+    }
+
+    @Test
+    void produtoComIdDeOutraContaERecusadoSemTocarNela() throws Exception {
+        ContaCriada contaA = criador.criar("Padaria Aurora", SENHA);
+        ContaCriada contaB = criador.criar("Padaria Esquina", SENHA);
+        RequestPostProcessor adminA = autenticador.como(contaA);
+        RequestPostProcessor adminB = autenticador.como(contaB);
+        UUID id = UUID.randomUUID();
+        Map<String, Object> broa = Map.of("produtoId", id, "tipo", "PRODUTO", "nome", "Broa",
+                "preco", 3);
+        enviar("/api/produtos", adminB, broa).andExpect(status().isCreated());
+
+        String corpo = enviar("/api/produtos", adminA, broa)
+                .andExpect(status().isConflict())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(corpo).doesNotContain(id.toString()).doesNotContain("Broa");
+
+        http.perform(get("/api/produtos").with(adminA)).andExpect(jsonPath("$").isEmpty());
+        http.perform(get("/api/produtos").with(adminB))
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value(id.toString()))
+                .andExpect(jsonPath("$[0].preco").value(3.0));
+    }
+
+    private ResultActions enviar(String rota, RequestPostProcessor quem, Map<String, Object> corpo)
+            throws Exception {
+        return http.perform(post(rota).with(quem).contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(corpo)));
     }
 
     private UUID criado(String rota, RequestPostProcessor quem, Map<String, Object> corpo)

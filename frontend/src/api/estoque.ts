@@ -12,14 +12,15 @@ export type EstoqueDoProduto = {
 export const estoque = {
   produtos: () => chamarApi<EstoqueDoProduto[]>('/api/estoque/produtos'),
   baixo: () => chamarApi<EstoqueDoProduto[]>('/api/estoque/baixo'),
-  ajustar: (id: string, diferenca: number, motivo: string) =>
+  /** Com o id do movimento gerado no aparelho, o reenvio depois de uma resposta perdida não move o saldo de novo. */
+  ajustar: (id: string, diferenca: number, motivo: string, movimentoId?: string) =>
     chamarApi<void>(`/api/estoque/produtos/${id}/ajustes`, {
-      metodo: 'POST', corpo: { diferenca, motivo },
+      metodo: 'POST', corpo: { movimentoId, diferenca, motivo },
     }),
   /** A mercadoria comprada que chegou; o motivo, opcional, vai só quando foi escrito. */
-  registrarEntrada: (id: string, quantidade: number, motivo: string) =>
+  registrarEntrada: (id: string, quantidade: number, motivo: string, movimentoId?: string) =>
     chamarApi<void>(`/api/estoque/produtos/${id}/entradas`, {
-      metodo: 'POST', corpo: motivo ? { quantidade, motivo } : { quantidade },
+      metodo: 'POST', corpo: motivo ? { movimentoId, quantidade, motivo } : { movimentoId, quantidade },
     }),
   definirMinimo: (id: string, minimo: number) =>
     chamarApi<void>(`/api/estoque/produtos/${id}/minimo`, {

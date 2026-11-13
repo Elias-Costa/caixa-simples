@@ -54,10 +54,20 @@ class VendaController {
                 "Não foi possível confirmar a remoção da cobrança Pix. Tente cancelar de novo.");
     }
 
+    /**
+     * Com o id do aparelho, o reenvio igual responde 200 com a mesma venda; sem ele, o servidor gera
+     * o id, e o reenvio abre outra venda, vazia.
+     */
     @PostMapping
     ResponseEntity<Criada> iniciar(@Valid @RequestBody PedidoDeInicio pedido) {
-        UUID id = vendas.iniciar(pedido.sessaoCaixaId());
-        return ResponseEntity.created(URI.create("/api/vendas/" + id)).body(new Criada(id));
+        if (pedido.vendaId() == null) {
+            UUID id = vendas.iniciar(pedido.sessaoCaixaId());
+            return ResponseEntity.created(URI.create("/api/vendas/" + id)).body(new Criada(id));
+        }
+        var iniciada = vendas.iniciar(pedido.vendaId(), pedido.sessaoCaixaId(), Instant.now());
+        return ResponseEntity.status(iniciada.repetida() ? HttpStatus.OK : HttpStatus.CREATED)
+                .location(URI.create("/api/vendas/" + iniciada.id()))
+                .body(new Criada(iniciada.id()));
     }
 
     @GetMapping
@@ -172,7 +182,11 @@ class VendaController {
         return ComprovanteNaResposta.de(vendas.comprovante(id));
     }
 
-    record PedidoDeInicio(@NotNull UUID sessaoCaixaId) {
+    /**
+     * O vendaId é opcional porque o contrato com o aparelho só cresce: o aplicativo instalado que
+     * não o manda continua abrindo venda.
+     */
+    record PedidoDeInicio(UUID vendaId, @NotNull UUID sessaoCaixaId) {
     }
 
     /**

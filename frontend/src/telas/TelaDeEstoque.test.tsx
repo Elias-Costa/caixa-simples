@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router'
+import { ErroDaApi, SemConexao } from '../api/cliente'
 import { estoque, type EstoqueDoProduto } from '../api/estoque'
 import { SessaoContext } from '../sessao/contexto'
 import type { Identidade } from '../sessao/Identidade'
@@ -51,7 +52,7 @@ describe('estoque na tela', () => {
     fireEvent.change(screen.getByLabelText('Motivo'), { target: { value: 'contagem do dia' } })
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar ajuste' }))
 
-    await waitFor(() => expect(ajustar).toHaveBeenCalledWith('arroz', -2, 'contagem do dia'))
+    await waitFor(() => expect(ajustar).toHaveBeenCalledWith('arroz', -2, 'contagem do dia', expect.any(String)))
     expect(await screen.findByRole('status')).toHaveTextContent('Estoque ajustado')
   })
 
@@ -70,13 +71,13 @@ describe('estoque na tela', () => {
 
     fireEvent.change(quantidade, { target: { value: '12,5' } })
     fireEvent.click(screen.getByRole('button', { name: 'Registrar entrada' }))
-    await waitFor(() => expect(entrada).toHaveBeenCalledWith('arroz', 12.5, ''))
+    await waitFor(() => expect(entrada).toHaveBeenCalledWith('arroz', 12.5, '', expect.any(String)))
     expect(await screen.findByRole('status')).toHaveTextContent('Entrada registrada.')
 
     fireEvent.change(screen.getByLabelText('Quantidade comprada'), { target: { value: '3' } })
     fireEvent.change(screen.getByLabelText('Motivo (opcional)'), { target: { value: '  nota 123 ' } })
     fireEvent.click(screen.getByRole('button', { name: 'Registrar entrada' }))
-    await waitFor(() => expect(entrada).toHaveBeenLastCalledWith('arroz', 3, 'nota 123'))
+    await waitFor(() => expect(entrada).toHaveBeenLastCalledWith('arroz', 3, 'nota 123', expect.any(String)))
   })
 
   it('lista o saldo de todos, põe o negativo no alto do alerta com a marca, e o toque escolhe o produto', async () => {
@@ -113,6 +114,68 @@ describe('estoque na tela', () => {
     fireEvent.click(within(alerta).getByRole('button', { name: 'Pão francês' }))
     expect(seletor).toHaveValue('pao')
     expect(screen.getByText(/Saldo atual/)).toHaveTextContent('Saldo atual: -19,173 kg negativo · mínimo: 5 kg')
+  })
+
+  it('o ajuste igual depois da resposta perdida leva o mesmo id, e depois da resposta o seguinte leva outro', async () => {
+    vi.spyOn(estoque, 'produtos').mockResolvedValue([arroz])
+    vi.spyOn(estoque, 'baixo').mockResolvedValue([arroz])
+    const ajustar = vi.spyOn(estoque, 'ajustar')
+      .mockRejectedValueOnce(new SemConexao())
+      .mockRejectedValueOnce(new SemConexao())
+      .mockResolvedValue(undefined)
+    render(<TelaDeEstoque />)
+
+    fireEvent.change(await screen.findByLabelText('Diferença com sinal'), { target: { value: '-2' } })
+    fireEvent.change(screen.getByLabelText('Motivo'), { target: { value: 'quebra' } })
+    const confirmar = screen.getByRole('button', { name: 'Confirmar ajuste' })
+    fireEvent.click(confirmar)
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Não foi possível confirmar a resposta do servidor. Reabra a lista antes de repetir.')
+    // O segundo toque, e o terceiro, que o servidor responde, levam o id do primeiro.
+    for (const vez of [2, 3]) {
+      await waitFor(() => expect(confirmar).toBeEnabled())
+      fireEvent.click(confirmar)
+      await waitFor(() => expect(ajustar).toHaveBeenCalledTimes(vez))
+    }
+    expect(await screen.findByRole('status')).toHaveTextContent('Estoque ajustado.')
+    const [primeiro, segundo, terceiro] = ajustar.mock.calls.map((chamada) => chamada[3])
+    expect(primeiro).toEqual(expect.any(String))
+    expect(segundo).toBe(primeiro)
+    expect(terceiro).toBe(primeiro)
+
+    // Respondido, o mesmo ajuste de novo é outro movimento.
+    fireEvent.change(screen.getByLabelText('Diferença com sinal'), { target: { value: '-2' } })
+    fireEvent.change(screen.getByLabelText('Motivo'), { target: { value: 'quebra' } })
+    fireEvent.click(confirmar)
+    await waitFor(() => expect(ajustar).toHaveBeenCalledTimes(4))
+    expect(ajustar.mock.calls[3][3]).not.toBe(primeiro)
+  })
+
+  it('na entrada, outro conteúdo e a recusa do servidor liberam o id da tentativa sem resposta', async () => {
+    vi.spyOn(estoque, 'produtos').mockResolvedValue([arroz])
+    vi.spyOn(estoque, 'baixo').mockResolvedValue([arroz])
+    const entrada = vi.spyOn(estoque, 'registrarEntrada')
+      .mockRejectedValueOnce(new SemConexao())
+      .mockRejectedValueOnce(new SemConexao())
+      .mockRejectedValueOnce(new ErroDaApi(409, 'Conflict', 'O produto Arroz está inativo e não recebe'
+        + ' entrada de estoque.', {}))
+      .mockResolvedValue(undefined)
+    render(<TelaDeEstoque />)
+
+    const quantidade = await screen.findByLabelText('Quantidade comprada')
+    const registrar = screen.getByRole('button', { name: 'Registrar entrada' })
+    for (const [vez, comprado] of [[1, '12'], [2, '13'], [3, '13'], [4, '13']] as const) {
+      fireEvent.change(quantidade, { target: { value: comprado } })
+      await waitFor(() => expect(registrar).toBeEnabled())
+      fireEvent.click(registrar)
+      await waitFor(() => expect(entrada).toHaveBeenCalledTimes(vez))
+    }
+
+    const ids = entrada.mock.calls.map((chamada) => chamada[3])
+    // 13 é outro conteúdo; o 13 repetido leva o mesmo id; depois da recusa, um id novo.
+    expect(ids[1]).not.toBe(ids[0])
+    expect(ids[2]).toBe(ids[1])
+    expect(ids[3]).not.toBe(ids[2])
   })
 
   it('define o mínimo e recusa diferença zero na tela', async () => {

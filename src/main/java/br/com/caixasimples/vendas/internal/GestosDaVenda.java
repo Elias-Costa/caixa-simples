@@ -61,6 +61,10 @@ import tools.jackson.databind.ObjectMapper;
  * confere contra o relógio do servidor; o da conclusão decide o dia do faturamento e o do dinheiro
  * na gaveta. O item e a parcela gravam o instante da própria operação, que o lote confere sempre.
  *
+ * <p>O início cuja abertura com rede ficou sem resposta chega com o mesmo id que a chamada levou.
+ * Se a chamada tinha aberto a venda, o caso de uso a reconhece e devolve o instante dela, e os
+ * gestos seguintes do aparelho entram nessa venda, sem deixar outra aberta e vazia no caixa.
+ *
  * <h2>Recusa de uma venda que já aconteceu</h2>
  *
  * <p>Duas recusas do balcão com rede dizem a saída de quem ainda vai vender: abrir um caixa, reativar
@@ -138,13 +142,15 @@ class GestosDaVenda implements AplicadorDeOperacoes {
         UUID sessaoCaixaId = operacao.exigir(inicio.sessaoCaixaId(), "sessaoCaixaId");
         Instant criadoEm = operacao.exigir(inicio.criadoEm(), "criadoEm");
         try {
-            vendas.iniciar(operacao.registroId(), sessaoCaixaId, criadoEm);
+            // A venda que a abertura com rede já gravou, antes de a resposta se perder, vem com o
+            // instante daquela abertura, e é ele que o lote confere com o relógio.
+            return Aplicacao.aplicada(null,
+                    vendas.iniciar(operacao.registroId(), sessaoCaixaId, criadoEm).criadoEm());
         } catch (CaixaFechadoParaVendaNovaException fechado) {
             throw new OperacaoRecusadaException("O caixa foi fechado antes de esta venda chegar ao"
                     + " servidor, e ela não foi registrada. O administrador decide o que fazer com"
                     + " ela.", fechado);
         }
-        return Aplicacao.aplicada(null, criadoEm);
     }
 
     private Aplicacao vincularCliente(OperacaoRecebida operacao) {

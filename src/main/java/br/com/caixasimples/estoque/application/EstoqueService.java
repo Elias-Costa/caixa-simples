@@ -80,9 +80,20 @@ public class EstoqueService {
      * @throws IllegalArgumentException            se a diferença é zero ou falta o motivo
      */
     public void ajustar(UUID produtoId, BigDecimal diferenca, String motivo) {
+        ajustar(produtoId, UUID.randomUUID(), diferenca, motivo);
+    }
+
+    /**
+     * O mesmo ajuste, com o id do movimento gerado no dispositivo: o pedido repetido depois de uma
+     * resposta perdida, pelo navegador ou por um segundo toque, não move o saldo outra vez.
+     *
+     * @param movimentoId o id do movimento; repetido com o mesmo conteúdo, nada é gravado
+     * @throws IllegalStateException além dos casos acima, se o id já foi usado com outro conteúdo
+     */
+    public void ajustar(UUID produtoId, UUID movimentoId, BigDecimal diferenca, String motivo) {
         UsuarioContext.exigirAdmin();
         exigirControleLigado();
-        produtos.ajustarEstoque(produtoId, diferenca, motivo);
+        produtos.ajustarEstoque(produtoId, movimentoId, diferenca, motivo);
     }
 
     /**
@@ -106,9 +117,20 @@ public class EstoqueService {
      *                                             três casas
      */
     public void registrarEntrada(UUID produtoId, BigDecimal quantidade, String motivo) {
+        registrarEntrada(produtoId, UUID.randomUUID(), quantidade, motivo);
+    }
+
+    /**
+     * A mesma entrada, com o id do movimento gerado no dispositivo, pela razão do ajuste com id.
+     *
+     * @param movimentoId o id do movimento; repetido com o mesmo conteúdo, nada é gravado
+     * @throws IllegalStateException além dos casos acima, se o id já foi usado com outro conteúdo
+     */
+    public void registrarEntrada(UUID produtoId, UUID movimentoId, BigDecimal quantidade,
+            String motivo) {
         UsuarioContext.exigirAdmin();
         exigirControleLigado();
-        produtos.registrarEntrada(produtoId, quantidade, motivo);
+        produtos.registrarEntrada(produtoId, movimentoId, quantidade, motivo);
     }
 
     /**

@@ -106,8 +106,9 @@ export type ComprovanteDeRecebimento = {
 }
 
 export const vendas = {
-  iniciar: (sessaoCaixaId: string) =>
-    chamarApi<{ id: string }>('/api/vendas', { metodo: 'POST', corpo: { sessaoCaixaId } }),
+  /** Com o id gerado no aparelho, o reenvio depois de uma resposta perdida não abre outra venda. */
+  iniciar: (sessaoCaixaId: string, vendaId?: string) =>
+    chamarApi<{ id: string }>('/api/vendas', { metodo: 'POST', corpo: { vendaId, sessaoCaixaId } }),
   daSessao: (sessaoCaixaId: string) =>
     chamarApi<ResumoDaVenda[]>(`/api/vendas?sessaoCaixaId=${encodeURIComponent(sessaoCaixaId)}`),
   conciliacoesPix: () => chamarApi<ConciliacaoPix[]>('/api/vendas/conciliacoes-pix'),

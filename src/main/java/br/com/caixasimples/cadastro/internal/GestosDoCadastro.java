@@ -28,6 +28,10 @@ import tools.jackson.databind.ObjectMapper;
  * devolve instante. A edição segue a última escrita aceita pelo servidor: é aplicada sobre a versão
  * atual, qualquer que seja a que o dispositivo leu, e a revisão nova volta para ele.
  *
+ * <p>A criação cujo cadastro com rede ficou sem resposta chega com o mesmo id que a chamada levou.
+ * Se a chamada tinha gravado, o caso de uso reconhece o registro igual e não grava outro, e os
+ * gestos seguintes continuam nele.
+ *
  * <p>Produto ou Cliente que não existe nesta conta é recusa do gesto, e não defeito.
  */
 @Component

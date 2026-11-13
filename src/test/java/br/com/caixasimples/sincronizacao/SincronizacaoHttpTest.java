@@ -19,6 +19,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -299,6 +300,76 @@ class SincronizacaoHttpTest extends TesteDeIntegracao {
         http.perform(get("/api/clientes").with(adminB))
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].nome").value("Joana"));
+    }
+
+    /**
+     * O cadastro e o início com rede gravaram, a resposta se perdeu, e o aparelho guardou os gestos
+     * com os mesmos ids que as chamadas levaram. O lote reconhece cada registro igual sem gravar
+     * outro, e o item seguinte entra na venda que a chamada abriu, sem deixar venda vazia no caixa.
+     */
+    @Test
+    @DisplayName("o cadastro e o início que a rota com rede já gravou chegam pelo lote com o mesmo id e valem como aplicados, sem cópia")
+    void gestoComOMesmoIdDoQueARotaComRedeJaGravou() throws Exception {
+        ContaCriada conta = criador.criar("Empório do Reenvio", SENHA);
+        RequestPostProcessor admin = autenticador.como(conta);
+        UUID clienteId = UUID.randomUUID();
+        UUID produtoId = UUID.randomUUID();
+        UUID vendaId = UUID.randomUUID();
+        UUID sessaoId = UUID.fromString(ler(http.perform(post("/api/caixa/sessoes").with(admin)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"valorAbertura\":0}"))
+                .andExpect(status().isCreated())).path("id").asText());
+        Map<String, Object> cliente = conteudo("nome", "Dona Marta", "contato", "71 98888-0000");
+        Map<String, Object> produto = produto("Bolo de milho", "8.00", null);
+        comRede(admin, "/api/clientes", "clienteId", clienteId, cliente);
+        comRede(admin, "/api/produtos", "produtoId", produtoId, produto);
+        comRede(admin, "/api/vendas", "vendaId", vendaId, conteudo("sessaoCaixaId", sessaoId));
+
+        GestoDeTeste cadastro = GestoDeTeste.de("cliente.criar", clienteId, cliente);
+        GestoDeTeste criacao = GestoDeTeste.de("produto.criar", produtoId, produto);
+        GestoDeTeste inicio = GestoDeTeste.inicio(vendaId, sessaoId);
+        GestoDeTeste item = GestoDeTeste.item(vendaId, UUID.randomUUID(), produtoId, "2", "8.00",
+                inicio, criacao).comVersaoBase(0);
+        JsonNode resposta = enviar(admin, List.of(cadastro, criacao, inicio, item));
+        for (GestoDeTeste gesto : List.of(cadastro, criacao, inicio, item)) {
+            assertThat(resultadoDe(resposta, gesto).path("resultado").asText())
+                    .as(gesto.tipo()).isEqualTo("APLICADA");
+        }
+
+        http.perform(get("/api/clientes").with(admin)).andExpect(jsonPath("$.length()").value(1));
+        http.perform(get("/api/produtos").with(admin)).andExpect(jsonPath("$.length()").value(1));
+        http.perform(get("/api/vendas").param("sessaoCaixaId", sessaoId.toString()).with(admin))
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value(vendaId.toString()));
+        http.perform(get("/api/vendas/{id}", vendaId).with(admin))
+                .andExpect(jsonPath("$.itens.length()").value(1))
+                .andExpect(jsonPath("$.total").value(16.0));
+
+        // Com outro conteúdo, o mesmo id é recusado com a frase de cada cadastro, e nada muda.
+        GestoDeTeste outroCliente = GestoDeTeste.de("cliente.criar", clienteId,
+                conteudo("nome", "Dona Rita", "contato", null));
+        GestoDeTeste outroProduto = GestoDeTeste.de("produto.criar", produtoId,
+                produto("Bolo de milho", "9.00", null));
+        JsonNode recusas = enviar(admin, List.of(outroCliente, outroProduto));
+        assertThat(resultadoDe(recusas, outroCliente).path("detalhe").asText()).isEqualTo(
+                "Este cliente já foi cadastrado com outro nome ou contato; abra a lista de"
+                        + " clientes de novo para ver o que ficou.");
+        assertThat(resultadoDe(recusas, outroProduto).path("detalhe").asText()).isEqualTo(
+                "Este item já foi cadastrado com outros dados; abra a lista de produtos de novo"
+                        + " para ver o que ficou.");
+        http.perform(get("/api/clientes").with(admin))
+                .andExpect(jsonPath("$[0].nome").value("Dona Marta"));
+        http.perform(get("/api/produtos").with(admin))
+                .andExpect(jsonPath("$[0].preco").value(8.0));
+    }
+
+    /** A chamada com rede que gravou e cuja resposta o aparelho não recebeu. */
+    private void comRede(RequestPostProcessor quem, String rota, String campoDoId, UUID id,
+            Map<String, Object> corpo) throws Exception {
+        Map<String, Object> comId = new LinkedHashMap<>(corpo);
+        comId.put(campoDoId, id);
+        http.perform(post(rota).with(quem).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(comId)))
+                .andExpect(status().isCreated());
     }
 
     @Test

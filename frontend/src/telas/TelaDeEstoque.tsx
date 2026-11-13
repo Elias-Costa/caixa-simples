@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { SemConexao } from '../api/cliente'
 import { estoque, type EstoqueDoProduto } from '../api/estoque'
 import { quantidade, quantidadeComUnidade } from '../formatos'
 import { erroDeCadastro } from './erroDeCadastro'
@@ -42,6 +43,22 @@ export function TelaDeEstoque() {
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [aviso, setAviso] = useState<string | null>(null)
+  /**
+   * O id do movimento que ficou sem resposta. A resposta perdida pode ter gravado, e o toque igual
+   * antes de reabrir a tela leva o mesmo id, que o servidor reconhece sem mover o saldo de novo. A
+   * lista relida mostra o saldo, e não o movimento: por isso qualquer resposta, outro conteúdo ou a
+   * tela reaberta liberam o id, e repetir depois disso é um ajuste de propósito.
+   */
+  const semResposta = useRef<{ chave: string; id: string } | null>(null)
+
+  function idDoMovimento(chave: string): string {
+    if (semResposta.current?.chave !== chave) semResposta.current = { chave, id: crypto.randomUUID() }
+    return semResposta.current.id
+  }
+
+  function depoisDaResposta(falha?: unknown) {
+    if (!(falha instanceof SemConexao)) semResposta.current = null
+  }
 
   const carregar = useCallback(async () => {
     setCarregando(true)
@@ -125,13 +142,17 @@ export function TelaDeEstoque() {
       return
     }
     setSalvando(true)
+    const motivoDoAjuste = motivo.trim()
     try {
-      await estoque.ajustar(produto.id, ajuste, motivo.trim())
+      await estoque.ajustar(produto.id, ajuste, motivoDoAjuste,
+        idDoMovimento(JSON.stringify(['ajuste', produto.id, ajuste, motivoDoAjuste])))
+      depoisDaResposta()
       setValor('')
       setMotivo('')
       await carregar()
       setAviso('Estoque ajustado.')
     } catch (falha) {
+      depoisDaResposta(falha)
       setErro(erroDeCadastro(falha))
     } finally {
       setSalvando(false)
@@ -153,13 +174,17 @@ export function TelaDeEstoque() {
       return
     }
     setSalvando(true)
+    const motivoDaCompra = motivoDaEntrada.trim()
     try {
-      await estoque.registrarEntrada(produto.id, chegou, motivoDaEntrada.trim())
+      await estoque.registrarEntrada(produto.id, chegou, motivoDaCompra,
+        idDoMovimento(JSON.stringify(['entrada', produto.id, chegou, motivoDaCompra])))
+      depoisDaResposta()
       setComprado('')
       setMotivoDaEntrada('')
       await carregar()
       setAviso('Entrada registrada.')
     } catch (falha) {
+      depoisDaResposta(falha)
       setErro(erroDeCadastro(falha))
     } finally {
       setSalvando(false)

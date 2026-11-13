@@ -122,6 +122,69 @@ class EntradaDeEstoqueHttpTest extends TesteDeIntegracao {
                 .andExpect(jsonPath("$[0].estoqueAtual").value(0));
     }
 
+    @Test
+    void entradaComIdDoAparelhoNaoSomaDeNovoNoReenvioERecusaOutroConteudo() throws Exception {
+        ContaCriada conta = contaComEstoque("Mercado do Reenvio da Entrada");
+        UUID arroz = cadastrar(conta, TipoProduto.PRODUTO, "Arroz");
+        UUID semMotivo = UUID.randomUUID();
+        UUID comMotivo = UUID.randomUUID();
+        String recusa = "Esta entrada já foi registrada com outro produto, quantidade ou motivo;"
+                + " abra o estoque de novo para ver o saldo.";
+
+        entrada(conta, arroz, entradaCom(semMotivo, "12", null)).andExpect(status().isNoContent());
+        // O reenvio igual não soma de novo; o motivo em branco vale como ausente.
+        entrada(conta, arroz, entradaCom(semMotivo, "12", null)).andExpect(status().isNoContent());
+        entrada(conta, arroz, entradaCom(semMotivo, "12.000", "  ")).andExpect(status().isNoContent());
+        entrada(conta, arroz, entradaCom(semMotivo, "13", null))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.detail").value(recusa));
+        entrada(conta, arroz, entradaCom(semMotivo, "12", "nota 9"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.detail").value(recusa));
+
+        entrada(conta, arroz, entradaCom(comMotivo, "0.5", "nota 10")).andExpect(status().isNoContent());
+        entrada(conta, arroz, entradaCom(comMotivo, "0.5", " nota 10 ")).andExpect(status().isNoContent());
+        entrada(conta, arroz, entradaCom(comMotivo, "0.5", null))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.detail").value(recusa));
+        // O id de uma entrada mandado como ajuste também é outro conteúdo.
+        http.perform(post("/api/estoque/produtos/{id}/ajustes", arroz)
+                        .with(autenticador.como(conta)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"movimentoId\":\"" + comMotivo + "\",\"diferenca\":0.5,"
+                                + "\"motivo\":\"nota 10\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.detail").value("Este ajuste já foi registrado com outro"
+                        + " produto, diferença ou motivo; abra o estoque de novo para ver o saldo."));
+
+        http.perform(get("/api/estoque/produtos").with(autenticador.como(conta)))
+                .andExpect(jsonPath("$[0].estoqueAtual").value(12.5));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM movimento_estoque"
+                + " WHERE produto_id = ?", Integer.class, arroz)).isEqualTo(2);
+    }
+
+    @Test
+    void entradaComIdDeMovimentoDeOutraContaERecusadaSemTocarNela() throws Exception {
+        ContaCriada primeira = contaComEstoque("Mercado Aurora da Entrada");
+        ContaCriada segunda = contaComEstoque("Mercado Esquina da Entrada");
+        UUID daPrimeira = cadastrar(primeira, TipoProduto.PRODUTO, "Arroz");
+        UUID daSegunda = cadastrar(segunda, TipoProduto.PRODUTO, "Arroz");
+        UUID movimento = UUID.randomUUID();
+        entrada(segunda, daSegunda, entradaCom(movimento, "7", null)).andExpect(status().isNoContent());
+
+        String corpo = entrada(primeira, daPrimeira, entradaCom(movimento, "7", null))
+                .andExpect(status().isInternalServerError())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(corpo).doesNotContain(movimento.toString()).doesNotContain(daSegunda.toString());
+
+        http.perform(get("/api/estoque/produtos").with(autenticador.como(primeira)))
+                .andExpect(jsonPath("$[0].estoqueAtual").value(0));
+        http.perform(get("/api/estoque/produtos").with(autenticador.como(segunda)))
+                .andExpect(jsonPath("$[0].estoqueAtual").value(7));
+    }
+
+    private static String entradaCom(UUID movimento, String quantidade, String motivo) {
+        String comMotivo = motivo == null ? "" : ",\"motivo\":\"" + motivo + "\"";
+        return "{\"movimentoId\":\"" + movimento + "\",\"quantidade\":" + quantidade + comMotivo
+                + "}";
+    }
+
     private ContaCriada contaComEstoque(String nome) {
         ContaCriada conta = criador.criar(nome, SENHA);
         criador.contratar(conta.contaId(), Plano.COMPLETO);

@@ -220,31 +220,46 @@ public class VendaService {
      */
     @Transactional
     public UUID iniciar(UUID sessaoCaixaId) {
-        return iniciar(UUID.randomUUID(), sessaoCaixaId, Instant.now());
+        return iniciar(UUID.randomUUID(), sessaoCaixaId, Instant.now()).id();
     }
 
     /**
-     * A mesma abertura de comanda, com o id e o instante que o dispositivo gravou ao abri-la sem
-     * rede.
+     * A mesma abertura de comanda, com o id que o dispositivo gerou: a venda que ele abriu sem
+     * rede, com o instante do balcão, ou a abertura com rede cuja resposta pode se perder. O
+     * navegador ainda reenvia sozinho o pedido cuja conexão fechou sem resposta, e a venda que o
+     * aparelho continua depois da perda leva o mesmo id: nenhum dos dois abre outra venda.
      *
-     * @throws IllegalStateException além dos casos acima, se já existe venda com este id
+     * <p>Repetida com o mesmo id, devolve a venda existente sem gravar apenas quando ela é do mesmo
+     * caixa e de quem chama, com o instante gravado da primeira vez. Vale também depois de a venda
+     * receber itens, concluir ou o caixa fechar, porque o reenvio igual responde como da primeira
+     * vez, e os gestos que o aparelho guardou em seguida continuam nela. O id de uma venda de outra
+     * conta não aparece na consulta, e quem recusa é a chave primária.
+     *
+     * @return o id, o instante gravado e se a venda já estava aberta
+     * @throws IllegalStateException além dos casos acima, se o id já foi usado em outro caixa ou
+     *                               por outro operador
      */
     @Transactional
-    public UUID iniciar(UUID vendaId, UUID sessaoCaixaId, Instant criadoEm) {
+    public VendaIniciada iniciar(UUID vendaId, UUID sessaoCaixaId, Instant criadoEm) {
         Objects.requireNonNull(vendaId, "id da venda nao pode ser nulo");
         Objects.requireNonNull(sessaoCaixaId, "id da sessao de caixa nao pode ser nulo");
         UUID usuarioId = UsuarioContext.exigirAtual().usuarioId();
 
+        if (vendas.existsById(vendaId)) {
+            Venda gravada = travar(vendaId).paraDominio();
+            if (!gravada.getSessaoCaixaId().equals(sessaoCaixaId)
+                    || !gravada.getUsuarioId().equals(usuarioId)) {
+                throw new IllegalStateException("Esta venda já foi aberta em outro caixa ou por"
+                        + " outro operador; comece uma nova venda.");
+            }
+            return new VendaIniciada(vendaId, gravada.getCriadoEm(), true);
+        }
         if (!caixa.estaAberto(sessaoCaixaId)) {
             throw new CaixaFechadoParaVendaNovaException();
         }
-        if (vendas.existsById(vendaId)) {
-            throw new IllegalStateException(
-                    "Já existe uma venda com este identificador; a existente não é substituída.");
-        }
 
         Venda venda = new Venda(vendaId, sessaoCaixaId, usuarioId, criadoEm);
-        return vendas.save(VendaEntity.de(venda)).getId();
+        return new VendaIniciada(vendas.save(VendaEntity.de(venda)).getId(), criadoEm, false);
     }
 
     /**
@@ -972,6 +987,10 @@ public class VendaService {
         return new ComprovanteDeRecebimento(vendaId, alvo.id(), venda.getClienteId(),
                 clientes.nomeDe(venda.getClienteId()), alvo.sessaoCaixaId(), alvo.criadoEm(),
                 alvo.forma(), alvo.valor(), fiado.subtrair(totalRecebidoAteAqui));
+    }
+
+    /** A venda aberta com o id do dispositivo, o instante gravado e se ela já estava aberta. */
+    public record VendaIniciada(UUID id, Instant criadoEm, boolean repetida) {
     }
 
     /** O item lançado com rede, e se o pedido era o reenvio de um item já gravado. */

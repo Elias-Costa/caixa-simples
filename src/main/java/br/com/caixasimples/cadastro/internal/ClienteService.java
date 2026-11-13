@@ -72,20 +72,38 @@ public class ClienteService {
      */
     @Transactional
     public UUID cadastrar(DadosDoCliente dados) {
-        return cadastrar(UUID.randomUUID(), dados, Instant.now());
+        return cadastrar(UUID.randomUUID(), dados, Instant.now()).id();
     }
 
     /**
-     * O mesmo cadastro, com o id e o instante que o dispositivo gravou ao cadastrar o cliente sem
-     * rede (RNF01). Um id que já existe é recusado pela chave primária, porque a linha nova é
-     * inserida e nunca mesclada sobre outra.
+     * O mesmo cadastro, com o id que o dispositivo gerou: o cliente que ele cadastrou sem rede, ou
+     * o cadastro com rede cuja resposta pode se perder (RNF01, RNF03). O navegador ainda reenvia
+     * sozinho o pedido cuja conexão fechou sem resposta, e o gesto que o aparelho guardou depois da
+     * perda leva o mesmo id: nenhum dos dois grava outro cliente.
+     *
+     * <p>Repetido com o mesmo id, devolve o cliente existente sem gravar apenas quando o nome e o
+     * contato, como ficam gravados, são os mesmos; com outro conteúdo, recusa. A comparação é com o
+     * que está gravado agora, então um cliente editado depois do primeiro envio recusa o envio
+     * antigo. O id de um cliente de outra conta não aparece na consulta, e quem recusa é a chave
+     * primária, porque a linha nova é inserida e nunca mesclada sobre outra.
+     *
+     * @return o id e se o cliente já estava gravado
+     * @throws IllegalStateException se o id já foi usado com outro nome ou contato
      */
     @Transactional
-    public UUID cadastrar(UUID id, DadosDoCliente dados, Instant criadoEm) {
+    public ClienteCadastrado cadastrar(UUID id, DadosDoCliente dados, Instant criadoEm) {
         Objects.requireNonNull(dados, "dados do cliente nao podem ser nulos");
 
-        return clientes.save(new ClienteEntity(id, dados.nome(), dados.contato(), criadoEm))
-                .getId();
+        ClienteEntity novo = new ClienteEntity(id, dados.nome(), dados.contato(), criadoEm);
+        var anterior = clientes.findById(id);
+        if (anterior.isPresent()) {
+            if (!anterior.get().temOsMesmosDados(novo)) {
+                throw new IllegalStateException("Este cliente já foi cadastrado com outro nome ou"
+                        + " contato; abra a lista de clientes de novo para ver o que ficou.");
+            }
+            return new ClienteCadastrado(id, true);
+        }
+        return new ClienteCadastrado(clientes.save(novo).getId(), false);
     }
 
     /**
@@ -217,6 +235,10 @@ public class ClienteService {
     public record DadosDoCliente(String nome, String contato) {
     }
 
+    /** O cadastro com o id do dispositivo, e se ele repetia um cadastro já gravado. */
+    public record ClienteCadastrado(UUID id, boolean repetido) {
+    }
+
     /**
      * O que a listagem devolve.
      *
@@ -337,6 +359,11 @@ class ClienteEntity {
 
     boolean isRemovido() {
         return removidoEm != null;
+    }
+
+    /** O nome e o contato já passaram pela mesma normalização nas duas linhas. */
+    boolean temOsMesmosDados(ClienteEntity outra) {
+        return nome.equals(outra.nome) && Objects.equals(contato, outra.contato);
     }
 
     private void exigirNaoRemovido() {

@@ -31,8 +31,9 @@ const remoto = {
   produtosInativos: () => chamarApi<Produto[]>('/api/produtos/inativos'),
   buscarProdutos: (termo: string) =>
     chamarApi<Produto[]>(`/api/produtos/busca?termo=${encodeURIComponent(termo)}`),
-  criarProduto: (dados: DadosDoProduto) =>
-    chamarApi<{ id: string }>('/api/produtos', { metodo: 'POST', corpo: dados }),
+  /** Com o id gerado no aparelho, o reenvio depois de uma resposta perdida não grava outro item. */
+  criarProduto: (dados: DadosDoProduto, produtoId?: string) =>
+    chamarApi<{ id: string }>('/api/produtos', { metodo: 'POST', corpo: { produtoId, ...dados } }),
   editarProduto: (id: string, dados: DadosDoProduto) =>
     chamarApi<void>(`/api/produtos/${id}`, { metodo: 'PUT', corpo: {
       nome: dados.nome, preco: dados.preco, codigo: dados.codigo,
@@ -44,8 +45,9 @@ const remoto = {
     chamarApi<void>(`/api/produtos/${id}/reativar`, { metodo: 'POST' }),
   clientes: () => chamarApi<Cliente[]>('/api/clientes'),
   clientesInativos: () => chamarApi<Cliente[]>('/api/clientes/inativos'),
-  criarCliente: (dados: DadosDoCliente) =>
-    chamarApi<{ id: string }>('/api/clientes', { metodo: 'POST', corpo: dados }),
+  /** Com o id gerado no aparelho, o reenvio depois de uma resposta perdida não grava outro cliente. */
+  criarCliente: (dados: DadosDoCliente, clienteId?: string) =>
+    chamarApi<{ id: string }>('/api/clientes', { metodo: 'POST', corpo: { clienteId, ...dados } }),
   editarCliente: (id: string, dados: DadosDoCliente) =>
     chamarApi<void>(`/api/clientes/${id}`, { metodo: 'PUT', corpo: dados }),
   inativarCliente: (id: string) =>

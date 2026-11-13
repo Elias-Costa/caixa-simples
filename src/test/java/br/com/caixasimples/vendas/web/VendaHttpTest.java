@@ -784,6 +784,80 @@ class VendaHttpTest extends TesteDeIntegracao {
     }
 
     @Test
+    void inicioComIdDoAparelhoNaoAbreOutraVendaNoReenvioERecusaOutroCaixaOuOperador()
+            throws Exception {
+        ContaCriada conta = criador.criar("PDV Início", SENHA);
+        criador.contratar(conta.contaId(), Plano.COMPLETO);
+        RequestPostProcessor admin = autenticador.como(conta);
+        RequestPostProcessor operador = operadorNovo(admin);
+        UUID produto = produto(conta);
+        UUID sessaoDoAdmin = conta.comoUsuario(() -> caixas.abrir(Money.ZERO));
+        UUID sessaoDoOperador = uuidDaResposta(http.perform(post("/api/caixa/sessoes").with(operador)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"valorAbertura\":0}"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString());
+        UUID venda = UUID.randomUUID();
+        String recusa = "Esta venda já foi aberta em outro caixa ou por outro operador; comece uma"
+                + " nova venda.";
+
+        http.perform(iniciar(admin, venda, sessaoDoAdmin))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(venda.toString()));
+        // A resposta perdida faz o navegador mandar o mesmo pedido de novo.
+        http.perform(iniciar(admin, venda, sessaoDoAdmin))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.id").value(venda.toString()));
+        http.perform(iniciar(admin, venda, sessaoDoOperador))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.detail").value(recusa));
+        http.perform(iniciar(operador, venda, sessaoDoOperador))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.detail").value(recusa));
+        http.perform(get("/api/vendas").param("sessaoCaixaId", sessaoDoAdmin.toString())
+                        .with(admin))
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value(venda.toString()));
+        http.perform(get("/api/vendas").param("sessaoCaixaId", sessaoDoOperador.toString())
+                .with(operador)).andExpect(jsonPath("$").isEmpty());
+
+        // O corpo sem o id continua valendo, e o servidor gera outra venda.
+        assertThat(criarVenda(admin, sessaoDoAdmin)).isNotEqualTo(venda);
+
+        // Com a venda concluída, o reenvio igual responde como da primeira vez.
+        http.perform(lancarItem(admin, venda, UUID.randomUUID(), produto, "1"))
+                .andExpect(status().isCreated());
+        pagar(admin, venda, UUID.randomUUID(), "DINHEIRO", "12.50", null)
+                .andExpect(status().isOk());
+        http.perform(post("/api/vendas/{id}/conclusao", venda).with(admin))
+                .andExpect(status().isNoContent());
+        http.perform(iniciar(admin, venda, sessaoDoAdmin)).andExpect(status().isOk());
+        http.perform(get("/api/vendas/{id}", venda).with(admin))
+                .andExpect(jsonPath("$.status").value("CONCLUIDA"))
+                .andExpect(jsonPath("$.itens.length()").value(1));
+    }
+
+    @Test
+    void inicioComIdDeVendaDeOutraContaERecusadoSemTocarNela() throws Exception {
+        ContaCriada contaA = criador.criar("PDV Aurora do Início", SENHA);
+        ContaCriada contaB = criador.criar("PDV Esquina do Início", SENHA);
+        UUID sessaoA = contaA.comoUsuario(() -> caixas.abrir(Money.ZERO));
+        UUID sessaoB = contaB.comoUsuario(() -> caixas.abrir(Money.ZERO));
+        RequestPostProcessor adminA = autenticador.como(contaA);
+        RequestPostProcessor adminB = autenticador.como(contaB);
+        UUID venda = UUID.randomUUID();
+        http.perform(iniciar(adminB, venda, sessaoB)).andExpect(status().isCreated());
+
+        // A consulta da Conta A não enxerga a venda da B, e quem recusa é a chave primária; a
+        // resposta não diz nada sobre a outra Conta.
+        String corpo = http.perform(iniciar(adminA, venda, sessaoA))
+                .andExpect(status().isInternalServerError())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(corpo).doesNotContain(venda.toString()).doesNotContain(sessaoB.toString());
+
+        http.perform(get("/api/vendas").param("sessaoCaixaId", sessaoA.toString()).with(adminA))
+                .andExpect(jsonPath("$").isEmpty());
+        http.perform(get("/api/vendas/{id}", venda).with(adminB))
+                .andExpect(jsonPath("$.sessaoCaixaId").value(sessaoB.toString()))
+                .andExpect(jsonPath("$.status").value("ABERTA"));
+    }
+
+    @Test
     void produtoVendidoPorUnidadeRecusaFracaoEOReenvioIgualContinuaRespondendo() throws Exception {
         ContaCriada conta = criador.criar("PDV Bala", SENHA);
         UUID bala = conta.comoUsuario(() -> produtos.cadastrar(TipoProduto.PRODUTO,
@@ -971,6 +1045,12 @@ class VendaHttpTest extends TesteDeIntegracao {
             requisicao.addHeader("Authorization", "Bearer " + token);
             return requisicao;
         };
+    }
+
+    private MockHttpServletRequestBuilder iniciar(RequestPostProcessor usuario, UUID venda,
+            UUID sessao) {
+        return post("/api/vendas").with(usuario).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"vendaId\":\"" + venda + "\",\"sessaoCaixaId\":\"" + sessao + "\"}");
     }
 
     private UUID criarVenda(RequestPostProcessor usuario, UUID sessao) throws Exception {

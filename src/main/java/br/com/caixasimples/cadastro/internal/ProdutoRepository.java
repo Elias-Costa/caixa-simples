@@ -2,6 +2,7 @@ package br.com.caixasimples.cadastro.internal;
 
 import br.com.caixasimples.cadastro.TipoMovimentoEstoque;
 import br.com.caixasimples.cadastro.TipoProduto;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -20,8 +21,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
  *
  * <p>{@code MovimentoEstoque} é membro do agregado e não tem repositório próprio: é gravado pela
  * raiz, junto do saldo. A entidade dele nem sequer é visível fora deste pacote, então a regra não
- * depende apenas de disciplina. A única pergunta sobre o membro que se faz aqui,
- * {@link #existsByIdAndMovimentosVendaIdAndMovimentosTipo}, passa pela raiz.
+ * depende apenas de disciplina. As perguntas sobre o membro que se fazem aqui, se a venda já
+ * movimentou o produto e se o movimento com o id do dispositivo já existe, passam pela raiz.
  */
 public interface ProdutoRepository extends JpaRepository<ProdutoEntity, UUID> {
 
@@ -46,6 +47,28 @@ public interface ProdutoRepository extends JpaRepository<ProdutoEntity, UUID> {
      */
     boolean existsByIdAndMovimentosVendaIdAndMovimentosTipo(UUID id, UUID vendaId,
             TipoMovimentoEstoque tipo);
+
+    /**
+     * Se algum produto desta conta tem o movimento com este id: é a primeira pergunta do ajuste e
+     * da entrada que chegam com o id do dispositivo, antes de saber se é o mesmo movimento.
+     */
+    boolean existsByMovimentosId(UUID movimentoId);
+
+    /**
+     * Se o movimento com este id é deste produto, deste tipo, com esta quantidade e este motivo.
+     * Os filtros sobre {@code movimentos} caem na mesma linha do histórico pelo mesmo motivo de
+     * {@link #existsByIdAndMovimentosVendaIdAndMovimentosTipo}.
+     */
+    boolean existsByIdAndMovimentosIdAndMovimentosTipoAndMovimentosQuantidadeAndMovimentosMotivo(
+            UUID id, UUID movimentoId, TipoMovimentoEstoque tipo, BigDecimal quantidade,
+            String motivo);
+
+    /**
+     * A mesma pergunta para o movimento sem motivo. É uma consulta à parte, e não o motivo nulo
+     * na de cima, para a comparação com o ausente ficar escrita no nome.
+     */
+    boolean existsByIdAndMovimentosIdAndMovimentosTipoAndMovimentosQuantidadeAndMovimentosMotivoIsNull(
+            UUID id, UUID movimentoId, TipoMovimentoEstoque tipo, BigDecimal quantidade);
 
     List<ProdutoEntity> findByAtivoTrue();
 

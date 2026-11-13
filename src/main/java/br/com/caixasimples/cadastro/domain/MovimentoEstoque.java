@@ -96,18 +96,21 @@ public record MovimentoEstoque(UUID id, TipoMovimentoEstoque tipo, BigDecimal qu
      * nota ou o fornecedor. Sem venda, e é isso que a separa no histórico do estorno de cancelamento,
      * a outra ENTRADA, que aponta para a venda que desfez.
      */
-    static MovimentoEstoque entradaPorCompra(BigDecimal quantidade, String motivo) {
-        return new MovimentoEstoque(UUID.randomUUID(), TipoMovimentoEstoque.ENTRADA, quantidade,
-                motivo, null, Instant.now());
+    static MovimentoEstoque entradaPorCompra(UUID id, BigDecimal quantidade, String motivo) {
+        return new MovimentoEstoque(id, TipoMovimentoEstoque.ENTRADA, quantidade, motivo, null,
+                Instant.now());
     }
 
     /**
      * O ajuste manual (RF19): a diferença com sinal e o motivo que a raiz já exigiu. Sem venda,
      * porque o ajuste é decisão de quem conta a prateleira, não consequência de um atendimento.
+     *
+     * <p>O id vem de quem pediu, como na entrada por compra: o dispositivo o gera, para que o
+     * mesmo pedido repetido seja reconhecido como o mesmo movimento.
      */
-    static MovimentoEstoque ajuste(BigDecimal diferenca, String motivo) {
-        return new MovimentoEstoque(UUID.randomUUID(), TipoMovimentoEstoque.AJUSTE, diferenca,
-                motivo, null, Instant.now());
+    static MovimentoEstoque ajuste(UUID id, BigDecimal diferenca, String motivo) {
+        return new MovimentoEstoque(id, TipoMovimentoEstoque.AJUSTE, diferenca, motivo, null,
+                Instant.now());
     }
 
     /**

@@ -340,7 +340,7 @@ describe('PDV no tablet', () => {
     fireEvent.change(busca, { target: { value: 'CA-1' } })
     fireEvent.click(await screen.findByRole('button', { name: /Café · R\$\s*12,50/ }))
     await waitFor(() => expect(adicionar).toHaveBeenCalledWith('venda-1', 'produto-1', 1, 0, expect.any(String)))
-    expect(iniciar).toHaveBeenCalledWith('sessao-1')
+    expect(iniciar).toHaveBeenCalledWith('sessao-1', expect.any(String))
     fireEvent.click(screen.getByLabelText('Valor recebido em dinheiro'))
     fireEvent.change(screen.getByLabelText('Valor recebido em dinheiro'), { target: { value: '15.00' } })
     fireEvent.click(screen.getByRole('button', { name: 'Receber e concluir' }))
@@ -1458,7 +1458,7 @@ describe('comanda do servidor sem servidor', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Pão · R\$\s*12,50/ }))
 
     await waitFor(() => expect(adicionar).toHaveBeenCalledWith('venda-2', 'produto-2', 1, 0, expect.any(String)))
-    expect(iniciar).toHaveBeenCalledWith('sessao-1')
+    expect(iniciar).toHaveBeenCalledWith('sessao-1', expect.any(String))
     expect(adicionar).not.toHaveBeenCalledWith('venda-1', expect.anything(), expect.anything(), expect.anything(),
       expect.anything())
     expect(await screen.findByText(/Venda venda-2/)).toBeInTheDocument()

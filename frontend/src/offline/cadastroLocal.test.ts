@@ -3,7 +3,7 @@ import { deleteDB } from 'idb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Cliente, DadosDoCliente, DadosDoProduto, Produto } from '../api/cadastro'
 import { SemConexao } from '../api/cliente'
-import { registrarSemResposta } from '../api/conexao'
+import { registrarResposta, registrarSemResposta } from '../api/conexao'
 import type { OperacaoDoLote } from '../api/sincronizacao'
 import { gravarIdentidade, gravarToken } from '../sessao/armazenamento'
 import type { Identidade } from '../sessao/Identidade'
@@ -31,13 +31,13 @@ function remoto(produtos: Produto[] = [], clientes: Cliente[] = [], produtosInat
     produtos: vi.fn(async () => produtos),
     produtosInativos: vi.fn(async () => produtosInativos),
     buscarProdutos: vi.fn(async (_termo: string) => produtos),
-    criarProduto: vi.fn(async (_dados: DadosDoProduto) => ({ id: crypto.randomUUID() })),
+    criarProduto: vi.fn(async (_dados: DadosDoProduto, _id?: string) => ({ id: crypto.randomUUID() })),
     editarProduto: vi.fn(async (_id: string, _dados: DadosDoProduto) => undefined),
     inativarProduto: vi.fn(async (_id: string) => undefined),
     reativarProduto: vi.fn(async (_id: string) => undefined),
     clientes: vi.fn(async () => clientes),
     clientesInativos: vi.fn(async () => [] as Cliente[]),
-    criarCliente: vi.fn(async (_dados: DadosDoCliente) => ({ id: crypto.randomUUID() })),
+    criarCliente: vi.fn(async (_dados: DadosDoCliente, _id?: string) => ({ id: crypto.randomUUID() })),
     editarCliente: vi.fn(async (_id: string, _dados: DadosDoCliente) => undefined),
     inativarCliente: vi.fn(async (_id: string) => undefined),
     reativarCliente: vi.fn(async (_id: string) => undefined),
@@ -291,6 +291,8 @@ describe('cadastro com o servidor fora e o Wi-Fi ligado', () => {
     await local.criarProduto({ ...dados, nome: 'Bolo de milho' })
 
     expect(api.criarProduto).toHaveBeenCalledTimes(1)
+    // O gesto leva o id que a chamada levou: se ela gravou, o servidor reconhece o mesmo item.
+    expect(api.criarProduto).toHaveBeenCalledWith(dados, id)
     // Registros diferentes gravados no mesmo milissegundo não têm ordem entre si.
     const gestos = await listarGestos()
     expect(gestos.map((gesto) => [gesto.tipo, gesto.payload])).toEqual(expect.arrayContaining([
@@ -298,6 +300,49 @@ describe('cadastro com o servidor fora e o Wi-Fi ligado', () => {
       ['produto.criar', expect.objectContaining({ nome: 'Bolo de milho' })],
     ]))
     expect(gestos.find((gesto) => (gesto.payload as { nome: string }).nome === 'Pão de queijo')?.registroId).toBe(id)
+  })
+
+  it('o cliente cuja criação ficou sem resposta vai para a fila com o id que a chamada levou', async () => {
+    entrar(ana)
+    rede(true)
+    // O teste anterior deixou o aparelho sem servidor.
+    registrarResposta()
+    const api = remoto()
+    api.criarCliente.mockImplementation(async () => {
+      registrarSemResposta()
+      throw new SemConexao()
+    })
+    const local = criarCadastroLocal(api)
+    const dados: DadosDoCliente = { nome: 'Dona Marta', contato: '71 98888-0000' }
+
+    const { id } = await local.criarCliente(dados)
+
+    expect(api.criarCliente).toHaveBeenCalledTimes(1)
+    expect(api.criarCliente).toHaveBeenCalledWith(dados, id)
+    expect(await listarGestos()).toEqual([expect.objectContaining({
+      tipo: 'cliente.criar', registroId: id, payload: { nome: 'Dona Marta', contato: '71 98888-0000' },
+    })])
+  })
+
+  it('com resposta, o cliente e o produto levam ao servidor um id novo a cada cadastro', async () => {
+    entrar(ana)
+    rede(true)
+    // O teste anterior deixou o aparelho sem servidor.
+    registrarResposta()
+    const api = remoto()
+    const local = criarCadastroLocal(api)
+    const produto: DadosDoProduto = { tipo: 'PRODUTO', nome: 'Broa', preco: 3, codigo: null,
+      categoria: null, unidade: 'un', atributos: {} }
+
+    await local.criarProduto(produto)
+    await local.criarProduto(produto)
+    await local.criarCliente({ nome: 'Bia', contato: null })
+
+    const idsDosProdutos = api.criarProduto.mock.calls.map((chamada) => chamada[1])
+    expect(idsDosProdutos).toEqual([expect.any(String), expect.any(String)])
+    expect(idsDosProdutos[0]).not.toBe(idsDosProdutos[1])
+    expect(api.criarCliente).toHaveBeenCalledWith({ nome: 'Bia', contato: null }, expect.any(String))
+    expect(await listarGestos()).toEqual([])
   })
 })
 

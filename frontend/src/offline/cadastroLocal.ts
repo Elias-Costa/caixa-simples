@@ -14,13 +14,13 @@ type Remoto = {
   produtos(): Promise<Produto[]>
   produtosInativos(): Promise<Produto[]>
   buscarProdutos(termo: string): Promise<Produto[]>
-  criarProduto(dados: DadosDoProduto): Promise<{ id: string }>
+  criarProduto(dados: DadosDoProduto, produtoId?: string): Promise<{ id: string }>
   editarProduto(id: string, dados: DadosDoProduto): Promise<void>
   inativarProduto(id: string): Promise<void>
   reativarProduto(id: string): Promise<void>
   clientes(): Promise<Cliente[]>
   clientesInativos(): Promise<Cliente[]>
-  criarCliente(dados: DadosDoCliente): Promise<{ id: string }>
+  criarCliente(dados: DadosDoCliente, clienteId?: string): Promise<{ id: string }>
   editarCliente(id: string, dados: DadosDoCliente): Promise<void>
   inativarCliente(id: string): Promise<void>
   reativarCliente(id: string): Promise<void>
@@ -34,9 +34,10 @@ const GESTOS_CLIENTE = 'cliente.'
 
 /**
  * A escrita direta no servidor. Sem resposta, o aparelho passa a operar pela fila, e quem chamou
- * grava o gesto: por isso volta nulo, e não a resposta. A criação perdida que tinha gravado deixa
- * um registro repetido, que aparece na lista e se inativa; editar, inativar e reativar gravam um
- * valor, e repetir não soma nada.
+ * grava o gesto: por isso volta nulo, e não a resposta. A criação leva o id que nasceu antes da
+ * chamada, e o gesto guardado depois da perda leva o mesmo: se a chamada tinha gravado, o servidor
+ * reconhece o registro igual, no reenvio do navegador e no lote, e não grava outro. Editar,
+ * inativar e reativar gravam um valor, e repetir não soma nada.
  */
 async function noServidor<T>(chamar: () => Promise<T>): Promise<{ resposta: T } | null> {
   try {
@@ -337,8 +338,9 @@ export function criarCadastroLocal<T extends Remoto>(remoto: T): T {
       return (await locaisClientes()).filter((cliente) => !cliente.ativo)
     },
     async criarProduto(dados) {
+      const id = crypto.randomUUID()
       if (comServidor()) {
-        const feito = await noServidor(() => remoto.criarProduto(dados))
+        const feito = await noServidor(() => remoto.criarProduto(dados, id))
         if (feito) return feito.resposta
       }
       exigirArmazenamento()
@@ -347,7 +349,6 @@ export function criarCadastroLocal<T extends Remoto>(remoto: T): T {
       if ((await locaisAtivos()).some((item) => mesmoCodigo(item, dados.codigo))) {
         throw new Error('Já existe item ativo com esse código neste aparelho.')
       }
-      const id = crypto.randomUUID()
       await enfileirar('produto.criar', id, camposDoProduto(dados))
       return { id }
     },
@@ -405,13 +406,13 @@ export function criarCadastroLocal<T extends Remoto>(remoto: T): T {
       await enfileirar('produto.reativar', id, {}, dependeDe, versaoLida(atual))
     },
     async criarCliente(dados) {
+      const id = crypto.randomUUID()
       if (comServidor()) {
-        const feito = await noServidor(() => remoto.criarCliente(dados))
+        const feito = await noServidor(() => remoto.criarCliente(dados, id))
         if (feito) return feito.resposta
       }
       exigirArmazenamento()
       validarCliente(dados)
-      const id = crypto.randomUUID()
       await enfileirar('cliente.criar', id, camposDoCliente(dados))
       return { id }
     },

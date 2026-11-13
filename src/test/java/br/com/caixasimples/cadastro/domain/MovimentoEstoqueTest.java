@@ -68,15 +68,16 @@ class MovimentoEstoqueTest {
     }
 
     @Test
-    @DisplayName("a fábrica do ajuste nasce com identidade, instante e motivo aparado, e sem venda")
+    @DisplayName("a fábrica do ajuste nasce com o id dado, instante e motivo aparado, e sem venda")
     void fabricaDoAjuste() {
-        MovimentoEstoque ajuste = MovimentoEstoque.ajuste(new BigDecimal("-2.500"), "  perda  ");
+        UUID id = UUID.randomUUID();
+        MovimentoEstoque ajuste = MovimentoEstoque.ajuste(id, new BigDecimal("-2.500"), "  perda  ");
 
         assertThat(ajuste.tipo()).isEqualTo(TipoMovimentoEstoque.AJUSTE);
         assertThat(ajuste.quantidade()).isEqualByComparingTo("-2.500");
         assertThat(ajuste.motivo()).isEqualTo("perda");
         assertThat(ajuste.vendaId()).as("ajuste não vem de venda").isNull();
-        assertThat(ajuste.id()).isNotNull();
+        assertThat(ajuste.id()).isEqualTo(id);
         assertThat(ajuste.criadoEm()).isNotNull();
     }
 
