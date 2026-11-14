@@ -184,7 +184,7 @@ fi
 chown "$UID_DA_APLICACAO:$UID_DA_APLICACAO" "$CONFIGURACAO/efi"
 chmod 700 "$CONFIGURACAO/efi"
 
-passo "Tarefas agendadas: a atualização agora; o deploy da madrugada, a cópia, o vigia e o alerta de recusas a partir do boot"
+passo "Tarefas agendadas: a atualização agora; o deploy da madrugada, a cópia, o vigia e os alertas de recusas e de erros a partir do boot"
 install -m 644 "$REPOSITORIO/operacao/vps/systemd/dnf-automatic.timer.d/janela.conf" \
     /etc/systemd/system/dnf-automatic.timer.d/janela.conf
 install -m 644 "$REPOSITORIO"/operacao/vps/systemd/ecrx-caixa-*.service \
@@ -194,6 +194,6 @@ systemctl enable --now dnf-automatic.timer
 # Parados até o primeiro deploy, que é quando a configuração está preenchida e há versão para
 # copiar, aplicação para conferir e log para ler.
 systemctl enable ecrx-caixa-implantar.timer ecrx-caixa-copia.timer ecrx-caixa-vigia.timer \
-    ecrx-caixa-recusas.timer
+    ecrx-caixa-recusas.timer ecrx-caixa-erros.timer
 
 echo "Pronto. Preencha $CONFIGURACAO/ecrx-caixa.env e siga a primeira publicação."

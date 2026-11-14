@@ -64,11 +64,12 @@ ECRX_CAIXA_COPIA_HORA_DIARIA=6
 ECRX_CAIXA_COPIA_AWS_ACCESS_KEY_ID=
 ECRX_CAIXA_COPIA_AWS_SECRET_ACCESS_KEY=
 
-# Endereços de sinal do vigia, um por check: o da cópia, o da máquina, o das recusas e o do deploy
-# da madrugada.
+# Endereços de sinal do vigia, um por check: o da cópia, o da máquina, o das recusas, o dos erros e o
+# do deploy da madrugada.
 ECRX_CAIXA_VIGIA_COPIA=
 ECRX_CAIXA_VIGIA_MAQUINA=
 ECRX_CAIXA_VIGIA_RECUSAS=
+ECRX_CAIXA_VIGIA_ERROS=
 ECRX_CAIXA_VIGIA_DEPLOY=
 FIM
 

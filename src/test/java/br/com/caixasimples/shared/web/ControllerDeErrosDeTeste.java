@@ -1,6 +1,7 @@
 package br.com.caixasimples.shared.web;
 
 import br.com.caixasimples.shared.AcessoNegadoException;
+import br.com.caixasimples.shared.RegistroDeRemocoesIndisponivelException;
 import br.com.caixasimples.shared.TenantNaoResolvidoException;
 import br.com.caixasimples.shared.UsuarioNaoResolvidoException;
 import jakarta.validation.Valid;
@@ -71,6 +72,11 @@ class ControllerDeErrosDeTeste {
     @GetMapping("/inesperado")
     void inesperado() {
         throw new RuntimeException(MENSAGEM_INTERNA);
+    }
+
+    @GetMapping("/indisponivel")
+    void indisponivel() {
+        throw new RegistroDeRemocoesIndisponivelException();
     }
 
     @PostMapping("/validacao")

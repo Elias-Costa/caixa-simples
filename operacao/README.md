@@ -19,7 +19,7 @@ sem corpo.
 | [`.dockerignore`](../.dockerignore) e [`.dockerignore`](.dockerignore) desta pasta | O que cada build de imagem enxerga: só o que compila o jar, e só os scripts que a imagem da cópia copia |
 | [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) | Testes Java e do front-end, build, lint e avisos de segurança das dependências a cada push no `main` e a cada pull request, e os avisos também uma vez por semana; no push verde, a publicação das imagens; pelo botão, o deploy de urgência |
 | [`.github/dependabot.yml`](../.github/dependabot.yml) | Uma vez por mês, um pull request com as versões novas das Actions do CI e das imagens de terceiros, que ficam [presas](#dependências-presas) pelo SHA do commit e pelo digest |
-| [`vps/`](vps/) | A VPS: o compose da produção, o proxy, o banco com o papel da aplicação sem superusuário, o preparo da máquina, o limite de conexões por origem, a configuração, o deploy e o deploy da madrugada, a cópia agendada, o vigia, o alerta de recusas e as tarefas do systemd |
+| [`vps/`](vps/) | A VPS: o compose da produção, o proxy, o banco com o papel da aplicação sem superusuário, o preparo da máquina, o limite de conexões por origem, a configuração, o deploy e o deploy da madrugada, a cópia agendada, o vigia, os alertas de recusas e de erros e as tarefas do systemd |
 | [`dependencias/`](dependencias/) | A verificação dos avisos de segurança das dependências e das imagens, e as exceções fundamentadas a ela |
 | [`copia/`](copia/) | Imagem da cópia, a cópia, a restauração e a conferência entre as duas |
 | [`exclusao/`](exclusao/) | O encerramento de uma Conta a pedido |
@@ -237,6 +237,7 @@ Na máquina, fora dos contêineres:
 | `ecrx-caixa-copia.timer` | A [cópia](#cópia-de-hora-em-hora-cifrada), toda hora cheia, em UTC |
 | `ecrx-caixa-vigia.timer` | O sinal de vida para o [vigia](#vigia), a cada 5 minutos |
 | `ecrx-caixa-recusas.timer` | O [alerta de recusas](#vigia), a cada 5 minutos |
+| `ecrx-caixa-erros.timer` | O [alerta de erros](#vigia), a cada 5 minutos |
 | `dnf-automatic.timer` | As atualizações de segurança, às 7h30 UTC, dentro da janela, com reinício quando pedido |
 
 O [preparo](vps/preparar.sh) deixa o SSH só por chave e sem root, o firewall só com o SSH, nas portas
@@ -299,7 +300,7 @@ variáveis que o compose lista para ele.
 | `ECRX_CAIXA_COPIA_DESTINO` e `ECRX_CAIXA_COPIA_DESTINO_DIARIA` | `s3:<bucket>/horaria` e `s3:<bucket>/diaria` | Os dois destinos da cópia |
 | `ECRX_CAIXA_COPIA_HORA_DIARIA` | `6` | A hora UTC da cópia que fica 30 dias |
 | `ECRX_CAIXA_COPIA_AWS_*` | A credencial do usuário do IAM da cópia | Grava objeto novo no bucket, e mais nada |
-| `ECRX_CAIXA_VIGIA_COPIA`, `ECRX_CAIXA_VIGIA_MAQUINA`, `ECRX_CAIXA_VIGIA_RECUSAS` e `ECRX_CAIXA_VIGIA_DEPLOY` | Os endereços de sinal dos quatro checks | O [vigia](#vigia) |
+| `ECRX_CAIXA_VIGIA_COPIA`, `ECRX_CAIXA_VIGIA_MAQUINA`, `ECRX_CAIXA_VIGIA_RECUSAS`, `ECRX_CAIXA_VIGIA_ERROS` e `ECRX_CAIXA_VIGIA_DEPLOY` | Os endereços de sinal dos cinco checks | O [vigia](#vigia) |
 
 `/etc/ecrx-caixa/efi.env` guarda, para cada Conta que recebe pelo Pix integrado, com o UUID da
 Conta em maiúsculas e sem hífens, `ECRX_CAIXA_EFI_<UUID>_AMBIENTE`, `_CLIENT_ID`, `_CLIENT_SECRET`,
@@ -366,7 +367,7 @@ o nome dele, e o compose da VPS as busca como `ghcr.io/elias-costa/ecrx-caixa` e
    [Cópia de hora em hora](#cópia-de-hora-em-hora-cifrada), e o bucket separado de remoções, com a
    regra de 45 dias, credencial de gravação para a aplicação e leitura para a restauração, como em
    [Remoção](#remoção-de-dados-e-encerramento-da-conta).
-7. **Vigia:** os quatro checks, como em [Vigia](#vigia).
+7. **Vigia:** os cinco checks, como em [Vigia](#vigia).
 8. **Configuração:** preencher `/etc/ecrx-caixa/ecrx-caixa.env`.
 9. **GitHub**, nas configurações do repositório:
    - o segredo `VPS_CHAVE_DE_IMPLANTACAO`, com o conteúdo da chave privada do CI;
@@ -395,7 +396,7 @@ o nome dele, e o compose da VPS as busca como `ghcr.io/elias-costa/ecrx-caixa` e
 12. **Primeiro deploy**, pelo botão **Run workflow**. Sem versão no ar ainda, ele vai a qualquer hora.
     A aplicação sobe, aplica as migrations, e o proxy obtém o certificado do domínio.
 13. **Tarefas agendadas:** `systemctl start ecrx-caixa-implantar.timer ecrx-caixa-copia.timer
-    ecrx-caixa-vigia.timer ecrx-caixa-recusas.timer`.
+    ecrx-caixa-vigia.timer ecrx-caixa-recusas.timer ecrx-caixa-erros.timer`.
 14. **Memória:** `sh compose.sh exec app cat /sys/fs/cgroup/memory.max` tem de dar 1073741824, o
     limite em que a JVM foi medida.
 15. **Banco:** `sh compose.sh exec banco psql -U postgres -tAc "select rolsuper, rolcreaterole,
@@ -1134,7 +1135,7 @@ perda fica no que foi escrito depois dela, no máximo uma hora.
    chegar à máquina.
 5. No GitHub, atualizar `VPS_ENDERECO`, `VPS_CHAVE_DO_HOST` e, se a porta do SSH mudou,
    `VPS_PORTA_SSH`.
-6. `systemctl start ecrx-caixa-implantar.timer ecrx-caixa-copia.timer ecrx-caixa-vigia.timer ecrx-caixa-recusas.timer`,
+6. `systemctl start ecrx-caixa-implantar.timer ecrx-caixa-copia.timer ecrx-caixa-vigia.timer ecrx-caixa-recusas.timer ecrx-caixa-erros.timer`,
    e apagar a chave privada da máquina.
 
 No ensaio local, a recriação inteira, num projeto de compose novo com volume vazio, terminou com a
@@ -1344,7 +1345,7 @@ negócio curto pode levar junto linhas que não são dele, o que no histórico n
 
 ## Vigia
 
-Quatro checks no Healthchecks.io, plano gratuito, com aviso por e-mail ao mantenedor quando um sinal
+Cinco checks no Healthchecks.io, plano gratuito, com aviso por e-mail ao mantenedor quando um sinal
 esperado não chega ou quando chega o de falha:
 
 | Check | Período | Tolerância | Quem manda o sinal |
@@ -1352,12 +1353,13 @@ esperado não chega ou quando chega o de falha:
 | cópia | 1 hora | 30 minutos | [`copia-agendada.sh`](vps/copia-agendada.sh), depois de cada cópia: o sinal, ou o de falha |
 | máquina | 5 minutos | 10 minutos | [`vigia.sh`](vps/vigia.sh), depois de conferir a aplicação pelo domínio, passando pelo proxy e pelo certificado |
 | recusas | 5 minutos | 10 minutos | [`vigia-de-recusas.sh`](vps/vigia-de-recusas.sh), depois de contar as recusas dos últimos 5 minutos no log da aplicação: o sinal, ou o de falha acima de 50 |
+| erros | 5 minutos | 10 minutos | [`vigia-de-erros.sh`](vps/vigia-de-erros.sh), depois de contar as linhas em ERROR dos últimos 5 minutos no log da aplicação: o sinal, ou o de falha a partir de uma |
 | deploy | 1 dia | 1 hora | [`implantar-agendado.sh`](vps/implantar-agendado.sh), depois do deploy da madrugada: o sinal, inclusive quando o commit já estava no ar, ou o de falha |
 
 O endereço de sinal de cada check vai na [configuração](#configuração). O sinal é um GET sem corpo, só
 com o endereço do check: nenhum log e nada das Contas sai da máquina por ele. Cobrem a hora sem cópia,
-a máquina ou a rede fora do ar, a aplicação parada ou travada, o certificado vencido e a rajada de
-recusas, e o deploy da madrugada recusado, que não ficou saudável ou que não rodou. O deploy pelo botão
+a máquina ou a rede fora do ar, a aplicação parada ou travada, o certificado vencido, a rajada de
+recusas, o erro da aplicação ou do aplicativo, e o deploy da madrugada recusado, que não ficou saudável ou que não rodou. O deploy pelo botão
 que falha aparece no CI, que fica vermelho, e o GitHub avisa por e-mail.
 
 **O alerta de recusas** conta os [eventos de segurança](#a-vps) de login recusado, troca recusada da
@@ -1372,10 +1374,38 @@ journalctl CONTAINER_NAME=ecrx-caixa-app-1 --since -30min | grep -E ' evento=[a-
   | grep -oE 'origem=[^ ]+' | sort | uniq -c | sort -rn | head
 ```
 
-Sem conseguir ler o log, o script não manda sinal nenhum, e o check só cai depois da tolerância: a troca
-da aplicação no deploy não vira alerta. Numa configuração gerada antes do alerta ou do deploy da
-madrugada, as linhas `ECRX_CAIXA_VIGIA_RECUSAS=` e `ECRX_CAIXA_VIGIA_DEPLOY=` entram à mão, porque o
-gerador nunca sobrescreve o arquivo.
+**O alerta de erros** conta as linhas em ERROR do log da aplicação: o erro inesperado, que responde 500 e
+sai com a pilha sem as mensagens; toda resposta 5xx, numa linha com o status, o método e o caminho, como a
+indisponibilidade do Pix ou do registro de remoções; a recusa inesperada de um gesto do lote, que responde
+200; e o erro que o aplicativo relata, com o tipo, o arquivo, a linha e a coluna do código dele, a tela e a
+versão. Nenhuma dessas linhas leva Conta, usuário, origem nem a mensagem do erro. Um erro só já manda o
+sinal de falha, e o check volta com o sinal normal dos 5 minutos seguintes sem erro: cada erro rende o
+e-mail da queda e o da volta. A saúde da instância fica de fora, para a troca da aplicação não virar
+alerta. Com o aviso, as linhas e a pilha estão no log:
+
+```bash
+journalctl CONTAINER_NAME=ecrx-caixa-app-1 --since -30min | grep -A 30 -E ' ERROR '
+```
+
+O erro do aplicativo aponta o arquivo do build publicado, com a linha e a coluna do código minificado, e a
+versão diz o commit dele. Para achar o trecho no código, construa o mesmo commit com mapa de fontes
+(`npx vite build --sourcemap` em `frontend/`, numa cópia) e procure a posição no `.map` do arquivo citado.
+
+Sem conseguir ler o log, os dois scripts não mandam sinal nenhum, e o check só cai depois da tolerância: a
+troca da aplicação no deploy não vira alerta. Numa configuração gerada antes de um dos alertas ou do deploy
+da madrugada, as linhas `ECRX_CAIXA_VIGIA_RECUSAS=`, `ECRX_CAIXA_VIGIA_ERROS=` e `ECRX_CAIXA_VIGIA_DEPLOY=`
+entram à mão, porque o gerador nunca sobrescreve o arquivo.
+
+**Numa VPS preparada antes do alerta de erros,** o deploy atualiza o repositório, mas as unidades do
+systemd só são copiadas pelo preparo. Depois do deploy que traz o alerta: criar no Healthchecks.io o check
+erros (5 minutos, tolerância de 10), pôr o endereço dele em `ECRX_CAIXA_VIGIA_ERROS=` na configuração, e
+então
+
+```bash
+install -m 644 /opt/ecrx-caixa/repositorio/operacao/vps/systemd/ecrx-caixa-erros.service \
+    /opt/ecrx-caixa/repositorio/operacao/vps/systemd/ecrx-caixa-erros.timer /etc/systemd/system/
+systemctl daemon-reload && systemctl enable --now ecrx-caixa-erros.timer
+```
 
 ## Ensaio local
 

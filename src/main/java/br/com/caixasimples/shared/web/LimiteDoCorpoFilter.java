@@ -26,7 +26,8 @@ import tools.jackson.databind.ObjectMapper;
  *
  * <p>Sem limite, o pedido inteiro viraria objeto na memória antes de qualquer recusa: a árvore de
  * um JSON ocupa mais de dez vezes o texto, e um só pedido anônimo grande esgotaria o heap. O login
- * e o aviso de pagamento Pix são públicos e levam pouco, então têm limite pequeno. O resto, o lote
+ * e o aviso de pagamento Pix são públicos e levam pouco, então têm limite pequeno, como o relato de
+ * erro do aplicativo, que vai ao log e leva menos ainda. O resto, o lote
  * de sincronização incluído, aceita até 512 KB, quatro vezes o maior lote que os formulários do
  * aplicativo produzem.
  *
@@ -50,6 +51,9 @@ class LimiteDoCorpoFilter extends OncePerRequestFilter {
 
     /** Um aviso com cem pagamentos, cada campo no máximo documentado, tem cerca de 100 KB. */
     static final int LIMITE_DO_AVISO_PIX = 256 * 1024;
+
+    /** O relato de erro do aplicativo tem quatro campos curtos, com menos de 400 bytes juntos. */
+    static final int LIMITE_DO_ERRO_DO_APLICATIVO = 2 * 1024;
 
     static final int LIMITE_PADRAO = 512 * 1024;
 
@@ -92,6 +96,9 @@ class LimiteDoCorpoFilter extends OncePerRequestFilter {
         }
         if (caminho.startsWith("/api/webhooks/pix")) {
             return LIMITE_DO_AVISO_PIX;
+        }
+        if (caminho.startsWith("/api/erros-do-aplicativo")) {
+            return LIMITE_DO_ERRO_DO_APLICATIVO;
         }
         return LIMITE_PADRAO;
     }

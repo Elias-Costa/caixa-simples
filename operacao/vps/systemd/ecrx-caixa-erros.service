@@ -1,0 +1,10 @@
+# O alerta de erros: conta as linhas em ERROR no log da aplicação e manda o sinal ao vigia.
+[Unit]
+Description=Alerta de erros do ECRX Caixa
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /opt/ecrx-caixa/repositorio/operacao/vps/vigia-de-erros.sh
+TimeoutStartSec=2min

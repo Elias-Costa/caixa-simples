@@ -4,9 +4,11 @@ import { BrowserRouter } from 'react-router'
 import { App } from './App'
 import { SessaoProvider } from './sessao/SessaoProvider'
 import { observarInstalacao } from './offline/armazenamentoPersistente'
+import { observarErros } from './registroDeErros'
 import './estilos.css'
 
 observarInstalacao()
+observarErros()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

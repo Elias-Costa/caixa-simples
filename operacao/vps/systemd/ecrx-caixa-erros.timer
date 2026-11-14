@@ -1,0 +1,9 @@
+[Unit]
+Description=Alerta de erros do ECRX Caixa, a cada 5 minutos
+
+[Timer]
+OnCalendar=*:0/5
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target
