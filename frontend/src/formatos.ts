@@ -29,6 +29,9 @@ export function horaNoDia(instante: Date, dia: string): string {
 /** A quantidade com vírgula e até três casas, as do que se vende por peso, sem zeros sobrando. */
 export const quantidade = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 3 })
 
+/** Quantos registros uma lista tem, com o ponto de milhar: 2.017 itens. */
+export const contagem = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 })
+
 /**
  * A quantidade com a unidade do cadastro, como 0,35 kg. O item sem unidade, como o serviço, mostra
  * só o número.

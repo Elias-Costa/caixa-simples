@@ -2338,3 +2338,107 @@ describe('a prévia do troco depois da parcela que não entrou', () => {
     expect(screen.getByText('Troco previsto:').closest('p')).toHaveTextContent('R$ 7,50')
   })
 })
+
+describe('a busca do balcão com muitos achados', () => {
+  const produto = (numero: number, extra: Partial<Produto> = {}): Produto => ({
+    id: `p-${numero}`, tipo: 'PRODUTO', nome: `Item de carga ${String(numero).padStart(4, '0')}`, preco: 2,
+    codigo: null, categoria: null, unidade: 'un', atributos: {}, ...extra,
+  })
+  // Fora de ordem, como pode chegar da cópia do cadastro no aparelho.
+  const muitos = (quantos: number) => Array.from({ length: quantos }, (_, i) => produto(quantos - i))
+  const botoesDaBusca = () => screen.getAllByRole('button', { name: /R\$/ })
+
+  beforeEach(() => {
+    vi.spyOn(caixa, 'abertaDoOperadorAtual').mockResolvedValue(aberta)
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([])
+  })
+
+  it('o termo que acha milhares desenha os 20 primeiros em ordem e diz quantos há', async () => {
+    vi.spyOn(cadastro, 'buscarProdutos').mockResolvedValue(muitos(1234))
+    mostrar()
+
+    fireEvent.change(await screen.findByLabelText('Produto por nome ou código'), { target: { value: 'item de carga' } })
+    expect(await screen.findByText('Mostrando 20 de 1.234 produtos. Continue digitando o nome para achar o item.'))
+      .toHaveAttribute('role', 'status')
+    expect(botoesDaBusca()).toHaveLength(20)
+    expect(botoesDaBusca()[0]).toHaveTextContent('Item de carga 0001')
+    expect(botoesDaBusca()[19]).toHaveTextContent('Item de carga 0020')
+  })
+
+  it('com 20 achados desenha os 20, sem aviso', async () => {
+    vi.spyOn(cadastro, 'buscarProdutos').mockResolvedValue(muitos(20))
+    mostrar()
+
+    fireEvent.change(await screen.findByLabelText('Produto por nome ou código'), { target: { value: 'item de carga' } })
+    await screen.findByRole('button', { name: /Item de carga 0020/ })
+    expect(botoesDaBusca()).toHaveLength(20)
+    expect(screen.queryByText(/^Mostrando/)).not.toBeInTheDocument()
+  })
+
+  it('o produto do código igual vem antes dos 20 nomes, mesmo depois deles na ordem alfabética, e o Enter o lança', async () => {
+    vi.spyOn(cadastro, 'buscarProdutos').mockResolvedValue([...muitos(25).map((item) => ({ ...item,
+      nome: item.nome.replace('Item de carga', 'Lote 4321') })), produto(99, { nome: 'Zinco em pó', codigo: '4321' })])
+    vi.spyOn(vendas, 'iniciar').mockResolvedValue({ id: 'venda-1' })
+    const adicionar = vi.spyOn(vendas, 'adicionarItem').mockResolvedValue({ id: 'item-1' })
+    vi.spyOn(vendas, 'consultar').mockResolvedValue(comanda)
+    mostrar()
+
+    const busca = await screen.findByLabelText('Produto por nome ou código')
+    fireEvent.change(busca, { target: { value: '4321' } })
+    expect(await screen.findByText('Mostrando 20 de 26 produtos. Continue digitando o nome para achar o item.'))
+      .toBeInTheDocument()
+    expect(botoesDaBusca()[0]).toHaveTextContent('Zinco em pó')
+    expect(botoesDaBusca()).toHaveLength(20)
+
+    fireEvent.keyDown(busca, { key: 'Enter' })
+    await waitFor(() => expect(adicionar).toHaveBeenCalledWith('venda-1', 'p-99', 1, 0, expect.any(String)))
+  })
+
+  it('com mais de 20 achados pelo nome, o Enter continua sem lançar', async () => {
+    vi.spyOn(cadastro, 'buscarProdutos').mockResolvedValue(muitos(25))
+    const iniciar = vi.spyOn(vendas, 'iniciar')
+    mostrar()
+
+    const busca = await screen.findByLabelText('Produto por nome ou código')
+    fireEvent.change(busca, { target: { value: 'item de carga' } })
+    await screen.findByText(/^Mostrando 20 de 25 produtos\./)
+    fireEvent.keyDown(busca, { key: 'Enter' })
+
+    expect(botoesDaBusca()).toHaveLength(20)
+    expect(busca).toHaveValue('item de carga')
+    expect(iniciar).not.toHaveBeenCalled()
+  })
+
+  it('a busca de cliente desenha os 20 primeiros, quem começa pelo termo antes, e diz quantos há', async () => {
+    const clientes = [
+      { id: 'c-mariana', nome: 'Mariana', contato: null },
+      ...Array.from({ length: 23 }, (_, i) => ({ id: `c-${i}`, nome: `Ana ${String(23 - i).padStart(2, '0')}`, contato: null })),
+      { id: 'c-anabela', nome: 'Anabela', contato: null },
+      { id: 'c-bruno', nome: 'Bruno', contato: null },
+    ]
+    vi.spyOn(cadastro, 'clientes').mockResolvedValue(clientes)
+    vi.spyOn(vendas, 'daSessao').mockResolvedValue([{ id: comanda.id, sessaoCaixaId: comanda.sessaoCaixaId,
+      usuarioId: comanda.usuarioId, status: 'ABERTA', total: comanda.total, criadoEm: comanda.criadoEm }])
+    vi.spyOn(vendas, 'consultar').mockResolvedValue(comanda)
+    mostrar()
+
+    fireEvent.click(await screen.findByRole('button', { name: /Aberta.*retomar ou cancelar/ }))
+    const campo = await screen.findByLabelText('Cliente (opcional)')
+    fireEvent.change(campo, { target: { value: 'ana' } })
+    expect(screen.getByText('Mostrando 20 de 25 clientes. Continue digitando o nome para achar o cliente.'))
+      .toHaveAttribute('role', 'status')
+    const nomes = () => screen.getAllByRole('button', { name: /^(Ana|Mariana)/ }).map((botao) => botao.textContent)
+    expect(nomes()).toHaveLength(20)
+    expect(nomes()[0]).toBe('Ana 01')
+    expect(nomes()).not.toContain('Mariana')
+
+    // Com poucos, todos aparecem, sem aviso: os que começam pelo termo primeiro, depois o resto.
+    fireEvent.change(campo, { target: { value: 'anab' } })
+    expect(nomes()).toEqual(['Anabela'])
+    fireEvent.change(campo, { target: { value: 'ana 0' } })
+    expect(nomes()).toHaveLength(9)
+    expect(screen.queryByText(/^Mostrando/)).not.toBeInTheDocument()
+    fireEvent.change(campo, { target: { value: 'ian' } })
+    expect(nomes()).toEqual(['Mariana'])
+  })
+})

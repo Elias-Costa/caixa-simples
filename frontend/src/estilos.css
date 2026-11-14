@@ -760,6 +760,8 @@ main.cadastro {
 .cadastro__topo p,
 .cadastro__item p { margin: 4px 0 0; }
 .cadastro__lista { list-style: none; padding: 0; margin: 0 0 24px; }
+.cadastro__contagem { margin: 0 0 8px; color: var(--cor-texto-secundario); }
+.cadastro__mais { margin: 0 0 24px; }
 .cadastro__item {
   padding: var(--espaco);
   margin-bottom: 8px;

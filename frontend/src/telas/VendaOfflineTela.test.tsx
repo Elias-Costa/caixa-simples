@@ -126,6 +126,22 @@ describe('PDV sem rede', () => {
       .toHaveTextContent('Pix: R$ 6,25')
     expect(buscar).not.toHaveBeenCalled()
   }, 20000)
+
+  it('sem rede, o termo que acha muitos na cópia do cadastro desenha os 20 primeiros e diz quantos há', async () => {
+    await guardarRetrato('produtos', Array.from({ length: 30 }, (_, i) => ({ ...cafe,
+      id: `00000000-0000-4000-8000-${String(100 + i).padStart(12, '0')}`,
+      nome: `Café da casa ${String(30 - i).padStart(2, '0')}`, codigo: null })), 0)
+    await criarCaixaLocal().abrir(20)
+    mostrar()
+
+    fireEvent.change(await screen.findByLabelText('Produto por nome ou código'), { target: { value: 'cafe da' } })
+    expect(await screen.findByText('Mostrando 20 de 30 produtos. Continue digitando o nome para achar o item.',
+      undefined, espera)).toHaveAttribute('role', 'status')
+    const botoes = screen.getAllByRole('button', { name: /Café da casa/ })
+    expect(botoes).toHaveLength(20)
+    expect(botoes[0]).toHaveTextContent('Café da casa 01')
+    expect(buscar).not.toHaveBeenCalled()
+  })
 })
 
 describe('PDV com o cadastro que chega depois da entrada', () => {

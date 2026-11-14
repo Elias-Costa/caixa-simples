@@ -349,3 +349,91 @@ describe('o item começado, ao voltar à tela', () => {
     expect(screen.queryByRole('heading', { name: 'Novo item' })).not.toBeInTheDocument()
   })
 })
+
+describe('a lista longa de Produtos', () => {
+  const muitos = (quantos: number, nome = 'Item de carga') => Array.from({ length: quantos }, (_, i) => ({
+    ...produto, id: `${nome}-${i}`, nome: `${nome} ${String(i + 1).padStart(4, '0')}`, categoria: i % 2 ? 'Pares' : 'Ímpares',
+  }))
+  /** As linhas da lista dos ativos, a primeira da tela: a dos inativos vem depois do título deles. */
+  const ativos = () => document.querySelector('.cadastro__lista')?.querySelectorAll(':scope > li') ?? []
+
+  it('desenha os 50 primeiros com a contagem, e Mostrar mais traz o resto com o foco no primeiro novo', async () => {
+    vi.spyOn(cadastro, 'produtos').mockResolvedValue(muitos(1120))
+    mostrarProdutos('ADMIN')
+
+    expect(await screen.findByText('Mostrando 50 de 1.120 itens.')).toHaveAttribute('role', 'status')
+    expect(ativos()).toHaveLength(50)
+    expect(ativos()[49]).toHaveTextContent('Item de carga 0050')
+    // O foco fica onde a pessoa o deixou: a lista que abre não o puxa.
+    expect(document.activeElement).toBe(document.body)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mostrar mais 50' }))
+    expect(ativos()).toHaveLength(100)
+    expect(screen.getByRole('status')).toHaveTextContent('Mostrando 100 de 1.120 itens.')
+    await waitFor(() => expect(document.activeElement).toBe(ativos()[50]))
+    expect(ativos()[50]).toHaveTextContent('Item de carga 0051')
+
+  })
+
+  it('o último bloco diz quantos faltam, e com ele a contagem e o botão saem', async () => {
+    vi.spyOn(cadastro, 'produtos').mockResolvedValue(muitos(120))
+    mostrarProdutos('ADMIN')
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Mostrar mais 50' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mostrar mais 20' }))
+    expect(ativos()).toHaveLength(120)
+    expect(screen.queryByRole('button', { name: /^Mostrar mais/ })).not.toBeInTheDocument()
+    expect(screen.queryByText(/^Mostrando/)).not.toBeInTheDocument()
+    await waitFor(() => expect(document.activeElement).toBe(ativos()[100]))
+  })
+
+  it('o filtro procura em todos, e trocar o nome ou a categoria volta ao primeiro bloco', async () => {
+    vi.spyOn(cadastro, 'produtos').mockResolvedValue(muitos(120))
+    mostrarProdutos('OPERADOR')
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Mostrar mais 50' }))
+    expect(ativos()).toHaveLength(100)
+
+    // O item 0118 não estava desenhado, e a busca o acha.
+    fireEvent.change(screen.getByLabelText('Buscar por nome'), { target: { value: 'carga 0118' } })
+    expect(ativos()).toHaveLength(1)
+    expect(ativos()[0]).toHaveTextContent('Item de carga 0118')
+
+    fireEvent.change(screen.getByLabelText('Buscar por nome'), { target: { value: '' } })
+    expect(ativos()).toHaveLength(50)
+    expect(screen.getByText('Mostrando 50 de 120 itens.')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mostrar mais 50' }))
+    fireEvent.change(screen.getByLabelText('Categoria'), { target: { value: 'categoria:Pares' } })
+    expect(ativos()).toHaveLength(50)
+    expect(screen.getByText('Mostrando 50 de 60 itens.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Mostrar mais 10' })).toBeInTheDocument()
+  })
+
+  it('salvar um item não volta a lista ao primeiro bloco', async () => {
+    vi.spyOn(cadastro, 'produtos').mockResolvedValue(muitos(120))
+    vi.spyOn(cadastro, 'editarProduto').mockResolvedValue(undefined)
+    mostrarProdutos('ADMIN')
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Mostrar mais 50' }))
+    fireEvent.click(within(ativos()[80] as HTMLElement).getByRole('button', { name: 'Editar' }))
+    fireEvent.change(screen.getByLabelText('Preço (R$)'), { target: { value: '3,00' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar' }))
+
+    expect(await screen.findByText('Item de carga 0081 salvo.')).toBeInTheDocument()
+    expect(ativos()).toHaveLength(100)
+  })
+
+  it('os inativos têm a contagem e o Mostrar mais deles', async () => {
+    vi.spyOn(cadastro, 'produtos').mockResolvedValue(muitos(10))
+    vi.spyOn(cadastro, 'produtosInativos').mockResolvedValue(muitos(60, 'Fora de linha'))
+    mostrarProdutos('ADMIN')
+
+    await screen.findByRole('heading', { name: 'Inativos' })
+    expect(ativos()).toHaveLength(10)
+    expect(screen.getByText('Mostrando 50 de 60 itens.')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Reativar' })).toHaveLength(50)
+    fireEvent.click(screen.getByRole('button', { name: 'Mostrar mais 10' }))
+    expect(screen.getAllByRole('button', { name: 'Reativar' })).toHaveLength(60)
+  })
+})

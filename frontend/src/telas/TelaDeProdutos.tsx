@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { cadastro, type DadosDoProduto, type Produto, type TipoProduto } from '../api/cadastro'
 import { comServidor } from '../api/conexao'
-import { lerDinheiro, moeda, valorNoCampo } from '../formatos'
+import { contagem, lerDinheiro, moeda, valorNoCampo } from '../formatos'
 import { apagarRascunho, chaveDoRascunho, guardarRascunho, lerRascunho } from '../sessao/rascunhos'
 import { useSessao } from '../sessao/useSessao'
 import { listarGestos } from '../offline/fila'
@@ -49,6 +49,41 @@ function naCategoria(produto: Produto, escolhida: string): boolean {
   if (escolhida === TODAS) return true
   if (escolhida === SEM_CATEGORIA) return !produto.categoria
   return !!produto.categoria && daCategoria(produto.categoria) === escolhida
+}
+
+/**
+ * Quantos itens a lista desenha de cada vez. O catálogo de uma loja chega a milhares de itens, e desenhá-los todos
+ * deixava a tela parada por segundos ao abrir e a cada letra do filtro. A busca e a categoria acham o resto.
+ */
+const BLOCO_DA_LISTA = 50
+
+/**
+ * A lista em blocos, com a contagem acima e Mostrar mais no fim. O foco vai ao primeiro item do bloco novo, que
+ * aparece onde estava o botão: o teclado continua dali, e o leitor de tela lê o que entrou.
+ */
+function ListaEmBlocos({ itens, linha }: { itens: Produto[]; linha: (produto: Produto) => ReactNode }) {
+  const [mostrando, setMostrando] = useState(BLOCO_DA_LISTA)
+  const primeiroNovo = useRef<HTMLLIElement>(null)
+  useEffect(() => { primeiroNovo.current?.focus() }, [mostrando])
+  const falta = itens.length - mostrando
+  // No primeiro bloco não há item novo para focar: o foco fica na busca ou onde a pessoa o deixou.
+  const primeiroDoBloco = mostrando > BLOCO_DA_LISTA ? mostrando - BLOCO_DA_LISTA : null
+  return <>
+    {/* Montada enquanto falta item, e só o número muda: o leitor de tela anuncia a contagem depois de cada toque.
+        No último bloco ela sai junto com o botão, e quem anuncia é o foco no primeiro item novo. */}
+    {falta > 0 && <p className="cadastro__contagem" role="status">
+      Mostrando {contagem.format(mostrando)} de {contagem.format(itens.length)} itens.
+    </p>}
+    <ul className="cadastro__lista">
+      {itens.slice(0, mostrando).map((produto, posicao) => posicao === primeiroDoBloco
+        ? <li className="cadastro__item" key={produto.id} ref={primeiroNovo} tabIndex={-1}>{linha(produto)}</li>
+        : <li className="cadastro__item" key={produto.id}>{linha(produto)}</li>)}
+    </ul>
+    {falta > 0 && <button className="botao botao--secundario cadastro__mais" type="button"
+      onClick={() => setMostrando((atual) => atual + BLOCO_DA_LISTA)}>
+      Mostrar mais {Math.min(BLOCO_DA_LISTA, falta)}
+    </button>}
+  </>
 }
 
 function paraFormulario(produto: Produto): Formulario {
@@ -307,28 +342,24 @@ export function TelaDeProdutos() {
             </select>
           </label>}
         </div>}
+        {/* A chave com o filtro recria as listas a cada filtro novo, e elas voltam ao primeiro bloco. Salvar,
+            inativar e reativar não mudam a chave, e quem estava no meio da lista continua nele. */}
         {produtos.length === 0 ? <p>Nenhum item ativo.</p>
           : encontrados.length === 0 ? <p role="status">Nenhum item encontrado para {busca.trim()}.</p>
-          : <ul className="cadastro__lista">
-            {encontrados.map((produto) => (
-              <li className="cadastro__item" key={produto.id}>
-                {dadosDoItem(produto)}
-                {admin && <div className="cadastro__acoes">
-                  <button className="botao botao--secundario" type="button" onClick={() => editar(produto)}>Editar</button>
-                  <button className="botao botao--perigo" type="button" onClick={() => void inativar(produto)}>Inativar</button>
-                </div>}
-              </li>
-            ))}
-          </ul>}
-        {inativosEncontrados.length > 0 && <><h3>Inativos</h3><ul className="cadastro__lista">
-          {inativosEncontrados.map((produto) => (
-            <li className="cadastro__item" key={produto.id}>
-              {dadosDoItem(produto)}
-              <button className="botao botao--secundario" type="button" onClick={() => void reativar(produto)}>Reativar</button>
-              <Mensagem tipo="erro" texto={erroDoInativo?.id === produto.id ? erroDoInativo.texto : null} />
-            </li>
-          ))}
-        </ul></>}
+          : <ListaEmBlocos key={`${busca}|${categoriaEscolhida}`} itens={encontrados} linha={(produto) => <>
+            {dadosDoItem(produto)}
+            {admin && <div className="cadastro__acoes">
+              <button className="botao botao--secundario" type="button" onClick={() => editar(produto)}>Editar</button>
+              <button className="botao botao--perigo" type="button" onClick={() => void inativar(produto)}>Inativar</button>
+            </div>}
+          </>} />}
+        {inativosEncontrados.length > 0 && <><h3>Inativos</h3>
+          <ListaEmBlocos key={`${busca}|${categoriaEscolhida}`} itens={inativosEncontrados} linha={(produto) => <>
+            {dadosDoItem(produto)}
+            <button className="botao botao--secundario" type="button" onClick={() => void reativar(produto)}>Reativar</button>
+            <Mensagem tipo="erro" texto={erroDoInativo?.id === produto.id ? erroDoInativo.texto : null} />
+          </>} />
+        </>}
       </>}
 
       {admin && aberto && <form ref={formularioRef} className="cadastro__formulario" onSubmit={(evento) => void salvar(evento)}>

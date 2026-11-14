@@ -12,7 +12,7 @@ import type {
   Comprovante as DadosDoComprovante, ConciliacaoPix, FormaPagamento, ItemDaVenda, ResumoDaVenda, Venda,
 } from '../api/vendas'
 import { diaNoBalcao, hojeNoBalcao } from '../dataDoBalcao'
-import { dataHora, diaEMes, hora, horaNoDia, lerDinheiro, moeda, quantidadeComUnidade, valorNoCampo } from '../formatos'
+import { contagem, dataHora, diaEMes, hora, horaNoDia, lerDinheiro, moeda, quantidadeComUnidade, valorNoCampo } from '../formatos'
 import { criarCaixaLocal } from '../offline/caixaLocal'
 import { normalizarNsu, recusaDaQuantidade } from '../offline/raizDaVenda'
 import { criarVendaLocal } from '../offline/vendaLocal'
@@ -21,10 +21,9 @@ import { useSincronizacao } from '../shell/sincronizacao'
 import { useCelular } from '../shell/useCelular'
 import { useConexao } from '../shell/useConexao'
 import { useSessao } from '../sessao/useSessao'
-import { paraBusca } from '../textoDeBusca'
 import { CampoDeDinheiro } from './CampoDeDinheiro'
 import { erroDeCadastro } from './erroDeCadastro'
-import { filtrarPorNome } from './filtroPorNome'
+import { filtrarPorNome, naOrdemDaBusca } from './filtroPorNome'
 import { Mensagem } from './Mensagem'
 import { PixManual } from './QrDoPix'
 import { ROTULO_DA_COBRANCA_PIX, ROTULO_DA_FORMA, ROTULO_DA_VENDA } from './rotulos'
@@ -166,10 +165,22 @@ function avisoDasAbertas(abertas: ResumoDaVenda[]): string {
  * alfabética. Na ordem do cadastro, o mais vendido podia vir por último.
  */
 function ordenarResultados(produtos: Produto[], termo: string): Produto[] {
-  const alvo = paraBusca(termo)
-  const grupo = (produto: Produto) => produto.codigo === termo ? 0
-    : paraBusca(produto.nome).startsWith(alvo) ? 1 : 2
-  return [...produtos].sort((a, b) => grupo(a) - grupo(b) || a.nome.localeCompare(b.nome, 'pt-BR'))
+  const doCodigo = produtos.filter((produto) => produto.codigo === termo)
+  const pelosNomes = produtos.filter((produto) => produto.codigo !== termo)
+  return [...doCodigo, ...naOrdemDaBusca(pelosNomes, termo, (produto) => produto.nome)]
+}
+
+/**
+ * Quantos achados as buscas do balcão desenham, a de produto e a de cliente. Um termo de poucas letras acha o
+ * catálogo quase inteiro, e desenhar milhares de botões trava o tablet por segundos com o cliente esperando; passar
+ * de 20 já pede mais letras. Só o desenho é cortado: o Enter continua decidindo sobre todos os achados, e a resposta
+ * do servidor não muda, porque o aplicativo já instalado conta com ela inteira.
+ */
+const LIMITE_DA_BUSCA = 20
+
+/** O aviso de que a lista foi cortada, com o total, para a pessoa saber que o que procura pode estar fora dela. */
+function avisoDoCorte(total: number, plural: string, alvo: string): string {
+  return `Mostrando ${LIMITE_DA_BUSCA} de ${contagem.format(total)} ${plural}. Continue digitando o nome para achar ${alvo}.`
 }
 
 /** O multiplicador na busca usa o mesmo estado do campo visível, para evitar duas quantidades. */
@@ -319,7 +330,9 @@ export function TelaDeVenda() {
   const termo = busca.trim()
   const termoCliente = buscaCliente.trim()
   // A lista de clientes já está carregada: filtrar aqui responde a cada letra, também sem rede.
-  const clientesEncontrados = termoCliente ? filtrarPorNome(clientes, termoCliente, (cliente) => cliente.nome) : []
+  const nomeNaLista = (cliente: Cliente) => cliente.nome
+  const clientesEncontrados = termoCliente
+    ? naOrdemDaBusca(filtrarPorNome(clientes, termoCliente, nomeNaLista), termoCliente, nomeNaLista) : []
   // Com o campo vazio, a parcela é tudo o que falta lançar.
   const valorDaParcela = !atual ? null : valorPagamento ? lerDinheiro(valorPagamento) : atual.faltaPagar
   const lancando = atual !== undefined && editavel && atual.itens.length > 0 && atual.faltaPagar > 0
@@ -993,8 +1006,10 @@ export function TelaDeVenda() {
           <Mensagem tipo="erro" texto={erroEm('busca')} />
           {termo && buscado === termo && resultados.length === 0 &&
             <p className="pdv__ajuda" role="status">Nenhum produto encontrado para {termo}.</p>}
+          {resultados.length > LIMITE_DA_BUSCA &&
+            <p className="pdv__ajuda" role="status">{avisoDoCorte(resultados.length, 'produtos', 'o item')}</p>}
           {resultados.length > 0 && <ul className="pdv__resultados">
-            {resultados.map((produto) => <li key={produto.id}>
+            {resultados.slice(0, LIMITE_DA_BUSCA).map((produto) => <li key={produto.id}>
               <button type="button" className="botao botao--secundario" disabled={comandaOcupada}
                 onClick={() => void adicionar(produto)}>
                 {/* O preço é o da unidade de venda: 16,90 o quilo não se confunde com o da unidade. */}
@@ -1056,8 +1071,10 @@ export function TelaDeVenda() {
               </label>
               {termoCliente && clientesEncontrados.length === 0 &&
                 <p className="pdv__ajuda" role="status">Nenhum cliente encontrado para {termoCliente}.</p>}
+              {clientesEncontrados.length > LIMITE_DA_BUSCA &&
+                <p className="pdv__ajuda" role="status">{avisoDoCorte(clientesEncontrados.length, 'clientes', 'o cliente')}</p>}
               {clientesEncontrados.length > 0 && <ul className="pdv__resultados">
-                {clientesEncontrados.map((cliente) => <li key={cliente.id}>
+                {clientesEncontrados.slice(0, LIMITE_DA_BUSCA).map((cliente) => <li key={cliente.id}>
                   <button type="button" className="botao botao--secundario" disabled={comandaOcupada}
                     onClick={() => void vincularCliente(cliente.id)}>{cliente.nome}</button>
                 </li>)}

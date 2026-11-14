@@ -398,7 +398,7 @@ que não existe nunca recebe a página, e sim 401 sem token e 404 com token. Tod
 nome do negócio e de quem opera, a navegação por perfil e as telas de produtos, clientes, caixa,
 Venda, fiado e relatórios. A entrada leva ao PDV com o caixa aberto, e ao caixa sem ele; no tablet e
 no celular, os itens do balcão ficam à vista e o resto num botão Mais. Nelas se listam, se filtram pelo nome, sem diferença de acento, e se alteram os cadastros, com pares livres de chave e valor para os atributos do
-produto. Os valores em dinheiro vão em campos de texto com o teclado decimal do aparelho, que aceitam
+produto; a lista de produtos mostra 50 itens por vez, com a contagem e um botão que mostra mais. Os valores em dinheiro vão em campos de texto com o teclado decimal do aparelho, que aceitam
 vírgula e até duas casas. A sangria ou o suprimento começados no caixa e o item começado em Produtos voltam
 como ficaram quando a pessoa vai a outra tela e volta, até registrar, salvar, cancelar, recarregar ou
 sair, sem nada gravado no aparelho. No caixa, quem opera abre a sessão, lança sangria e suprimento e fecha com o
@@ -417,7 +417,7 @@ com ele, e o administrador vê no alto da tela Caixa os de outros usuários, par
 obrigatório, mesmo quando é zero. No PDV, a busca aceita nome, sem diferença de acento nem de
 maiúscula, código e multiplicador de quantidade, e o Enter do leitor de código de barras lança o produto do
 código exato ou o resultado único; os resultados trazem primeiro esse produto e depois os nomes que
-começam pelo termo, com o preço pela unidade de venda. A quantidade sai com vírgula e unidade, como
+começam pelo termo, com o preço pela unidade de venda, e param nos 20 primeiros, com o total quando há mais. A quantidade sai com vírgula e unidade, como
 0,35 kg, na comanda e no comprovante, que aparece logo abaixo da comanda concluída. Quando a quantidade
 não é 1, a linha do item na comanda mostra também o preço da unidade, no formato da busca. A comanda admite
 pagamento dividido, e o total, o que falta
@@ -436,7 +436,7 @@ conforme a Conta; o aparelho sabe da exigência pela identidade e recusa sem red
 sem ele, e a lista de parcelas da comanda mostra o número gravado.
 O comprovante usa a impressão do navegador e o compartilhamento do dispositivo quando disponível; o
 troco só aparece na venda com dinheiro, e o desconto da venda só quando houve.
-Na Venda, o Cliente ativo, achado pelo nome, aparece na faixa de contexto do shell com seu saldo
+Na Venda, o Cliente ativo, achado pelo nome com a ordem e o limite da busca de produto, aparece na faixa de contexto do shell com seu saldo
 devedor e pode ser tirado enquanto não há parcela fiado; a tela Fiado lista quem deve, com o total
 por cliente e as vendas dele, com a mesma busca pelo nome, e registra recebimentos parciais na
 SessaoCaixa aberta de quem recebe.
