@@ -1145,21 +1145,56 @@ html:has(.pdv__rodape) { scroll-padding-bottom: 240px; }
   font-size: 1.4rem;
 }
 
-/* O botão de ajuda fica colado ao título; a ajuda aberta vem logo abaixo, antes do resto da tela. */
+/* O botão de ajuda fica colado ao título; a ajuda aberta vem logo abaixo, antes do resto da tela. Sem
+   folga entre os dois: a borda transparente do botão já afasta o círculo do título. */
 .titulo-com-ajuda {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 0;
   margin-bottom: var(--espaco);
 }
 
 .titulo-com-ajuda .titulo { margin: 0; }
 
+/* O círculo desenhado tem 32px, discreto ao lado do título, mas o toque continua nos 48px do
+   quadrado inteiro, como no olho da senha. O anel e o fundo do hover ficam no ::before, atrás do
+   ponto de interrogação. */
 .titulo-com-ajuda__botao {
-  min-width: 36px;
-  padding: 4px 10px;
-  border-radius: 999px;
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: var(--toque);
+  height: var(--toque);
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  line-height: 1;
   font-weight: 700;
+}
+
+.titulo-com-ajuda__botao::before {
+  content: '';
+  position: absolute;
+  inset: 8px;
+  z-index: -1;
+  border: 1px solid var(--cor-borda-controle);
+  border-radius: 50%;
+}
+
+.titulo-com-ajuda__botao:hover {
+  background: transparent;
+}
+
+.titulo-com-ajuda__botao:hover::before {
+  background: var(--cor-superficie-realce);
+}
+
+/* O anel do foco fica a 2px do círculo, como nos outros botões, e não na borda do quadrado de toque. */
+.titulo-com-ajuda__botao:focus-visible {
+  outline-offset: -6px;
 }
 
 .titulo-com-ajuda__texto { margin: 0 0 var(--espaco); }
