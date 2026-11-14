@@ -9,11 +9,10 @@
 # logs nos eventos de segurança dela, como o login e a recusa de acesso. Para medir a borda, liga-se
 # o access log da própria aplicação, à mão, e desliga-se depois.
 {
-	# Só HTTP/1.1, pela porta TCP. O HTTP/3 pediria também a porta UDP publicada. O HTTP/2 fica
-	# desligado até sair um build do proxy com a versão do Go que corrige dois avisos de negação de
-	# serviço que só ele alcança; trocado o digest, a linha volta a ser protocols h1 h2.
+	# HTTP/1.1 e HTTP/2, pela porta TCP. O HTTP/3, que o proxy também ligaria por padrão, pediria a
+	# porta UDP publicada.
 	servers {
-		protocols h1
+		protocols h1 h2
 	}
 }
 

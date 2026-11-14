@@ -153,9 +153,6 @@ com `--format json`.
 - As imagens da cópia e do banco apagam o `gosu` que a imagem base traz. A da cópia não usa o ponto
   de entrada da base, e a do banco começa já como o usuário `postgres`, então o ponto de entrada nunca
   chama o `gosu`.
-- O proxy atende só HTTP/1.1 enquanto valem as exceções dele: a versão do Go do build atual tem dois
-  avisos que só o HTTP/2 alcança. Saindo um build com o Go corrigido, troca-se o digest, o HTTP/2
-  volta ao [Caddyfile](vps/Caddyfile) e as exceções saem.
 
 **O que fica de fora:** as dependências de teste do Java e os plugins do Maven, que não vão para a
 imagem; os binários do PostgreSQL das imagens do banco e da cópia, compilados na base, sem registro de
@@ -181,9 +178,9 @@ O que entra nas imagens ou roda no CI fica preso a uma versão que não pode ser
 Dockerfiles; e o proxy. Só entra versão publicada há ao menos 7 dias, e, nas imagens, nunca versão
 maior: outro Java ou outro PostgreSQL é decisão, e o PostgreSQL novo pede a migração dos dados. O CI
 inteiro roda sobre o pull request, a verificação de avisos inclusive; verde, incorpore. A base do banco
-e o proxy mudam a pasta do banco e o compose, e o deploy os leva só na janela. Um proxy novo pede
-conferir as [exceções do HTTP/2](#avisos-de-segurança-das-dependências), que o pull request não tira
-sozinho.
+e o proxy mudam a pasta do banco e o compose, e o deploy os leva só na janela. Uma imagem nova pede
+conferir as [exceções](dependencias/excecoes.yaml) que ela corrige, que o pull request não tira
+sozinho, e dar o purl novo às que continuam.
 
 **Trocar o Maven** é trocar a URL e o `distributionSha256Sum` juntos, com o SHA-256 do zip, conferido
 pelo SHA-512 que a Apache publica. Com a URL nova e o checksum antigo, o wrapper recusa a distribuição.

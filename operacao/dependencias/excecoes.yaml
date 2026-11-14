@@ -18,116 +18,25 @@
 # Pelo mesmo motivo, a troca de uma base muda o purl, com a versão do pacote e a do Alpine, e a
 # exceção que continua precisa ganhar o purl novo na mesma troca.
 vulnerabilities:
-  # O proxy da VPS, o Caddy 2.11.7, compilado com o Go 1.26.8. As correções estão no Go 1.26.9, de
-  # 2026-10-08, e no Go 1.26.10, de 2026-10-21. O Caddy 2.11.9, de 2026-11-05, compilado com o Go
-  # 1.27.3, traz todas e entra depois de 7 dias publicado, como toda troca de imagem. Trocado o digest
-  # no compose da VPS, o HTTP/2 volta ao Caddyfile e estas exceções da versão do Go saem.
-  - id: CVE-2026-78669
-    purls:
-      - pkg:golang/golang.org/x/net@v0.59.0
-      - pkg:golang/stdlib@v1.26.8
-    statement: >-
-      Negação de serviço por quadros SETTINGS do HTTP/2. O proxy da VPS atende só HTTP/1.1 até sair
-      o build com o Go corrigido, e fala com a aplicação também por HTTP/1.1.
-    expired_at: 2026-12-01
-  - id: CVE-2026-78667
-    purls:
-      - pkg:golang/stdlib@v1.26.8
-    statement: >-
-      Negação de serviço por cabeçalho Range ao servir arquivo, em FileServer, ServeContent e
-      ServeFile. O proxy da VPS só encaminha à aplicação e não serve arquivo nenhum.
-    expired_at: 2026-12-01
-  - id: CVE-2026-97031
-    purls:
-      - pkg:golang/stdlib@v1.26.8
-    statement: >-
-      Consumo de memória ao processar o ECH, a extensão que cifra o início do TLS. O proxy da VPS não
-      tem ECH configurado, e sem as chaves dele o servidor não processa essa extensão.
-    expired_at: 2026-12-01
-  - id: CVE-2026-111943
-    purls:
-      - pkg:golang/stdlib@v1.26.8
-    statement: >-
-      Certificados intermediários comprometidos que a verificação de cadeia em crypto/x509 ainda
-      aceita. O proxy da VPS só verifica certificado como cliente, ao pedir e renovar o certificado do
-      domínio no emissor; fala com a aplicação por HTTP, na rede interna, e não pede certificado a
-      quem se conecta. Quem se passasse pelo emissor com uma dessas intermediárias poderia, no máximo,
-      impedir a renovação ou fazer o proxy servir um certificado recusado pelo navegador: a chave do
-      certificado e a da conta no emissor nascem e ficam na máquina, e nenhum dado de quem acessa passa
-      por essa verificação.
-    expired_at: 2026-12-01
-
-  # O mesmo binário traz o go-jose 4.1.5 e o 3.0.5. A correção está no 4.1.6, que o Caddy 2.11.9 traz,
-  # e a versão 3 ainda não tem nenhuma. Trocado o digest no compose da VPS, esta exceção sai.
-  - id: CVE-2026-116587
-    purls:
-      - pkg:golang/github.com/go-jose/go-jose/v4@v4.1.5
-      - pkg:golang/github.com/go-jose/go-jose/v3@v3.0.5
-    statement: >-
-      Consumo de CPU ao validar os números RSA de uma chave JWK recebida de fora. O proxy só leria uma
-      chave dessas como servidor ACME, que a configuração dele não liga; como cliente do emissor do
-      certificado, assina os pedidos com a própria chave e não lê a chave de ninguém.
-    expired_at: 2026-12-01
-
-  # O mesmo binário traz o golang.org/x/net 0.59.0, cujo leitor de HTML entra pela biblioteca de linha
-  # de comando da smallstep, que monta a ajuda dos comandos. A correção está na 0.62.0, e o Caddy 2.11.9
-  # ainda traz a 0.60.0: na troca do digest, o purl desta exceção passa à 0.60.0, e ela sai com um
-  # build do proxy com a 0.62.0 ou mais nova.
+  # O proxy da VPS, o Caddy 2.11.9, traz o golang.org/x/net 0.60.0, cujo leitor de HTML entra pela
+  # biblioteca de linha de comando da smallstep, que monta a ajuda dos comandos. A correção está na
+  # 0.62.0, e esta exceção sai com um build do proxy com a 0.62.0 ou mais nova.
   - id: CVE-2026-78661
     purls:
-      - pkg:golang/golang.org/x/net@v0.59.0
+      - pkg:golang/golang.org/x/net@v0.60.0
     statement: >-
       Custo quadrático de CPU e de memória ao ler um HTML com muitos trechos curtos de texto separados
       por marcas de fim ignoradas. No proxy, o leitor de HTML só serve à ajuda dos comandos da linha de
       comando. Ao atender, o proxy limita o tamanho do corpo e encaminha a requisição à aplicação sem
-      ler o conteúdo dela nem o da resposta.
-    expired_at: 2026-12-01
-
-  # A base Alpine 3.23.6 do mesmo proxy traz a brotli 1.2.0, o curl 8.22.0, a musl 1.2.5-r23 e a zlib
-  # 1.3.2-r0. As correções estão na brotli 1.2.1, no curl 8.23.0, na musl 1.2.5-r24 e na zlib 1.3.2-r1.
-  # O Caddy 2.11.9 vem sobre o Alpine 3.24.4, com as quatro corrigidas: trocado o digest no compose da
-  # VPS, estas exceções saem.
-  - id: CVE-2026-111497
-    purls:
-      - pkg:apk/alpine/brotli-libs@1.2.0-r0?arch=x86_64&distro=3.23.6
-    statement: >-
-      Escrita além do buffer ao descomprimir um fluxo brotli. Na imagem do proxy, só o libcurl usa a
-      biblioteca, e o curl nunca é chamado: o proxy não tem verificação de saúde, e a implantação só
-      recarrega a configuração dele. O proxy é um binário estático, que não carrega a biblioteca, e o
-      que chega pela rede não passa por ela.
-    expired_at: 2026-12-01
-  - id: CVE-2026-92392
-    purls:
-      - pkg:apk/alpine/curl@8.22.0-r0?arch=x86_64&distro=3.23.6
-      - pkg:apk/alpine/libcurl@8.22.0-r0?arch=x86_64&distro=3.23.6
-    statement: >-
-      Uso de memória já liberada quando o servidor interrompe, por HTTP/2, um envio feito pelo curl. O
-      curl nunca é chamado na imagem do proxy: o proxy não tem verificação de saúde, e a implantação
-      só recarrega a configuração dele. O proxy é um binário estático, que não carrega a biblioteca.
-    expired_at: 2026-12-01
-  - id: CVE-2026-107891
-    purls:
-      - pkg:apk/alpine/musl@1.2.5-r23?arch=x86_64&distro=3.23.6
-      - pkg:apk/alpine/musl-utils@1.2.5-r23?arch=x86_64&distro=3.23.6
-    statement: >-
-      Estouro de inteiro com escrita fora do buffer ao compilar, com regcomp, uma expressão regular não
-      confiável. O proxy é um binário estático, que não usa a biblioteca C da imagem. Na imagem, só
-      ferramentas do sistema, como o busybox, chamam o regcomp, e nenhuma roda: o proxy não tem
-      verificação de saúde, e a implantação só recarrega a configuração dele.
-    expired_at: 2026-12-01
-  - id: CVE-2026-85091
-    purls:
-      - pkg:apk/alpine/zlib@1.3.2-r0?arch=x86_64&distro=3.23.6
-    statement: >-
-      Escrita além do buffer em gzprintf e gzvprintf, depois de uma escrita travada num descritor não
-      bloqueante. O proxy é um binário estático, que não carrega a biblioteca, e nenhum programa da
-      imagem chama essas duas funções.
+      interpretar o conteúdo dela nem o da resposta, que ele no máximo comprime.
     expired_at: 2026-12-01
 
   # A base da imagem da cópia e da imagem do banco da VPS, o postgres 17 sobre o Alpine 3.24.2, traz a
-  # musl 1.2.6-r2 e a zlib 1.3.2-r0. As correções estão na musl 1.2.6-r3 e na zlib 1.3.2-r1, que a
-  # base nova da mesma tag, de 2026-11-05, com o PostgreSQL 17.11, traz; ela entra depois de 7 dias
-  # publicada, como toda troca de base. Trocado o digest nos dois Dockerfiles, estas exceções saem.
+  # musl 1.2.6-r2, a zlib 1.3.2-r0, a krb5-libs 1.22.2-r1 e a libxslt 1.1.43-r3. As correções estão na
+  # musl 1.2.6-r3, na zlib 1.3.2-r1, na krb5-libs 1.22.3-r0 e na libxslt 1.1.43-r4. A base de
+  # 2026-11-05 corrige só as duas primeiras; a de 2026-11-12 da mesma tag, com o PostgreSQL 17.12 sobre
+  # o Alpine 3.24.4, corrige as quatro e entra depois de 7 dias publicada, como toda troca de base.
+  # Trocado o digest nos dois Dockerfiles juntos, todas as exceções deste bloco saem.
   - id: CVE-2026-107891
     purls:
       - pkg:apk/alpine/musl@1.2.6-r2?arch=x86_64&distro=3.24.2
@@ -148,46 +57,151 @@ vulnerabilities:
       libxml2 escrevem pelo gzwrite, que não passa pelo trecho com a falha.
     expired_at: 2026-12-01
 
-  # A base da imagem da aplicação, o eclipse-temurin 21 sobre o Alpine 3.24.3, traz a libexpat 2.9.0.
-  # Os quatro avisos dela valem até a 2.9.0 e saem com a base nova da mesma tag, de 2026-11-05, sobre o
-  # Alpine 3.24.4 e com a libexpat 2.10.0, trocada depois de 7 dias publicada, como toda troca de base.
-  - id: CVE-2026-113351
+  # Na krb5-libs, a maior parte dos avisos é do KDC e do kadmind, os servidores do Kerberos, que vêm em
+  # outro pacote e não estão nas duas imagens. Das bibliotecas, só a do GSSAPI é usada: pelo servidor
+  # do PostgreSQL, que a imagem da cópia não sobe, e pelo libpq. O banco não tem keytab, o pg_hba não
+  # tem linha gss, e a porta dele não é publicada: só os contêineres da rede interna da VPS chegam a
+  # ela, a aplicação e os jobs da cópia e da manutenção.
+  - id: CVE-2026-107364
     purls:
-      - pkg:apk/alpine/libexpat@2.9.0-r0?arch=x86_64&distro=3.24.3
+      - pkg:apk/alpine/krb5-libs@1.22.2-r1?arch=x86_64&distro=3.24.2
     statement: >-
-      Falta de memória nos documentos seguintes a um documento grande, num leitor reaproveitado com
-      XML_ParserReset. Na imagem, só o fontconfig usa a libexpat, e ele lê só os arquivos de
-      configuração de fontes da própria imagem. A aplicação não desenha texto nem imagem, que é o que
-      levaria a JVM ao fontconfig, e a JVM lê XML com o próprio leitor, sem a libexpat; nenhum dado
-      vindo de fora chega a ela.
+      Leitura além do buffer no KDC, com um pedido sem autenticação. O KDC não está nas imagens da cópia
+      e do banco.
     expired_at: 2026-12-01
-  - id: CVE-2026-115506
+  - id: CVE-2026-119079
     purls:
-      - pkg:apk/alpine/libexpat@2.9.0-r0?arch=x86_64&distro=3.24.3
+      - pkg:apk/alpine/krb5-libs@1.22.2-r1?arch=x86_64&distro=3.24.2
     statement: >-
-      Dezenas de segundos de CPU por documento com uma DTD grande e entidades aninhadas, que a proteção
-      contra a expansão de entidades percebe tarde. Na imagem, só o fontconfig usa a libexpat, e ele lê
-      só os arquivos de configuração de fontes da própria imagem, sem DTD de fora. A aplicação não
-      desenha texto nem imagem, que é o que levaria a JVM ao fontconfig, e a JVM lê XML com o próprio
-      leitor, sem a libexpat; nenhum dado vindo de fora chega a ela.
+      Custo quadrático de CPU no KDC ao decodificar um pedido de ticket com muitos elementos numa lista.
+      O KDC não está nas imagens da cópia e do banco, e nenhum programa delas recebe pedido de ticket.
     expired_at: 2026-12-01
-  - id: CVE-2026-117610
+  - id: CVE-2026-71200
     purls:
-      - pkg:apk/alpine/libexpat@2.9.0-r0?arch=x86_64&distro=3.24.3
+      - pkg:apk/alpine/krb5-libs@1.22.2-r1?arch=x86_64&distro=3.24.2
     statement: >-
-      Ponteiro nulo ao interpretar uma entidade externa entregue em pedaços escolhidos por quem envia o
-      XML. Na imagem, só o fontconfig usa a libexpat, e ele lê só os arquivos de configuração de fontes
-      da própria imagem, sem entidade externa. A aplicação não desenha texto nem imagem, que é o que
-      levaria a JVM ao fontconfig, e a JVM lê XML com o próprio leitor, sem a libexpat; nenhum dado
-      vindo de fora chega a ela.
+      Ponteiro nulo no KDC configurado para autenticar por PKINIT. O KDC não está nas imagens da cópia e
+      do banco.
     expired_at: 2026-12-01
-  - id: CVE-2026-118370
+  - id: CVE-2026-71199
     purls:
-      - pkg:apk/alpine/libexpat@2.9.0-r0?arch=x86_64&distro=3.24.3
+      - pkg:apk/alpine/krb5-libs@1.22.2-r1?arch=x86_64&distro=3.24.2
     statement: >-
-      Estouro de inteiro com escrita fora do buffer num documento de vários gigabytes com mais de 2^30
-      atributos numa marca. Na imagem, só o fontconfig usa a libexpat, e ele lê só os arquivos de
-      configuração de fontes da própria imagem. A aplicação não desenha texto nem imagem, que é o que
-      levaria a JVM ao fontconfig, e a JVM lê XML com o próprio leitor, sem a libexpat; nenhum dado
-      vindo de fora chega a ela.
+      Indicadores de autenticação forjados num ticket, que o KDC ou o serviço que o recebe aceitariam.
+      O KDC não está nas imagens da cópia e do banco, e o banco não aceita ticket do Kerberos: não tem
+      keytab nem linha gss no pg_hba.
+    expired_at: 2026-12-01
+  - id: CVE-2026-112317
+    purls:
+      - pkg:apk/alpine/krb5-libs@1.22.2-r1?arch=x86_64&distro=3.24.2
+    statement: >-
+      Vazamento de memória no KDC e no kadmind ao falhar a decifração da chave do keytab. Nenhum dos dois
+      está nas imagens da cópia e do banco, e o banco não tem keytab.
+    expired_at: 2026-12-01
+  - id: CVE-2026-112315
+    purls:
+      - pkg:apk/alpine/krb5-libs@1.22.2-r1?arch=x86_64&distro=3.24.2
+    statement: >-
+      Vazamento de memória no kadmind com mensagens RPCSEC_GSS malformadas. O kadmind não está nas
+      imagens da cópia e do banco.
+    expired_at: 2026-12-01
+  - id: CVE-2026-112316
+    purls:
+      - pkg:apk/alpine/krb5-libs@1.22.2-r1?arch=x86_64&distro=3.24.2
+    statement: >-
+      Vazamento de memória no kadmind ao falhar a decodificação de um pedido autenticado. O kadmind não
+      está nas imagens da cópia e do banco.
+    expired_at: 2026-12-01
+  - id: CVE-2026-112318
+    purls:
+      - pkg:apk/alpine/krb5-libs@1.22.2-r1?arch=x86_64&distro=3.24.2
+    statement: >-
+      Queda do kadmind com um pedido de política de nome vazio. O kadmind não está nas imagens da cópia e
+      do banco.
+    expired_at: 2026-12-01
+  - id: CVE-2026-112319
+    purls:
+      - pkg:apk/alpine/krb5-libs@1.22.2-r1?arch=x86_64&distro=3.24.2
+    statement: >-
+      Consumo de memória ou de CPU no kadmind, sem limite de tamanho ao decodificar um pedido RPC. O
+      kadmind não está nas imagens da cópia e do banco.
+    expired_at: 2026-12-01
+  - id: CVE-2026-112320
+    purls:
+      - pkg:apk/alpine/krb5-libs@1.22.2-r1?arch=x86_64&distro=3.24.2
+    statement: >-
+      Consumo de memória no kadmind ao abrir e abandonar contextos GSS na mesma conexão. O kadmind não
+      está nas imagens da cópia e do banco.
+    expired_at: 2026-12-01
+  - id: CVE-2026-112321
+    purls:
+      - pkg:apk/alpine/krb5-libs@1.22.2-r1?arch=x86_64&distro=3.24.2
+    statement: >-
+      Consumo de memória no kadmind com pedidos AUTH_GSSAPI_INIT que falham. O kadmind não está nas
+      imagens da cópia e do banco.
+    expired_at: 2026-12-01
+  - id: CVE-2026-112322
+    purls:
+      - pkg:apk/alpine/krb5-libs@1.22.2-r1?arch=x86_64&distro=3.24.2
+    statement: >-
+      Custo quadrático de CPU no kadmind ao limpar a lista de clientes AUTH_GSSAPI. O kadmind não está
+      nas imagens da cópia e do banco.
+    expired_at: 2026-12-01
+  - id: CVE-2026-112323
+    purls:
+      - pkg:apk/alpine/krb5-libs@1.22.2-r1?arch=x86_64&distro=3.24.2
+    statement: >-
+      Consumo de memória no kadmind, que guarda por 15 minutos o estado de cada AUTH_GSSAPI_INIT que
+      falha. O kadmind não está nas imagens da cópia e do banco.
+    expired_at: 2026-12-01
+  - id: CVE-2026-118380
+    purls:
+      - pkg:apk/alpine/krb5-libs@1.22.2-r1?arch=x86_64&distro=3.24.2
+    statement: >-
+      Alteração, por quem está no caminho da rede, dos argumentos de uma chamada RPC protegida por
+      RPCSEC_GSS. Só as ferramentas de administração do Kerberos usam esse RPC, e nenhuma delas está nas
+      imagens da cópia e do banco; nenhum programa delas usa a biblioteca do RPC.
+    expired_at: 2026-12-01
+  - id: CVE-2026-40355
+    purls:
+      - pkg:apk/alpine/krb5-libs@1.22.2-r1?arch=x86_64&distro=3.24.2
+    statement: >-
+      Ponteiro nulo ao aceitar um contexto GSSAPI com o mecanismo NegoEx registrado em /etc/gss/mech.
+      Nas imagens da cópia e do banco essa pasta não existe e nenhum mecanismo extra está registrado.
+    expired_at: 2026-12-01
+  - id: CVE-2026-40356
+    purls:
+      - pkg:apk/alpine/krb5-libs@1.22.2-r1?arch=x86_64&distro=3.24.2
+    statement: >-
+      Leitura fora do buffer ao aceitar um contexto GSSAPI com o mecanismo NegoEx registrado em
+      /etc/gss/mech. Nas imagens da cópia e do banco essa pasta não existe e nenhum mecanismo extra está
+      registrado.
+    expired_at: 2026-12-01
+
+  # Na libxslt, os avisos vêm do navegador Chromium, que traz a mesma biblioteca, e valem para quem
+  # aplica uma folha de estilo XSLT a um documento vindo de fora. Nas duas imagens, só a extensão xml2
+  # do PostgreSQL e a ferramenta xsltproc carregam a biblioteca.
+  - id: CVE-2026-9947
+    purls:
+      - pkg:apk/alpine/libxslt@1.1.43-r3?arch=x86_64&distro=3.24.2
+    statement: >-
+      Uso de memória já liberada ao processar XML. A extensão xml2 não é criada no banco: nenhuma
+      migration a cria, e só um superusuário poderia, enquanto o papel da aplicação não é superusuário.
+      Nenhum script das imagens chama o xsltproc.
+    expired_at: 2026-12-01
+  - id: CVE-2026-87636
+    purls:
+      - pkg:apk/alpine/libxslt@1.1.43-r3?arch=x86_64&distro=3.24.2
+    statement: >-
+      Confusão de tipo ao processar XML. A extensão xml2 não é criada no banco: nenhuma migration a cria,
+      e só um superusuário poderia, enquanto o papel da aplicação não é superusuário. Nenhum script das
+      imagens chama o xsltproc.
+    expired_at: 2026-12-01
+  - id: CVE-2026-125350
+    purls:
+      - pkg:apk/alpine/libxslt@1.1.43-r3?arch=x86_64&distro=3.24.2
+    statement: >-
+      Uso de memória já liberada ao processar XML. A extensão xml2 não é criada no banco: nenhuma
+      migration a cria, e só um superusuário poderia, enquanto o papel da aplicação não é superusuário.
+      Nenhum script das imagens chama o xsltproc.
     expired_at: 2026-12-01
